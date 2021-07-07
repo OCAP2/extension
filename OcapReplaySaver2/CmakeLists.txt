@@ -1,0 +1,39 @@
+cmake_minimum_required(VERSION 3.8)
+
+# set the project name
+project(OcapReplaySaver2)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS ON)
+
+
+message( STATUS "Architecture: ${CMAKE_GENERATOR_PLATFORM}" )
+
+find_package(CURL REQUIRED)
+find_package(ZLIB REQUIRED)
+
+# add the executable
+add_library(OcapReplaySaver2 SHARED
+  easylogging_setup.h
+  easylogging++.cc
+  easylogging++.h
+  OcapReplaySaver2.h
+  OcapReplaySaver2.cpp
+  json.hpp
+)
+
+include_directories(include)
+
+target_link_libraries(OcapReplaySaver2 CURL::libcurl)
+target_link_libraries(OcapReplaySaver2 ZLIB::ZLIB)
+
+if(NOT "${CMAKE_SIZEOF_VOID_P}" STREQUAL "4")
+    set_target_properties(OcapReplaySaver2 PROPERTIES PREFIX "" OUTPUT_NAME "OcapReplaySaver2_x64")
+else()
+    set_target_properties(OcapReplaySaver2 PROPERTIES PREFIX "" OUTPUT_NAME "OcapReplaySaver2")
+endif()
+
+install(TARGETS OcapReplaySaver2
+  LIBRARY DESTINATION "${CMAKE_INSTALL_PREFIX}" )
+
