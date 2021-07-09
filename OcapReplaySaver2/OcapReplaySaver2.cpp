@@ -1095,7 +1095,7 @@ void commandStart(const vector<string>& args) {
     CLOG(INFO, "ext") << "Starting record." << args[0] << args[1] << args[2] << args[3];
 }
 
-// :NEW:UNIT: 6:[0::0::"|UN|Capt.Farid"::"Alpha 1-1"::"EAST"::1]
+// :NEW:UNIT: 6:[0::0::"|UN|Capt.Farid"::"Alpha 1-1"::"EAST"::1::"Soldiers@Soldier"]
 void commandNewUnit(const vector<string>& args) {
     COMMAND_CHECK_INPUT_PARAMETERS2(6, 7);
     COMMAND_CHECK_WRITING_STATE;
@@ -1112,7 +1112,7 @@ void commandNewUnit(const vector<string>& args) {
     unit["positions"] = json::array();
     unit["framesFired"] = json::array();
     if (args.size() > 6) {
-        j["role"] = JSON_STR_FROM_ARG(7);
+        j["role"] = JSON_STR_FROM_ARG(6);
     }
     j["entities"].push_back(unit);
 }
