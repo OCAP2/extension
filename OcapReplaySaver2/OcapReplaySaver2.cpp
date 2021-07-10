@@ -1112,7 +1112,7 @@ void commandNewUnit(const vector<string>& args) {
     unit["positions"] = json::array();
     unit["framesFired"] = json::array();
     if (args.size() > 6) {
-        j["role"] = JSON_STR_FROM_ARG(6);
+        unit["role"] = JSON_STR_FROM_ARG(6);
     }
     j["entities"].push_back(unit);
 }
