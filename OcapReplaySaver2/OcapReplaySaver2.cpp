@@ -1144,7 +1144,7 @@ void commandSave(const vector<string>& args) {
     j["endFrame"] = JSON_INT_FROM_ARG(4);
     if (args.size() > 5) {
         j["tags"] = JSON_STR_FROM_ARG(5);
-        config.newServerGameType = (json {JSON_STR_FROM_ARG(5)}).get<std::string>();
+        config.newServerGameType = JSON_STR_FROM_ARG(5);
     }
 
     prepareMarkerFrames(j["endFrame"]);
