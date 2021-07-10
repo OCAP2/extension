@@ -1,66 +1,7 @@
 ﻿// by Zealot
 // MIT licence https://opensource.org/licenses/MIT
 
-
-#pragma region Версия
-/*
-
-v 2.0.0.1 2017-09-25 Zealot Начальная версия. Расширение еще ничего не делает.
-v 2.0.1.1 2017-09-25 Zealot Начальная версия. Уже должно делать почти все.
-v 2.0.2.1 2017-09-28 Zealot Добавлена команда :LOG:
-v 2.0.2.2 2017-09-28 Zealot Exception handling
-v 2.0.3.2 2017-09-28 Zealot Отдельный файл для лога по команде :LOG:
-v 2.0.3.3 2017-09-28 Zealot Проверено в работе
-v 2.0.4.1 2017-09-29 Zealot Добавлен Curl
-v 2.0.5.0 2017-10-03 Zealot Загрузка файлов через http, файлы создаются во временном каталоге системы, конфиг в json
-v 2.0.5.1 2017-10-03 Zealot bugfix
-v 2.0.6.1 2017-10-07 Zealot bugfix curl encode && теперь нужно вызывать START перед началом записи, добавлен :FRAMENO:, :FIRED:
-v 2.0.6.2 2017-10-08 Zealot fixed unicode
-v 2.0.7.0 2017-10-23 Zealot Запись маркеров, фикс обработки строк, старая запись не сохраняется при старте новой, немного фиксов
-v 2.0.7.1 2017-10-25 Zealot Новый формат записи маркеров
-v 2.0.7.2 2017-10-27 Zealot bugfix
-v 2.0.7.3 2017-11-06 Zealot Старый формат записи маркеров
-v 3.0.7.3 2017-11-06 Zealot Release для ocap v.2 команды :NEW:UNIT: :NEW:VEH: :UPDATE:UNIT: :UPDATE:VEH:
-v 3.0.7.4 2017-11-06 Zealot bug https://bitbucket.org/mrDell/ocap2/issues/24/dll-403-unit-vehicle
-v 3.0.7.5 2018-01-21 Zealot MarkerMove меняет предыдущую запись если маркер уже был, а не создает новую
-v 3.0.7.6 2018-01-21 Zealot Теперь ошибки обрабатываются с помощью исключений
-v 3.0.8.0 2018-01-21 Zealot При команде :START: происходит реконфигурация логгера и он начинает писать в новый файл
-v 3.0.8.1 2018-06-16 Zealot При команде SAVE если в названии миссии есть кавычки выкидывается исключение
-v 3.0.8.2 2018-06-18 Zealot Финальный фикс проблемы с именем миссии
-v 4.0.0.1 2018-11-26 Zealot Test version, worker threads variants
-v 4.0.0.3 2018-11-29 Zealot Optimised multithreading
-v 4.0.0.4 2018-11-29 Zealot fixed last deadlocks )))
-v 4.0.0.5 2018-12-09 Zealot potential bug with return * char
-v 4.0.0.6 2018-12-09 Zealot fixed crash after mission saved
-v 4.0.0.7 2019-12-07 Zealot Using CMake for building
-v 4.1.0.0 2020-01-25 Zealot New option for new golang web app
-v 4.1.0.1 2020-01-26 Zealot Data compressing using gzip from zlib
-v 4.1.0.2 2020-01-26 Zealot Filename is stripped from russion symbols and send to webservice, compress is mandatory
-v 4.1.0.3 2020-01-26 Zealot gz is not include in filename
-v 4.1.0.4 2020-01-26 Zealot small fixes and optimizations
-v 4.1.1.0 2020-01-26 Zealot Actually working )
-v 4.1.1.1 2020-01-26 Zealot Fixed bug with buffer overflow
-v 4.1.1.2 2020-01-26 Zealot Utf8 string to ASCII updated
-v 4.1.1.3 2020-01-26 Zealot Fix with mission datetime
-v 4.1.1.4 2020-02-25 Zealot Remove uncompressed data if compressed successfully, slightly improved parameters checking
-v 4.1.1.5 2021-01-17 Zealot Debug output
-v 4.1.1.6 2021-01-31 Zealot EscapeArma3ToJson function disabled, suspected bugs in escapeArma3ToJson implementation
-v 4.1.1.7 2021-02-01 Zealot Additional debug info
-v 4.2.0.0 2021-06-30 Zealot additional optional parameters for MARKER:CREATE, MARKER:MOVE, SAVE
-v 4.2.0.1 2021-07-01 Zealot -1 marker duration fixed
-v 4.2.0.2 2021-07-02 Zealot Added brush parameter
-v 4.3.0.0 2021-07-05 Zealot Many small improvements, linux build
-v 4.4.0.0 2021-07-05 Fank Added role for new unit
-
-*/
-
-#define CURRENT_VERSION "4.4.0.0"
-
-#pragma endregion
-
-
-#include "easylogging++.h"
-
+#define CURRENT_VERSION "4.4.0.1"
 
 #include <cstring>
 #include <cstdio>
@@ -97,10 +38,9 @@ v 4.4.0.0 2021-07-05 Fank Added role for new unit
 #include <curl/curl.h>
 #include <zlib.h>
 
+#include "easylogging++.h"
 #include "json.hpp"
 #include "OcapReplaySaver2.h"
-
-
 
 #define REPLAY_FILEMASK "%Y_%m_%d__%H_%M_"
 
@@ -119,6 +59,21 @@ v 4.4.0.0 2021-07-05 Fank Added role for new unit
 #define CMD_MARKER_DELETE	":MARKER:DELETE:" // маркер удалили
 #define CMD_MARKER_MOVE		":MARKER:MOVE:" // маркер передвинули
 
+#define ERROR_THROW(S) {LOG(ERROR) << S;throw ocapException(S); }
+#define COMMAND_CHECK_INPUT_PARAMETERS(N) if(args.size()!=N){LOG(WARNING) << "Expected " << N << "arguments";ERROR_THROW("Unexpected number of given arguments!");}
+#define COMMAND_CHECK_INPUT_PARAMETERS2(N,M) if(args.size()!=N && args.size()!=M){LOG(WARNING) << "Expected " << N << " or " << M << " arguments";ERROR_THROW("Unexpected number of given arguments!"); }
+#define COMMAND_CHECK_INPUT_PARAMETERS3(N,M,O) if(args.size()!=N&&args.size()!=M&&args.size()!=O){LOG(WARNING) << "Expected " << N << " or " << M << " or " << O << " arguments";ERROR_THROW("Unexpected number of given arguments!"); }
+#define COMMAND_CHECK_INPUT_PARAMETERS4(N,M,O,P) if(args.size()!=N&&args.size()!=M&&args.size()!=O&&args.size()!=P){LOG(WARNING) << "Expected " << N << " or " << M << " or " << O << " or " << P << " arguments";ERROR_THROW("Unexpected number of given arguments!"); }
+#define COMMAND_CHECK_WRITING_STATE	if(!is_writing.load()) {ERROR_THROW("Is not writing state!")}
+
+#define JSON_STR_FROM_ARG(N) (json::string_t(filterSqfString(args[N])))
+#define JSON_INT_FROM_ARG(N) (json::number_integer_t(stoi(args[N])))
+#define JSON_FLOAT_FROM_ARG(N) (json::number_float_t(stod(args[N])))
+#define JSON_PARSE_FROM_ARG(N) (json::parse(escapeArma3ToJson(args[N])))
+
+#define DUMP_ARGS_TO_LOG if(true){stringstream ss;ss<<args.size()<<"[";for(int i=0;i<args.size();i++){if(i>0)ss<<"::";ss<<args[i];}ss<<"]";LOG(WARNING)<<"ARG DUMP:"<<ss.str();}
+
+
 using namespace std;
 
 void commandEvent(const vector<string>& args);
@@ -136,6 +91,8 @@ void commandMarkerCreate(const vector<string>& args);
 void commandMarkerDelete(const vector<string>& args);
 void commandMarkerMove(const vector<string>& args);
 
+
+
 namespace {
     using json = nlohmann::json;
     namespace fs = std::filesystem;
@@ -145,7 +102,10 @@ namespace {
     mutex command_mutex;
     condition_variable command_cond;
     atomic<bool> command_thread_shutdown(false);
-
+    json j;
+    bool curl_init = false;
+    atomic<bool> is_writing(false);
+    std::string mission_type;
 
     std::unordered_map<std::string, std::function<void(const vector<string>&)> > dll_commands = {
         { CMD_NEW_VEH,			commandNewVeh },
@@ -167,28 +127,8 @@ namespace {
     public:
         ocapException() {};
         ocapException(const char* e) {};
-
     };
 
-#define ERROR_THROW(S) {LOG(ERROR) << S;throw ocapException(S); }
-#define COMMAND_CHECK_INPUT_PARAMETERS(N) if(args.size()!=N){LOG(WARNING) << "Expected " << N << "arguments";ERROR_THROW("Unexpected number of given arguments!");}
-#define COMMAND_CHECK_INPUT_PARAMETERS2(N,M) if(args.size()!=N && args.size()!=M){LOG(WARNING) << "Expected " << N << " or " << M << " arguments";ERROR_THROW("Unexpected number of given arguments!"); }
-#define COMMAND_CHECK_INPUT_PARAMETERS3(N,M,O) if(args.size()!=N&&args.size()!=M&&args.size()!=O){LOG(WARNING) << "Expected " << N << " or " << M << " or " << O << " arguments";ERROR_THROW("Unexpected number of given arguments!"); }
-#define COMMAND_CHECK_INPUT_PARAMETERS4(N,M,O,P) if(args.size()!=N&&args.size()!=M&&args.size()!=O&&args.size()!=P){LOG(WARNING) << "Expected " << N << " or " << M << " or " << O << " or " << P << " arguments";ERROR_THROW("Unexpected number of given arguments!"); }
-#define COMMAND_CHECK_WRITING_STATE	if(!is_writing.load()) {ERROR_THROW("Is not writing state!")}
-
-#define JSON_STR_FROM_ARG(N) (json::string_t(filterSqfString(args[N])))
-#define JSON_INT_FROM_ARG(N) (json::number_integer_t(stoi(args[N])))
-#define JSON_FLOAT_FROM_ARG(N) (json::number_float_t(stod(args[N])))
-#define JSON_PARSE_FROM_ARG(N) (json::parse(escapeArma3ToJson(args[N])))
-
-#define DUMP_ARGS_TO_LOG if(true){stringstream ss;ss<<args.size()<<"[";for(int i=0;i<args.size();i++){if(i>0)ss<<"::";ss<<args[i];}ss<<"]";LOG(WARNING)<<"ARG DUMP:"<<ss.str();}
-
-    //std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
-
-    json j;
-    bool curl_init = false;
-    atomic<bool> is_writing(false);
     struct {
         std::string dbInsertUrl = "http://127.0.0.1/data/receive.php?option=dbInsert";
         std::string addFileUrl = "http://127.0.0.1/data/receive.php?option=addFile";
@@ -902,7 +842,7 @@ void curlActions(string worldName, string missionName, string duration, string f
     }
 
     if (config.newMode) {
-        curlUploadNew(config.newUrl, worldName, missionName, duration, filename, tfile, config.httpRequestTimeout, config.newServerGameType, config.newUrlRequestSecret);
+        curlUploadNew(config.newUrl, worldName, missionName, duration, filename, tfile, config.httpRequestTimeout, mission_type, config.newUrlRequestSecret);
     }
     else {
         curlDbInsert(config.dbInsertUrl, worldName, missionName, duration, filename, config.httpRequestTimeout);
@@ -937,6 +877,10 @@ Input parameters:
 */
 
 // :MARKER:CREATE: 11:["SWT_M#156"::0::"o_inf"::"CBR"::0::-1::0::"#0000FF"::[1,1]::0::[3915.44,1971.98]]
+// :MARKER:CREATE: 12:["SWT_M#156"::0::"o_inf"::"CBR"::0::-1::0::"#0000FF"::[1,1]::0::[3915.44,1971.98]::"ICON"]
+// :MARKER:CREATE: 13:["SWT_M#156"::0::"o_inf"::"CBR"::0::-1::0::"#0000FF"::[1,1]::0::[3915.44,1971.98]::"ICON"::100]
+// :MARKER:CREATE: 14:["SWT_M#156"::0::"o_inf"::"CBR"::0::-1::0::"#0000FF"::[1,1]::0::[3915.44,1971.98]::"ICON"::100::"Solid"]
+
 void commandMarkerCreate(const vector<string>& args) {
     COMMAND_CHECK_INPUT_PARAMETERS4(11, 12, 13, 14);
     COMMAND_CHECK_WRITING_STATE;
@@ -1006,6 +950,8 @@ void commandMarkerDelete(const vector<string>& args) {
 }
 // markerName, frame, position, (opt.) dir , (opt.) alpha
 // :MARKER:MOVE: 3:["SWT_M#156"::0::[3882.53,2041.32]]
+// :MARKER:MOVE: 4:["SWT_M#156"::0::[3882.53,2041.32]::180.0]
+// :MARKER:MOVE: 5:["SWT_M#156"::0::[3882.53,2041.32]::180.0::100]
 void commandMarkerMove(const vector<string>& args) {
     COMMAND_CHECK_WRITING_STATE;
     COMMAND_CHECK_INPUT_PARAMETERS3(3, 4, 5);
@@ -1091,11 +1037,14 @@ void commandStart(const vector<string>& args) {
     j["missionAuthor"] = JSON_STR_FROM_ARG(2);
     j["captureDelay"] = JSON_FLOAT_FROM_ARG(3);
 
+    mission_type = config.newServerGameType;
+
     LOG(INFO) << "Starting record." << args[0] << args[1] << args[2] << args[3];
     CLOG(INFO, "ext") << "Starting record." << args[0] << args[1] << args[2] << args[3];
 }
 
-// :NEW:UNIT: 6:[0::0::"|UN|Capt.Farid"::"Alpha 1-1"::"EAST"::1::"Soldiers@Soldier"]
+// :NEW:UNIT: 6:[0::0::"|UN|Capt.Farid"::"Alpha 1-1"::"EAST"::1]
+// :NEW:UNIT: 7:[0::0::"|UN|Capt.Farid"::"Alpha 1-1"::"EAST"::1::"Soldiers@Soldier"]
 void commandNewUnit(const vector<string>& args) {
     COMMAND_CHECK_INPUT_PARAMETERS2(6, 7);
     COMMAND_CHECK_WRITING_STATE;
@@ -1135,6 +1084,7 @@ void commandNewVeh(const vector<string>& args) {
 }
 
 // :SAVE: 5:["Beketov"::"RBC 202 Неожиданный поворот 05"::"[RE]Aventador"::1.23::4233]
+// :SAVE: 6:["Beketov"::"RBC 202 Неожиданный поворот 05"::"[RE]Aventador"::1.23::4233::"TvT"]
 void commandSave(const vector<string>& args) {
     COMMAND_CHECK_INPUT_PARAMETERS2(5, 6);
     COMMAND_CHECK_WRITING_STATE;
@@ -1148,7 +1098,7 @@ void commandSave(const vector<string>& args) {
     j["endFrame"] = JSON_INT_FROM_ARG(4);
     if (args.size() > 5) {
         j["tags"] = JSON_STR_FROM_ARG(5);
-        config.newServerGameType = JSON_STR_FROM_ARG(5);
+        mission_type = JSON_STR_FROM_ARG(5);
     }
 
     prepareMarkerFrames(j["endFrame"]);
@@ -1171,6 +1121,7 @@ void commandClear(const vector<string>& args)
 }
 
 // :UPDATE:UNIT: 7:[0::[14548.4,19793.9]::84::1::0::"|UN|Capt.Farid"::1]
+// :UPDATE:UNIT: 8:[0::[14548.4,19793.9]::84::1::0::"|UN|Capt.Farid"::1::"Medic"]
 void commandUpdateUnit(const vector<string>& args)
 {
     COMMAND_CHECK_INPUT_PARAMETERS2(7, 8);
