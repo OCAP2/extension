@@ -50,10 +50,11 @@ v 4.2.0.0 2021-06-30 Zealot additional optional parameters for MARKER:CREATE, MA
 v 4.2.0.1 2021-07-01 Zealot -1 marker duration fixed
 v 4.2.0.2 2021-07-02 Zealot Added brush parameter
 v 4.3.0.0 2021-07-05 Zealot Many small improvements, linux build
+v 4.4.0.0 2021-07-05 Fank Added role for new unit
 
 */
 
-#define CURRENT_VERSION "4.3.0.1"
+#define CURRENT_VERSION "4.4.0.0"
 
 #pragma endregion
 
@@ -1094,9 +1095,9 @@ void commandStart(const vector<string>& args) {
     CLOG(INFO, "ext") << "Starting record." << args[0] << args[1] << args[2] << args[3];
 }
 
-// :NEW:UNIT: 6:[0::0::"|UN|Capt.Farid"::"Alpha 1-1"::"EAST"::1]
+// :NEW:UNIT: 6:[0::0::"|UN|Capt.Farid"::"Alpha 1-1"::"EAST"::1::"Soldiers@Soldier"]
 void commandNewUnit(const vector<string>& args) {
-    COMMAND_CHECK_INPUT_PARAMETERS(6);
+    COMMAND_CHECK_INPUT_PARAMETERS2(6, 7);
     COMMAND_CHECK_WRITING_STATE;
 
     json unit{
@@ -1110,6 +1111,9 @@ void commandNewUnit(const vector<string>& args) {
     };
     unit["positions"] = json::array();
     unit["framesFired"] = json::array();
+    if (args.size() > 6) {
+        unit["role"] = JSON_STR_FROM_ARG(6);
+    }
     j["entities"].push_back(unit);
 }
 
