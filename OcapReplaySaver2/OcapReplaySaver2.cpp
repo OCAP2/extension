@@ -53,6 +53,7 @@
 #define CMD_SAVE			":SAVE:" // записать json во временный файл и попробовать отправить по сети
 #define CMD_LOG				":LOG:" // сделать запись в отдельный файл лога
 #define CMD_START			":START:" // начать запись ocap реплея
+#define CMD_TIME			":TIME:" // initiate time when recording starts
 #define CMD_FIRED			":FIRED:" // кто-то стрельнул
 
 #define CMD_MARKER_CREATE	":MARKER:CREATE:" // был создан маркер на карте
@@ -85,6 +86,7 @@ void commandUpdateVeh(const vector<string>& args);
 void commandClear(const vector<string>& args);
 void commandLog(const vector<string>& args);
 void commandStart(const vector<string>& args);
+void commandTime(const vector<string>& args);
 void commandFired(const vector<string>& args);
 
 void commandMarkerCreate(const vector<string>& args);
@@ -117,6 +119,7 @@ namespace {
         { CMD_SAVE,				commandSave },
         { CMD_LOG,				commandLog },
         { CMD_START,			commandStart },
+        { CMD_TIME, 			commandTime },
         { CMD_FIRED,			commandFired },
         { CMD_MARKER_CREATE,	commandMarkerCreate },
         { CMD_MARKER_DELETE,	commandMarkerDelete },
@@ -1041,6 +1044,14 @@ void commandStart(const vector<string>& args) {
 
     LOG(INFO) << "Starting record." << args[0] << args[1] << args[2] << args[3];
     CLOG(INFO, "ext") << "Starting record." << args[0] << args[1] << args[2] << args[3];
+}
+
+// TIME: 1:["2000-12-31T23:59:59.000"]
+void commandTime(const vector<string>& args) {
+    COMMAND_CHECK_INPUT_PARAMETERS(1);
+    COMMAND_CHECK_WRITING_STATE;
+
+    j["systemTimeUTC"] = JSON_STR_FROM_ARG(0);
 }
 
 // :NEW:UNIT: 6:[0::0::"|UN|Capt.Farid"::"Alpha 1-1"::"EAST"::1]
