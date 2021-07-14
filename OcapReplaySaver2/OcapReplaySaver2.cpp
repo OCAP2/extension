@@ -1,7 +1,7 @@
 ﻿// by Zealot
 // MIT licence https://opensource.org/licenses/MIT
 
-#define CURRENT_VERSION "4.4.0.1"
+#define CURRENT_VERSION "4.4.0.2"
 
 #include <cstring>
 #include <cstdio>
@@ -1010,8 +1010,10 @@ void commandFired(const vector<string>& args)
 }
 
 // START: 4:["Woodland_ACR"::"RBC_194_Psy_woiny_13a"::"[TF]Shatun63"::1.23]
+// START: 5:["Woodland_ACR"::"RBC_194_Psy_woiny_13a"::"[TF]Shatun63"::1.23::"2000-12-31T23:59:59.000"]
+// START: 6:["Woodland_ACR"::"RBC_194_Psy_woiny_13a"::"[TF]Shatun63"::1.23::"2000-12-31T23:59:59.000"::"2000-12-31T23:59:59.000"]
 void commandStart(const vector<string>& args) {
-    COMMAND_CHECK_INPUT_PARAMETERS(4);
+    COMMAND_CHECK_INPUT_PARAMETERS3(4,5,6);
 
     if (is_writing) {
         LOG(WARNING) << ":START: while writing mission. Clearing old data.";
@@ -1036,6 +1038,12 @@ void commandStart(const vector<string>& args) {
     j["missionName"] = JSON_STR_FROM_ARG(1);
     j["missionAuthor"] = JSON_STR_FROM_ARG(2);
     j["captureDelay"] = JSON_FLOAT_FROM_ARG(3);
+    if (args.size() > 4) { 
+        j["systemTimeUTC"] = JSON_STR_FROM_ARG(4);
+    }
+    if (args.size() > 5) { 
+        j["gameStartTime"] = JSON_STR_FROM_ARG(5);
+    }
 
     mission_type = config.newServerGameType;
 
