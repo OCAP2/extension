@@ -65,6 +65,7 @@
 #define COMMAND_CHECK_INPUT_PARAMETERS2(N,M) if(args.size()!=N && args.size()!=M){LOG(WARNING) << "Expected " << N << " or " << M << " arguments";ERROR_THROW("Unexpected number of given arguments!"); }
 #define COMMAND_CHECK_INPUT_PARAMETERS3(N,M,O) if(args.size()!=N&&args.size()!=M&&args.size()!=O){LOG(WARNING) << "Expected " << N << " or " << M << " or " << O << " arguments";ERROR_THROW("Unexpected number of given arguments!"); }
 #define COMMAND_CHECK_INPUT_PARAMETERS4(N,M,O,P) if(args.size()!=N&&args.size()!=M&&args.size()!=O&&args.size()!=P){LOG(WARNING) << "Expected " << N << " or " << M << " or " << O << " or " << P << " arguments";ERROR_THROW("Unexpected number of given arguments!"); }
+#define COMMAND_CHECK_INPUT_PARAMETERS_N(N,M) if(args.size()<N || args.size()>M){LOG(WARNING) << "Expected between " << N << " and " << M << " arguments";ERROR_THROW("Unexpected number of given arguments!"); }
 #define COMMAND_CHECK_WRITING_STATE	if(!is_writing.load()) {ERROR_THROW("Is not writing state!")}
 
 #define JSON_STR_FROM_ARG(N) (json::string_t(filterSqfString(args[N])))
@@ -1013,10 +1014,8 @@ void commandFired(const vector<string>& args)
 }
 
 // START: 4:["Woodland_ACR"::"RBC_194_Psy_woiny_13a"::"[TF]Shatun63"::1.23]
-// START: 5:["Woodland_ACR"::"RBC_194_Psy_woiny_13a"::"[TF]Shatun63"::1.23::"2000-12-31T23:59:59.000"]
-// START: 6:["Woodland_ACR"::"RBC_194_Psy_woiny_13a"::"[TF]Shatun63"::1.23::"2000-12-31T23:59:59.000"::"2000-12-31T23:59:59.000"]
 void commandStart(const vector<string>& args) {
-    COMMAND_CHECK_INPUT_PARAMETERS3(4,5,6);
+    COMMAND_CHECK_INPUT_PARAMETERS(4);
 
     if (is_writing) {
         LOG(WARNING) << ":START: while writing mission. Clearing old data.";
@@ -1041,12 +1040,6 @@ void commandStart(const vector<string>& args) {
     j["missionName"] = JSON_STR_FROM_ARG(1);
     j["missionAuthor"] = JSON_STR_FROM_ARG(2);
     j["captureDelay"] = JSON_FLOAT_FROM_ARG(3);
-    if (args.size() > 4) { 
-        j["systemTimeUTC"] = JSON_STR_FROM_ARG(4);
-    }
-    if (args.size() > 5) { 
-        j["gameStartTime"] = JSON_STR_FROM_ARG(5);
-    }
 
     mission_type = config.newServerGameType;
 
@@ -1054,12 +1047,19 @@ void commandStart(const vector<string>& args) {
     CLOG(INFO, "ext") << "Starting record." << args[0] << args[1] << args[2] << args[3];
 }
 
-// TIME: 1:["2000-12-31T23:59:59.000"]
+// TIME: 5:[0,"2000-12-31T23:59:59.000"::"2000-12-31T23:59:59.000"::1.0::120.203]
 void commandTime(const vector<string>& args) {
-    COMMAND_CHECK_INPUT_PARAMETERS(1);
+    COMMAND_CHECK_INPUT_PARAMETERS(5);
     COMMAND_CHECK_WRITING_STATE;
 
-    j["systemTimeUTC"] = JSON_STR_FROM_ARG(0);
+    json time{
+        { "frameNum", JSON_INT_FROM_ARG(0) },
+        { "systemTimeUTC", JSON_STR_FROM_ARG(1) },
+        { "date", JSON_STR_FROM_ARG(2) },
+        { "timeMultiplier", JSON_FLOAT_FROM_ARG(3) },
+        { "time", JSON_FLOAT_FROM_ARG(4) }
+    };
+    j["times"].push_back(time);
 }
 
 // :NEW:UNIT: 6:[0::0::"|UN|Capt.Farid"::"Alpha 1-1"::"EAST"::1]
