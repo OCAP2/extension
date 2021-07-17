@@ -1055,7 +1055,7 @@ void commandTime(const vector<string>& args) {
     json time{
         { "frameNum", JSON_INT_FROM_ARG(0) },
         { "systemTimeUTC", JSON_STR_FROM_ARG(1) },
-        { "missionDate", JSON_STR_FROM_ARG(2) },
+        { "date", JSON_STR_FROM_ARG(2) },
         { "timeMultiplier", JSON_FLOAT_FROM_ARG(3) },
         { "time", JSON_FLOAT_FROM_ARG(4) }
     };
