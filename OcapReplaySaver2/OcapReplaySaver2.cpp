@@ -1052,19 +1052,14 @@ void commandTime(const vector<string>& args) {
     COMMAND_CHECK_INPUT_PARAMETERS(5);
     COMMAND_CHECK_WRITING_STATE;
 
-    int frameNo = JSON_INT_FROM_ARG(0);
-    if (frameNo == 0) {
-        j["systemTimeUTC"] = JSON_STR_FROM_ARG(1);
-        j["missionDate"] = JSON_STR_FROM_ARG(2);
-        j["timeMultiplier"] = JSON_FLOAT_FROM_ARG(3);
-        j["time"] = JSON_FLOAT_FROM_ARG(4);
-
-        LOG(INFO) << "Set recording time settings." << args[1] << args[2] << args[3] << args[4];
-        CLOG(INFO, "ext") << "Set recording time settings." << args[1] << args[2] << args[3] << args[4];
-    } else {
-        LOG(WARNING) << "Not initial frame time update." << args[1] << args[2] << args[3] << args[4];
-        CLOG(WARNING, "ext") << "Not initial frame time update." << args[1] << args[2] << args[3] << args[4];
-    }
+    json time{
+        { "frameNum", JSON_INT_FROM_ARG(0) },
+        { "systemTimeUTC", JSON_STR_FROM_ARG(1) },
+        { "missionDate", JSON_STR_FROM_ARG(2) },
+        { "timeMultiplier", JSON_FLOAT_FROM_ARG(3) },
+        { "time", JSON_FLOAT_FROM_ARG(4) }
+    };
+    j["times"].push_back(time);
 }
 
 // :NEW:UNIT: 6:[0::0::"|UN|Capt.Farid"::"Alpha 1-1"::"EAST"::1]
