@@ -1,7 +1,7 @@
 ﻿// by Zealot
 // MIT licence https://opensource.org/licenses/MIT
 
-#define CURRENT_VERSION "4.4.0.2"
+#define CURRENT_VERSION "4.4.1.0"
 
 #include <cstring>
 #include <cstdio>
@@ -62,9 +62,6 @@
 
 #define ERROR_THROW(S) {LOG(ERROR) << S;throw ocapException(S); }
 #define COMMAND_CHECK_INPUT_PARAMETERS(N) if(args.size()!=N){LOG(WARNING) << "Expected " << N << "arguments";ERROR_THROW("Unexpected number of given arguments!");}
-#define COMMAND_CHECK_INPUT_PARAMETERS2(N,M) if(args.size()!=N && args.size()!=M){LOG(WARNING) << "Expected " << N << " or " << M << " arguments";ERROR_THROW("Unexpected number of given arguments!"); }
-#define COMMAND_CHECK_INPUT_PARAMETERS3(N,M,O) if(args.size()!=N&&args.size()!=M&&args.size()!=O){LOG(WARNING) << "Expected " << N << " or " << M << " or " << O << " arguments";ERROR_THROW("Unexpected number of given arguments!"); }
-#define COMMAND_CHECK_INPUT_PARAMETERS4(N,M,O,P) if(args.size()!=N&&args.size()!=M&&args.size()!=O&&args.size()!=P){LOG(WARNING) << "Expected " << N << " or " << M << " or " << O << " or " << P << " arguments";ERROR_THROW("Unexpected number of given arguments!"); }
 #define COMMAND_CHECK_INPUT_PARAMETERS_N(N,M) if(args.size()<N || args.size()>M){LOG(WARNING) << "Expected between " << N << " and " << M << " arguments";ERROR_THROW("Unexpected number of given arguments!"); }
 #define COMMAND_CHECK_WRITING_STATE	if(!is_writing.load()) {ERROR_THROW("Is not writing state!")}
 
@@ -886,7 +883,7 @@ Input parameters:
 // :MARKER:CREATE: 14:["SWT_M#156"::0::"o_inf"::"CBR"::0::-1::0::"#0000FF"::[1,1]::0::[3915.44,1971.98]::"ICON"::100::"Solid"]
 
 void commandMarkerCreate(const vector<string>& args) {
-    COMMAND_CHECK_INPUT_PARAMETERS4(11, 12, 13, 14);
+    COMMAND_CHECK_INPUT_PARAMETERS_N(11, 14);
     COMMAND_CHECK_WRITING_STATE;
 
     //создать новый маркер
@@ -958,7 +955,7 @@ void commandMarkerDelete(const vector<string>& args) {
 // :MARKER:MOVE: 5:["SWT_M#156"::0::[3882.53,2041.32]::180.0::100]
 void commandMarkerMove(const vector<string>& args) {
     COMMAND_CHECK_WRITING_STATE;
-    COMMAND_CHECK_INPUT_PARAMETERS3(3, 4, 5);
+    COMMAND_CHECK_INPUT_PARAMETERS_N(3, 5);
 
     json dir = args.size() < 4 ? json::number_float_t(0) : JSON_FLOAT_FROM_ARG(3);
 
@@ -1065,7 +1062,7 @@ void commandTime(const vector<string>& args) {
 // :NEW:UNIT: 6:[0::0::"|UN|Capt.Farid"::"Alpha 1-1"::"EAST"::1]
 // :NEW:UNIT: 7:[0::0::"|UN|Capt.Farid"::"Alpha 1-1"::"EAST"::1::"Soldiers@Soldier"]
 void commandNewUnit(const vector<string>& args) {
-    COMMAND_CHECK_INPUT_PARAMETERS2(6, 7);
+    COMMAND_CHECK_INPUT_PARAMETERS_N(6, 7);
     COMMAND_CHECK_WRITING_STATE;
 
     json unit{
@@ -1105,7 +1102,7 @@ void commandNewVeh(const vector<string>& args) {
 // :SAVE: 5:["Beketov"::"RBC 202 Неожиданный поворот 05"::"[RE]Aventador"::1.23::4233]
 // :SAVE: 6:["Beketov"::"RBC 202 Неожиданный поворот 05"::"[RE]Aventador"::1.23::4233::"TvT"]
 void commandSave(const vector<string>& args) {
-    COMMAND_CHECK_INPUT_PARAMETERS2(5, 6);
+    COMMAND_CHECK_INPUT_PARAMETERS_N(5, 6);
     COMMAND_CHECK_WRITING_STATE;
 
     LOG(INFO) << args[0] << args[1] << args[2] << args[3] << args[4];
@@ -1142,7 +1139,7 @@ void commandClear(const vector<string>& args)
 // :UPDATE:UNIT: 7:[0::[14548.4,19793.9]::84::1::0::"|UN|Capt.Farid"::1]
 // :UPDATE:UNIT: 8:[0::[14548.4,19793.9]::84::1::0::"|UN|Capt.Farid"::1::"Medic"]
 void commandUpdateUnit(const vector<string>& args) {
-    COMMAND_CHECK_INPUT_PARAMETERS2(7, 8);
+    COMMAND_CHECK_INPUT_PARAMETERS_N(7, 8);
     COMMAND_CHECK_WRITING_STATE;
 
     int id = stoi(args[0]);
@@ -1167,7 +1164,7 @@ void commandUpdateUnit(const vector<string>& args) {
 // :UPDATE:VEH: 5:[204::[2099.44,6388.62,0]::0::1::[202,203]]
 // :UPDATE:VEH: 6:[204::[2099.44,6388.62,0]::0::1::[202,203]::1]
 void commandUpdateVeh(const vector<string>& args) {
-    COMMAND_CHECK_INPUT_PARAMETERS_N(5,6);
+    COMMAND_CHECK_INPUT_PARAMETERS_N(5, 6);
     COMMAND_CHECK_WRITING_STATE;
 
     int id = stoi(args[0]);
@@ -1185,51 +1182,20 @@ void commandUpdateVeh(const vector<string>& args) {
             arr.push_back(json::array({
                 JSON_INT_FROM_ARG(5), // start frame
                 JSON_INT_FROM_ARG(5) // end frame
-            }));
+                }));
 
-            int lastPositionIndex = j["entities"][id]["positions"].size() - 1;
+            if (auto lastPosData = j["entities"][id]["positions"].rbegin(); lastPosData != j["entities"][id]["positions"].rend()) {
+                auto& lastPosArr = *lastPosData;
+                LOG(TRACE) << lastPosArr.dump(-1, ' ', false, json::error_handler_t::ignore) << arr.dump(-1, ' ', false, json::error_handler_t::ignore);
 
-            if (lastPositionIndex >= 0) {
-                LOG(TRACE) << "0" << j["entities"][id]["positions"][lastPositionIndex][0] << arr[0];
-                LOG(TRACE) << "1" << j["entities"][id]["positions"][lastPositionIndex][1] << arr[1];
-                LOG(TRACE) << "2" << j["entities"][id]["positions"][lastPositionIndex][2] << arr[2];
-                LOG(TRACE) << "3" << j["entities"][id]["positions"][lastPositionIndex][3] << arr[3];
-                LOG(TRACE) << "4" << j["entities"][id]["positions"][lastPositionIndex][4] << arr[4];
-            }
-
-            if (
-                lastPositionIndex >= 0
-                && j["entities"][id]["positions"][lastPositionIndex][0].size() == arr[0].size()
-                && j["entities"][id]["positions"][lastPositionIndex][1] == arr[1]
-                && j["entities"][id]["positions"][lastPositionIndex][2] == arr[2]
-                && j["entities"][id]["positions"][lastPositionIndex][3].size() == arr[3].size()
-            ) {
-                bool positionsMatch = true;
-                bool crewMatch = true;
-
-                for (int i = 0; i < arr[0].size(); i++) {
-                    if (j["entities"][id]["positions"][lastPositionIndex][0][i] != arr[0][i]) {
-                        positionsMatch = false;
-                        break;
-                    }
-                }
-                for (int i = 0; i < arr[3].size(); i++) {
-                    if (j["entities"][id]["positions"][lastPositionIndex][3][i] != arr[3][i]) {
-                        crewMatch = false;
-                        break;
-                    }
-                }
-
-                if (positionsMatch && crewMatch) {
+                if (lastPosArr[0] == arr[0] && lastPosArr[1] == arr[1] && lastPosArr[2] == arr[2] && lastPosArr[3] == arr[3]) {
                     LOG(TRACE) << "no vehicle change detected, extending previous frame";
-                    createNew = false;
 
-                    // update end frame
-                    j["entities"][id]["positions"][lastPositionIndex][4][1] = arr[4][1];
+                    createNew = false;
+                    lastPosArr[4][1] = arr[4][1];
                 }
             }
         }
-
         if (createNew) {
             j["entities"][id]["positions"].push_back(arr);
         }
