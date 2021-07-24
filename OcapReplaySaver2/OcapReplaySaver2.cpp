@@ -875,8 +875,8 @@ Input parameters:
  9  side _pl call BIS_fnc_sideID, -1 global, 0 - east, 1 - west , 2 - resistance
  10 markerPos, [100,100]
  11 Shape (opt.), "ICON"
- 12 markerAlpha (opt.) , 100
- 13 markerBrush (opt.)	, "Solid"
+ 12 markerAlpha (opt.), 100
+ 13 markerBrush (opt.), "Solid"
 
 */
 
@@ -1141,8 +1141,7 @@ void commandClear(const vector<string>& args)
 
 // :UPDATE:UNIT: 7:[0::[14548.4,19793.9]::84::1::0::"|UN|Capt.Farid"::1]
 // :UPDATE:UNIT: 8:[0::[14548.4,19793.9]::84::1::0::"|UN|Capt.Farid"::1::"Medic"]
-void commandUpdateUnit(const vector<string>& args)
-{
+void commandUpdateUnit(const vector<string>& args) {
     COMMAND_CHECK_INPUT_PARAMETERS2(7, 8);
     COMMAND_CHECK_WRITING_STATE;
 
@@ -1166,20 +1165,74 @@ void commandUpdateUnit(const vector<string>& args)
 }
 
 // :UPDATE:VEH: 5:[204::[2099.44,6388.62,0]::0::1::[202,203]]
-void commandUpdateVeh(const vector<string>& args)
-{
-    COMMAND_CHECK_INPUT_PARAMETERS(5);
+// :UPDATE:VEH: 6:[204::[2099.44,6388.62,0]::0::1::[202,203]::1]
+void commandUpdateVeh(const vector<string>& args) {
+    COMMAND_CHECK_INPUT_PARAMETERS_N(5,6);
     COMMAND_CHECK_WRITING_STATE;
 
     int id = stoi(args[0]);
     if (!j["entities"][id].is_null()) {
-        j["entities"][id]["positions"].push_back(
-            json::array({
-                JSON_PARSE_FROM_ARG(1),
-                JSON_INT_FROM_ARG(2),
-                JSON_INT_FROM_ARG(3),
-                JSON_PARSE_FROM_ARG(4)
-                }));
+        json arr = json::array({
+            JSON_PARSE_FROM_ARG(1),
+            JSON_INT_FROM_ARG(2),
+            JSON_INT_FROM_ARG(3),
+            JSON_PARSE_FROM_ARG(4)
+        });
+
+        bool createNew = true;
+        if (args.size() > 5) {
+            int frameNo = stoi(args[5]);
+            arr.push_back(json::array({
+                JSON_INT_FROM_ARG(5), // start frame
+                JSON_INT_FROM_ARG(5) // end frame
+            }));
+
+            int lastPositionIndex = j["entities"][id]["positions"].size() - 1;
+
+            if (lastPositionIndex >= 0) {
+                LOG(TRACE) << "0" << j["entities"][id]["positions"][lastPositionIndex][0] << arr[0];
+                LOG(TRACE) << "1" << j["entities"][id]["positions"][lastPositionIndex][1] << arr[1];
+                LOG(TRACE) << "2" << j["entities"][id]["positions"][lastPositionIndex][2] << arr[2];
+                LOG(TRACE) << "3" << j["entities"][id]["positions"][lastPositionIndex][3] << arr[3];
+                LOG(TRACE) << "4" << j["entities"][id]["positions"][lastPositionIndex][4] << arr[4];
+            }
+
+            if (
+                lastPositionIndex >= 0
+                && j["entities"][id]["positions"][lastPositionIndex][0].size() == arr[0].size()
+                && j["entities"][id]["positions"][lastPositionIndex][1] == arr[1]
+                && j["entities"][id]["positions"][lastPositionIndex][2] == arr[2]
+                && j["entities"][id]["positions"][lastPositionIndex][3].size() == arr[3].size()
+            ) {
+                bool positionsMatch = true;
+                bool crewMatch = true;
+
+                for (int i = 0; i < arr[0].size(); i++) {
+                    if (j["entities"][id]["positions"][lastPositionIndex][0][i] != arr[0][i]) {
+                        positionsMatch = false;
+                        break;
+                    }
+                }
+                for (int i = 0; i < arr[3].size(); i++) {
+                    if (j["entities"][id]["positions"][lastPositionIndex][3][i] != arr[3][i]) {
+                        crewMatch = false;
+                        break;
+                    }
+                }
+
+                if (positionsMatch && crewMatch) {
+                    LOG(TRACE) << "no vehicle change detected, extending previous frame";
+                    createNew = false;
+
+                    // update end frame
+                    j["entities"][id]["positions"][lastPositionIndex][4][1] = arr[4][1];
+                }
+            }
+        }
+
+        if (createNew) {
+            j["entities"][id]["positions"].push_back(arr);
+        }
     }
     else {
         LOG(ERROR) << "Incorrect params, no" << id << "entity!";
