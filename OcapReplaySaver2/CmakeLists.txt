@@ -28,6 +28,11 @@ include_directories(include)
 target_link_libraries(OcapReplaySaver2 CURL::libcurl)
 target_link_libraries(OcapReplaySaver2 ZLIB::ZLIB)
 
+IF (WIN32)
+ELSE()
+  target_link_libraries(OcapReplaySaver2 "dl")
+ENDIF()
+
 if(NOT "${CMAKE_SIZEOF_VOID_P}" STREQUAL "4")
     set_target_properties(OcapReplaySaver2 PROPERTIES PREFIX "" OUTPUT_NAME "OcapReplaySaver2_x64")
 else()

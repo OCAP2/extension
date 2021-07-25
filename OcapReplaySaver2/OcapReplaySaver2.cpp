@@ -32,7 +32,7 @@
 #include <direct.h>
 #include <process.h>
 #else
-#include <time.h>
+#include <dlfcn.h>
 #endif
 
 #include <curl/curl.h>
@@ -139,6 +139,7 @@ namespace {
         int newMode = 1;
         int httpRequestTimeout = 120;
         int traceLog = 0;
+        std::string logsDir {"./OCAPLOG"};
         // TODO: new names and comments, logs dir, change types accordingly, chenage default values
     } config;
 }
@@ -440,17 +441,16 @@ void prepareMarkerFrames(int frames) {
 }
 
 fs::path getAndCreateLogDirectory() {
-#ifdef _WIN32
-    fs::path res = fs::current_path();
-    res += "/";
-    res += "OCAPLOG";
+    fs::path res = config.logsDir;
+    //res += "/";
+    //res += "OCAPLOG";
     res.make_preferred();
-    //fs::create_directories(res);
-    return res;
-#else
-    fs::path res("/var/log/ocap");
-    //fs::create_directories(res);
-#endif // _WIN32
+    try {
+        fs::create_directories(res);
+    }
+    catch (const std::exception &ex) {
+        LOG(WARNING) << "Error create directories: " << ex.what();
+    }
     return res;
 }
 
@@ -601,13 +601,26 @@ fs::path get_config_path_win(HMODULE hModule) {
     wchar_t szPath[MAX_PATH], szDirPath[_MAX_DIR];
     GetModuleFileNameW(hModule, szPath, MAX_PATH);
     _wsplitpath_s(szPath, 0, 0, szDirPath, _MAX_DIR, 0, 0, 0, 0);
-    fs::path res = szDirPath;
+    fs::path res {szDirPath};
     return res;
+}
+#else
+fs::path get_config_path() {
+    Dl_info dl_info;
+    if (!dladdr((void*)RVExtension, &dl_info))
+        LOG(WARNING) << "OcapReplaySaver2.so: error while determiing .so path! " << dl_info.dli_fname;
+    LOG(INFO) << "OcapReplaySaver2.so: " << dl_info.dli_fname;
+    return fs::path(dl_info.dli_fname);
 }
 #endif
 
-void readWriteConfig(const fs::path& cfg_path = "/etc/ocap") {
-    fs::path cfg_name = cfg_path;  cfg_name += "/OcapReplaySaver2.cfg.json"; cfg_name.make_preferred();
+void readWriteConfig(fs::path cfg_path = "/etc/ocap") {
+#ifndef _WIN32
+    fs::path cfg_so_path = get_config_path(); cfg_so_path.remove_filename();
+    cfg_path = cfg_so_path;  
+#endif
+    fs::path cfg_name = cfg_path;
+    cfg_name += "/OcapReplaySaver2.cfg.json"; cfg_name.make_preferred();
     fs::path cfg_name_sample = cfg_path; cfg_name_sample += "/OcapReplaySaver2.cfg.json.sample"; cfg_name_sample.make_preferred();
 
     if (!std::ifstream(cfg_name_sample)) {
@@ -621,7 +634,8 @@ void readWriteConfig(const fs::path& cfg_path = "/etc/ocap") {
             { "newMode" , config.newMode},
             { "newUrl", config.newUrl},
             { "newServerGameType", config.newServerGameType },
-            { "newUrlRequestSecret", config.newUrlRequestSecret}
+            { "newUrlRequestSecret", config.newUrlRequestSecret},
+            { "logsDir", config.logsDir}
         };
         std::ofstream out(cfg_name_sample, ofstream::out | ofstream::binary);
         out << j.dump(4) << endl;
@@ -636,7 +650,12 @@ void readWriteConfig(const fs::path& cfg_path = "/etc/ocap") {
         return;
     }
     //TODO: check errors
-    cfg >> jcfg;
+    try {
+        cfg >> jcfg;
+    }
+    catch(const std::exception &ex)
+    {
+    }
 
     read_config(jcfg, "addFileUrl", config.addFileUrl);
     read_config(jcfg, "dbInsertUrl", config.dbInsertUrl);
@@ -646,13 +665,8 @@ void readWriteConfig(const fs::path& cfg_path = "/etc/ocap") {
     read_config(jcfg, "newUrl", config.newUrl);
     read_config(jcfg, "newServerGameType", config.newServerGameType);
     read_config(jcfg, "newUrlRequestSecret", config.newUrlRequestSecret);
+    read_config(jcfg, "logsDir", config.logsDir);
 
-
-    if (config.traceLog) {
-        el::Configurations defaultConf(*el::Loggers::getLogger("default")->configurations());
-        defaultConf.set(el::Level::Trace, el::ConfigurationType::Enabled, "true");
-        el::Loggers::reconfigureLogger(el::Loggers::getLogger("default", true), defaultConf);
-    }
 }
 #pragma endregion
 
@@ -700,6 +714,7 @@ void log_curl_exe_string(const string& b_url, const string& worldname, const str
     ss << "-F missionName=\"" << missionName << "\" ";
     ss << "-F missionDuration=\"" << missionDuration << "\" ";
     ss << "-F type=\"" << gametype << "\" ";
+    ss << "-F secret=\"" << "your_password" << "\" ";
     ss << b_url;
     LOG(INFO) << "String for reupload: ";
     LOG(INFO) << ss.str();
@@ -1230,6 +1245,7 @@ void initialize_logger(int verb_level = 0) {
     fs::path logNameExt = logName;
     logName += "/"; logName += "ocap-main.%datetime{%Y%M%d_%H%m%s}.log"; logName.make_preferred();
     logNameExt += "/"; logNameExt += "ocap-ext.%datetime{%Y%M%d_%H%m%s}.log"; logNameExt.make_preferred();
+    LOG(INFO) << "logifles: " << logName << ":" << logNameExt;
 
     el::Configurations defaultConf;
     defaultConf.setToDefault();
@@ -1264,6 +1280,12 @@ void initialize_logger(int verb_level = 0) {
 
     el::Loggers::reconfigureLogger(el::Loggers::getLogger("ext", true), externalConf);
     el::Helpers::validateFileRolling(el::Loggers::getLogger("ext"), el::Level::Info);
+
+    if (config.traceLog) {
+        el::Configurations defaultConf(*el::Loggers::getLogger("default")->configurations());
+        defaultConf.set(el::Level::Trace, el::ConfigurationType::Enabled, "true");
+        el::Loggers::reconfigureLogger(el::Loggers::getLogger("default", true), defaultConf);
+    }
 
     LOG(INFO) << "Logging initialized " << CURRENT_VERSION << " build: " << __TIMESTAMP__;
     CLOG(INFO, "ext") << "External logging initialized " << CURRENT_VERSION << " build: " << __TIMESTAMP__;
@@ -1328,7 +1350,6 @@ int __stdcall RVExtensionArgs(char* output, int outputSize, const char* function
 }
 
 
-
 #ifdef _WIN32
 // Normal Windows DLL junk...
 BOOL APIENTRY DllMain(HMODULE hModule,
@@ -1339,8 +1360,8 @@ BOOL APIENTRY DllMain(HMODULE hModule,
     switch (ul_reason_for_call)
     {
     case DLL_PROCESS_ATTACH: {
-        initialize_logger();
         readWriteConfig(get_config_path_win(hModule));
+        initialize_logger();
         break;
     }
 
@@ -1360,16 +1381,20 @@ BOOL APIENTRY DllMain(HMODULE hModule,
     return TRUE;
 }
 #else
+
 struct MainStatic final {
     MainStatic() {
-        initialize_logger();
         readWriteConfig();
+        initialize_logger();
 
     }
     ~MainStatic() {
         if (curl_init)
             curl_global_cleanup();
-
+        command_thread_shutdown = true;
+        command_cond.notify_one();
+        if (command_thread.joinable())
+            command_thread.join();
     }
 } main_static;
 

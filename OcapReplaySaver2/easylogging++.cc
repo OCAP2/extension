@@ -375,7 +375,7 @@ void Configurations::setToDefault(void) {
   setGlobally(ConfigurationType::MaxLogFileSize, std::string("0"), true);
   setGlobally(ConfigurationType::LogFlushThreshold, std::string("0"), true);
 
-  setGlobally(ConfigurationType::Format, std::string("%datetime %level [%logger] %msg"), true);
+  setGlobally(ConfigurationType::Format, std::string("%datetime %thread [%fbase:%line:%func] %level %msg"), true);
   set(Level::Debug, ConfigurationType::Format,
       std::string("%datetime %level [%logger] [%user@%host] [%func] [%loc] %msg"));
   // INFO and WARNING are set to default by Level::Global
