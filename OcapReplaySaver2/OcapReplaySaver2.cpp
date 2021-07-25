@@ -5,6 +5,7 @@
 
 #include <cstring>
 #include <cstdio>
+#include <cctype>
 #include <string>
 #include <ctime>
 #include <fstream>
@@ -131,15 +132,13 @@ namespace {
     };
 
     struct {
-        std::string dbInsertUrl = "http://127.0.0.1/data/receive.php?option=dbInsert";
-        std::string addFileUrl = "http://127.0.0.1/data/receive.php?option=addFile";
-        std::string newUrl = "https://127.0.0.1/api/v1/operations/add";
-        std::string newServerGameType = "TvT";
-        std::string newUrlRequestSecret = "pwd1234";
-        int newMode = 1;
-        int httpRequestTimeout = 120;
-        int traceLog = 0;
-        std::string logsDir {"./OCAPLOG"};
+        std::string newUrl{ "https://127.0.0.1/api/v1/operations/add" };
+        std::string newServerGameType{ "TvT" };
+        std::string newUrlRequestSecret{ "pwd1234" };
+        int httpRequestTimeout{ 120 };
+        int traceLog{ 0 };
+        std::string logsDir{ "./OCAPLOG" };
+        std::string logAndTmpPrefix{ "ocap-" };
         // TODO: new names and comments, logs dir, change types accordingly, chenage default values
     } config;
 }
@@ -448,7 +447,7 @@ fs::path getAndCreateLogDirectory() {
     try {
         fs::create_directories(res);
     }
-    catch (const std::exception &ex) {
+    catch (const std::exception& ex) {
         LOG(WARNING) << "Error create directories: " << ex.what();
     }
     return res;
@@ -469,7 +468,7 @@ pair<string, string> saveCurrentReplayToTempFile() {
     fs::path temp_fname = fs::temp_directory_path();
     temp_fname += "/";
 
-    temp_fname += "ocap_";
+    temp_fname += config.logAndTmpPrefix;
     temp_fname += uniqueFileName();
     temp_fname.make_preferred();
 
@@ -601,7 +600,7 @@ fs::path get_config_path_win(HMODULE hModule) {
     wchar_t szPath[MAX_PATH], szDirPath[_MAX_DIR];
     GetModuleFileNameW(hModule, szPath, MAX_PATH);
     _wsplitpath_s(szPath, 0, 0, szDirPath, _MAX_DIR, 0, 0, 0, 0);
-    fs::path res {szDirPath};
+    fs::path res{ szDirPath };
     return res;
 }
 #else
@@ -617,7 +616,7 @@ fs::path get_config_path() {
 void readWriteConfig(fs::path cfg_path = "/etc/ocap") {
 #ifndef _WIN32
     fs::path cfg_so_path = get_config_path(); cfg_so_path.remove_filename();
-    cfg_path = cfg_so_path;  
+    cfg_path = cfg_so_path;
 #endif
     fs::path cfg_name = cfg_path;
     cfg_name += "/OcapReplaySaver2.cfg.json"; cfg_name.make_preferred();
@@ -627,15 +626,13 @@ void readWriteConfig(fs::path cfg_path = "/etc/ocap") {
         LOG(INFO) << "Creating sample config file: " << cfg_name_sample;
 
         json j = {
-            { "addFileUrl", config.addFileUrl },
-            { "dbInsertUrl", config.dbInsertUrl },
             { "httpRequestTimeout", config.httpRequestTimeout },
             { "traceLog", config.traceLog},
-            { "newMode" , config.newMode},
             { "newUrl", config.newUrl},
             { "newServerGameType", config.newServerGameType },
             { "newUrlRequestSecret", config.newUrlRequestSecret},
-            { "logsDir", config.logsDir}
+            { "logsDir", config.logsDir},
+            { "logAndTmpPrefix", config.logAndTmpPrefix},
         };
         std::ofstream out(cfg_name_sample, ofstream::out | ofstream::binary);
         out << j.dump(4) << endl;
@@ -653,55 +650,24 @@ void readWriteConfig(fs::path cfg_path = "/etc/ocap") {
     try {
         cfg >> jcfg;
     }
-    catch(const std::exception &ex)
+    catch (const std::exception& ex)
     {
+        LOG(WARNING) << "Error parsing config:" << ex.what();
     }
 
-    read_config(jcfg, "addFileUrl", config.addFileUrl);
-    read_config(jcfg, "dbInsertUrl", config.dbInsertUrl);
     read_config(jcfg, "httpRequestTimeout", config.httpRequestTimeout);
     read_config(jcfg, "traceLog", config.traceLog);
-    read_config(jcfg, "newMode", config.newMode);
     read_config(jcfg, "newUrl", config.newUrl);
     read_config(jcfg, "newServerGameType", config.newServerGameType);
     read_config(jcfg, "newUrlRequestSecret", config.newUrlRequestSecret);
     read_config(jcfg, "logsDir", config.logsDir);
+    read_config(jcfg, "logAndTmpPrefix", config.logAndTmpPrefix);
 
 }
 #pragma endregion
 
 
 #pragma region CURL
-
-void curlDbInsert(string b_url, string worldname, string missionName, string missionDuration, string filename, int timeout) {
-    LOG(INFO) << worldname << missionName << missionDuration << filename;
-    try {
-        CURL* curl;
-        CURLcode res;
-        curl = curl_easy_init();
-        if (curl) {
-            stringstream ss;
-            ss << b_url << "&worldName="; char* url = curl_easy_escape(curl, worldname.c_str(), 0); ss << url;  curl_free(url);
-            ss << "&missionName="; url = curl_easy_escape(curl, missionName.c_str(), 0); ss << url;  curl_free(url);
-            ss << "&missionDuration="; url = curl_easy_escape(curl, missionDuration.c_str(), 0); ss << url;  curl_free(url);
-            ss << "&filename="; url = curl_easy_escape(curl, filename.c_str(), 0); ss << url;  curl_free(url);
-            curl_easy_setopt(curl, CURLOPT_URL, ss.str().c_str());
-            curl_easy_setopt(curl, CURLOPT_TIMEOUT, (long)timeout);
-            curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
-            res = curl_easy_perform(curl);
-            if (res != CURLE_OK)
-                LOG(ERROR) << "Curl error:" << curl_easy_strerror(res) << ss.str();
-            else
-                LOG(INFO) << "Curl OK:" << ss.str();
-
-            curl_easy_cleanup(curl);
-        }
-    }
-    catch (...) {
-        LOG(ERROR) << "Curl unknown exception!";
-    }
-}
-
 
 void log_curl_exe_string(const string& b_url, const string& worldname, const string& missionName,
     const string& missionDuration, const string& filename, const pair<string, string>& pair_files,
@@ -787,68 +753,6 @@ void curlUploadNew(const string& b_url, const string& worldname, const string& m
     }
 }
 
-void curlUploadFile(string url, string file, string fileName, int timeout) {
-    LOG(INFO) << fileName << file << timeout << url;
-    try {
-        CURL* curl;
-        CURLcode res;
-        curl_mime* form = NULL;
-        curl_mimepart* field = NULL;
-        struct curl_slist* headerlist = NULL;
-        static const char buf[] = "Expect:";
-
-        curl = curl_easy_init();
-        if (curl) {
-            form = curl_mime_init(curl);
-
-            field = curl_mime_addpart(form);
-            curl_mime_name(field, "fileContents");
-            curl_mime_filedata(field, file.c_str());
-
-            field = curl_mime_addpart(form);
-            curl_mime_name(field, "fileName");
-            curl_mime_data(field, fileName.c_str(), CURL_ZERO_TERMINATED);
-            field = curl_mime_addpart(form);
-            curl_mime_name(field, "submit");
-            curl_mime_data(field, "send", CURL_ZERO_TERMINATED);
-            headerlist = curl_slist_append(headerlist, buf);
-
-            curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-            curl_easy_setopt(curl, CURLOPT_TIMEOUT, (long)timeout);
-            curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headerlist);
-            curl_easy_setopt(curl, CURLOPT_MIMEPOST, form);
-            curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
-
-            res = curl_easy_perform(curl);
-
-            stringstream total;
-            if (!res) {
-                curl_off_t ul;
-                double ttotal;
-                res = curl_easy_getinfo(curl, CURLINFO_SIZE_UPLOAD_T, &ul);
-                if (!res)
-                    total << "Uploaded " << ul << " bytes";
-                res = curl_easy_getinfo(curl, CURLINFO_TOTAL_TIME, &ttotal);
-                if (!res)
-                    total << " in " << ttotal << " sec.";
-
-            }
-            total << " URL:" << url;
-
-            if (res != CURLE_OK)
-                LOG(ERROR) << "Curl error:" << curl_easy_strerror(res) << total.str();
-            else
-                LOG(INFO) << "Curl OK:" << total.str();
-
-            curl_mime_free(form);
-            curl_easy_cleanup(curl);
-            curl_slist_free_all(headerlist);
-        }
-    }
-    catch (...) {
-        LOG(ERROR) << "Curl unknown exception!";
-    }
-}
 
 void curlActions(string worldName, string missionName, string duration, string filename, pair<string, string> tfile) {
     LOG(INFO) << worldName << missionName << duration << filename << tfile;
@@ -857,13 +761,9 @@ void curlActions(string worldName, string missionName, string duration, string f
         curl_init = true;
     }
 
-    if (config.newMode) {
-        curlUploadNew(config.newUrl, worldName, missionName, duration, filename, tfile, config.httpRequestTimeout, mission_type, config.newUrlRequestSecret);
-    }
-    else {
-        curlDbInsert(config.dbInsertUrl, worldName, missionName, duration, filename, config.httpRequestTimeout);
-        curlUploadFile(config.addFileUrl, tfile.first, filename, config.httpRequestTimeout);
-    }
+
+    curlUploadNew(config.newUrl, worldName, missionName, duration, filename, tfile, config.httpRequestTimeout, mission_type, config.newUrlRequestSecret);
+
 
     LOG(INFO) << "Finished!";
 }
@@ -1243,8 +1143,8 @@ void commandEvent(const vector<string>& args)
 void initialize_logger(int verb_level = 0) {
     fs::path logName = getAndCreateLogDirectory();
     fs::path logNameExt = logName;
-    logName += "/"; logName += "ocap-main.%datetime{%Y%M%d_%H%m%s}.log"; logName.make_preferred();
-    logNameExt += "/"; logNameExt += "ocap-ext.%datetime{%Y%M%d_%H%m%s}.log"; logNameExt.make_preferred();
+    logName += "/"; logName += config.logAndTmpPrefix; logName += "main.%datetime{%Y%M%d_%H%m%s}.log"; logName.make_preferred();
+    logNameExt += "/"; logNameExt += config.logAndTmpPrefix; logNameExt += "ext.%datetime{%Y%M%d_%H%m%s}.log"; logNameExt.make_preferred();
     LOG(INFO) << "logifles: " << logName << ":" << logNameExt;
 
     el::Configurations defaultConf;
