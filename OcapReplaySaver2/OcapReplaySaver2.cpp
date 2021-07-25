@@ -26,6 +26,7 @@
 #include <tuple>
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 
 #ifdef _WIN32
 #include <Windows.h>
@@ -274,7 +275,7 @@ void command_loop() {
 
             while (true) {
                 unique_lock<mutex> lock2(command_mutex);
-                if (commands.empty())
+                if (commands.empty() || command_thread_shutdown.load())
                 {
                     break;
                 }
@@ -357,6 +358,9 @@ std::string escapeArma3ToJson(const std::string& in) {
 }
 
 // убирает начальные и конечные кавычки в текстк, сдвоенные кавычки превращает в одинарные
+// removes beginning and ending quote signs ('") in text, double quotes "" makes ordinary "
+// sqf str command only escapes double quote signs and add " in the begin and end of value
+// this command perform reverse operation
 void filterSqfStr(const char* s, char* r) {
     bool begin = true;
     while (*s) {
@@ -384,7 +388,6 @@ string filterSqfString(const string& Str) {
 
 
 void prepareMarkerFrames(int frames) {
-    // причесывает "Markers"
     LOG(TRACE) << frames;
 
     try {
@@ -394,16 +397,16 @@ void prepareMarkerFrames(int frames) {
         }
 
         /*
-        маркер сохраняется как:
+        marker saves as:
         [
-        0	:	“тип маркера”, // “” имя иконки маркера
-        1	:	“Подпись маркера”,
-        2	:	12, //кто поставил id
+        0	:	“marker type”, // “” marker icon name
+        1	:	“marker text”,
+        2	:	12, //who created marker, ID
         3	:	“000000”, //цвет в HEX
-        4	:	52, // стартовый фрейм
-        5	:	104, // конечный фрейм
+        4	:	52, // start frame
+        5	:	104, // end frame
         6	:	0, // 0 -east, 1 - west, 2 - resistance, 3- civilian, -1 - global
-        7	:	[[52,[1000,5000],180],[70,[1500,5600],270]] // позиция
+        7	:	[[52,[1000,5000],180],[70,[1500,5600],270]] // positions
         8   : [1,1] // markerSize, NEW
         9   : "ICON" // markerShape NEW
         ]
@@ -414,7 +417,7 @@ void prepareMarkerFrames(int frames) {
         оставить:  2, 3, 4, 5, 6, 7, 9, 10
         */
 
-        // чистит "Markers"
+        // cleans "Markers"
 
         for (auto& ja : j["Markers"]) {
             if (ja[3].get<int>() == -1) {
@@ -463,7 +466,7 @@ std::string uniqueFileName() {
     return res;
 }
 
-pair<string, string> saveCurrentReplayToTempFile() {
+pair<std::string, std::optional<std::string> > saveCurrentReplayToTempFile() {
     fs::path temp_fname = fs::temp_directory_path();
     temp_fname += "/";
 
@@ -498,17 +501,17 @@ pair<string, string> saveCurrentReplayToTempFile() {
 
     vector<uint8_t> archive;
     LOG(INFO) << "Replay saved:" << temp_fname;
-    string archive_name;
+    std::optional<std::string> archive_name;
 
     if (true) {
-        archive_name = temp_fname.string() + ".gz";
-        if (write_compressed_data(archive_name.c_str(), all_replay.c_str(), all_replay.size())) {
-            LOG(INFO) << "Archive saved:" << archive_name << " Removing uncompressed file.";
+        archive_name = std::make_optional<std::string>(temp_fname.string() + ".gz");
+        if (write_compressed_data(archive_name->c_str(), all_replay.c_str(), all_replay.size())) {
+            LOG(INFO) << "Archive saved:" << *archive_name << " Removing uncompressed file.";
             remove(temp_fname);
         }
         else {
-            LOG(WARNING) << "Archive not saved! " << archive_name;
-            archive_name = "";
+            LOG(WARNING) << "Archive not saved! " << *archive_name;
+            archive_name.reset();
         }
     }
 
@@ -669,11 +672,11 @@ void readWriteConfig(fs::path cfg_path = "/etc/ocap") {
 #pragma region CURL
 
 void log_curl_exe_string(const string& b_url, const string& worldname, const string& missionName,
-    const string& missionDuration, const string& filename, const pair<string, string>& pair_files,
+    const string& missionDuration, const string& filename, const std::pair<std::string, std::optional<std::string> >& pair_files,
     int timeout, const string& gametype, const string& secret) {
     stringstream ss;
     ss << "curl ";
-    ss << "-F file=\"@" << pair_files.second << "\" ";
+    ss << "-F file=\"@" << (pair_files.second ? *pair_files.second : pair_files.first) << "\" ";
     ss << "-F filename=\"" << filename << "\" ";
     ss << "-F worldName=\"" << worldname << "\" ";
     ss << "-F missionName=\"" << missionName << "\" ";
@@ -681,17 +684,15 @@ void log_curl_exe_string(const string& b_url, const string& worldname, const str
     ss << "-F type=\"" << gametype << "\" ";
     ss << "-F secret=\"" << "your_password" << "\" ";
     ss << b_url;
-    LOG(INFO) << "String for reupload: ";
-    LOG(INFO) << ss.str();
+    LOG(INFO) << "String for reupload: " << ss.str();
 }
 
-void curlUploadNew(const string& b_url, const string& worldname, const string& missionName, const string& missionDuration, const string& filename, const pair<string, string>& pair_files, int timeout, const string& gametype, const string& secret) {
-    LOG(INFO) << b_url << worldname << missionName << missionDuration << filename << pair_files << timeout << gametype;
+void curlUploadNew(const string& b_url, const string& worldname, const string& missionName, const string& missionDuration, const string& filename, const pair<std::string, std::optional<std::string> >& pair_files, int timeout, const string& gametype, const string& secret) {
+    LOG(INFO) << b_url << worldname << missionName << missionDuration << filename << (pair_files.second ? *pair_files.second : pair_files.first) << timeout << gametype;
     log_curl_exe_string(b_url, worldname, missionName, missionDuration, filename, pair_files, timeout, gametype, secret);
-    CURL* curl;
-    CURLcode res;
-    bool archive = !pair_files.second.empty();
-    string file = archive ? pair_files.second : pair_files.first;
+    CURL* curl{ nullptr };
+    CURLcode res{ CURLE_OK };
+    string file = pair_files.second ? *pair_files.second : pair_files.first;
     static const char buf[] = "Expect:";
     curl = curl_easy_init();
     if (curl) {
@@ -753,17 +754,12 @@ void curlUploadNew(const string& b_url, const string& worldname, const string& m
 }
 
 
-void curlActions(string worldName, string missionName, string duration, string filename, pair<string, string> tfile) {
-    LOG(INFO) << worldName << missionName << duration << filename << tfile;
+void curlActions(string worldName, string missionName, string duration, string filename, pair<std::string, std::optional<std::string> > tfile) {
     if (!curl_init) {
         curl_global_init(CURL_GLOBAL_ALL);
         curl_init = true;
     }
-
-
     curlUploadNew(config.newUrl, worldName, missionName, duration, filename, tfile, config.httpRequestTimeout, mission_type, config.newUrlRequestSecret);
-
-
     LOG(INFO) << "Finished!";
 }
 
@@ -1029,10 +1025,10 @@ void commandSave(const vector<string>& args) {
     if (args.size() > 5) {
         j["tags"] = JSON_STR_FROM_ARG(5);
         mission_type = JSON_STR_FROM_ARG(5);
+        LOG(INFO) << mission_type;
     }
-
     prepareMarkerFrames(j["endFrame"]);
-    pair<string, string> fnames = saveCurrentReplayToTempFile();
+    auto fnames = saveCurrentReplayToTempFile();
     LOG(INFO) << "TMP:" << fnames.first;
 
     string fname = generateResultFileName(j["missionName"]);
@@ -1285,7 +1281,6 @@ struct MainStatic final {
     MainStatic() {
         readWriteConfig();
         initialize_logger();
-
     }
     ~MainStatic() {
         if (curl_init)
