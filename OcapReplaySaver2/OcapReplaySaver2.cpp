@@ -5,7 +5,6 @@
 
 #include <cstring>
 #include <cstdio>
-#include <cctype>
 #include <string>
 #include <ctime>
 #include <fstream>
