@@ -1,7 +1,7 @@
 ﻿// by Zealot
 // MIT licence https://opensource.org/licenses/MIT
 
-#define CURRENT_VERSION "4.4.2.1"
+#define CURRENT_VERSION "4.4.2.2"
 
 #include <cstring>
 #include <cstdio>
@@ -587,7 +587,7 @@ std::string generateResultFileName(const std::string& name) {
 
 template <typename T>
 T& read_config(const json& js, const char* name, T& set_to) {
-    if (js[name].is_null()) {
+    if (!js.is_object() || !js.contains(name) || js[name].is_null()) {
         LOG(WARNING) << name << "is missing in config file!";
         return set_to;
     }
@@ -620,55 +620,61 @@ fs::path get_config_path() {
 #endif
 
 void readWriteConfig(fs::path cfg_path = "/etc/ocap") {
-#ifndef _WIN32
-    fs::path cfg_so_path = get_config_path(); cfg_so_path.remove_filename();
-    cfg_path = cfg_so_path;
-#endif
-    fs::path cfg_name = cfg_path;
-    cfg_name += "/OcapReplaySaver2.cfg.json"; cfg_name.make_preferred();
-    fs::path cfg_name_sample = cfg_path; cfg_name_sample += "/OcapReplaySaver2.cfg.json.sample"; cfg_name_sample.make_preferred();
-
-    if (!std::ifstream(cfg_name_sample)) {
-        LOG(INFO) << "Creating sample config file: " << cfg_name_sample;
-
-        json j = {
-            { "httpRequestTimeout", config.httpRequestTimeout },
-            { "traceLog", config.traceLog},
-            { "newUrl", config.newUrl},
-            { "newServerGameType", config.newServerGameType },
-            { "newUrlRequestSecret", config.newUrlRequestSecret},
-            { "logsDir", config.logsDir},
-            { "logAndTmpPrefix", config.logAndTmpPrefix},
-        };
-        std::ofstream out(cfg_name_sample, ofstream::out | ofstream::binary);
-        out << j.dump(4) << endl;
-    }
-    LOG(INFO) << "Trying to read config file:" << cfg_name;
-    LOG(INFO) << cfg_name.native();
-    ifstream cfg(cfg_name, ifstream::in | ifstream::binary);
-
-    json jcfg;
-    if (!cfg.is_open()) {
-        LOG(WARNING) << "Cannot open cfg file! Using default params.";
-        return;
-    }
-    //TODO: check errors
     try {
-        cfg >> jcfg;
-    }
-    catch (const std::exception& ex)
-    {
-        LOG(WARNING) << "Error parsing config:" << ex.what();
-    }
+#ifndef _WIN32
+        fs::path cfg_so_path = get_config_path(); cfg_so_path.remove_filename();
+        cfg_path = cfg_so_path;
+#endif
+        fs::path cfg_name = cfg_path;
+        cfg_name += "/OcapReplaySaver2.cfg.json"; cfg_name.make_preferred();
+        fs::path cfg_name_sample = cfg_path; cfg_name_sample += "/OcapReplaySaver2.cfg.json.sample"; cfg_name_sample.make_preferred();
 
-    read_config(jcfg, "httpRequestTimeout", config.httpRequestTimeout);
-    read_config(jcfg, "traceLog", config.traceLog);
-    read_config(jcfg, "newUrl", config.newUrl);
-    read_config(jcfg, "newServerGameType", config.newServerGameType);
-    read_config(jcfg, "newUrlRequestSecret", config.newUrlRequestSecret);
-    read_config(jcfg, "logsDir", config.logsDir);
-    read_config(jcfg, "logAndTmpPrefix", config.logAndTmpPrefix);
+        if (!std::ifstream(cfg_name_sample)) {
+            LOG(INFO) << "Creating sample config file: " << cfg_name_sample;
 
+            json j = {
+                { "httpRequestTimeout", config.httpRequestTimeout },
+                { "traceLog", config.traceLog},
+                { "newUrl", config.newUrl},
+                { "newServerGameType", config.newServerGameType },
+                { "newUrlRequestSecret", config.newUrlRequestSecret},
+                { "logsDir", config.logsDir},
+                { "logAndTmpPrefix", config.logAndTmpPrefix},
+            };
+            std::ofstream out(cfg_name_sample, ofstream::out | ofstream::binary);
+            out << j.dump(4) << endl;
+        }
+        LOG(INFO) << "Trying to read config file:" << cfg_name;
+        LOG(INFO) << cfg_name.native();
+        ifstream cfg(cfg_name, ifstream::in | ifstream::binary);
+
+        json jcfg;
+        if (!cfg.is_open()) {
+            LOG(WARNING) << "Cannot open cfg file! Using default params.";
+            return;
+        }
+        try {
+            cfg >> jcfg;
+        }
+        catch (const exception& ex)
+        {
+            LOG(WARNING) << "Error parsing config:" << ex.what();
+        }
+
+        read_config(jcfg, "httpRequestTimeout", config.httpRequestTimeout);
+        read_config(jcfg, "traceLog", config.traceLog);
+        read_config(jcfg, "newUrl", config.newUrl);
+        read_config(jcfg, "newServerGameType", config.newServerGameType);
+        read_config(jcfg, "newUrlRequestSecret", config.newUrlRequestSecret);
+        read_config(jcfg, "logsDir", config.logsDir);
+        read_config(jcfg, "logAndTmpPrefix", config.logAndTmpPrefix);
+    }
+    catch (const exception& ex) {
+        LOG(ERROR) << "Exception:" << ex.what();
+    }
+    catch (...) {
+        LOG(ERROR) << "Unknown exception";
+    }
 }
 #pragma endregion
 
@@ -1153,54 +1159,62 @@ void commandEvent(const vector<string>& args)
 #pragma endregion
 
 void initialize_logger(int verb_level = 0) {
-    fs::path logName = getAndCreateLogDirectory();
-    fs::path logNameExt = logName;
-    logName += "/"; logName += config.logAndTmpPrefix; logName += "main.%datetime{%Y%M%d_%H%m%s}.log"; logName.make_preferred();
-    logNameExt += "/"; logNameExt += config.logAndTmpPrefix; logNameExt += "ext.%datetime{%Y%M%d_%H%m%s}.log"; logNameExt.make_preferred();
-    LOG(INFO) << "logifles: " << logName << ":" << logNameExt;
+    try {
+        fs::path logName = getAndCreateLogDirectory();
+        fs::path logNameExt = logName;
+        logName += "/"; logName += config.logAndTmpPrefix; logName += "main.%datetime{%Y%M%d_%H%m%s}.log"; logName.make_preferred();
+        logNameExt += "/"; logNameExt += config.logAndTmpPrefix; logNameExt += "ext.%datetime{%Y%M%d_%H%m%s}.log"; logNameExt.make_preferred();
+        LOG(INFO) << "logifles: " << logName << ":" << logNameExt;
 
-    el::Configurations defaultConf;
-    defaultConf.setToDefault();
-    defaultConf.setGlobally(el::ConfigurationType::ToFile, "true");
-    defaultConf.setGlobally(el::ConfigurationType::Enabled, "true");
-    defaultConf.setGlobally(el::ConfigurationType::Filename, logName.string());
+        el::Configurations defaultConf;
+        defaultConf.setToDefault();
+        defaultConf.setGlobally(el::ConfigurationType::ToFile, "true");
+        defaultConf.setGlobally(el::ConfigurationType::Enabled, "true");
+        defaultConf.setGlobally(el::ConfigurationType::Filename, logName.string());
 
-    defaultConf.setGlobally(el::ConfigurationType::ToStandardOutput, "false");
-    defaultConf.setGlobally(el::ConfigurationType::Format, "%datetime %thread [%fbase:%line:%func] %level %msg");
-    defaultConf.setGlobally(el::ConfigurationType::MillisecondsWidth, "4");
-    defaultConf.setGlobally(el::ConfigurationType::MaxLogFileSize, "104857600"); // 100 Mb
-    defaultConf.setGlobally(el::ConfigurationType::LogFlushThreshold, "100");
+        defaultConf.setGlobally(el::ConfigurationType::ToStandardOutput, "false");
+        defaultConf.setGlobally(el::ConfigurationType::Format, "%datetime %thread [%fbase:%line:%func] %level %msg");
+        defaultConf.setGlobally(el::ConfigurationType::MillisecondsWidth, "4");
+        defaultConf.setGlobally(el::ConfigurationType::MaxLogFileSize, "104857600"); // 100 Mb
+        defaultConf.setGlobally(el::ConfigurationType::LogFlushThreshold, "100");
 
-    defaultConf.set(el::Level::Trace, el::ConfigurationType::Enabled, "false");
+        defaultConf.set(el::Level::Trace, el::ConfigurationType::Enabled, "false");
 
-    el::Configurations externalConf;
-    externalConf.setToDefault();
-    externalConf.setFromBase(&defaultConf);
-    externalConf.setGlobally(el::ConfigurationType::Filename, logNameExt.string());
-    externalConf.setGlobally(el::ConfigurationType::Format, "%datetime %msg");
+        el::Configurations externalConf;
+        externalConf.setToDefault();
+        externalConf.setFromBase(&defaultConf);
+        externalConf.setGlobally(el::ConfigurationType::Filename, logNameExt.string());
+        externalConf.setGlobally(el::ConfigurationType::Format, "%datetime %msg");
 
-    //el::Loggers::reconfigureAllLoggers(defaultConf);
-    //el::Loggers::setDefaultConfigurations(defaultConf);
-    el::Loggers::reconfigureLogger(el::Loggers::getLogger("default", true), defaultConf);
-    el::Loggers::addFlag(el::LoggingFlag::DisableApplicationAbortOnFatalLog);
-    el::Loggers::addFlag(el::LoggingFlag::AutoSpacing);
-    el::Loggers::addFlag(el::LoggingFlag::ImmediateFlush);
-    //el::Loggers::addFlag(el::LoggingFlag::StrictLogFileSizeCheck);
-    el::Loggers::setVerboseLevel(verb_level);
-    //	el::Loggers::addFlag(el::LoggingFlag::HierarchicalLogging);
-    el::Helpers::validateFileRolling(el::Loggers::getLogger("default"), el::Level::Info);
-
-    el::Loggers::reconfigureLogger(el::Loggers::getLogger("ext", true), externalConf);
-    el::Helpers::validateFileRolling(el::Loggers::getLogger("ext"), el::Level::Info);
-
-    if (config.traceLog) {
-        el::Configurations defaultConf(*el::Loggers::getLogger("default")->configurations());
-        defaultConf.set(el::Level::Trace, el::ConfigurationType::Enabled, "true");
+        //el::Loggers::reconfigureAllLoggers(defaultConf);
+        //el::Loggers::setDefaultConfigurations(defaultConf);
         el::Loggers::reconfigureLogger(el::Loggers::getLogger("default", true), defaultConf);
-    }
+        el::Loggers::addFlag(el::LoggingFlag::DisableApplicationAbortOnFatalLog);
+        el::Loggers::addFlag(el::LoggingFlag::AutoSpacing);
+        el::Loggers::addFlag(el::LoggingFlag::ImmediateFlush);
+        //el::Loggers::addFlag(el::LoggingFlag::StrictLogFileSizeCheck);
+        el::Loggers::setVerboseLevel(verb_level);
+        //	el::Loggers::addFlag(el::LoggingFlag::HierarchicalLogging);
+        el::Helpers::validateFileRolling(el::Loggers::getLogger("default"), el::Level::Info);
 
-    LOG(INFO) << "Logging initialized " << CURRENT_VERSION << " build: " << __TIMESTAMP__;
-    CLOG(INFO, "ext") << "External logging initialized " << CURRENT_VERSION << " build: " << __TIMESTAMP__;
+        el::Loggers::reconfigureLogger(el::Loggers::getLogger("ext", true), externalConf);
+        el::Helpers::validateFileRolling(el::Loggers::getLogger("ext"), el::Level::Info);
+
+        if (config.traceLog) {
+            el::Configurations defaultConf(*el::Loggers::getLogger("default")->configurations());
+            defaultConf.set(el::Level::Trace, el::ConfigurationType::Enabled, "true");
+            el::Loggers::reconfigureLogger(el::Loggers::getLogger("default", true), defaultConf);
+        }
+
+        LOG(INFO) << "Logging initialized " << CURRENT_VERSION << " build: " << __TIMESTAMP__;
+        CLOG(INFO, "ext") << "External logging initialized " << CURRENT_VERSION << " build: " << __TIMESTAMP__;
+    }
+    catch (const exception& ex) {
+        LOG(ERROR) << "Exception:" << ex.what();
+    }
+    catch (...) {
+        LOG(ERROR) << "Unknown exception";
+    }
 }
 
 
