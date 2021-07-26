@@ -1,7 +1,7 @@
 ﻿// by Zealot
 // MIT licence https://opensource.org/licenses/MIT
 
-#define CURRENT_VERSION "4.4.1.0"
+#define CURRENT_VERSION "4.4.2.0"
 
 #include <cstring>
 #include <cstdio>
@@ -56,6 +56,8 @@
 #define CMD_START			":START:" // начать запись ocap реплея
 #define CMD_TIME			":TIME:" // initiate time when recording starts
 #define CMD_FIRED			":FIRED:" // кто-то стрельнул
+#define CMD_VERSION         ":VERSION:" // returns extension version
+#define CMD_SET_VERSION     ":SET:VERSION:" // sets ocap addon version
 
 #define CMD_MARKER_CREATE	":MARKER:CREATE:" // был создан маркер на карте
 #define CMD_MARKER_DELETE	":MARKER:DELETE:" // маркер удалили
@@ -91,6 +93,7 @@ void commandFired(const vector<string>& args);
 void commandMarkerCreate(const vector<string>& args);
 void commandMarkerDelete(const vector<string>& args);
 void commandMarkerMove(const vector<string>& args);
+void commandSetVersion(const vector<string>& args);
 
 
 
@@ -122,7 +125,8 @@ namespace {
         { CMD_FIRED,			commandFired },
         { CMD_MARKER_CREATE,	commandMarkerCreate },
         { CMD_MARKER_DELETE,	commandMarkerDelete },
-        { CMD_MARKER_MOVE,		commandMarkerMove   }
+        { CMD_MARKER_MOVE,		commandMarkerMove   },
+        { CMD_SET_VERSION,		commandSetVersion   }
     };
 
     class ocapException : public std::exception {
@@ -847,18 +851,27 @@ void commandMarkerCreate(const vector<string>& args) {
 
 // :MARKER:DELETE: 2:["SWT_M#126"::0]
 void commandMarkerDelete(const vector<string>& args) {
-    //найти старый маркер и поставить ему текущий номер фрейма
     COMMAND_CHECK_INPUT_PARAMETERS(2);
     COMMAND_CHECK_WRITING_STATE;
-
     json mname = JSON_STR_FROM_ARG(0);
     auto it = find_if(j["Markers"].rbegin(), j["Markers"].rend(), [&](const auto& i) { return i[9] == mname; });
     if (it == j["Markers"].rend()) {
         LOG(ERROR) << "No such marker" << mname;
         throw ocapException("No such marker!");
     }
+    // find old marker and set to it current frame number
     (*it)[3] = JSON_INT_FROM_ARG(1);
 }
+
+// :SET:VERSION: 1:["Ocap addon version 1.1.1.1"]
+void commandSetVersion(const vector<string>& args) {
+    COMMAND_CHECK_INPUT_PARAMETERS(1);
+    COMMAND_CHECK_WRITING_STATE;
+    string ver = JSON_STR_FROM_ARG(0);
+    LOG(INFO) << "Set addon version:" << ver;
+    j["addonVersion"] = ver;
+}
+
 // markerName, frame, position, (opt.) dir , (opt.) alpha
 // :MARKER:MOVE: 3:["SWT_M#156"::0::[3882.53,2041.32]]
 // :MARKER:MOVE: 4:["SWT_M#156"::0::[3882.53,2041.32]::180.0]
@@ -947,6 +960,11 @@ void commandStart(const vector<string>& args) {
     j["missionName"] = JSON_STR_FROM_ARG(1);
     j["missionAuthor"] = JSON_STR_FROM_ARG(2);
     j["captureDelay"] = JSON_FLOAT_FROM_ARG(3);
+
+    string version{ CURRENT_VERSION };
+    version += " ";
+    version += __TIMESTAMP__;
+    j["extensionVersion"] = version;
 
     mission_type = config.newServerGameType;
 
@@ -1189,13 +1207,13 @@ void initialize_logger(int verb_level = 0) {
 
 void __stdcall RVExtensionVersion(char* output, int outputSize)
 {
-    strncpy(output, CURRENT_VERSION, outputSize - 1);
+    strncpy(output, CURRENT_VERSION, outputSize);
 }
 
 void __stdcall RVExtension(char* output, int outputSize, const char* function)
 {
     LOG(ERROR) << "IN:" << function << " OUT:" << "Error: Not supported call";
-    strncpy(output, "Error: Not supported call", outputSize - 1);
+    strncpy(output, "Error: Not supported call", outputSize);
 }
 
 int __stdcall RVExtensionArgs(char* output, int outputSize, const char* function, const char** args, int argsCnt)
@@ -1216,6 +1234,15 @@ int __stdcall RVExtensionArgs(char* output, int outputSize, const char* function
     try {
         string str_function(function);
         vector<string> str_args;
+
+        if (str_function == CMD_VERSION) {
+            string version{ CURRENT_VERSION };
+            version += " ";
+            version += __TIMESTAMP__;
+            LOG(TRACE) << "Requested version:" << version;
+            strncpy(output, version.c_str(), outputSize);
+            return res;
+        }
 
         for (int i = 0; i < argsCnt; ++i)
         {
