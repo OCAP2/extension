@@ -1,7 +1,7 @@
 ﻿// by Zealot
 // MIT licence https://opensource.org/licenses/MIT
 
-#define CURRENT_VERSION "4.4.2.0"
+#define CURRENT_VERSION "4.4.2.1"
 
 #include <cstring>
 #include <cstdio>
@@ -962,9 +962,8 @@ void commandStart(const vector<string>& args) {
     j["captureDelay"] = JSON_FLOAT_FROM_ARG(3);
 
     string version{ CURRENT_VERSION };
-    version += " ";
-    version += __TIMESTAMP__;
     j["extensionVersion"] = version;
+    j["extensionBuild"] = __TIMESTAMP__;
 
     mission_type = config.newServerGameType;
 
@@ -1236,9 +1235,9 @@ int __stdcall RVExtensionArgs(char* output, int outputSize, const char* function
         vector<string> str_args;
 
         if (str_function == CMD_VERSION) {
-            string version{ CURRENT_VERSION };
-            version += " ";
-            version += __TIMESTAMP__;
+            stringstream sstmp;
+            sstmp << "[\"" << CURRENT_VERSION << "\",\"" << __TIMESTAMP__ << "\"]";
+            string version{ sstmp.str() };
             LOG(TRACE) << "Requested version:" << version;
             strncpy(output, version.c_str(), outputSize);
             return res;
