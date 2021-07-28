@@ -1,7 +1,7 @@
 ﻿// by Zealot
 // MIT licence https://opensource.org/licenses/MIT
 
-#define CURRENT_VERSION "4.4.2.2"
+#define CURRENT_VERSION "4.4.2.3"
 
 #include <cstring>
 #include <cstdio>
@@ -100,6 +100,7 @@ void commandSetVersion(const vector<string>& args);
 namespace {
     using json = nlohmann::json;
     namespace fs = std::filesystem;
+    using std::string;
 
     thread command_thread;
     queue<tuple<string, vector<string> > > commands;
@@ -109,7 +110,8 @@ namespace {
     json j;
     bool curl_init = false;
     atomic<bool> is_writing(false);
-    std::string mission_type;
+    string mission_type;
+    string addon_version;
 
     std::unordered_map<std::string, std::function<void(const vector<string>&)> > dll_commands = {
         { CMD_NEW_VEH,			commandNewVeh },
@@ -872,10 +874,10 @@ void commandMarkerDelete(const vector<string>& args) {
 // :SET:VERSION: 1:["Ocap addon version 1.1.1.1"]
 void commandSetVersion(const vector<string>& args) {
     COMMAND_CHECK_INPUT_PARAMETERS(1);
-    COMMAND_CHECK_WRITING_STATE;
-    string ver = JSON_STR_FROM_ARG(0);
-    LOG(INFO) << "Set addon version:" << ver;
-    j["addonVersion"] = ver;
+    addon_version = JSON_STR_FROM_ARG(0);
+    LOG(INFO) << "Set addon version:" << addon_version;
+    if (is_writing)
+        j["addonVersion"] = addon_version;
 }
 
 // markerName, frame, position, (opt.) dir , (opt.) alpha
@@ -970,6 +972,8 @@ void commandStart(const vector<string>& args) {
     string version{ CURRENT_VERSION };
     j["extensionVersion"] = version;
     j["extensionBuild"] = __TIMESTAMP__;
+    if (!addon_version.empty())
+        j["addonVersion"] = addon_version;
 
     mission_type = config.newServerGameType;
 
@@ -1225,6 +1229,15 @@ void __stdcall RVExtensionVersion(char* output, int outputSize)
 
 void __stdcall RVExtension(char* output, int outputSize, const char* function)
 {
+    string str_function(function);
+    if (str_function == CMD_VERSION) {
+        stringstream sstmp;
+        sstmp << "[\"" << CURRENT_VERSION << "\",\"" << __TIMESTAMP__ << "\"]";
+        string version{ sstmp.str() };
+        LOG(TRACE) << "Requested version:" << version;
+        strncpy(output, version.c_str(), outputSize);
+        return;
+    }
     LOG(ERROR) << "IN:" << function << " OUT:" << "Error: Not supported call";
     strncpy(output, "Error: Not supported call", outputSize);
 }
