@@ -337,3 +337,5 @@ $RECYCLE.BIN/
 *.lnk
 *.exe
 
+
+database/.env
