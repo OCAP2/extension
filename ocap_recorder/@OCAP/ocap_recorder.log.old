@@ -1,3 +1,0 @@
-2023/07/11 22:08:25 main.go:806: main.go:206:checkServerStatus [WARN] OCAP Frontend is offline
-2023/07/11 22:08:25 main.go:806: main.go:195:loadConfig [INFO] Config loaded
-2023/07/11 22:08:25 main.go:145: Log location specified in config as ./OCAPLOG\ocap_recorder.log

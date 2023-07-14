@@ -9,7 +9,6 @@ package main
 import "C" // This is required to import the C code
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,13 +25,12 @@ import (
 	"unsafe"
 
 	"github.com/glebarez/sqlite"
-	"github.com/twpayne/go-geom"
-	"github.com/twpayne/go-geom/encoding/ewkbhex"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
+
+	"ocap_recorder/defs"
 )
 
 var EXTENSION_VERSION string = "0.0.1"
@@ -54,17 +52,16 @@ var DB_VALID bool = false
 
 var (
 	// cache soldiers by ocap id
-	soldiersCache map[uint16]uint = make(map[uint16]uint)
+	soldiersCache defs.OcapIDCache = defs.OcapIDCache{}
 	// channels for receiving new data and filing to DB
-	newSoldierChan   chan []string
-	soldierStateChan chan []string
-	newVehicleChan   chan []string
-)
+	newSoldierChan      chan []string
+	newSoldierStateChan chan []string
+	newVehicleChan      chan []string
 
-// queue struct
-type queue struct {
-	items []interface{}
-}
+	// testing
+	TEST_DATA         bool = false
+	TEST_DATA_TIMEINC      = defs.SafeCounter{}
+)
 
 type APIConfig struct {
 	ServerURL string `json:"serverUrl"`
@@ -181,186 +178,6 @@ func checkServerStatus() {
 	}
 }
 
-// /////////////////////
-// DATABASE STRUCTURES //
-// /////////////////////
-
-// key value store for OCAP Group info, later use in frontend?
-type OcapInfo struct {
-	gorm.Model
-	GroupName        string `json:"groupName" gorm:"size:127"` // primary key
-	GroupDescription string `json:"groupDescription" gorm:"size:255"`
-	GroupWebsite     string `json:"groupURL" gorm:"size:255"`
-	GroupLogo        string `json:"groupLogoURL" gorm:"size:255"`
-}
-
-// setup status of the database
-type DatabaseStatus struct {
-	gorm.Model
-	SetupTime             time.Time `json:"setupTime"`
-	TablesMigrated        bool      `json:"tablesMigrated"`
-	TablesMigratedTime    time.Time `json:"tablesMigratedTime"`
-	HyperTablesConfigured bool      `json:"hyperTablesConfigured"`
-}
-
-type World struct {
-	gorm.Model
-	Author            string  `json:"author" gorm:"size:64"`
-	WorkshopID        string  `json:"workshopID" gorm:"size:64"`
-	DisplayName       string  `json:"displayName" gorm:"size:127"`
-	WorldName         string  `json:"worldName" gorm:"size:127"`
-	WorldNameOriginal string  `json:"worldNameOriginal" gorm:"size:127"`
-	WorldSize         float32 `json:"worldSize"`
-	Latitude          float32 `json:"latitude"`
-	Longitude         float32 `json:"longitude"`
-	Missions          []Mission
-}
-
-type Mission struct {
-	gorm.Model
-	MissionName       string    `json:"missionName" gorm:"size:200"`
-	BriefingName      string    `json:"briefingName" gorm:"size:200"`
-	MissionNameSource string    `json:"missionNameSource" gorm:"size:200"`
-	OnLoadName        string    `json:"onLoadName" gorm:"size:200"`
-	Author            string    `json:"author" gorm:"size:200"`
-	ServerName        string    `json:"serverName" gorm:"size:200"`
-	ServerProfile     string    `json:"serverProfile" gorm:"size:200"`
-	StartTime         time.Time `json:"missionStart" gorm:"type:timestamptz;index:idx_mission_start"` // time.Time
-	WorldName         string    `json:"worldName" gorm:"-"`
-	WorldID           uint
-	World             World     `gorm:"foreignkey:WorldID"`
-	Tag               string    `json:"tag" gorm:"size:127"`
-	Soldiers          []Soldier `gorm:"foreignkey:MissionID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
-	// Vehicles               []Vehicle               `gorm:"foreignkey:MissionID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
-	// EventPlayerConnects    []EventPlayerConnect    `gorm:"foreignkey:MissionID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
-	// EventPlayerDisconnects []EventPlayerDisconnect `gorm:"foreignkey:MissionID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
-}
-
-type Soldier struct {
-	gorm.Model
-	Mission         Mission   `gorm:"foreignkey:MissionID"`
-	MissionID       uint      `json:"missionId"`
-	JoinTime        time.Time `json:"joinTime" gorm:"type:timestamptz;NOT NULL;"`
-	JoinFrame       uint      `json:"joinFrame"`
-	OcapID          uint16    `json:"ocapId" gorm:"uniqueIndex:idx_ocap_id"`
-	UnitName        string    `json:"unitName" gorm:"size:64"`
-	GroupID         string    `json:"groupId" gorm:"size:64"`
-	Side            string    `json:"side" gorm:"size:16"`
-	IsPlayer        bool      `json:"isPlayer" gorm:"default:false"`
-	RoleDescription string    `json:"roleDescription" gorm:"size:64"`
-}
-
-// SoldierState inherits from Frame
-type SoldierState struct {
-	// composite primary key with ID and OCAPID
-	Time         time.Time `json:"time" gorm:"type:timestamptz;NOT NULL;primarykey;"`
-	SoldierID    uint      `json:"soldierId"`
-	Soldier      Soldier   `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:SoldierID;"`
-	CaptureFrame uint      `json:"captureFrame"`
-
-	Position     GPSCoordinates `json:"position" gorm:"type:point"`
-	ElevationASL float32        `json:"elevationASL"`
-	Bearing      uint16         `json:"bearing" gorm:"default:0"`
-	Lifestate    uint8          `json:"lifestate" gorm:"default:0"`
-	InVehicle    bool           `json:"inVehicle" gorm:"default:false"`
-	UnitName     string         `json:"unitName" gorm:"size:64"`
-	IsPlayer     bool           `json:"isPlayer" gorm:"default:false"`
-	CurrentRole  string         `json:"currentRole" gorm:"size:64"`
-}
-
-type Vehicle struct {
-	VehicleClass string         `json:"vehicleClass" gorm:"size:64"`
-	DisplayName  string         `json:"displayName" gorm:"size:64"`
-	Position     GPSCoordinates `json:"position" gorm:"type:point"`
-	Bearing      uint16         `json:"bearing"`
-	IsAlive      bool           `json:"isAlive"`
-	Crew         string         `json:"crew" gorm:"size:255"`
-}
-
-// event types
-type EventPlayerConnect struct {
-	gorm.Model
-	Mission      Mission `gorm:"foreignkey:MissionID"`
-	MissionID    uint
-	CaptureFrame uint32 `json:"captureFrame"`
-	EventType    string `json:"eventType" gorm:"size:32"`
-	PlayerUID    string `json:"playerUid" gorm:"index:idx_player_uid;size:20"`
-	ProfileName  string `json:"playerName" gorm:"size:32"`
-}
-
-type EventPlayerDisconnect struct {
-	gorm.Model
-	Mission      Mission `gorm:"foreignkey:MissionID"`
-	MissionID    uint
-	CaptureFrame uint32 `json:"captureFrame"`
-	EventType    string `json:"eventType" gorm:"size:32"`
-	PlayerUID    string `json:"playerUid" gorm:"index:idx_player_uid;size:20"`
-	ProfileName  string `json:"playerName" gorm:"size:32"`
-}
-
-// GEO POINTS
-// https://pkg.go.dev/github.com/StampWallet/backend/internal/database
-type GPSCoordinates geom.Point
-
-var ErrInvalidCoordinates = errors.New("invalid coordinates")
-
-func (g *GPSCoordinates) Scan(input interface{}) error {
-	gt, err := ewkbhex.Decode(input.(string))
-	if err != nil {
-		return err
-	}
-	gp := gt.(*geom.Point)
-	gc := GPSCoordinates(*gp)
-	*g = gc
-	return nil
-}
-
-func (g *GPSCoordinates) ToString() string {
-	return strconv.FormatFloat(g.Coords().X(), 'f', -1, 64) +
-		"," +
-		strconv.FormatFloat(g.Coords().Y(), 'f', -1, 64)
-}
-
-func GPSCoordinatesFromString(coords string) (GPSCoordinates, error) {
-	sp := strings.Split(coords, ",")
-	if len(sp) != 2 {
-		return GPSCoordinates{}, ErrInvalidCoordinates
-	}
-	long, err := strconv.ParseFloat(sp[0], 64)
-	if err != nil {
-		return GPSCoordinates{}, ErrInvalidCoordinates
-	}
-	lat, err := strconv.ParseFloat(sp[1], 64)
-	if err != nil {
-		return GPSCoordinates{}, ErrInvalidCoordinates
-	}
-	return GPSCoordinates(*geom.NewPointFlat(geom.XY, []float64{long, lat})), nil
-}
-
-func (g GPSCoordinates) GormDataType() string {
-	return "geometry"
-}
-
-func (g GPSCoordinates) GormValue(ctx context.Context, db *gorm.DB) clause.Expr {
-	b := geom.Point(g)
-	srid := b.SRID()
-	var vars []interface{} = []interface{}{fmt.Sprintf(`SRID=%d;POINT(0 0)"`, srid)}
-	if !b.Empty() {
-		vars = []interface{}{fmt.Sprintf("SRID=%d;POINT(%f %f)", srid, b.X(), b.Y())}
-	}
-	return clause.Expr{
-		SQL:  "ST_PointFromText(?)",
-		Vars: vars,
-	}
-}
-
-func GPSFromCoords(longitude float64, latitude float64, srid int) GPSCoordinates {
-	if srid == 0 {
-		srid = 4326
-	}
-	return GPSCoordinates(*geom.NewPointFlat(geom.XY, geom.Coord{longitude, latitude}).SetSRID(srid))
-}
-
 ///////////////////////
 // DATABASE OPS //
 ///////////////////////
@@ -371,7 +188,7 @@ func getLocalDB() (err error) {
 	DB, err = gorm.Open(sqlite.Open(LOCAL_DB_FILE), &gorm.Config{
 		PrepareStmt:            true,
 		SkipDefaultTransaction: true,
-		CreateBatchSize:        2000,
+		CreateBatchSize:        3000,
 		Logger:                 logger.Default.LogMode(logger.Silent),
 	})
 	if err != nil {
@@ -379,6 +196,46 @@ func getLocalDB() (err error) {
 		return err
 	} else {
 		writeLog(functionName, "Using local SQlite DB", "INFO")
+
+		// set PRAGMAS
+		err = DB.Exec("PRAGMA user_version = 1;").Error
+		if err != nil {
+			writeLog(functionName, "Error setting user_version PRAGMA", "ERROR")
+			return err
+		}
+		err = DB.Exec("PRAGMA journal_mode = WAL;").Error
+		if err != nil {
+			writeLog(functionName, "Error setting journal_mode PRAGMA", "ERROR")
+			return err
+		}
+		err = DB.Exec("PRAGMA synchronous = NORMAL;").Error
+		if err != nil {
+			writeLog(functionName, "Error setting synchronous PRAGMA", "ERROR")
+			return err
+		}
+		err = DB.Exec("PRAGMA cache_size = -32000;").Error
+		if err != nil {
+			writeLog(functionName, "Error setting cache_size PRAGMA", "ERROR")
+			return err
+		}
+		err = DB.Exec("PRAGMA temp_store = MEMORY;").Error
+		if err != nil {
+			writeLog(functionName, "Error setting temp_store PRAGMA", "ERROR")
+			return err
+		}
+
+		err = DB.Exec("PRAGMA page_size = 32768;").Error
+		if err != nil {
+			writeLog(functionName, "Error setting page_size PRAGMA", "ERROR")
+			return err
+		}
+
+		err = DB.Exec("PRAGMA mmap_size = 30000000000;").Error
+		if err != nil {
+			writeLog(functionName, "Error setting mmap_size PRAGMA", "ERROR")
+			return err
+		}
+
 		DB_VALID = true
 		return nil
 	}
@@ -490,11 +347,11 @@ func getDB() (err error) {
 		}
 	}
 
-	databaseStatus := DatabaseStatus{}
+	databaseStatus := defs.DatabaseStatus{}
 	// Check if DatabaseStatus table exists
-	if !DB.Migrator().HasTable(&DatabaseStatus{}) {
+	if !DB.Migrator().HasTable(&defs.DatabaseStatus{}) {
 		// Create the table
-		err = DB.AutoMigrate(&DatabaseStatus{})
+		err = DB.AutoMigrate(&defs.DatabaseStatus{})
 		if err != nil {
 			writeLog(functionName, fmt.Sprintf(`Failed to create database_status table. Err: %s`, err), "ERROR")
 			DB_VALID = false
@@ -522,16 +379,16 @@ func getDB() (err error) {
 	}
 
 	// Check if OcapInfo table exists
-	if !DB.Migrator().HasTable(&OcapInfo{}) {
+	if !DB.Migrator().HasTable(&defs.OcapInfo{}) {
 		// Create the table
-		err = DB.AutoMigrate(&OcapInfo{})
+		err = DB.AutoMigrate(&defs.OcapInfo{})
 		if err != nil {
 			writeLog(functionName, fmt.Sprintf(`Failed to create ocap_info table. Err: %s`, err), "ERROR")
 			DB_VALID = false
 			return err
 		}
 		// Create the default settings
-		err = DB.Create(&OcapInfo{
+		err = DB.Create(&defs.OcapInfo{
 			GroupName:        "OCAP",
 			GroupDescription: "OCAP",
 			GroupLogo:        "https://i.imgur.com/0Q4z0ZP.png",
@@ -548,10 +405,10 @@ func getDB() (err error) {
 	if !databaseStatus.TablesMigrated {
 		// Migrate the schema
 		err = DB.AutoMigrate(
-			&World{},
-			&Mission{},
-			&Soldier{},
-			&SoldierState{},
+			&defs.World{},
+			&defs.Mission{},
+			&defs.Soldier{},
+			&defs.SoldierState{},
 		)
 		if err != nil {
 			writeLog(functionName, fmt.Sprintf(`Failed to migrate DB schema. Err: %s`, err), "ERROR")
@@ -601,6 +458,13 @@ func getDB() (err error) {
 	}
 
 	writeLog(functionName, "DB initialized", "INFO")
+
+	// init cache
+	soldiersCache.Init()
+	TEST_DATA_TIMEINC.Set(0)
+	// set up channels
+	newSoldierChan = make(chan []string, 15000)
+	newSoldierStateChan = make(chan []string, 15000)
 	return nil
 }
 
@@ -655,15 +519,15 @@ func validateHypertables(tables map[string][]string) (err error) {
 }
 
 // WORLDS AND MISSIONS
-var CurrentWorld World
-var CurrentMission Mission
+var CurrentWorld defs.World
+var CurrentMission defs.Mission
 
 // logNewMission logs a new mission to the database and associates the world it's played on
 func logNewMission(data []string) (err error) {
 	functionName := ":NEW:MISSION:"
 
-	world := World{}
-	mission := Mission{}
+	world := defs.World{}
+	mission := defs.Mission{}
 	// unmarshal data[0]
 	err = json.Unmarshal([]byte(data[0]), &world)
 	if err != nil {
@@ -710,54 +574,86 @@ func logNewMission(data []string) (err error) {
 	CurrentWorld = world
 	CurrentMission = mission
 
-	// set up channels
-	if newSoldierChan == nil {
-		newSoldierChan = make(chan []string, 2500)
-	}
-	if soldierStateChan == nil {
-		soldierStateChan = make(chan []string, 2500)
-	}
-
-	go func() {
+	// start goroutines
+	go func() { // write new soldiers
 		for {
 			if !DB_VALID {
 				return
 			}
-			select {
-			case data := <-newSoldierChan:
-				// workaround for appending cap frame in sqf rather than using it as first element
-				frameStr := data[len(data)-1]
-				data[len(data)-1] = ""    // Erase element (write zero value)
-				data = data[:len(data)-1] // [A B]
 
-				capframe, err := strconv.ParseUint(frameStr, 10, 32)
-				if err != nil {
-					writeLog(functionName, fmt.Sprintf(`Error converting capture frame to int: %s`, err), "ERROR")
-					continue
-				}
+			soldiersToWrite := defs.SoldiersQueue{}
 
-				// fix received data
-				for i, v := range data {
-					data[i] = fixEscapeQuotes(trimQuotes(v))
-				}
-				logNewSoldier(uint(capframe), data)
-			case data := <-soldierStateChan:
-				frameStr := data[len(data)-1]
-				data[len(data)-1] = ""    // Erase element (write zero value)
-				data = data[:len(data)-1] // [A B]
-
-				capframe, err := strconv.ParseUint(frameStr, 10, 32)
-				if err != nil {
-					writeLog(functionName, fmt.Sprintf(`Error converting capture frame to int: %s`, err), "ERROR")
-					continue
-				}
-
-				// fix received data
-				for i, v := range data {
-					data[i] = fixEscapeQuotes(trimQuotes(v))
-				}
-				logSoldierState(uint(capframe), data[1:])
+			for i := 0; i < len(newSoldierChan); i++ {
+				soldiersToWrite.Push([]defs.Soldier{
+					logNewSoldier(<-newSoldierChan),
+				})
 			}
+
+			if soldiersToWrite.Len() == 0 {
+				time.Sleep(1 * time.Second)
+				continue
+			}
+
+			soldiersToWriteNow := soldiersToWrite.GetAndEmpty()
+			txStart := time.Now()
+			tx := DB.Begin()
+			err = tx.Model(&defs.Soldier{}).CreateInBatches(soldiersToWriteNow, 10000).Error
+			if err != nil {
+				writeLog(functionName, fmt.Sprintf(`Error creating soldiers: %v`, err), "ERROR")
+				tx.Rollback()
+				continue
+			}
+			err = tx.Commit().Error
+			if err != nil {
+				writeLog(functionName, fmt.Sprintf(`Error committing transaction: %v`, err), "ERROR")
+				tx.Rollback()
+				continue
+			}
+			txEnd := time.Now()
+			fmt.Printf("Soldiers TX time: %v\n", txEnd.Sub(txStart))
+
+			// sleep
+			time.Sleep(500 * time.Millisecond)
+		}
+	}()
+	go func() { // write soldier states
+		for {
+			if !DB_VALID {
+				return
+			}
+
+			soldierStatesToWrite := defs.SoldierStatesQueue{}
+
+			for i := 0; i < len(newSoldierStateChan); i++ {
+				soldierStatesToWrite.Push([]defs.SoldierState{
+					logSoldierState(<-newSoldierStateChan),
+				})
+			}
+
+			if soldierStatesToWrite.Len() == 0 {
+				time.Sleep(1000 * time.Millisecond)
+				continue
+			}
+
+			txStart := time.Now()
+			tx := DB.Begin()
+			err = tx.Model(&defs.SoldierState{}).CreateInBatches(soldierStatesToWrite.GetAndEmpty(), 2000).Error
+			if err != nil {
+				writeLog(functionName, fmt.Sprintf(`Error creating soldier states: %v`, err), "ERROR")
+				tx.Rollback()
+				continue
+			}
+			err = tx.Commit().Error
+			if err != nil {
+				writeLog(functionName, fmt.Sprintf(`Error committing transaction: %v`, err), "ERROR")
+				tx.Rollback()
+				continue
+
+			}
+			txEnd := time.Now()
+			fmt.Printf("SoldierStates TX time: %v\n", txEnd.Sub(txStart))
+			// sleep
+			time.Sleep(1000 * time.Millisecond)
 		}
 	}()
 	return nil
@@ -766,20 +662,30 @@ func logNewMission(data []string) (err error) {
 // (UNITS) AND VEHICLES
 
 // logNewSoldier logs a new soldier to the database
-func logNewSoldier(capFrame uint, data []string) {
+func logNewSoldier(data []string) (soldier defs.Soldier) {
 	functionName := ":NEW:SOLDIER:"
 	// check if DB is valid
 	if !DB_VALID {
 		return
 	}
 
-	var err error
-	var soldier Soldier
+	// fix received data
+	for i, v := range data {
+		data[i] = fixEscapeQuotes(trimQuotes(v))
+	}
+
+	// workaround for appending cap frame in sqf rather than using it as first element
+	frameStr := data[0]
+	capframe, err := strconv.ParseInt(frameStr, 10, 64)
+	if err != nil {
+		writeLog(functionName, fmt.Sprintf(`Error converting capture frame to int: %s`, err), "ERROR")
+		return
+	}
 
 	// parse array
-	soldier.Mission = CurrentMission
+	soldier.MissionID = CurrentMission.ID
 	soldier.JoinTime = time.Now()
-	soldier.JoinFrame = capFrame
+	soldier.JoinFrame = uint(capframe)
 	ocapId, err := strconv.ParseUint(data[1], 10, 64)
 	if err != nil {
 		writeLog(functionName, fmt.Sprintf(`Error converting ocapId to uint: %v`, err), "ERROR")
@@ -796,24 +702,37 @@ func logNewSoldier(capFrame uint, data []string) {
 	}
 	soldier.RoleDescription = data[6]
 
+	return soldier
+
 	// log to database
-	err = DB.Create(&soldier).Error
-	if err != nil {
-		writeLog(functionName, fmt.Sprintf(`Error creating soldier: %v -- %v`, soldier, err), "ERROR")
-		return
-	}
-	soldiersCache[soldier.OcapID] = soldier.ID
+	// err = tx.Create(&soldier).Error
+	// if err != nil {
+	// 	writeLog(functionName, fmt.Sprintf(`Error creating soldier: %v -- %v`, soldier, err), "ERROR")
+	// 	return
+	// }
+
 }
 
 // logSoldierState logs a SoldierState state to the database
-func logSoldierState(capframe uint, data []string) {
+func logSoldierState(data []string) (soldierState defs.SoldierState) {
 	functionName := ":NEW:SOLDIER:STATE:"
 	// check if DB is valid
 	if !DB_VALID {
 		return
 	}
 
-	var SoldierState SoldierState
+	// fix received data
+	for i, v := range data {
+		data[i] = fixEscapeQuotes(trimQuotes(v))
+	}
+
+	frameStr := data[len(data)-1]
+	capframe, err := strconv.ParseInt(frameStr, 10, 64)
+	if err != nil {
+		writeLog(functionName, fmt.Sprintf(`Error converting capture frame to int: %s`, err), "ERROR")
+		return
+	}
+	soldierState.CaptureFrame = uint(capframe)
 
 	// parse data in struct - convert strings when necessary
 	ocapId, err := strconv.ParseUint(data[0], 10, 64)
@@ -823,52 +742,76 @@ func logSoldierState(capframe uint, data []string) {
 	}
 
 	// try and find soldier in cache to associate
-	if _, ok := soldiersCache[uint16(ocapId)]; !ok {
-		SoldierState.SoldierID = soldiersCache[uint16(ocapId)]
-	} else {
-		writeLog(functionName, fmt.Sprintf(`Error finding soldier in cache, failed to write initial data: %d -- %v`, ocapId, err), "ERROR")
+	// if soldierId, ok := soldiersCache.Get(uint16(ocapId)); ok {
+	// 	soldierState.SoldierID = soldierId
+	// } else {
+	// 	json, _ := json.Marshal(data)
+	// 	writeLog(functionName, fmt.Sprintf("Error finding soldier in cache, failed to write initial data:\n%s\n%v", json, err), "ERROR")
+	// 	return
+	// }
+
+	// try and find soldier in DB to associate
+	soldierID := uint(0)
+	err = DB.Model(&defs.Soldier{}).Select("id").Order("join_time DESC").Where("ocap_id = ?", uint16(ocapId)).First(&soldierID).Error
+	// for SQLite, time will be string, so we need to convert it to time.Time
+	if err != nil {
+		json, _ := json.Marshal(data)
+		writeLog(functionName, fmt.Sprintf("Error finding soldier in DB:\n%s\n%v", json, err), "ERROR")
 		return
 	}
-	SoldierState.CaptureFrame = uint(capframe)
-	SoldierState.Time = time.Now()
+	soldierState.SoldierID = soldierID
+
+	// when loading test data, set time to random offset
+	if TEST_DATA {
+		newTime := time.Now().Add(time.Duration(TEST_DATA_TIMEINC.Value()) * time.Second)
+		TEST_DATA_TIMEINC.Inc()
+		soldierState.Time = newTime
+	} else {
+		soldierState.Time = time.Now()
+	}
 
 	// parse pos from an arma string
 	pos := data[1]
 	pos = strings.TrimPrefix(pos, "[")
 	pos = strings.TrimSuffix(pos, "]")
-	posArr := strings.Split(pos, ",")
-	coordX, _ := strconv.ParseFloat(posArr[0], 64)
-	coordY, _ := strconv.ParseFloat(posArr[1], 64)
-	coordZ, _ := strconv.ParseFloat(posArr[2], 64)
-	SoldierState.Position = GPSFromCoords(coordX, coordY, 3857)
-	SoldierState.ElevationASL = float32(coordZ)
+	point, elev, err := defs.GPSFromString(pos, 3857, SAVE_LOCAL)
+	if err != nil {
+		json, _ := json.Marshal(data)
+		writeLog(functionName, fmt.Sprintf("Error converting position to Point:\n%s\n%v", json, err), "ERROR")
+		return
+	}
+	// fmt.Println(point.ToString())
+	soldierState.Position = point
+	soldierState.ElevationASL = float32(elev)
+
+	// coordX, _ := strconv.ParseFloat(posArr[0], 64)
+	// coordY, _ := strconv.ParseFloat(posArr[1], 64)
+	// coordZ, _ := strconv.ParseFloat(posArr[2], 64)
+	// soldierState.Position = defs.GPSFromCoords(coordX, coordY, 3857)
+	// fmt.Println(soldierState.Position.ToString())
+	// soldierState.ElevationASL = float32(coordZ)
 
 	// bearing
 	bearing, _ := strconv.Atoi(data[2])
-	SoldierState.Bearing = uint16(bearing)
+	soldierState.Bearing = uint16(bearing)
 	// lifestate
 	lifeState, _ := strconv.Atoi(data[3])
-	SoldierState.Lifestate = uint8(lifeState)
+	soldierState.Lifestate = uint8(lifeState)
 	// in vehicle
-	SoldierState.InVehicle, _ = strconv.ParseBool(data[4])
+	soldierState.InVehicle, _ = strconv.ParseBool(data[4])
 	// name
-	SoldierState.UnitName = data[5]
+	soldierState.UnitName = data[5]
 	// is player
 	isPlayer, err := strconv.ParseBool(data[6])
 	if err != nil {
 		writeLog(functionName, fmt.Sprintf(`Error converting isPlayer to bool: %v`, err), "ERROR")
 		return
 	}
-	SoldierState.IsPlayer = isPlayer
+	soldierState.IsPlayer = isPlayer
 	// current role
-	SoldierState.CurrentRole = data[7]
+	soldierState.CurrentRole = data[7]
 
-	// write
-	err = DB.Create(&SoldierState).Error
-	if err != nil {
-		writeLog(functionName, fmt.Sprintf(`Error creating soldier state: %v -- %v`, SoldierState, err), "ERROR")
-		return
-	}
+	return soldierState
 }
 
 func logVehicle(data []string) {
@@ -903,7 +846,7 @@ func processEvent(data []string) {
 	event := data[1]
 	switch event {
 	case "connected":
-		object := EventPlayerConnect{}
+		object := defs.EventPlayerConnect{}
 		captureFrame, _ := strconv.Atoi(data[0])
 		object.CaptureFrame = uint32(captureFrame)
 		object.ProfileName = data[2]
@@ -913,7 +856,7 @@ func processEvent(data []string) {
 		// write
 		DB.Create(&object)
 	case "disconnected":
-		object := EventPlayerDisconnect{}
+		object := defs.EventPlayerDisconnect{}
 		captureFrame, _ := strconv.Atoi(data[0])
 		object.CaptureFrame = uint32(captureFrame)
 		object.ProfileName = data[2]
@@ -1016,7 +959,7 @@ func goRVExtensionArgs(output *C.char, outputsize C.size_t, input *C.char, argv 
 	case ":NEW:SOLDIER:":
 		newSoldierChan <- out
 	case ":NEW:SOLDIER:STATE:":
-		soldierStateChan <- out
+		newSoldierStateChan <- out
 		temp = `[0, "Logging unit"]`
 
 	case ":LOG:VEHICLE:":
@@ -1138,11 +1081,11 @@ func populateDemoData() {
 
 	// declare test size counts
 	var (
-		numWorlds       int = 200
-		numMissions     int = 150
-		missionDuration int = 60 * 30                                          // s * value = seconds
-		numUnits        int = numMissions * 100                                // num missions * num unique units
-		numSoldiers     int = int(math.Ceil(float64(numUnits) * float64(0.8))) // numUnits / 3
+		numMissions        int = 5
+		missionDuration    int = 60 * 60 // s * value = seconds
+		numUnitsPerMission int = 100
+		numUnits           int = numMissions * numUnitsPerMission                 // num missions * num unique units
+		numSoldiers        int = int(math.Ceil(float64(numUnits) * float64(0.8))) // numUnits / 3
 		// numVehicles      int = int(math.Ceil(float64(numUnits) * float64(0.2))) // numUnits / 3
 		numSoldierStates int = numSoldiers * missionDuration // numSoldiers * missionDuration (1s frames)
 
@@ -1192,17 +1135,17 @@ func populateDemoData() {
 	// start a goroutine that will output channel lengths every second
 	go func() {
 		for {
-			time.Sleep(1 * time.Second)
+			time.Sleep(500 * time.Millisecond)
 			fmt.Printf("PENDING: Soldiers: %d, SoldierStates: %d\n",
 				len(newSoldierChan),
-				len(soldierStateChan),
+				len(newSoldierStateChan),
 			)
 		}
 	}()
 
 	// write worlds
 	missionsStart := time.Now()
-	for i := 0; i < numWorlds; i++ {
+	for i := 0; i < numMissions; i++ {
 		data := make([]string, 2)
 
 		// WORLD CONTEXT SENT AS JSON IN DATA[0]
@@ -1271,6 +1214,8 @@ func populateDemoData() {
 		if err != nil {
 			fmt.Println(err)
 		}
+
+		time.Sleep(500 * time.Millisecond)
 	}
 	missionsEnd := time.Now()
 	missionsElapsed := missionsEnd.Sub(missionsStart)
@@ -1278,12 +1223,11 @@ func populateDemoData() {
 
 	// write soldiers, now that our missions exist and the channels have been created
 	soldiersStart := time.Now()
+	idCounter := 1
 	for i := 0; i < numSoldiers; i++ {
-		// use channels
 
 		// pick random mission
-		mission := Mission{}
-		DB.Model(&Mission{}).Order("RANDOM()").First(&mission)
+		DB.Model(&defs.Mission{}).Order("RANDOM()").First(&CurrentMission)
 
 		// soldier := Soldier{
 		// 	MissionID: mission.ID,
@@ -1309,7 +1253,8 @@ func populateDemoData() {
 		frame := strconv.FormatInt(int64(rand.Intn(missionDuration)), 10)
 		soldier := []string{
 			frame,
-			string(rand.Intn(numUnits) + 1),
+			// numUnitsPerMission
+			strconv.FormatInt(int64(idCounter), 10),
 			fmt.Sprintf("Demo Unit %d", i),
 			fmt.Sprintf("Demo Group %d", i),
 			sides[rand.Intn(len(sides))],
@@ -1317,20 +1262,63 @@ func populateDemoData() {
 			roles[rand.Intn(len(roles))],
 			frame,
 		}
-
+		idCounter += 1
 		newSoldierChan <- soldier
 	}
 	soldiersEnd := time.Now()
 	soldiersElapsed := soldiersEnd.Sub(soldiersStart)
 	fmt.Printf("Sent %d soldiers in %s\n", numSoldiers, soldiersElapsed)
 
-	// write soldier states
-	for i := 0; i < numSoldierStates; i++ {
-		// get mission start time
-		// timeForThisRow := mission.StartTime
-		// get mission end time
+	// allow 5 seconds for all soldiers to be written
+	fmt.Println("Waiting for soldiers to be written...")
+	time.Sleep(5 * time.Second)
+	fmt.Println("Done waiting.")
 
+	// populate soldiersCache with all soldiers' OcapIDs
+	soldierRows, err := DB.Model(&defs.Soldier{}).Distinct("ocap_id").Select("id, ocap_id").Rows()
+	if err != nil {
+		fmt.Println(err)
 	}
+	for soldierRows.Next() {
+		var id uint
+		var ocapID uint16
+		soldierRows.Scan(&id, &ocapID)
+		soldiersCache.Set(ocapID, id)
+	}
+	soldierRows.Close()
+
+	// write soldier states
+	soldierStatesStart := time.Now()
+	for i := 0; i < numSoldierStates; i++ {
+		// get random mission
+		DB.Model(&defs.Mission{}).Order("RANDOM()").First(&CurrentMission)
+
+		soldierState := []string{
+			// random id
+			strconv.FormatInt(int64(rand.Intn(numUnitsPerMission)+1), 10),
+			// random pos
+			fmt.Sprintf("[%f,%f,%f]", rand.Float64()*30720+1, rand.Float64()*30720+1, rand.Float64()*30720+1),
+			// random dir
+			fmt.Sprintf("%d", rand.Intn(360)),
+			// random lifestate (0 to 2)
+			strconv.FormatInt(int64(rand.Intn(3)), 10),
+			// random inVehicle bool
+			strconv.FormatBool(rand.Intn(2) == 1),
+			// random name
+			fmt.Sprintf("Demo Unit %d", i),
+			// random isPlayer bool
+			strconv.FormatBool(rand.Intn(2) == 1),
+			// random role
+			roles[rand.Intn(len(roles))],
+			// random capture frame
+			strconv.FormatInt(int64(rand.Intn(missionDuration)), 10),
+		}
+
+		newSoldierStateChan <- soldierState
+	}
+	soldierStatesEnd := time.Now()
+	soldierStatesElapsed := soldierStatesEnd.Sub(soldierStatesStart)
+	fmt.Printf("Sent %d soldier states in %s\n", numSoldierStates, soldierStatesElapsed)
 	fmt.Println("Demo data populated. Press enter to exit.")
 	fmt.Scanln()
 }
@@ -1344,5 +1332,8 @@ func main() {
 	fmt.Println("DB connect/migrate complete.")
 
 	fmt.Println("Populating demo data...")
+	TEST_DATA = true
+
 	populateDemoData()
+
 }

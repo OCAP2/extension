@@ -21,7 +21,7 @@ services:
   timescale:
     env_file:
       - .env
-    image: timescale/timescaledb-ha:pg12-all
+    image: timescale/timescaledb-ha:pg14-all
     restart: always
     environment:
       POSTGRES_PASSWORD: ${DB_ROOT_PASS}

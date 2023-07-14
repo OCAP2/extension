@@ -339,3 +339,5 @@ $RECYCLE.BIN/
 
 
 database/.env
+
+*.old
