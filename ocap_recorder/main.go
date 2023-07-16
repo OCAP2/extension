@@ -54,13 +54,19 @@ var (
 	// cache soldiers by ocap id
 	soldiersCache defs.OcapIDCache = defs.OcapIDCache{}
 	// channels for receiving new data and filing to DB
-	newSoldierChan      chan []string
-	newSoldierStateChan chan []string
-	newVehicleChan      chan []string
+	newSoldierChan      chan []string = make(chan []string, 15000)
+	newSoldierStateChan chan []string = make(chan []string, 15000)
+	newVehicleChan      chan []string = make(chan []string, 15000)
+	newMissionStart     chan bool     = make(chan bool)
 
 	// testing
 	TEST_DATA         bool = false
 	TEST_DATA_TIMEINC      = defs.SafeCounter{}
+
+	// sqlite flow
+	PAUSE_INSERTS bool = false
+
+	SESSION_START_TIME time.Time = time.Now()
 )
 
 type APIConfig struct {
@@ -112,7 +118,7 @@ func init() {
 
 	LOG_FILE = fmt.Sprintf(`%s\%s.log`, activeSettings.LogsDir, EXTENSION)
 	log.Println("Log location specified in config as", LOG_FILE)
-	LOCAL_DB_FILE = fmt.Sprintf(`%s\%s.db`, ADDON_FOLDER, EXTENSION)
+	LOCAL_DB_FILE = fmt.Sprintf(`%s\%s_%s.db`, ADDON_FOLDER, EXTENSION, SESSION_START_TIME.Format("20060102_150405"))
 
 	// resolve path set in activeSettings.LogsDir
 	// create logs dir if it doesn't exist
@@ -185,10 +191,10 @@ func checkServerStatus() {
 func getLocalDB() (err error) {
 	functionName := "getDB"
 	// connect to database (SQLite)
-	DB, err = gorm.Open(sqlite.Open(LOCAL_DB_FILE), &gorm.Config{
+	DB, err = gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{
 		PrepareStmt:            true,
 		SkipDefaultTransaction: true,
-		CreateBatchSize:        3000,
+		CreateBatchSize:        2000,
 		Logger:                 logger.Default.LogMode(logger.Silent),
 	})
 	if err != nil {
@@ -203,12 +209,12 @@ func getLocalDB() (err error) {
 			writeLog(functionName, "Error setting user_version PRAGMA", "ERROR")
 			return err
 		}
-		err = DB.Exec("PRAGMA journal_mode = WAL;").Error
+		err = DB.Exec("PRAGMA journal_mode = MEMORY;").Error
 		if err != nil {
 			writeLog(functionName, "Error setting journal_mode PRAGMA", "ERROR")
 			return err
 		}
-		err = DB.Exec("PRAGMA synchronous = NORMAL;").Error
+		err = DB.Exec("PRAGMA synchronous = OFF;").Error
 		if err != nil {
 			writeLog(functionName, "Error setting synchronous PRAGMA", "ERROR")
 			return err
@@ -239,6 +245,31 @@ func getLocalDB() (err error) {
 		DB_VALID = true
 		return nil
 	}
+}
+
+func dumpMemoryDBToDisk() (err error) {
+	functionName := "dumpMemoryDBToDisk"
+	// remove existing file if it exists
+	exists, err := os.Stat(LOCAL_DB_FILE)
+	if err == nil {
+		if exists != nil {
+			err = os.Remove(LOCAL_DB_FILE)
+			if err != nil {
+				writeLog(functionName, "Error removing existing DB file", "ERROR")
+				return err
+			}
+		}
+	}
+
+	// dump memory DB to disk
+	start := time.Now()
+	err = DB.Exec("VACUUM INTO 'file:" + LOCAL_DB_FILE + "';").Error
+	if err != nil {
+		writeLog(functionName, "Error dumping memory DB to disk", "ERROR")
+		return err
+	}
+	writeLog(functionName, fmt.Sprintf(`Dumped memory DB to disk in %s`, time.Since(start)), "INFO")
+	return nil
 }
 
 func connectMySql() (err error) {
@@ -285,12 +316,12 @@ func getDB() (err error) {
 	)
 
 	DB, err = gorm.Open(postgres.New(postgres.Config{
-		DSN: dsn,
-		// PreferSimpleProtocol: true, // disables implicit prepared statement usage
+		DSN:                  dsn,
+		PreferSimpleProtocol: true, // disables implicit prepared statement usage
 	}), &gorm.Config{
-		PrepareStmt:            true,
+		// PrepareStmt:            true,
 		SkipDefaultTransaction: true,
-		CreateBatchSize:        2000,
+		CreateBatchSize:        10000,
 		Logger:                 logger.Default.LogMode(logger.Silent),
 	})
 	configValid := err == nil
@@ -462,9 +493,106 @@ func getDB() (err error) {
 	// init cache
 	soldiersCache.Init()
 	TEST_DATA_TIMEINC.Set(0)
-	// set up channels
-	newSoldierChan = make(chan []string, 15000)
-	newSoldierStateChan = make(chan []string, 15000)
+
+	// CHANNEL LISTENER TO SEND DATA TO DB
+	// start goroutines
+	go func() {
+		for {
+			if !DB_VALID {
+				return
+			}
+
+			if PAUSE_INSERTS {
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+
+			var (
+				soldiersToWrite      defs.SoldiersQueue      = defs.SoldiersQueue{}
+				soldierStatesToWrite defs.SoldierStatesQueue = defs.SoldierStatesQueue{}
+				tx                   *gorm.DB                = DB.Begin()
+				txStart              time.Time
+			)
+
+			// write new soldiers
+
+			for i := 0; i < len(newSoldierChan); i++ {
+				soldiersToWrite.Push([]defs.Soldier{
+					logNewSoldier(<-newSoldierChan),
+				})
+			}
+
+			if soldiersToWrite.Len() > 0 {
+				writeNow := soldiersToWrite.GetAndEmpty()
+				fmt.Printf("length writeNow: %d\n", len(writeNow))
+				txStart = time.Now()
+				err = tx.Create(&writeNow).Error
+				if err != nil {
+					writeLog(functionName, fmt.Sprintf(`Error creating soldiers: %v`, err), "ERROR")
+				} else {
+					writeLog(functionName, fmt.Sprintf(`Created %d soldiers in %s`, len(writeNow), time.Since(txStart)), "DEBUG")
+				}
+			}
+
+			// sleep
+			// time.Sleep(500 * time.Millisecond)
+
+			// write soldier states
+			for i := 0; i < len(newSoldierStateChan); i++ {
+				soldierStatesToWrite.Push([]defs.SoldierState{
+					logSoldierState(<-newSoldierStateChan),
+				})
+			}
+
+			if soldierStatesToWrite.Len() > 0 {
+				txStart = time.Now()
+				writeNowSoldierState := soldierStatesToWrite.GetAndEmpty()
+				fmt.Printf("length writeNowSoldierState: %d\n", len(writeNowSoldierState))
+				err = tx.Create(&writeNowSoldierState).Error
+				if err != nil {
+					writeLog(functionName, fmt.Sprintf(`Error creating soldier states: %v`, err), "ERROR")
+					continue
+				} else {
+					writeLog(functionName, fmt.Sprintf(`Created %d soldier states in %s`, len(writeNowSoldierState), time.Since(txStart)), "DEBUG")
+				}
+			}
+
+			tx.Commit()
+			err = tx.Error
+			if err != nil {
+				writeLog(functionName, fmt.Sprintf(`Error committing transaction: %v`, err), "ERROR")
+				continue
+			}
+
+			// sleep
+			// time.Sleep(100 * time.Millisecond)
+
+		}
+	}()
+
+	// goroutine to, every 10 seconds, pause insert execution and dump memory sqlite db to disk
+	go func() {
+		for {
+			if !DB_VALID || !SAVE_LOCAL {
+				return
+			}
+
+			time.Sleep(3 * time.Minute)
+
+			// pause insert execution
+			PAUSE_INSERTS = true
+
+			// dump memory sqlite db to disk
+			err = dumpMemoryDBToDisk()
+			if err != nil {
+				writeLog(functionName, fmt.Sprintf(`Error dumping memory db to disk: %v`, err), "ERROR")
+			}
+
+			// resume insert execution
+			PAUSE_INSERTS = false
+		}
+	}()
+
 	return nil
 }
 
@@ -574,88 +702,6 @@ func logNewMission(data []string) (err error) {
 	CurrentWorld = world
 	CurrentMission = mission
 
-	// start goroutines
-	go func() { // write new soldiers
-		for {
-			if !DB_VALID {
-				return
-			}
-
-			soldiersToWrite := defs.SoldiersQueue{}
-
-			for i := 0; i < len(newSoldierChan); i++ {
-				soldiersToWrite.Push([]defs.Soldier{
-					logNewSoldier(<-newSoldierChan),
-				})
-			}
-
-			if soldiersToWrite.Len() == 0 {
-				time.Sleep(1 * time.Second)
-				continue
-			}
-
-			soldiersToWriteNow := soldiersToWrite.GetAndEmpty()
-			txStart := time.Now()
-			tx := DB.Begin()
-			err = tx.Model(&defs.Soldier{}).CreateInBatches(soldiersToWriteNow, 10000).Error
-			if err != nil {
-				writeLog(functionName, fmt.Sprintf(`Error creating soldiers: %v`, err), "ERROR")
-				tx.Rollback()
-				continue
-			}
-			err = tx.Commit().Error
-			if err != nil {
-				writeLog(functionName, fmt.Sprintf(`Error committing transaction: %v`, err), "ERROR")
-				tx.Rollback()
-				continue
-			}
-			txEnd := time.Now()
-			fmt.Printf("Soldiers TX time: %v\n", txEnd.Sub(txStart))
-
-			// sleep
-			time.Sleep(500 * time.Millisecond)
-		}
-	}()
-	go func() { // write soldier states
-		for {
-			if !DB_VALID {
-				return
-			}
-
-			soldierStatesToWrite := defs.SoldierStatesQueue{}
-
-			for i := 0; i < len(newSoldierStateChan); i++ {
-				soldierStatesToWrite.Push([]defs.SoldierState{
-					logSoldierState(<-newSoldierStateChan),
-				})
-			}
-
-			if soldierStatesToWrite.Len() == 0 {
-				time.Sleep(1000 * time.Millisecond)
-				continue
-			}
-
-			txStart := time.Now()
-			tx := DB.Begin()
-			err = tx.Model(&defs.SoldierState{}).CreateInBatches(soldierStatesToWrite.GetAndEmpty(), 2000).Error
-			if err != nil {
-				writeLog(functionName, fmt.Sprintf(`Error creating soldier states: %v`, err), "ERROR")
-				tx.Rollback()
-				continue
-			}
-			err = tx.Commit().Error
-			if err != nil {
-				writeLog(functionName, fmt.Sprintf(`Error committing transaction: %v`, err), "ERROR")
-				tx.Rollback()
-				continue
-
-			}
-			txEnd := time.Now()
-			fmt.Printf("SoldierStates TX time: %v\n", txEnd.Sub(txStart))
-			// sleep
-			time.Sleep(1000 * time.Millisecond)
-		}
-	}()
 	return nil
 }
 
@@ -753,7 +799,6 @@ func logSoldierState(data []string) (soldierState defs.SoldierState) {
 	// try and find soldier in DB to associate
 	soldierID := uint(0)
 	err = DB.Model(&defs.Soldier{}).Select("id").Order("join_time DESC").Where("ocap_id = ?", uint16(ocapId)).First(&soldierID).Error
-	// for SQLite, time will be string, so we need to convert it to time.Time
 	if err != nil {
 		json, _ := json.Marshal(data)
 		writeLog(functionName, fmt.Sprintf("Error finding soldier in DB:\n%s\n%v", json, err), "ERROR")
@@ -1331,9 +1376,17 @@ func main() {
 	}
 	fmt.Println("DB connect/migrate complete.")
 
-	fmt.Println("Populating demo data...")
-	TEST_DATA = true
+	// get arguments
+	args := os.Args[1:]
+	if len(args) > 0 {
+		if args[0] == "demo" {
+			fmt.Println("Populating demo data...")
+			TEST_DATA = true
 
-	populateDemoData()
-
+			populateDemoData()
+		}
+	} else {
+		fmt.Println("No arguments provided.")
+		fmt.Scanln()
+	}
 }

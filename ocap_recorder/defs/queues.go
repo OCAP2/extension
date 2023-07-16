@@ -85,9 +85,7 @@ func (q *SoldiersQueue) Clear() int {
 }
 
 func (q *SoldiersQueue) GetAndEmpty() []Soldier {
-	q.mu.Lock()
 	defer q.Clear()
-	defer q.mu.Unlock()
 	return q.queue
 }
 
@@ -127,8 +125,6 @@ func (q *SoldierStatesQueue) Clear() int {
 }
 
 func (q *SoldierStatesQueue) GetAndEmpty() []SoldierState {
-	q.mu.Lock()
 	defer q.Clear()
-	defer q.mu.Unlock()
 	return q.queue
 }
