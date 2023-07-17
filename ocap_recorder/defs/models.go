@@ -74,6 +74,7 @@ type Soldier struct {
 	Side            string    `json:"side" gorm:"size:16"`
 	IsPlayer        bool      `json:"isPlayer" gorm:"default:false"`
 	RoleDescription string    `json:"roleDescription" gorm:"size:64"`
+	PlayerUID       string    `json:"playerUID" gorm:"size:64; default:NULL; index:idx_player_uid"`
 }
 
 // SoldierState inherits from Frame
@@ -84,14 +85,16 @@ type SoldierState struct {
 	Soldier      Soldier   `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:SoldierID;"`
 	CaptureFrame uint      `json:"captureFrame"`
 
-	Position     GPSCoordinates `json:"position"`
-	ElevationASL float32        `json:"elevationASL"`
-	Bearing      uint16         `json:"bearing" gorm:"default:0"`
-	Lifestate    uint8          `json:"lifestate" gorm:"default:0"`
-	InVehicle    bool           `json:"inVehicle" gorm:"default:false"`
-	UnitName     string         `json:"unitName" gorm:"size:64"`
-	IsPlayer     bool           `json:"isPlayer" gorm:"default:false"`
-	CurrentRole  string         `json:"currentRole" gorm:"size:64"`
+	Position         GPSCoordinates `json:"position"`
+	ElevationASL     float32        `json:"elevationASL"`
+	Bearing          uint16         `json:"bearing" gorm:"default:0"`
+	Lifestate        uint8          `json:"lifestate" gorm:"default:0"`
+	InVehicle        bool           `json:"inVehicle" gorm:"default:false"`
+	UnitName         string         `json:"unitName" gorm:"size:64"`
+	IsPlayer         bool           `json:"isPlayer" gorm:"default:false"`
+	CurrentRole      string         `json:"currentRole" gorm:"size:64"`
+	HasStableVitals  bool           `json:"hasStableVitals" gorm:"default:true"`
+	IsDraggedCarried bool           `json:"isDraggedCarried" gorm:"default:false"`
 }
 
 type Vehicle struct {
@@ -116,6 +119,22 @@ type VehicleState struct {
 	Bearing      uint16         `json:"bearing"`
 	IsAlive      bool           `json:"isAlive"`
 	Crew         datatypes.JSON `json:"crew"`
+}
+
+// fired events
+type FiredEvent struct {
+	Time         time.Time `json:"time" gorm:"type:timestamptz;NOT NULL;"`
+	SoldierID    uint      `json:"soldierId" gorm:"index:idx_soldier_id"`
+	Soldier      Soldier   `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:SoldierID;"`
+	CaptureFrame uint      `json:"captureFrame" gorm:"index:idx_capture_frame"`
+	Weapon       string    `json:"weapon" gorm:"size:64"`
+	Magazine     string    `json:"magazine" gorm:"size:64"`
+	FiringMode   string    `json:"mode" gorm:"size:64"`
+
+	StartPosition     GPSCoordinates `json:"startPos"`
+	StartElevationASL float32        `json:"startElev"`
+	EndPosition       GPSCoordinates `json:"endPos"`
+	EndElevationASL   float32        `json:"endElev"`
 }
 
 // event types

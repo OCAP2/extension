@@ -272,3 +272,59 @@ func (q *VehicleStatesQueue) GetAndEmpty() []VehicleState {
 	defer q.Clear()
 	return q.Queue
 }
+
+type FiredEventsQueue struct {
+	mu    sync.Mutex // protects q
+	Queue []FiredEvent
+}
+
+// lock, unlock, empty, push, pop, len, clear, getandempty
+func (q *FiredEventsQueue) Lock() bool {
+	q.mu.Lock()
+	return true
+}
+
+func (q *FiredEventsQueue) Unlock() {
+	q.mu.Unlock()
+}
+
+func (q *FiredEventsQueue) Empty() bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.Queue) == 0
+}
+
+func (q *FiredEventsQueue) Push(n []FiredEvent) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.Queue = append(q.Queue, n...)
+}
+
+func (q *FiredEventsQueue) Pop() FiredEvent {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if len(q.Queue) == 0 {
+		return FiredEvent{}
+	}
+	n := q.Queue[0]
+	q.Queue = q.Queue[1:]
+	return n
+}
+
+func (q *FiredEventsQueue) Len() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.Queue)
+}
+
+func (q *FiredEventsQueue) Clear() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.Queue = []FiredEvent{}
+	return len(q.Queue)
+}
+
+func (q *FiredEventsQueue) GetAndEmpty() []FiredEvent {
+	defer q.Clear()
+	return q.Queue
+}
