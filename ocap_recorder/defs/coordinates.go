@@ -14,6 +14,7 @@ import (
 )
 
 var (
+	// this is provided when using GPSFromString to determine if the corresponding output to DB should be a string value (SQLite) or an actual geometry function (PostGIS)
 	SAVE_LOCAL = false
 )
 

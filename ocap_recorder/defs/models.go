@@ -3,6 +3,7 @@ package defs
 import (
 	"time"
 
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
@@ -94,12 +95,27 @@ type SoldierState struct {
 }
 
 type Vehicle struct {
-	VehicleClass string         `json:"vehicleClass" gorm:"size:64"`
-	DisplayName  string         `json:"displayName" gorm:"size:64"`
-	Position     GPSCoordinates `json:"position" gorm:"type:point"`
+	gorm.Model
+	Mission      Mission   `gorm:"foreignkey:MissionID"`
+	MissionID    uint      `json:"missionId"`
+	JoinTime     time.Time `json:"joinTime" gorm:"type:timestamptz;NOT NULL;"`
+	JoinFrame    uint      `json:"joinFrame"`
+	OcapID       uint16    `json:"ocapId" gorm:"index:idx_ocap_id"`
+	VehicleClass string    `json:"vehicleClass" gorm:"size:64"`
+	DisplayName  string    `json:"displayName" gorm:"size:64"`
+}
+
+type VehicleState struct {
+	// composite primary key with Time and OCAPID
+	Time         time.Time      `json:"time" gorm:"type:timestamptz;NOT NULL;primarykey;"`
+	VehicleID    uint           `json:"soldierID" gorm:"primarykey;index:idx_vehicle_id"`
+	Vehicle      Vehicle        `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:VehicleID;"`
+	CaptureFrame uint           `json:"captureFrame"`
+	Position     GPSCoordinates `json:"position"`
+	ElevationASL float32        `json:"elevationASL"`
 	Bearing      uint16         `json:"bearing"`
 	IsAlive      bool           `json:"isAlive"`
-	Crew         string         `json:"crew" gorm:"size:255"`
+	Crew         datatypes.JSON `json:"crew"`
 }
 
 // event types

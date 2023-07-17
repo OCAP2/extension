@@ -9,6 +9,7 @@ package main
 import "C" // This is required to import the C code
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -49,15 +50,20 @@ var LOCAL_DB_FILE string = ADDON_FOLDER + "\\ocap_recorder.db"
 var SAVE_LOCAL bool = false
 var DB *gorm.DB
 var DB_VALID bool = false
+var sqlDB *sql.DB
 
 var (
-	// cache soldiers by ocap id
-	soldiersCache defs.OcapIDCache = defs.OcapIDCache{}
 	// channels for receiving new data and filing to DB
 	newSoldierChan      chan []string = make(chan []string, 15000)
 	newSoldierStateChan chan []string = make(chan []string, 15000)
 	newVehicleChan      chan []string = make(chan []string, 15000)
-	newMissionStart     chan bool     = make(chan bool)
+	newVehicleStateChan chan []string = make(chan []string, 15000)
+
+	// caches of processed models pending DB write
+	soldiersToWrite      defs.SoldiersQueue      = defs.SoldiersQueue{}
+	soldierStatesToWrite defs.SoldierStatesQueue = defs.SoldierStatesQueue{}
+	vehiclesToWrite      defs.VehiclesQueue      = defs.VehiclesQueue{}
+	vehicleStatesToWrite defs.VehicleStatesQueue = defs.VehicleStatesQueue{}
 
 	// testing
 	TEST_DATA         bool = false
@@ -66,7 +72,8 @@ var (
 	// sqlite flow
 	PAUSE_INSERTS bool = false
 
-	SESSION_START_TIME time.Time = time.Now()
+	SESSION_START_TIME  time.Time = time.Now()
+	LAST_WRITE_DURATION time.Duration
 )
 
 type APIConfig struct {
@@ -440,6 +447,8 @@ func getDB() (err error) {
 			&defs.Mission{},
 			&defs.Soldier{},
 			&defs.SoldierState{},
+			&defs.Vehicle{},
+			&defs.VehicleState{},
 		)
 		if err != nil {
 			writeLog(functionName, fmt.Sprintf(`Failed to migrate DB schema. Err: %s`, err), "ERROR")
@@ -459,6 +468,16 @@ func getDB() (err error) {
 	}
 
 	if !SAVE_LOCAL {
+		// if running TimescaleDB (Postgres), configure
+		sqlDB, err = DB.DB()
+		if err != nil {
+			writeLog(functionName, fmt.Sprintf(`Failed to get DB.DB(). Err: %s`, err), "ERROR")
+			DB_VALID = false
+			return err
+		}
+
+		sqlDB.SetMaxOpenConns(30)
+
 		// if running TimescaleDB, make sure that these tables, which are time-oriented and we want to maximize time based input, are partitioned in order for fast retrieval and compressed after 2 weeks to save disk space
 		// https://docs.timescale.com/latest/using-timescaledb/hypertables
 
@@ -469,7 +488,12 @@ func getDB() (err error) {
 				"soldier_states": {
 					"time",
 					"soldier_id",
-					"mission_id",
+					"capture_frame",
+				},
+				"vehicle_states": {
+					"time",
+					"vehicle_id",
+					"capture_frame",
 				},
 			}
 			err = validateHypertables(hyperTables)
@@ -490,12 +514,75 @@ func getDB() (err error) {
 
 	writeLog(functionName, "DB initialized", "INFO")
 
-	// init cache
-	soldiersCache.Init()
+	// init caches
 	TEST_DATA_TIMEINC.Set(0)
 
-	// CHANNEL LISTENER TO SEND DATA TO DB
-	// start goroutines
+	// CHANNEL LISTENER TO SAVE DATA
+	go func() {
+		// process channel data
+		for v := range newSoldierChan {
+			if !DB_VALID {
+				return
+			}
+
+			obj, err := logNewSoldier(v)
+			if err == nil {
+				soldiersToWrite.Push([]defs.Soldier{obj})
+			} else {
+				writeLog(functionName, fmt.Sprintf(`Failed to log new soldier. Err: %s`, err), "ERROR")
+			}
+		}
+	}()
+
+	go func() {
+		// process channel data
+		for v := range newVehicleChan {
+			if !DB_VALID {
+				return
+			}
+
+			obj, err := logNewVehicle(v)
+			if err == nil {
+				vehiclesToWrite.Push([]defs.Vehicle{obj})
+			} else {
+				writeLog(functionName, fmt.Sprintf(`Failed to log new vehicle. Err: %s`, err), "ERROR")
+			}
+		}
+	}()
+
+	go func() {
+		// process channel data
+		for v := range newSoldierStateChan {
+			if !DB_VALID {
+				return
+			}
+
+			obj, err := logSoldierState(v)
+			if err == nil {
+				soldierStatesToWrite.Push([]defs.SoldierState{obj})
+			} else {
+				writeLog(functionName, fmt.Sprintf(`Failed to log soldier state. Err: %s`, err), "ERROR")
+			}
+		}
+	}()
+
+	go func() {
+		// process channel data
+		for v := range newVehicleStateChan {
+			if !DB_VALID {
+				return
+			}
+
+			obj, err := logVehicleState(v)
+			if err == nil {
+				vehicleStatesToWrite.Push([]defs.VehicleState{obj})
+			} else {
+				writeLog(functionName, fmt.Sprintf(`Failed to log vehicle state. Err: %s`, err), "ERROR")
+			}
+		}
+	}()
+
+	// start the DB Write goroutine
 	go func() {
 		for {
 			if !DB_VALID {
@@ -508,64 +595,84 @@ func getDB() (err error) {
 			}
 
 			var (
-				soldiersToWrite      defs.SoldiersQueue      = defs.SoldiersQueue{}
-				soldierStatesToWrite defs.SoldierStatesQueue = defs.SoldierStatesQueue{}
-				tx                   *gorm.DB                = DB.Begin()
-				txStart              time.Time
+				tx         *gorm.DB = DB.Begin()
+				txStart    time.Time
+				writeStart time.Time = time.Now()
 			)
 
 			// write new soldiers
-
-			for i := 0; i < len(newSoldierChan); i++ {
-				soldiersToWrite.Push([]defs.Soldier{
-					logNewSoldier(<-newSoldierChan),
-				})
-			}
-
-			if soldiersToWrite.Len() > 0 {
-				writeNow := soldiersToWrite.GetAndEmpty()
-				fmt.Printf("length writeNow: %d\n", len(writeNow))
+			if !soldiersToWrite.Empty() {
 				txStart = time.Now()
-				err = tx.Create(&writeNow).Error
+				soldiersToWrite.Lock()
+				err = tx.Create(&soldiersToWrite.Queue).Error
+				soldiersToWrite.Unlock()
 				if err != nil {
 					writeLog(functionName, fmt.Sprintf(`Error creating soldiers: %v`, err), "ERROR")
 				} else {
-					writeLog(functionName, fmt.Sprintf(`Created %d soldiers in %s`, len(writeNow), time.Since(txStart)), "DEBUG")
+					writeLog(functionName, fmt.Sprintf(`Created %d soldiers in %s`, soldiersToWrite.Len(), time.Since(txStart)), "DEBUG")
 				}
+				soldiersToWrite.Clear()
 			}
-
-			// sleep
-			// time.Sleep(500 * time.Millisecond)
 
 			// write soldier states
-			for i := 0; i < len(newSoldierStateChan); i++ {
-				soldierStatesToWrite.Push([]defs.SoldierState{
-					logSoldierState(<-newSoldierStateChan),
-				})
-			}
-
-			if soldierStatesToWrite.Len() > 0 {
+			if !soldierStatesToWrite.Empty() {
 				txStart = time.Now()
-				writeNowSoldierState := soldierStatesToWrite.GetAndEmpty()
-				fmt.Printf("length writeNowSoldierState: %d\n", len(writeNowSoldierState))
-				err = tx.Create(&writeNowSoldierState).Error
+				soldierStatesToWrite.Lock()
+				err = tx.Create(&soldierStatesToWrite.Queue).Error
+				soldierStatesToWrite.Unlock()
 				if err != nil {
 					writeLog(functionName, fmt.Sprintf(`Error creating soldier states: %v`, err), "ERROR")
 					continue
 				} else {
-					writeLog(functionName, fmt.Sprintf(`Created %d soldier states in %s`, len(writeNowSoldierState), time.Since(txStart)), "DEBUG")
+					writeLog(functionName, fmt.Sprintf(`Created %d soldier states in %s`, soldierStatesToWrite.Len(), time.Since(txStart)), "DEBUG")
 				}
+				soldierStatesToWrite.Clear()
 			}
 
-			tx.Commit()
-			err = tx.Error
+			// write new vehicles
+			if !vehiclesToWrite.Empty() {
+				txStart = time.Now()
+				vehiclesToWrite.Lock()
+				err = tx.Create(&vehiclesToWrite.Queue).Error
+				vehiclesToWrite.Unlock()
+				if err != nil {
+					writeLog(functionName, fmt.Sprintf(`Error creating vehicles: %v`, err), "ERROR")
+					continue
+				} else {
+					writeLog(functionName, fmt.Sprintf(`Created %d vehicles in %s`, vehiclesToWrite.Len(), time.Since(txStart)), "DEBUG")
+				}
+				vehiclesToWrite.Clear()
+			}
+
+			// write vehicle states
+			if !vehicleStatesToWrite.Empty() {
+				txStart = time.Now()
+				vehicleStatesToWrite.Lock()
+				err = tx.Create(&vehicleStatesToWrite.Queue).Error
+				vehicleStatesToWrite.Unlock()
+				if err != nil {
+					writeLog(functionName, fmt.Sprintf(`Error creating vehicle states: %v`, err), "ERROR")
+					continue
+				} else {
+					writeLog(functionName, fmt.Sprintf(`Created %d vehicle states in %s`, vehicleStatesToWrite.Len(), time.Since(txStart)), "DEBUG")
+				}
+				vehicleStatesToWrite.Clear()
+			}
+
+			// commit transaction
+			txStart = time.Now()
+			err = tx.Commit().Error
 			if err != nil {
 				writeLog(functionName, fmt.Sprintf(`Error committing transaction: %v`, err), "ERROR")
-				continue
+				tx.Rollback()
+			} else {
+				writeLog(functionName, fmt.Sprintf(`Committed transaction in %s`, time.Since(txStart)), "DEBUG")
 			}
 
+			LAST_WRITE_DURATION = time.Since(writeStart)
+
 			// sleep
-			// time.Sleep(100 * time.Millisecond)
+			time.Sleep(1000 * time.Millisecond)
 
 		}
 	}()
@@ -619,9 +726,12 @@ func validateHypertables(tables map[string][]string) (err error) {
 		queryCompressHypertable := fmt.Sprintf(`
 				ALTER TABLE %s SET (
 					timescaledb.compress,
-					timescaledb.compress_segmentby = 'soldier_id');
+					timescaledb.compress_segmentby = ?);
 			`, table)
-		err = DB.Exec(queryCompressHypertable).Error
+		err = DB.Exec(
+			queryCompressHypertable,
+			strings.Join(tables[table], ","),
+		).Error
 		if err != nil {
 			writeLog(functionName, fmt.Sprintf(`Failed to enable compression for %s. Err: %s`, table, err), "ERROR")
 			return err
@@ -708,7 +818,7 @@ func logNewMission(data []string) (err error) {
 // (UNITS) AND VEHICLES
 
 // logNewSoldier logs a new soldier to the database
-func logNewSoldier(data []string) (soldier defs.Soldier) {
+func logNewSoldier(data []string) (soldier defs.Soldier, err error) {
 	functionName := ":NEW:SOLDIER:"
 	// check if DB is valid
 	if !DB_VALID {
@@ -720,12 +830,12 @@ func logNewSoldier(data []string) (soldier defs.Soldier) {
 		data[i] = fixEscapeQuotes(trimQuotes(v))
 	}
 
-	// workaround for appending cap frame in sqf rather than using it as first element
+	// get frame
 	frameStr := data[0]
 	capframe, err := strconv.ParseInt(frameStr, 10, 64)
 	if err != nil {
 		writeLog(functionName, fmt.Sprintf(`Error converting capture frame to int: %s`, err), "ERROR")
-		return
+		return soldier, err
 	}
 
 	// parse array
@@ -735,7 +845,7 @@ func logNewSoldier(data []string) (soldier defs.Soldier) {
 	ocapId, err := strconv.ParseUint(data[1], 10, 64)
 	if err != nil {
 		writeLog(functionName, fmt.Sprintf(`Error converting ocapId to uint: %v`, err), "ERROR")
-		return
+		return soldier, err
 	}
 	soldier.OcapID = uint16(ocapId)
 	soldier.UnitName = data[2]
@@ -744,11 +854,11 @@ func logNewSoldier(data []string) (soldier defs.Soldier) {
 	soldier.IsPlayer, err = strconv.ParseBool(data[5])
 	if err != nil {
 		writeLog(functionName, fmt.Sprintf(`Error converting isPlayer to bool: %v`, err), "ERROR")
-		return
+		return soldier, err
 	}
 	soldier.RoleDescription = data[6]
 
-	return soldier
+	return soldier, nil
 
 	// log to database
 	// err = tx.Create(&soldier).Error
@@ -760,11 +870,11 @@ func logNewSoldier(data []string) (soldier defs.Soldier) {
 }
 
 // logSoldierState logs a SoldierState state to the database
-func logSoldierState(data []string) (soldierState defs.SoldierState) {
+func logSoldierState(data []string) (soldierState defs.SoldierState, err error) {
 	functionName := ":NEW:SOLDIER:STATE:"
 	// check if DB is valid
 	if !DB_VALID {
-		return
+		return soldierState, nil
 	}
 
 	// fix received data
@@ -776,35 +886,26 @@ func logSoldierState(data []string) (soldierState defs.SoldierState) {
 	capframe, err := strconv.ParseInt(frameStr, 10, 64)
 	if err != nil {
 		writeLog(functionName, fmt.Sprintf(`Error converting capture frame to int: %s`, err), "ERROR")
-		return
+		return soldierState, err
 	}
 	soldierState.CaptureFrame = uint(capframe)
 
-	// parse data in struct - convert strings when necessary
+	// parse data in array
 	ocapId, err := strconv.ParseUint(data[0], 10, 64)
 	if err != nil {
 		writeLog(functionName, fmt.Sprintf(`Error converting ocapId to uint: %v`, err), "ERROR")
-		return
+		return soldierState, err
 	}
 
-	// try and find soldier in cache to associate
-	// if soldierId, ok := soldiersCache.Get(uint16(ocapId)); ok {
-	// 	soldierState.SoldierID = soldierId
-	// } else {
-	// 	json, _ := json.Marshal(data)
-	// 	writeLog(functionName, fmt.Sprintf("Error finding soldier in cache, failed to write initial data:\n%s\n%v", json, err), "ERROR")
-	// 	return
-	// }
-
 	// try and find soldier in DB to associate
-	soldierID := uint(0)
-	err = DB.Model(&defs.Soldier{}).Select("id").Order("join_time DESC").Where("ocap_id = ?", uint16(ocapId)).First(&soldierID).Error
+	soldierId := uint(0)
+	err = DB.Model(&defs.Soldier{}).Select("id").Order("join_time DESC").Where("ocap_id = ?", uint16(ocapId)).First(&soldierId).Error
 	if err != nil {
 		json, _ := json.Marshal(data)
 		writeLog(functionName, fmt.Sprintf("Error finding soldier in DB:\n%s\n%v", json, err), "ERROR")
-		return
+		return soldierState, err
 	}
-	soldierState.SoldierID = soldierID
+	soldierState.SoldierID = soldierId
 
 	// when loading test data, set time to random offset
 	if TEST_DATA {
@@ -823,18 +924,11 @@ func logSoldierState(data []string) (soldierState defs.SoldierState) {
 	if err != nil {
 		json, _ := json.Marshal(data)
 		writeLog(functionName, fmt.Sprintf("Error converting position to Point:\n%s\n%v", json, err), "ERROR")
-		return
+		return soldierState, err
 	}
 	// fmt.Println(point.ToString())
 	soldierState.Position = point
 	soldierState.ElevationASL = float32(elev)
-
-	// coordX, _ := strconv.ParseFloat(posArr[0], 64)
-	// coordY, _ := strconv.ParseFloat(posArr[1], 64)
-	// coordZ, _ := strconv.ParseFloat(posArr[2], 64)
-	// soldierState.Position = defs.GPSFromCoords(coordX, coordY, 3857)
-	// fmt.Println(soldierState.Position.ToString())
-	// soldierState.ElevationASL = float32(coordZ)
 
 	// bearing
 	bearing, _ := strconv.Atoi(data[2])
@@ -850,40 +944,140 @@ func logSoldierState(data []string) (soldierState defs.SoldierState) {
 	isPlayer, err := strconv.ParseBool(data[6])
 	if err != nil {
 		writeLog(functionName, fmt.Sprintf(`Error converting isPlayer to bool: %v`, err), "ERROR")
-		return
+		return soldierState, err
 	}
 	soldierState.IsPlayer = isPlayer
 	// current role
 	soldierState.CurrentRole = data[7]
 
-	return soldierState
+	return soldierState, nil
 }
 
-func logVehicle(data []string) {
+func logNewVehicle(data []string) (vehicle defs.Vehicle, err error) {
+	functionName := ":NEW:VEHICLE:"
+	// check if DB is valid
 	if !DB_VALID {
+		return vehicle, nil
+	}
+
+	// fix received data
+	for i, v := range data {
+		data[i] = fixEscapeQuotes(trimQuotes(v))
+	}
+
+	// get frame
+	frameStr := data[0]
+	capframe, err := strconv.ParseInt(frameStr, 10, 64)
+	if err != nil {
+		writeLog(functionName, fmt.Sprintf(`Error converting capture frame to int: %s`, err), "ERROR")
+		return vehicle, err
+	}
+
+	// parse array
+	vehicle.MissionID = CurrentMission.ID
+	vehicle.JoinTime = time.Now()
+	vehicle.JoinFrame = uint(capframe)
+	ocapId, err := strconv.ParseUint(data[1], 10, 64)
+	if err != nil {
+		writeLog(functionName, fmt.Sprintf(`Error converting ocapId to uint: %v`, err), "ERROR")
+		return vehicle, err
+	}
+	vehicle.OcapID = uint16(ocapId)
+	vehicle.VehicleClass = data[2]
+	vehicle.DisplayName = data[3]
+
+	return vehicle, nil
+}
+
+func logVehicleState(data []string) (vehicleState defs.VehicleState, err error) {
+	functionName := ":NEW:VEHICLE:STATE:"
+	// check if DB is valid
+	if !DB_VALID {
+		return vehicleState, nil
+	}
+
+	// fix received data
+	for i, v := range data {
+		data[i] = fixEscapeQuotes(trimQuotes(v))
+	}
+
+	// get frame
+	frameStr := data[len(data)-1]
+	capframe, err := strconv.ParseInt(frameStr, 10, 64)
+	if err != nil {
+		writeLog(functionName, fmt.Sprintf(`Error converting capture frame to int: %s`, err), "ERROR")
+		return vehicleState, err
+	}
+	vehicleState.CaptureFrame = uint(capframe)
+
+	// parse data in array
+	ocapId, err := strconv.ParseUint(data[0], 10, 64)
+	if err != nil {
+		writeLog(functionName, fmt.Sprintf(`Error converting ocapId to uint: %v`, err), "ERROR")
+		return vehicleState, err
+	}
+
+	// try and find vehicle in DB to associate
+	vehicleId := uint(0)
+	err = DB.Model(&defs.Vehicle{}).Select("id").Order("join_time DESC").Where("ocap_id = ?", uint16(ocapId)).First(&vehicleId).Error
+	if err != nil {
+		json, _ := json.Marshal(data)
+		writeLog(functionName, fmt.Sprintf("Error finding vehicle in DB:\n%s\n%v", json, err), "ERROR")
+		return vehicleState, err
+	}
+	vehicleState.VehicleID = vehicleId
+
+	// when loading test data, set time to random offset
+	if TEST_DATA {
+		newTime := time.Now().Add(time.Duration(TEST_DATA_TIMEINC.Value()) * time.Second)
+		TEST_DATA_TIMEINC.Inc()
+		vehicleState.Time = newTime
+	} else {
+		vehicleState.Time = time.Now()
+	}
+
+	// parse pos from an arma string
+	pos := data[1]
+	pos = strings.TrimPrefix(pos, "[")
+	pos = strings.TrimSuffix(pos, "]")
+	point, elev, err := defs.GPSFromString(pos, 3857, SAVE_LOCAL)
+	if err != nil {
+		json, _ := json.Marshal(data)
+		writeLog(functionName, fmt.Sprintf("Error converting position to Point:\n%s\n%v", json, err), "ERROR")
+		return vehicleState, err
+	}
+	// fmt.Println(point.ToString())
+	vehicleState.Position = point
+	vehicleState.ElevationASL = float32(elev)
+
+	// bearing
+	bearing, _ := strconv.Atoi(data[2])
+	vehicleState.Bearing = uint16(bearing)
+	// is alive
+	isAlive, _ := strconv.ParseBool(data[3])
+	vehicleState.IsAlive = isAlive
+	// parse crew, which is an array of ocap ids of soldiers
+	crew := data[4]
+	crew = strings.TrimPrefix(crew, "[")
+	crew = strings.TrimSuffix(crew, "]")
+	var crewIds []string = strings.Split(crew, ",")
+	var crewIdsUint []uint16
+	for _, v := range crewIds {
+		crewId, err := strconv.ParseUint(v, 10, 16)
+		if err != nil {
+			writeLog(functionName, fmt.Sprintf(`Error converting crewId to uint: %v`, err), "ERROR")
+			return vehicleState, err
+		}
+		crewIdsUint = append(crewIdsUint, uint16(crewId))
+	}
+
+	vehicleState.Crew, err = json.Marshal(crewIdsUint)
+	if err != nil {
+		writeLog(functionName, fmt.Sprintf(`Error converting crew to json: %v`, err), "ERROR")
 		return
 	}
 
-	// var vehicle Vehicle
-
-	// // parse data in struct - convert strings when necessary
-	// vehicle.Mission = CurrentMission
-	// capframe, _ := strconv.Atoi(data[0])
-	// vehicle.CaptureFrame = uint(capframe)
-	// vehicleId, _ := strconv.ParseUint(data[1], 10, 64)
-	// vehicle.OcapID = uint16(vehicleId)
-	// vehicle.VehicleClass = data[2]
-	// vehicle.DisplayName = data[3]
-	// // coordX, _ := strconv.ParseFloat(data[4], 64)
-	// // coordY, _ := strconv.ParseFloat(data[5], 64)
-	// // coordZ, _ := strconv.ParseFloat(data[6], 64)
-	// // vehicle.Position = geom.NewPoint(geom.XYZ).MustSetCoords([]float64{coordX, coordY, coordZ}).SetSRID(3857)
-	// bearing, _ := strconv.Atoi(data[7])
-	// vehicle.Bearing = uint16(bearing)
-	// vehicle.Crew = data[8]
-
-	// // write
-	// DB.Create(&vehicle)
+	return vehicleState, nil
 }
 
 // function to process events of different kinds
@@ -910,43 +1104,10 @@ func processEvent(data []string) {
 
 		// write
 		DB.Create(&object)
-	case "vehicle":
-		logVehicle(data)
 	default:
 		writeLog("processEvent", fmt.Sprintf(`Unknown event type: %s`, event), "ERROR")
 	}
 }
-
-// function to write queued models to database in a transaction
-// func writemodelQueue(mut *sync.Mutex) {
-// 	functionName := "savemodelQueue"
-
-// 	if !DB_VALID {
-// 		return
-// 	}
-
-// 	// make a copy of pending models
-// 	mut.Lock()
-// 	modelsToWrite := make([]interface{}, len(modelQueue))
-// 	// copy pending models to modelsToWrite
-// 	copy(modelsToWrite, modelQueue)
-// 	// clear pending models
-// 	modelQueue = nil
-// 	mut.Unlock()
-
-// 	// start session
-// 	var tx *gorm.DB = DB.Session(&gorm.Session{PrepareStmt: true, SkipDefaultTransaction: true})
-
-// 	// write models
-// 	writeLog(functionName, fmt.Sprintf(`Writing %d models to database`, len(modelsToWrite)), "DEBUG")
-// 	res := tx.Create(modelsToWrite)
-
-// 	// check for errors
-// 	if res.Error != nil {
-// 		writeLog(functionName, fmt.Sprintf(`Error writing models to database: %v`, res.Error), "ERROR")
-// 		return
-// 	}
-// }
 
 ///////////////////////
 // EXPORTED FUNCTIONS //
@@ -1003,15 +1164,16 @@ func goRVExtensionArgs(output *C.char, outputsize C.size_t, input *C.char, argv 
 		}
 	case ":NEW:SOLDIER:":
 		newSoldierChan <- out
+		temp = `[0, "Logging unit"]`
 	case ":NEW:SOLDIER:STATE:":
 		newSoldierStateChan <- out
-		temp = `[0, "Logging unit"]`
-
-	case ":LOG:VEHICLE:":
-		{
-			go logVehicle(out)
-			temp = `[0, "Logging vehicle"]`
-		}
+		temp = `[0, "Logging unit state"]`
+	case ":NEW:VEHICLE:":
+		newVehicleChan <- out
+		temp = `[0, "Logging vehicle"]`
+	case ":NEW:VEHICLE:STATE:":
+		newVehicleStateChan <- out
+		temp = `[0, "Logging vehicle state"]`
 	case ":EVENT:":
 		{
 			go processEvent(out)
@@ -1126,19 +1288,35 @@ func populateDemoData() {
 
 	// declare test size counts
 	var (
-		numMissions        int = 5
-		missionDuration    int = 60 * 60 // s * value = seconds
-		numUnitsPerMission int = 100
+		numMissions        int = 2
+		missionDuration    int = 60 * 30                                          // s * value (m) = total (s)
+		numUnitsPerMission int = 50                                               // num units per mission
 		numUnits           int = numMissions * numUnitsPerMission                 // num missions * num unique units
 		numSoldiers        int = int(math.Ceil(float64(numUnits) * float64(0.8))) // numUnits / 3
-		// numVehicles      int = int(math.Ceil(float64(numUnits) * float64(0.2))) // numUnits / 3
-		numSoldierStates int = numSoldiers * missionDuration // numSoldiers * missionDuration (1s frames)
+		numSoldierStates   int = numSoldiers * missionDuration                    // numSoldiers * missionDuration (1s frames)
+		numVehicles        int = int(math.Ceil(float64(numUnits) * float64(0.2))) // numUnits / 3
+		numVehicleStates   int = numVehicles * missionDuration                    // numVehicles * missionDuration (1s frames)
 
 		sides []string = []string{
 			"WEST",
 			"EAST",
 			"GUER",
 			"CIV",
+		}
+
+		vehicleClassnames []string = []string{
+			"B_MRAP_01_F",
+			"B_MRAP_01_gmg_F",
+			"B_MRAP_01_hmg_F",
+			"B_G_Offroad_01_armed_F",
+			"B_G_Offroad_01_AT_F",
+			"B_G_Offroad_01_F",
+			"B_G_Offroad_01_repair_F",
+			"B_APC_Wheeled_01_cannon_F",
+			"B_APC_Tracked_01_AA_F",
+			"B_APC_Tracked_01_CRV_F",
+			"B_APC_Tracked_01_rcws_F",
+			"B_APC_Tracked_01_CRV_F",
 		}
 
 		roles []string = []string{
@@ -1181,10 +1359,13 @@ func populateDemoData() {
 	go func() {
 		for {
 			time.Sleep(500 * time.Millisecond)
-			fmt.Printf("PENDING: Soldiers: %d, SoldierStates: %d\n",
+			fmt.Printf("PENDING: Soldiers: %d, SoldierStates: %d, Vehicles: %d, VehicleStates: %d\n",
 				len(newSoldierChan),
 				len(newSoldierStateChan),
+				len(newVehicleChan),
+				len(newVehicleStateChan),
 			)
+			fmt.Printf("LAST WRITE TOOK: %s\n", LAST_WRITE_DURATION)
 		}
 	}()
 
@@ -1319,19 +1500,6 @@ func populateDemoData() {
 	time.Sleep(5 * time.Second)
 	fmt.Println("Done waiting.")
 
-	// populate soldiersCache with all soldiers' OcapIDs
-	soldierRows, err := DB.Model(&defs.Soldier{}).Distinct("ocap_id").Select("id, ocap_id").Rows()
-	if err != nil {
-		fmt.Println(err)
-	}
-	for soldierRows.Next() {
-		var id uint
-		var ocapID uint16
-		soldierRows.Scan(&id, &ocapID)
-		soldiersCache.Set(ocapID, id)
-	}
-	soldierRows.Close()
-
 	// write soldier states
 	soldierStatesStart := time.Now()
 	for i := 0; i < numSoldierStates; i++ {
@@ -1340,7 +1508,7 @@ func populateDemoData() {
 
 		soldierState := []string{
 			// random id
-			strconv.FormatInt(int64(rand.Intn(numUnitsPerMission)+1), 10),
+			strconv.FormatInt(int64(rand.Intn(numSoldiers)+1), 10),
 			// random pos
 			fmt.Sprintf("[%f,%f,%f]", rand.Float64()*30720+1, rand.Float64()*30720+1, rand.Float64()*30720+1),
 			// random dir
@@ -1364,6 +1532,67 @@ func populateDemoData() {
 	soldierStatesEnd := time.Now()
 	soldierStatesElapsed := soldierStatesEnd.Sub(soldierStatesStart)
 	fmt.Printf("Sent %d soldier states in %s\n", numSoldierStates, soldierStatesElapsed)
+
+	// allow 5 seconds for all soldier states to be written
+	fmt.Println("Waiting for soldier states to be written...")
+	time.Sleep(5 * time.Second)
+	fmt.Println("Done waiting.")
+
+	// write vehicles
+	vehiclesStart := time.Now()
+	vehicleIdCounter := 1
+	for i := 0; i < numVehicles; i++ {
+		// get random mission
+		DB.Model(&defs.Mission{}).Order("RANDOM()").First(&CurrentMission)
+
+		vehicle := []string{
+			// random frame
+			strconv.FormatInt(int64(rand.Intn(missionDuration)), 10),
+			// random id
+			strconv.FormatInt(int64(vehicleIdCounter), 10),
+			// random classname
+			vehicleClassnames[rand.Intn(len(vehicleClassnames))],
+			// random display name
+			fmt.Sprintf("Demo Vehicle %d", i),
+		}
+
+		vehicleIdCounter += 1
+		newVehicleChan <- vehicle
+	}
+
+	fmt.Printf("Sent %d vehicles in %s\n", numVehicles, time.Since(vehiclesStart))
+
+	// allow 5 seconds for all vehicles to be written
+	fmt.Println("Waiting for vehicles to be written...")
+	time.Sleep(5 * time.Second)
+	fmt.Println("Done waiting.")
+
+	// send vehicle states
+	vehicleStatesStart := time.Now()
+	for i := 0; i < numVehicleStates; i++ {
+		// get random mission
+		DB.Model(&defs.Mission{}).Order("RANDOM()").First(&CurrentMission)
+
+		vehicleState := []string{
+			// random id
+			strconv.FormatInt(int64(rand.Intn(numVehicles)+1), 10),
+			// random pos
+			fmt.Sprintf("[%f,%f,%f]", rand.Float64()*30720+1, rand.Float64()*30720+1, rand.Float64()*30720+1),
+			// random dir
+			fmt.Sprintf("%d", rand.Intn(360)),
+			// random isAlive bool
+			strconv.FormatBool(rand.Intn(2) == 1),
+			// random crew (array of soldiers)
+			fmt.Sprintf("[%d,%d,%d]", rand.Intn(numUnitsPerMission)+1, rand.Intn(numUnitsPerMission)+1, rand.Intn(numUnitsPerMission)+1),
+			// random frame
+			strconv.FormatInt(int64(rand.Intn(missionDuration)), 10),
+		}
+
+		newVehicleStateChan <- vehicleState
+	}
+
+	fmt.Printf("Sent %d vehicle states in %s\n", numVehicleStates, time.Since(vehicleStatesStart))
+
 	fmt.Println("Demo data populated. Press enter to exit.")
 	fmt.Scanln()
 }
