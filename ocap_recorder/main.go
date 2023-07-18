@@ -9,17 +9,18 @@ package main
 import "C" // This is required to import the C code
 
 import (
+	"compress/gzip"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"math"
 	"math/rand"
 	"net/http"
 	"os"
 	"path"
+	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
@@ -29,6 +30,7 @@ import (
 	"ocap_recorder/defs"
 
 	"github.com/glebarez/sqlite"
+	"github.com/twpayne/go-geom"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -194,6 +196,44 @@ func checkServerStatus() {
 	}
 }
 
+func getProgramStatus(
+	rawBuffers bool,
+	writeQueues bool,
+	lastWrite bool,
+) (output []string) {
+	// returns a slice of strings containing the current program status
+	// rawBuffers: include raw buffers in output
+	rawBuffersStr := fmt.Sprintf("TO PROCESS: Soldiers: %d | Vehicles: %d | SoldierStates: %d, , VehicleStates: %d | FiredEvents: %d",
+		len(newSoldierChan),
+		len(newVehicleChan),
+		len(newSoldierStateChan),
+		len(newVehicleStateChan),
+		len(newFiredEventChan),
+	)
+	// writeQueues: include write queues in output
+	writeQueuesStr := fmt.Sprintf("AWAITING WRITE: Soldiers: %d | Vehicles: %d | SoldierStates: %d | VehicleStates: %d | FiredEvents: %d",
+		soldiersToWrite.Len(),
+		vehiclesToWrite.Len(),
+		soldierStatesToWrite.Len(),
+		vehicleStatesToWrite.Len(),
+		firedEventsToWrite.Len(),
+	)
+	// lastWrite: include last write duration in output
+	lastWriteStr := fmt.Sprintf("LAST WRITE TOOK: %s", LAST_WRITE_DURATION)
+
+	if rawBuffers {
+		output = append(output, rawBuffersStr)
+	}
+	if writeQueues {
+		output = append(output, writeQueuesStr)
+	}
+	if lastWrite {
+		output = append(output, lastWriteStr)
+	}
+
+	return output
+}
+
 ///////////////////////
 // DATABASE OPS //
 ///////////////////////
@@ -341,7 +381,26 @@ func getDB() (err error) {
 		getLocalDB()
 	}
 	// test connection
-	err = DB.Exec(`SELECT 1`).Error
+	sqlDB, err = DB.DB()
+	if err != nil {
+		writeLog(functionName, fmt.Sprintf(`Error getting sql database, trying ping. Err: %s`, err), "ERROR")
+	}
+	err = sqlDB.Ping()
+	if err != nil {
+		writeLog(functionName, fmt.Sprintf(`Failed to connect to TimescaleDB. Err: %s`, err), "ERROR")
+		SAVE_LOCAL = true
+		err = getLocalDB()
+		if err != nil {
+			writeLog(functionName, fmt.Sprintf(`Failed to connect to SQLite. Err: %s`, err), "ERROR")
+			DB_VALID = false
+		} else {
+			DB_VALID = true
+		}
+	} else {
+		writeLog(functionName, "Connected to TimescaleDB", "INFO")
+		SAVE_LOCAL = false
+		DB_VALID = true
+	}
 	connectionValid := err == nil
 	if !connectionValid {
 		writeLog(functionName, fmt.Sprintf(`Failed to connect to TimescaleDB. Err: %s`, err), "ERROR")
@@ -417,6 +476,10 @@ func getDB() (err error) {
 	/////////////////////////////
 
 	toMigrate := make([]interface{}, 0)
+	// system models
+	toMigrate = append(toMigrate, &defs.OcapInfo{})
+	// aar models
+	toMigrate = append(toMigrate, &defs.AfterActionReview{})
 	toMigrate = append(toMigrate, &defs.World{})
 	toMigrate = append(toMigrate, &defs.Mission{})
 	toMigrate = append(toMigrate, &defs.Soldier{})
@@ -477,16 +540,19 @@ func getDB() (err error) {
 		hyperTables := map[string][]string{
 			"soldier_states": {
 				"time",
+				"mission_id",
 				"soldier_id",
 				"capture_frame",
 			},
 			"vehicle_states": {
 				"time",
+				"mission_id",
 				"vehicle_id",
 				"capture_frame",
 			},
 			"fired_events": {
 				"time",
+				"mission_id",
 				"soldier_id",
 				"capture_frame",
 			},
@@ -603,95 +669,75 @@ func getDB() (err error) {
 			}
 
 			var (
-				tx         *gorm.DB = DB.Begin()
-				txStart    time.Time
+				tx         *gorm.DB  = DB.Begin()
 				writeStart time.Time = time.Now()
 			)
 
 			// write new soldiers
 			if !soldiersToWrite.Empty() {
-				txStart = time.Now()
 				soldiersToWrite.Lock()
 				err = tx.Create(&soldiersToWrite.Queue).Error
 				soldiersToWrite.Unlock()
 				if err != nil {
 					writeLog(functionName, fmt.Sprintf(`Error creating soldiers: %v`, err), "ERROR")
-				} else {
-					writeLog(functionName, fmt.Sprintf(`Created %d soldiers in %s`, soldiersToWrite.Len(), time.Since(txStart)), "DEBUG")
 				}
 				soldiersToWrite.Clear()
 			}
 
 			// write soldier states
 			if !soldierStatesToWrite.Empty() {
-				txStart = time.Now()
 				soldierStatesToWrite.Lock()
 				err = tx.Create(&soldierStatesToWrite.Queue).Error
 				soldierStatesToWrite.Unlock()
 				if err != nil {
 					writeLog(functionName, fmt.Sprintf(`Error creating soldier states: %v`, err), "ERROR")
 					continue
-				} else {
-					writeLog(functionName, fmt.Sprintf(`Created %d soldier states in %s`, soldierStatesToWrite.Len(), time.Since(txStart)), "DEBUG")
 				}
 				soldierStatesToWrite.Clear()
 			}
 
 			// write new vehicles
 			if !vehiclesToWrite.Empty() {
-				txStart = time.Now()
 				vehiclesToWrite.Lock()
 				err = tx.Create(&vehiclesToWrite.Queue).Error
 				vehiclesToWrite.Unlock()
 				if err != nil {
 					writeLog(functionName, fmt.Sprintf(`Error creating vehicles: %v`, err), "ERROR")
 					continue
-				} else {
-					writeLog(functionName, fmt.Sprintf(`Created %d vehicles in %s`, vehiclesToWrite.Len(), time.Since(txStart)), "DEBUG")
 				}
 				vehiclesToWrite.Clear()
 			}
 
 			// write vehicle states
 			if !vehicleStatesToWrite.Empty() {
-				txStart = time.Now()
 				vehicleStatesToWrite.Lock()
 				err = tx.Create(&vehicleStatesToWrite.Queue).Error
 				vehicleStatesToWrite.Unlock()
 				if err != nil {
 					writeLog(functionName, fmt.Sprintf(`Error creating vehicle states: %v`, err), "ERROR")
 					continue
-				} else {
-					writeLog(functionName, fmt.Sprintf(`Created %d vehicle states in %s`, vehicleStatesToWrite.Len(), time.Since(txStart)), "DEBUG")
 				}
 				vehicleStatesToWrite.Clear()
 			}
 
 			// write fired events
 			if !firedEventsToWrite.Empty() {
-				txStart = time.Now()
 				firedEventsToWrite.Lock()
 				err = tx.Create(&firedEventsToWrite.Queue).Error
 				firedEventsToWrite.Unlock()
 				if err != nil {
 					writeLog(functionName, fmt.Sprintf(`Error creating fired events: %v`, err), "ERROR")
 					continue
-				} else {
-					writeLog(functionName, fmt.Sprintf(`Created %d fired events in %s`, firedEventsToWrite.Len(), time.Since(txStart)), "DEBUG")
 				}
 				firedEventsToWrite.Clear()
 			}
 
 			// commit transaction
-			txStart = time.Now()
 			err = tx.Commit().Error
 			if err != nil {
 				writeLog(functionName, fmt.Sprintf(`Error committing transaction: %v`, err), "ERROR")
 				tx.Rollback()
-			} else {
-				writeLog(functionName, fmt.Sprintf(`Committed transaction in %s`, time.Since(txStart)), "DEBUG")
 			}
-
 			LAST_WRITE_DURATION = time.Since(writeStart)
 
 			// sleep
@@ -898,14 +944,6 @@ func logNewSoldier(data []string) (soldier defs.Soldier, err error) {
 	soldier.PlayerUID = data[7]
 
 	return soldier, nil
-
-	// log to database
-	// err = tx.Create(&soldier).Error
-	// if err != nil {
-	// 	writeLog(functionName, fmt.Sprintf(`Error creating soldier: %v -- %v`, soldier, err), "ERROR")
-	// 	return
-	// }
-
 }
 
 // logSoldierState logs a SoldierState state to the database
@@ -920,6 +958,8 @@ func logSoldierState(data []string) (soldierState defs.SoldierState, err error) 
 	for i, v := range data {
 		data[i] = fixEscapeQuotes(trimQuotes(v))
 	}
+
+	soldierState.MissionID = CurrentMission.ID
 
 	frameStr := data[8]
 	capframe, err := strconv.ParseInt(frameStr, 10, 64)
@@ -1050,6 +1090,8 @@ func logVehicleState(data []string) (vehicleState defs.VehicleState, err error) 
 		data[i] = fixEscapeQuotes(trimQuotes(v))
 	}
 
+	vehicleState.MissionID = CurrentMission.ID
+
 	// get frame
 	frameStr := data[len(data)-1]
 	capframe, err := strconv.ParseInt(frameStr, 10, 64)
@@ -1109,22 +1151,7 @@ func logVehicleState(data []string) (vehicleState defs.VehicleState, err error) 
 	crew := data[4]
 	crew = strings.TrimPrefix(crew, "[")
 	crew = strings.TrimSuffix(crew, "]")
-	var crewIds []string = strings.Split(crew, ",")
-	var crewIdsUint []uint16
-	for _, v := range crewIds {
-		crewId, err := strconv.ParseUint(v, 10, 16)
-		if err != nil {
-			writeLog(functionName, fmt.Sprintf(`Error converting crewId to uint: %v`, err), "ERROR")
-			return vehicleState, err
-		}
-		crewIdsUint = append(crewIdsUint, uint16(crewId))
-	}
-
-	vehicleState.Crew, err = json.Marshal(crewIdsUint)
-	if err != nil {
-		writeLog(functionName, fmt.Sprintf(`Error converting crew to json: %v`, err), "ERROR")
-		return
-	}
+	vehicleState.Crew = crew
 
 	return vehicleState, nil
 }
@@ -1141,6 +1168,8 @@ func logFiredEvent(data []string) (firedEvent defs.FiredEvent, err error) {
 	for i, v := range data {
 		data[i] = fixEscapeQuotes(trimQuotes(v))
 	}
+
+	firedEvent.MissionID = CurrentMission.ID
 
 	// get frame
 	frameStr := data[1]
@@ -1160,7 +1189,7 @@ func logFiredEvent(data []string) (firedEvent defs.FiredEvent, err error) {
 
 	// try and find soldier in DB to associate
 	soldierId := uint(0)
-	err = DB.Model(&defs.Soldier{}).Select("id").Order("join_time DESC").Where("ocap_id = ?", uint16(ocapId)).First(&soldierId).Error
+	err = DB.Model(&defs.Soldier{}).Order("join_time DESC").Where("ocap_id = ?", uint16(ocapId)).Pluck("id", &soldierId).Error
 	if err != nil {
 		json, _ := json.Marshal(data)
 		writeLog(functionName, fmt.Sprintf("Error finding soldier in DB:\n%s\n%v", json, err), "ERROR")
@@ -1540,16 +1569,19 @@ func populateDemoData() {
 	)
 
 	// start a goroutine that will output channel lengths every second
+	stopMonitorChan := make(chan bool)
 	go func() {
 		for {
-			fmt.Printf("PENDING: Soldiers: %d, SoldierStates: %d, Vehicles: %d, VehicleStates: %d\n",
-				len(newSoldierChan),
-				len(newSoldierStateChan),
-				len(newVehicleChan),
-				len(newVehicleStateChan),
-			)
-			fmt.Printf("LAST WRITE TOOK: %s\n", LAST_WRITE_DURATION)
-			time.Sleep(1000 * time.Millisecond)
+			// if signal received on channel, break
+			select {
+			case <-stopMonitorChan:
+				return
+			default:
+				time.Sleep(500 * time.Millisecond)
+				for _, line := range getProgramStatus(true, true, true) {
+					fmt.Println(line)
+				}
+			}
 		}
 	}()
 
@@ -1841,83 +1873,306 @@ func populateDemoData() {
 
 	fmt.Printf("Sent %d fired events in %s\n", numSoldiers*numFiredEventsPerSoldier, time.Since(firedEventsStart))
 
+	// allow 5 seconds for all fired events to be written
+	fmt.Println("Waiting for fired events to be written...")
+	time.Sleep(5 * time.Second)
+	fmt.Println("Done waiting.")
+
+	stopMonitorChan <- true
+
 	fmt.Println("Demo data populated. Press enter to exit.")
 	fmt.Scanln()
 }
 
-func getDemoJSON(missionIds []string) (err error) {
+func getOcapRecording(missionIds []string) (err error) {
 	fmt.Println("Getting JSON for mission IDs: ", missionIds)
-	var result string
-	txStart := time.Now()
-	err = DB.Raw(`
-WITH states AS (
-  SELECT
-    jsonb_build_array(json_build_array(ST_X(position),ST_Y(position),elevation_asl), bearing, lifestate, in_vehicle::int, unit_name, is_player::int, "current_role") AS state,
-    soldier_id
-  FROM
-    soldier_states
-    ORDER BY capture_frame ASC
-),
-soldiers AS (
-  SELECT
-    jsonb_build_object('joinTime', TO_CHAR(join_time, 'YYYY/MM/DD HH:MM:SS'), 'id', ocap_id, 'group', group_id, 'side', side, 'isPlayer', is_player, 'role', role_description, 'playerUid', player_uid, 'startFrameNum', join_frame,
-      -- use custom value of "type"
-      'type', 'unit', 'positions', json_agg(ss.state)) AS soldier
-  FROM
-    soldiers s
-    LEFT JOIN states ss ON ss.soldier_id = s.id
-  WHERE
-    s.mission_id IN (?)
-  GROUP BY
-    s.id,
-    s.join_time,
-    s.ocap_id,
-    s.group_id,
-    s.side,
-    s.is_player,
-    s.role_description,
-    s.player_uid,
-    s.join_frame
-)
-SELECT
-  jsonb_build_object(
-    'entities', jsonb_agg(soldiers.soldier)
-  )
-FROM
-  soldiers
-LIMIT 500;
-`, missionIds).Select("data").First(&result).Error
 
-	fmt.Printf("Got JSON in %s\n", time.Since(txStart))
+	queries := []string{}
 
-	if err != nil {
-		return err
+	for _, missionId := range missionIds {
+
+		// get missionIdInt
+		missionIdInt, err := strconv.Atoi(missionId)
+		if err != nil {
+			return err
+		}
+
+		// var result string
+		var txStart time.Time
+
+		// get mission data
+		txStart = time.Now()
+		var mission defs.Mission
+		ocapMission := make(map[string]interface{})
+		err = DB.Model(&defs.Mission{}).Where("id = ?", missionIdInt).First(&mission).Error
+		if err != nil {
+			return err
+		}
+
+		// preprocess mission data into an object
+		ocapMission["addonVersion"] = mission.AddonVersion
+		ocapMission["extensionVersion"] = mission.ExtensionVersion
+		ocapMission["extensionBuild"] = mission.ExtensionBuild
+		ocapMission["ocapRecorderExtensionVersion"] = mission.OcapRecorderExtensionVersion
+
+		ocapMission["missionAuthor"] = mission.Author
+		ocapMission["missionName"] = mission.OnLoadName
+		if mission.OnLoadName == "" {
+			ocapMission["missionName"] = mission.BriefingName
+		}
+		ocapMission["tags"] = mission.Tag
+		ocapMission["captureDelay"] = mission.CaptureDelay
+
+		ocapMission["Markers"] = make([]interface{}, 0)
+		ocapMission["entities"] = make([]interface{}, 0)
+		ocapMission["events"] = make([]interface{}, 0)
+		ocapMission["times"] = make([]interface{}, 0)
+
+		// get world name by checking relation
+		var world defs.World
+		err = DB.Model(&defs.World{}).Where("id = ?", mission.WorldID).Select([]string{"world_name", "display_name"}).Scan(&world).Error
+		if err != nil {
+			return err
+		}
+		ocapMission["worldName"] = world.WorldName
+		ocapMission["worldDisplayName"] = world.DisplayName
+
+		// get end frame by getting the last soldier state
+		var endFrame int
+		err = DB.Model(&defs.SoldierState{}).Where("mission_id = ?", missionIdInt).Order("capture_frame DESC").Limit(1).Pluck("capture_frame", &endFrame).Error
+		if err != nil {
+			return err
+		}
+		ocapMission["endFrame"] = endFrame
+
+		fmt.Printf("Got mission data from DB in %s\n", time.Since(txStart))
+
+		// process soldier entities
+		txStart = time.Now()
+		var missionSoldiers []defs.Soldier
+
+		err = DB.Model(&mission).Association("Soldiers").Find(&missionSoldiers)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Found %d soldiers in mission in %s\n", len(missionSoldiers), time.Since(txStart))
+
+		// process soldier data and states into json
+		txStart = time.Now()
+		for _, dbSoldier := range missionSoldiers {
+			// preprocess soldier data into an object
+			jsonSoldier := make(map[string]interface{})
+			jsonSoldier["id"] = dbSoldier.OcapID
+			jsonSoldier["name"] = dbSoldier.UnitName
+			jsonSoldier["group"] = dbSoldier.GroupID
+			jsonSoldier["side"] = dbSoldier.Side
+			jsonSoldier["isPlayer"] = 0
+			if dbSoldier.IsPlayer {
+				jsonSoldier["isPlayer"] = 1
+			}
+			jsonSoldier["role"] = dbSoldier.RoleDescription
+			jsonSoldier["startFrameNum"] = dbSoldier.JoinFrame
+			jsonSoldier["type"] = "unit"
+			jsonSoldier["positions"] = make([]interface{}, 0)
+			jsonSoldier["framesFired"] = make([]interface{}, 0)
+
+			// get soldier states
+			var soldierStates []defs.SoldierState
+			err = DB.Model(&dbSoldier).Order("capture_frame ASC").Association("SoldierStates").Find(&soldierStates)
+			if err != nil {
+				return err
+			}
+			// get custom position arrays
+			for _, state := range soldierStates {
+				var thisPosition []interface{}
+
+				pos := geom.Point(state.Position)
+				posArr := []float64{pos.Coords().X(), pos.Coords().Y(), pos.Z()}
+				thisPosition = append(thisPosition, posArr)
+				thisPosition = append(thisPosition, state.Bearing)
+				thisPosition = append(thisPosition, state.Lifestate)
+				if state.InVehicle {
+					thisPosition = append(thisPosition, 1)
+				} else {
+					thisPosition = append(thisPosition, 0)
+				}
+				thisPosition = append(thisPosition, state.UnitName)
+				if state.IsPlayer {
+					thisPosition = append(thisPosition, 1)
+				} else {
+					thisPosition = append(thisPosition, 0)
+				}
+				thisPosition = append(thisPosition, state.CurrentRole)
+
+				// add frame to positions
+				jsonSoldier["positions"] = append(jsonSoldier["positions"].([]interface{}), thisPosition)
+			}
+
+			ocapMission["entities"] = append(ocapMission["entities"].([]interface{}), jsonSoldier)
+		}
+
+		fmt.Printf("Processed soldier data in %s\n", time.Since(txStart))
+
+		// process vehicle entities
+		txStart = time.Now()
+		var missionVehicles []defs.Vehicle
+
+		err = DB.Model(&mission).Association("Vehicles").Find(&missionVehicles)
+		if err != nil {
+			return err
+		}
+
+		fmt.Printf("Found %d vehicles in mission in %s\n", len(missionVehicles), time.Since(txStart))
+
+		// process vehicle data and states into json
+		txStart = time.Now()
+		for _, dbVehicle := range missionVehicles {
+			// preprocess vehicle data into an object
+			jsonVehicle := make(map[string]interface{})
+			jsonVehicle["id"] = dbVehicle.OcapID
+			jsonVehicle["name"] = dbVehicle.DisplayName
+			jsonVehicle["class"] = dbVehicle.VehicleClass
+			jsonVehicle["startFrameNum"] = dbVehicle.JoinFrame
+			jsonVehicle["framesFired"] = make([]interface{}, 0)
+			jsonVehicle["positions"] = make([]interface{}, 0)
+
+			// get vehicle states
+			var vehicleStates []defs.VehicleState
+			err = DB.Model(&dbVehicle).Order("capture_frame ASC").Association("VehicleStates").Find(&vehicleStates)
+			if err != nil {
+				return err
+			}
+			// get custom position arrays
+			lastState := make([]interface{}, 0)
+			frameIndex := 0
+			usedCaptureFrames := make(map[uint]bool)
+			for _, state := range vehicleStates {
+				var thisPosition []interface{}
+
+				// check if a record was already written for this capture frame
+				if usedCaptureFrames[state.CaptureFrame] {
+					continue
+				}
+
+				pos := geom.Point(state.Position)
+				posArr := []float64{pos.Coords().X(), pos.Coords().Y(), pos.Z()}
+				thisPosition = append(thisPosition, posArr)
+				thisPosition = append(thisPosition, state.Bearing)
+				thisPosition = append(thisPosition, state.IsAlive)
+				crewArr := make([]int, 0)
+				var crewStr string = state.Crew
+				if crewStr != "" {
+					crewStrs := strings.Split(crewStr, ",")
+					for _, crew := range crewStrs {
+						crewInt, err := strconv.Atoi(crew)
+						if err != nil {
+							return err
+						}
+						crewArr = append(crewArr, crewInt)
+					}
+				}
+				thisPosition = append(thisPosition, crewArr)
+
+				// the latest web code allows for a vehicle to be in the same position for multiple frames, denoted by the 5th element in the array, while only taking up a single element in the positions array to save space
+				// if the position is the same as the last one, we just increment the frame count of the last one
+				// select the first 3 elements of the position array to compare
+				thisPosition = append(thisPosition, make([]uint, 2))
+				if len(lastState) > 0 && reflect.DeepEqual(thisPosition[:3], lastState[:3]) {
+					// if the position is the same, we just increment the frame count of the last one
+					lastState[4].([]uint)[1]++
+					// and ensure the positions array is up to date
+					jsonVehicle["positions"].([]interface{})[frameIndex].([]interface{})[4] = lastState[4]
+					// and add the capture frame to the used frames map
+					usedCaptureFrames[state.CaptureFrame] = true
+				} else {
+					if
+					// we need to account for gaps in the capture frames, where the vehicle's last entry doesn't have [4][1] < captureFrame - 1
+					// if the last state is not empty
+					len(lastState) > 0 &&
+						// and the last entry's end frame is less than the current state's capture frame - 1
+						lastState[4].([]uint)[1] < state.CaptureFrame-1 {
+						// then we need to add a new position to the positions array & also update the last state
+						// first we need to update the last state's end frame
+						lastState[4].([]uint)[1] = state.CaptureFrame - 1
+					}
+					// then we add a new position to the positions array
+					thisPosition[4] = []uint{state.CaptureFrame, state.CaptureFrame}
+					// and add the capture frame to the used frames map
+					usedCaptureFrames[state.CaptureFrame] = true
+					// and update the last state and frame index
+					lastState = thisPosition
+					frameIndex++
+					jsonVehicle["positions"] = append(jsonVehicle["positions"].([]interface{}), thisPosition)
+				}
+			}
+
+			ocapMission["entities"] = append(ocapMission["entities"].([]interface{}), jsonVehicle)
+		}
+
+		fmt.Printf("Processed vehicle data in %s\n", time.Since(txStart))
+
+		// now we need to get the mission object in json format
+		txStart = time.Now()
+		missionJSON, err := json.MarshalIndent(ocapMission, "", "  ")
+		if err != nil {
+			return err
+		}
+
+		// write to gzipped json file
+		filename := fmt.Sprintf("mission_%s_%s.json.gz", missionId, ocapMission["missionName"])
+		filename = strings.ReplaceAll(filename, " ", "_")
+		gzipFile, err := os.Create(filename)
+		defer func() {
+			err := gzipFile.Close()
+			if err != nil {
+				panic(err)
+			}
+		}()
+		if err != nil {
+			return err
+		}
+
+		gzipWriter := gzip.NewWriter(gzipFile)
+		defer func() {
+			err := gzipWriter.Close()
+			if err != nil {
+				panic(err)
+			}
+		}()
+		bytes, err := gzipWriter.Write(missionJSON)
+		if err != nil {
+			return err
+		}
+
+		fmt.Printf("Wrote %d bytes for missionId %s in %s\n", bytes, missionId, time.Since(txStart))
+
+		// add sqlite query to add to operations table
+		queries = append(queries, fmt.Sprintf(
+			`
+INSERT INTO operations
+(world_name, mission_name, mission_duration, filename, date, tag)
+VALUES
+('%s', '%s', %d, '%s', '%s', '%s');
+			`,
+			ocapMission["worldName"],
+			ocapMission["missionName"],
+			ocapMission["endFrame"],
+			strings.Replace(filename, ".gz", "", 1),
+			time.Now().Format("2006-01-02"),
+			ocapMission["tags"],
+		))
+		fmt.Println()
 	}
-	var jsondata map[string]interface{}
 
-	// write raw result
-	err = ioutil.WriteFile("demo_raw.json", []byte(result), 0644)
-	if err != nil {
-		panic(err)
+	fmt.Println("JSON data written for all missionIds")
+
+	fmt.Println("To insert rows into your OCAP database, open the SQLite file in a proper client & run the following queries:")
+	for _, query := range queries {
+		fmt.Println(query)
 	}
 
-	// convert to JSON
-	err = json.Unmarshal([]byte(result), &jsondata)
-	if err != nil {
-		panic(err)
-	}
-
-	// write compact json
-	jsonBytes, err := json.Marshal(jsondata)
-	if err != nil {
-		panic(err)
-	}
-	err = ioutil.WriteFile("demo.json", jsonBytes, 0644)
-	if err != nil {
-		panic(err)
-	}
-
-	fmt.Println("JSON written to demo.json")
+	fmt.Println()
+	fmt.Println("Finished processing, press enter to exit.")
 	return nil
 }
 
@@ -1935,14 +2190,16 @@ func main() {
 		if args[0] == "demo" {
 			fmt.Println("Populating demo data...")
 			TEST_DATA = true
-
+			demoStart := time.Now()
 			populateDemoData()
+			fmt.Printf("Demo data populated in %s\n", time.Since(demoStart))
+			// wait input
+			fmt.Println("Demo data populated. Press enter to exit.")
 		}
 		if args[0] == "getjson" {
 			missionIds := args[1:]
 			if len(missionIds) > 0 {
-				fmt.Println("Getting JSON for mission IDs: ", missionIds)
-				err = getDemoJSON(missionIds)
+				err = getOcapRecording(missionIds)
 				if err != nil {
 					panic(err)
 				}
@@ -1952,6 +2209,6 @@ func main() {
 		}
 	} else {
 		fmt.Println("No arguments provided.")
-		fmt.Scanln()
 	}
+	fmt.Scanln()
 }

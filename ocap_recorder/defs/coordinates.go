@@ -95,7 +95,7 @@ func GPSFromString(coords string, srid int, sqlite bool) (GPSCoordinates, float6
 	if srid == 0 {
 		srid = 3857
 	}
-	return GPSCoordinates(*geom.NewPointFlat(geom.XY, []float64{long, lat}).SetSRID(srid)), elev, nil
+	return GPSCoordinates(*geom.NewPointFlat(geom.XYZ, []float64{long, lat, elev}).SetSRID(srid)), elev, nil
 }
 
 func GPSFromCoords(longitude float64, latitude float64, srid int) GPSCoordinates {
