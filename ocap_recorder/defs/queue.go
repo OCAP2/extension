@@ -328,3 +328,171 @@ func (q *FiredEventsQueue) GetAndEmpty() []FiredEvent {
 	defer q.Clear()
 	return q.Queue
 }
+
+type GeneralEventsQueue struct {
+	mu    sync.Mutex // protects q
+	Queue []GeneralEvent
+}
+
+// lock, unlock, empty, push, pop, len, clear, getandempty
+func (q *GeneralEventsQueue) Lock() bool {
+	q.mu.Lock()
+	return true
+}
+
+func (q *GeneralEventsQueue) Unlock() {
+	q.mu.Unlock()
+}
+
+func (q *GeneralEventsQueue) Empty() bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.Queue) == 0
+}
+
+func (q *GeneralEventsQueue) Push(n []GeneralEvent) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.Queue = append(q.Queue, n...)
+}
+
+func (q *GeneralEventsQueue) Pop() GeneralEvent {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if len(q.Queue) == 0 {
+		return GeneralEvent{}
+	}
+	n := q.Queue[0]
+	q.Queue = q.Queue[1:]
+	return n
+}
+
+func (q *GeneralEventsQueue) Len() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.Queue)
+}
+
+func (q *GeneralEventsQueue) Clear() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.Queue = []GeneralEvent{}
+	return len(q.Queue)
+}
+
+func (q *GeneralEventsQueue) GetAndEmpty() []GeneralEvent {
+	defer q.Clear()
+	return q.Queue
+}
+
+type HitEventsQueue struct {
+	mu    sync.Mutex // protects q
+	Queue []HitEvent
+}
+
+// lock, unlock, empty, push, pop, len, clear, getandempty
+func (q *HitEventsQueue) Lock() bool {
+	q.mu.Lock()
+	return true
+}
+
+func (q *HitEventsQueue) Unlock() {
+	q.mu.Unlock()
+}
+
+func (q *HitEventsQueue) Empty() bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.Queue) == 0
+}
+
+func (q *HitEventsQueue) Push(n []HitEvent) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.Queue = append(q.Queue, n...)
+}
+
+func (q *HitEventsQueue) Pop() HitEvent {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if len(q.Queue) == 0 {
+		return HitEvent{}
+	}
+	n := q.Queue[0]
+	q.Queue = q.Queue[1:]
+	return n
+}
+
+func (q *HitEventsQueue) Len() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.Queue)
+}
+
+func (q *HitEventsQueue) Clear() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.Queue = []HitEvent{}
+	return len(q.Queue)
+}
+
+func (q *HitEventsQueue) GetAndEmpty() []HitEvent {
+	defer q.Clear()
+	return q.Queue
+}
+
+type KillEventsQueue struct {
+	mu    sync.Mutex // protects q
+	Queue []KillEvent
+}
+
+// lock, unlock, empty, push, pop, len, clear, getandempty
+func (q *KillEventsQueue) Lock() bool {
+	q.mu.Lock()
+	return true
+}
+
+func (q *KillEventsQueue) Unlock() {
+	q.mu.Unlock()
+}
+
+func (q *KillEventsQueue) Empty() bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.Queue) == 0
+}
+
+func (q *KillEventsQueue) Push(n []KillEvent) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.Queue = append(q.Queue, n...)
+}
+
+func (q *KillEventsQueue) Pop() KillEvent {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if len(q.Queue) == 0 {
+		return KillEvent{}
+	}
+	n := q.Queue[0]
+	q.Queue = q.Queue[1:]
+	return n
+}
+
+func (q *KillEventsQueue) Len() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.Queue)
+}
+
+func (q *KillEventsQueue) Clear() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.Queue = []KillEvent{}
+	return len(q.Queue)
+}
+
+func (q *KillEventsQueue) GetAndEmpty() []KillEvent {
+	defer q.Clear()
+	return q.Queue
+}

@@ -24,10 +24,11 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unsafe"
 
-	"ocap_recorder/defs"
+	defs "ocap_recorder/defs"
 
 	"github.com/glebarez/sqlite"
 	"github.com/twpayne/go-geom"
@@ -57,18 +58,24 @@ var sqlDB *sql.DB
 
 var (
 	// channels for receiving new data and filing to DB
-	newSoldierChan      chan []string = make(chan []string, 15000)
-	newVehicleChan      chan []string = make(chan []string, 15000)
-	newSoldierStateChan chan []string = make(chan []string, 30000)
-	newVehicleStateChan chan []string = make(chan []string, 30000)
+	newSoldierChan      chan []string = make(chan []string, 1000)
+	newVehicleChan      chan []string = make(chan []string, 1000)
+	newSoldierStateChan chan []string = make(chan []string, 20000)
+	newVehicleStateChan chan []string = make(chan []string, 20000)
 	newFiredEventChan   chan []string = make(chan []string, 30000)
+	newGeneralEventChan chan []string = make(chan []string, 1000)
+	newHitEventChan     chan []string = make(chan []string, 2000)
+	newKillEventChan    chan []string = make(chan []string, 2000)
 
 	// caches of processed models pending DB write
-	soldiersToWrite      defs.SoldiersQueue      = defs.SoldiersQueue{}
-	soldierStatesToWrite defs.SoldierStatesQueue = defs.SoldierStatesQueue{}
-	vehiclesToWrite      defs.VehiclesQueue      = defs.VehiclesQueue{}
-	vehicleStatesToWrite defs.VehicleStatesQueue = defs.VehicleStatesQueue{}
-	firedEventsToWrite   defs.FiredEventsQueue   = defs.FiredEventsQueue{}
+	soldiersToWrite      = defs.SoldiersQueue{}
+	soldierStatesToWrite = defs.SoldierStatesQueue{}
+	vehiclesToWrite      = defs.VehiclesQueue{}
+	vehicleStatesToWrite = defs.VehicleStatesQueue{}
+	firedEventsToWrite   = defs.FiredEventsQueue{}
+	generalEventsToWrite = defs.GeneralEventsQueue{}
+	hitEventsToWrite     = defs.HitEventsQueue{}
+	killEventsToWrite    = defs.KillEventsQueue{}
 
 	// testing
 	TEST_DATA         bool = false
@@ -484,10 +491,14 @@ func getDB() (err error) {
 	toMigrate = append(toMigrate, &defs.Mission{})
 	toMigrate = append(toMigrate, &defs.Soldier{})
 	toMigrate = append(toMigrate, &defs.Vehicle{})
+
 	conditionalMigrate := map[string]interface{}{
 		"soldier_states": &defs.SoldierState{},
 		"vehicle_states": &defs.VehicleState{},
 		"fired_events":   &defs.FiredEvent{},
+		"general_events": &defs.GeneralEvent{},
+		"hit_events":     &defs.HitEvent{},
+		"kill_events":    &defs.KillEvent{},
 	}
 	var existingHypertablesNames []string
 	if !SAVE_LOCAL {
@@ -514,7 +525,7 @@ func getDB() (err error) {
 		toMigrate = append(toMigrate, &defs.FiredEvent{})
 	}
 
-	fmt.Printf("toMigrate: %s\n", toMigrate)
+	// fmt.Printf("toMigrate: %s\n", toMigrate)
 
 	err = DB.AutoMigrate(toMigrate...)
 	if err != nil {
@@ -562,7 +573,7 @@ func getDB() (err error) {
 				delete(hyperTables, k)
 			}
 		}
-		err = validateHypertables(hyperTables)
+		// err = validateHypertables(hyperTables)
 		if err != nil {
 			writeLog(functionName, `Failed to validate hypertables.`, "ERROR")
 			DB_VALID = false
@@ -634,8 +645,10 @@ func getDB() (err error) {
 			obj, err := logVehicleState(v)
 			if err == nil {
 				vehicleStatesToWrite.Push([]defs.VehicleState{obj})
+				continue
 			} else {
 				writeLog(functionName, fmt.Sprintf(`Failed to log vehicle state. Err: %s`, err), "ERROR")
+				continue
 			}
 		}
 	}()
@@ -650,6 +663,22 @@ func getDB() (err error) {
 			obj, err := logFiredEvent(v)
 			if err == nil {
 				firedEventsToWrite.Push([]defs.FiredEvent{obj})
+			} else {
+				writeLog(functionName, fmt.Sprintf(`Failed to log fired event. Err: %s`, err), "ERROR")
+			}
+		}
+	}()
+
+	go func() {
+		// process channel data
+		for v := range newGeneralEventChan {
+			if !DB_VALID {
+				return
+			}
+
+			obj, err := logGeneralEvent(v)
+			if err == nil {
+				generalEventsToWrite.Push([]defs.GeneralEvent{obj})
 			} else {
 				writeLog(functionName, fmt.Sprintf(`Failed to log fired event. Err: %s`, err), "ERROR")
 			}
@@ -691,7 +720,6 @@ func getDB() (err error) {
 				soldierStatesToWrite.Unlock()
 				if err != nil {
 					writeLog(functionName, fmt.Sprintf(`Error creating soldier states: %v`, err), "ERROR")
-					continue
 				}
 				soldierStatesToWrite.Clear()
 			}
@@ -703,7 +731,6 @@ func getDB() (err error) {
 				vehiclesToWrite.Unlock()
 				if err != nil {
 					writeLog(functionName, fmt.Sprintf(`Error creating vehicles: %v`, err), "ERROR")
-					continue
 				}
 				vehiclesToWrite.Clear()
 			}
@@ -715,7 +742,6 @@ func getDB() (err error) {
 				vehicleStatesToWrite.Unlock()
 				if err != nil {
 					writeLog(functionName, fmt.Sprintf(`Error creating vehicle states: %v`, err), "ERROR")
-					continue
 				}
 				vehicleStatesToWrite.Clear()
 			}
@@ -727,9 +753,41 @@ func getDB() (err error) {
 				firedEventsToWrite.Unlock()
 				if err != nil {
 					writeLog(functionName, fmt.Sprintf(`Error creating fired events: %v`, err), "ERROR")
-					continue
 				}
 				firedEventsToWrite.Clear()
+			}
+
+			// write general events
+			if !generalEventsToWrite.Empty() {
+				generalEventsToWrite.Lock()
+				err = tx.Create(&generalEventsToWrite.Queue).Error
+				generalEventsToWrite.Unlock()
+				if err != nil {
+					writeLog(functionName, fmt.Sprintf(`Error creating general events: %v`, err), "ERROR")
+				}
+				generalEventsToWrite.Clear()
+			}
+
+			// write hit events
+			if !hitEventsToWrite.Empty() {
+				hitEventsToWrite.Lock()
+				err = tx.Create(&hitEventsToWrite.Queue).Error
+				hitEventsToWrite.Unlock()
+				if err != nil {
+					writeLog(functionName, fmt.Sprintf(`Error creating hit events: %v`, err), "ERROR")
+				}
+				hitEventsToWrite.Clear()
+			}
+
+			// write kill events
+			if !killEventsToWrite.Empty() {
+				killEventsToWrite.Lock()
+				err = tx.Create(&killEventsToWrite.Queue).Error
+				killEventsToWrite.Unlock()
+				if err != nil {
+					writeLog(functionName, fmt.Sprintf(`Error creating killed events: %v`, err), "ERROR")
+				}
+				killEventsToWrite.Clear()
 			}
 
 			// commit transaction
@@ -856,14 +914,68 @@ func logNewMission(data []string) (err error) {
 		return err
 	}
 
-	// unmarshal data[1]
-	err = json.Unmarshal([]byte(data[1]), &mission)
+	// preprocess the world 'location' to geopoint
+	worldLocation := defs.GPSFromCoords(
+		float64(world.Longitude),
+		float64(world.Latitude),
+		4326,
+	)
 	if err != nil {
+		writeLog(functionName, fmt.Sprintf(`Error converting world location to geopoint: %v`, err), "ERROR")
+		return err
+	}
+	world.Location = worldLocation
+
+	// unmarshal data[1]
+	// unmarshal to temp object too to extract addons
+	missionTemp := map[string]interface{}{}
+	if err = json.Unmarshal([]byte(data[1]), &mission); err != nil {
+		writeLog(functionName, fmt.Sprintf(`Error unmarshalling mission data: %v`, err), "ERROR")
+		return err
+	}
+	if err = json.Unmarshal([]byte(data[1]), &missionTemp); err != nil {
 		writeLog(functionName, fmt.Sprintf(`Error unmarshalling mission data: %v`, err), "ERROR")
 		return err
 	}
 
+	// add addons
+	addons := []defs.Addon{}
+	for _, addon := range missionTemp["addons"].([]interface{}) {
+		thisAddon := defs.Addon{
+			Name: addon.([]interface{})[0].(string),
+		}
+		// if addon[1] workshopId is int, convert to string
+		if reflect.TypeOf(addon.([]interface{})[1]).Kind() == reflect.Float64 {
+			thisAddon.WorkshopID = strconv.Itoa(int(addon.([]interface{})[1].(float64)))
+		} else {
+			thisAddon.WorkshopID = addon.([]interface{})[1].(string)
+		}
+
+		// if addon doesn't exist, insert it
+		err = DB.Where("name = ?", thisAddon.Name).First(&thisAddon).Error
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			writeLog(functionName, fmt.Sprintf(`Error checking if addon exists: %v`, err), "ERROR")
+			return err
+		}
+		if thisAddon.ID == 0 {
+			// addon does not exist, create it
+			if err = DB.Create(&thisAddon).Error; err != nil {
+				writeLog(functionName, fmt.Sprintf(`Error creating addon: %v`, err), "ERROR")
+				return err
+			}
+		} else {
+			// addon exists, append it
+			addons = append(addons, thisAddon)
+		}
+	}
+	mission.Addons = addons
 	mission.StartTime = time.Now()
+	captureInt, err := strconv.ParseFloat(missionTemp["captureDelay"].(string), 32)
+	if err != nil {
+		writeLog(functionName, fmt.Sprintf(`Error converting captureDelay to int: %v`, err), "ERROR")
+		return err
+	}
+	mission.CaptureDelay = float32(captureInt)
 
 	// check if world exists
 	err = DB.Where("world_name = ?", world.WorldName).First(&world).Error
@@ -925,6 +1037,7 @@ func logNewSoldier(data []string) (soldier defs.Soldier, err error) {
 	soldier.MissionID = CurrentMission.ID
 	soldier.JoinTime = time.Now()
 	soldier.JoinFrame = uint(capframe)
+
 	ocapId, err := strconv.ParseUint(data[1], 10, 64)
 	if err != nil {
 		writeLog(functionName, fmt.Sprintf(`Error converting ocapId to uint: %v`, err), "ERROR")
@@ -986,14 +1099,8 @@ func logSoldierState(data []string) (soldierState defs.SoldierState, err error) 
 	}
 	soldierState.SoldierID = soldierId
 
-	// when loading test data, set time to random offset
-	if TEST_DATA {
-		newTime := time.Now().Add(time.Duration(TEST_DATA_TIMEINC.Value()) * time.Second)
-		TEST_DATA_TIMEINC.Inc()
-		soldierState.Time = newTime
-	} else {
-		soldierState.Time = time.Now()
-	}
+	// random value within 5 seconds of now
+	soldierState.Time = time.Now().Add(-time.Duration(rand.Intn(10)) * time.Second)
 
 	// parse pos from an arma string
 	pos := data[1]
@@ -1029,19 +1136,38 @@ func logSoldierState(data []string) (soldierState defs.SoldierState, err error) 
 	// current role
 	soldierState.CurrentRole = data[7]
 
-	// if len > 8, we're running ace medical and have more data
-	if len(data) > 8 {
-		// has stable vitals
-		hasStableVitals, _ := strconv.ParseBool(data[8])
-		soldierState.HasStableVitals = hasStableVitals
-		// is dragged/carried
-		isDraggedCarried, _ := strconv.ParseBool(data[9])
-		soldierState.IsDraggedCarried = isDraggedCarried
+	// parse ace3/medical data, is true/false default for vanilla
+	// has stable vitals
+	hasStableVitals, _ := strconv.ParseBool(data[9])
+	soldierState.HasStableVitals = hasStableVitals
+	// is dragged/carried
+	isDraggedCarried, _ := strconv.ParseBool(data[10])
+	soldierState.IsDraggedCarried = isDraggedCarried
+
+	// player scores come in as an array
+	if isPlayer {
+		scoresStr := data[11]
+		scoresArr := strings.Split(scoresStr, ",")
+		scoresInt := make([]uint8, len(scoresArr))
+		for i, v := range scoresArr {
+			num, _ := strconv.Atoi(v)
+			scoresInt[i] = uint8(num)
+		}
+
+		soldierState.Scores = defs.SoldierScores{
+			InfantryKills: scoresInt[0],
+			VehicleKills:  scoresInt[1],
+			ArmorKills:    scoresInt[2],
+			AirKills:      scoresInt[3],
+			Deaths:        scoresInt[4],
+			TotalScore:    scoresInt[5],
+		}
 	}
 
 	return soldierState, nil
 }
 
+// log a new vehicle
 func logNewVehicle(data []string) (vehicle defs.Vehicle, err error) {
 	functionName := ":NEW:VEHICLE:"
 	// check if DB is valid
@@ -1072,8 +1198,10 @@ func logNewVehicle(data []string) (vehicle defs.Vehicle, err error) {
 		return vehicle, err
 	}
 	vehicle.OcapID = uint16(ocapId)
-	vehicle.VehicleClass = data[2]
+	vehicle.OcapType = data[2]
 	vehicle.DisplayName = data[3]
+	vehicle.ClassName = data[4]
+	vehicle.Customization = data[5]
 
 	return vehicle, nil
 }
@@ -1118,14 +1246,7 @@ func logVehicleState(data []string) (vehicleState defs.VehicleState, err error) 
 	}
 	vehicleState.VehicleID = vehicleId
 
-	// when loading test data, set time to random offset
-	if TEST_DATA {
-		newTime := time.Now().Add(time.Duration(TEST_DATA_TIMEINC.Value()) * time.Second)
-		TEST_DATA_TIMEINC.Inc()
-		vehicleState.Time = newTime
-	} else {
-		vehicleState.Time = time.Now()
-	}
+	vehicleState.Time = time.Now().Add(-time.Duration(rand.Intn(10)) * time.Second)
 
 	// parse pos from an arma string
 	pos := data[1]
@@ -1197,14 +1318,7 @@ func logFiredEvent(data []string) (firedEvent defs.FiredEvent, err error) {
 	}
 	firedEvent.SoldierID = soldierId
 
-	// when loading test data, set time to random offset
-	if TEST_DATA {
-		newTime := time.Now().Add(time.Duration(TEST_DATA_TIMEINC.Value()) * time.Second)
-		TEST_DATA_TIMEINC.Inc()
-		firedEvent.Time = newTime
-	} else {
-		firedEvent.Time = time.Now()
-	}
+	firedEvent.Time = time.Now()
 
 	// parse BULLET START POS from an arma string
 	startpos := data[2]
@@ -1253,32 +1367,280 @@ func contains(s []string, str string) bool {
 }
 
 // function to process events of different kinds
-func processEvent(data []string) {
-	event := data[1]
-	switch event {
-	case "connected":
-		object := defs.EventPlayerConnect{}
-		captureFrame, _ := strconv.Atoi(data[0])
-		object.CaptureFrame = uint32(captureFrame)
-		object.ProfileName = data[2]
-		object.PlayerUID = data[3]
-		object.MissionID = CurrentMission.ID
+func logGeneralEvent(data []string) (thisEvent defs.GeneralEvent, err error) {
 
-		// write
-		DB.Create(&object)
-	case "disconnected":
-		object := defs.EventPlayerDisconnect{}
-		captureFrame, _ := strconv.Atoi(data[0])
-		object.CaptureFrame = uint32(captureFrame)
-		object.ProfileName = data[2]
-		object.PlayerUID = data[3]
-		object.MissionID = CurrentMission.ID
+	functionName := ":EVENT:"
 
-		// write
-		DB.Create(&object)
-	default:
-		writeLog("processEvent", fmt.Sprintf(`Unknown event type: %s`, event), "ERROR")
+	// check if DB is valid
+	if !DB_VALID {
+		return thisEvent, nil
 	}
+
+	// fix received data
+	for i, v := range data {
+		data[i] = fixEscapeQuotes(trimQuotes(v))
+	}
+
+	// get frame
+	frameStr := data[0]
+	capframe, err := strconv.ParseInt(frameStr, 10, 64)
+	if err != nil {
+		writeLog("processEvent", fmt.Sprintf(`Error converting capture frame to int: %s`, err), "ERROR")
+		return thisEvent, err
+	}
+
+	thisEvent.Time = time.Now()
+	thisEvent.Mission = CurrentMission
+
+	// get event type
+	thisEvent.CaptureFrame = uint(capframe)
+
+	// get event type
+	thisEvent.Name = data[1]
+
+	// get event message
+	thisEvent.Message = data[2]
+
+	// get extra event data
+	if len(data) > 3 {
+		// unmarshal the json string
+		err = json.Unmarshal([]byte(data[3]), &thisEvent.ExtraData)
+		if err != nil {
+			writeLog(functionName, fmt.Sprintf(`Error unmarshalling extra data: %s`, err), "ERROR")
+			return thisEvent, err
+		}
+	}
+
+	return thisEvent, nil
+}
+
+func logHitEvent(data []string) (hitEvent defs.HitEvent, err error) {
+	// check if DB is valid
+	if !DB_VALID {
+		return hitEvent, nil
+	}
+
+	// fix received data
+	for i, v := range data {
+		data[i] = fixEscapeQuotes(trimQuotes(v))
+	}
+
+	// get frame
+	frameStr := data[0]
+	capframe, err := strconv.ParseInt(frameStr, 10, 64)
+	if err != nil {
+		return hitEvent, fmt.Errorf(`error converting capture frame to int: %s`, err)
+	}
+
+	hitEvent.CaptureFrame = uint(capframe)
+	hitEvent.Mission = CurrentMission
+	hitEvent.Time = time.Now()
+
+	// parse data in array
+	victimOcapId, err := strconv.ParseUint(data[1], 10, 64)
+	if err != nil {
+		return hitEvent, fmt.Errorf(`error converting victim ocap id to uint: %v`, err)
+	}
+
+	// try and find victim in DB to associate
+	victimId := uint(0)
+	// first, look in soldiers
+	err = DB.Where(&defs.Soldier{
+		OcapID:  uint16(victimOcapId),
+		Mission: CurrentMission,
+	}).Pluck("id", &victimId).Error
+	if err != nil && err != gorm.ErrRecordNotFound {
+		return hitEvent, fmt.Errorf(`error finding victim in db: %v`, err)
+	}
+	if victimId != 0 {
+		hitEvent.VictimIDSoldier = victimId
+	}
+
+	// if not found, look in vehicles
+	if victimId == 0 {
+		err = DB.Where(&defs.Vehicle{
+			OcapID:  uint16(victimOcapId),
+			Mission: CurrentMission,
+		}).Pluck("id", &victimId).Error
+		if err != nil && err != gorm.ErrRecordNotFound {
+			return hitEvent, fmt.Errorf(`error finding victim in db: %v`, err)
+		}
+		if victimId != 0 {
+			hitEvent.VictimIDVehicle = victimId
+		}
+	}
+
+	// if victim not found, log it
+	if victimId == 0 {
+		return hitEvent, fmt.Errorf("victim ocap id not found in db: %v", err)
+	}
+
+	// now look for the shooter
+	shooterOcapId, err := strconv.ParseUint(data[2], 10, 64)
+	if err != nil {
+		return hitEvent, fmt.Errorf(`error converting shooter ocap id to uint: %v`, err)
+	}
+
+	// try and find shooter in DB to associate
+	shooterId := uint(0)
+	// first, look in soldiers
+	err = DB.Where(&defs.Soldier{
+		OcapID:  uint16(shooterOcapId),
+		Mission: CurrentMission,
+	}).Pluck("id", &shooterId).Error
+	if err != nil && err != gorm.ErrRecordNotFound {
+		return hitEvent, fmt.Errorf(`error finding shooter in db: %v`, err)
+	}
+	if shooterId != 0 {
+		hitEvent.ShooterIDSoldier = shooterId
+	}
+
+	// if not found, look in vehicles
+	if shooterId == 0 {
+		err = DB.Where(&defs.Vehicle{
+			OcapID:  uint16(shooterOcapId),
+			Mission: CurrentMission,
+		}).Pluck("id", &shooterId).Error
+		if err != nil && err != gorm.ErrRecordNotFound {
+			return hitEvent, fmt.Errorf(`error finding shooter in db: %v`, err)
+		}
+		if shooterId != 0 {
+			hitEvent.ShooterIDVehicle = shooterId
+		}
+	}
+
+	// if shooter not found, log it
+	if shooterId == 0 {
+		return hitEvent, fmt.Errorf("shooter ocap id not found in db: %v", err)
+	}
+
+	// get event text
+	hitEvent.EventText = data[3]
+
+	// get event distance
+	distance, err := strconv.ParseFloat(data[4], 64)
+	if err != nil {
+		return hitEvent, fmt.Errorf(`error converting distance to float: %v`, err)
+	}
+	hitEvent.Distance = float32(distance)
+
+	return hitEvent, nil
+}
+
+func logKillEvent(data []string) (killEvent defs.KillEvent, err error) {
+	// check if DB is valid
+	if !DB_VALID {
+		return killEvent, nil
+	}
+
+	// fix received data
+	for i, v := range data {
+		data[i] = fixEscapeQuotes(trimQuotes(v))
+	}
+
+	// get frame
+	frameStr := data[0]
+	capframe, err := strconv.ParseInt(frameStr, 10, 64)
+	if err != nil {
+		return killEvent, fmt.Errorf(`error converting capture frame to int: %s`, err)
+	}
+
+	killEvent.CaptureFrame = uint(capframe)
+	killEvent.Mission = CurrentMission
+	killEvent.Time = time.Now()
+
+	// parse data in array
+	victimOcapId, err := strconv.ParseUint(data[1], 10, 64)
+	if err != nil {
+		return killEvent, fmt.Errorf(`error converting victim ocap id to uint: %v`, err)
+	}
+
+	// try and find victim in DB to associate
+	victimId := uint(0)
+	// first, look in soldiers
+	err = DB.Where(&defs.Soldier{
+		OcapID:  uint16(victimOcapId),
+		Mission: CurrentMission,
+	}).Pluck("id", &victimId).Error
+	if err != nil && err != gorm.ErrRecordNotFound {
+		return killEvent, fmt.Errorf(`error finding victim in db: %v`, err)
+	}
+	if victimId != 0 {
+		killEvent.VictimIDSoldier = victimId
+	}
+
+	// if not found, look in vehicles
+	if victimId == 0 {
+		err = DB.Where(&defs.Vehicle{
+			OcapID:  uint16(victimOcapId),
+			Mission: CurrentMission,
+		}).Pluck("id", &victimId).Error
+		if err != nil && err != gorm.ErrRecordNotFound {
+			return killEvent, fmt.Errorf(`error finding victim in db: %v`, err)
+		}
+		if victimId != 0 {
+			killEvent.VictimIDVehicle = victimId
+		}
+	}
+
+	// if victim not found, log it
+	if victimId == 0 {
+		return killEvent, fmt.Errorf("victim ocap id not found in db: %v", err)
+	}
+
+	// now look for the killer
+	killerOcapId, err := strconv.ParseUint(data[2], 10, 64)
+	if err != nil {
+		return killEvent, fmt.Errorf(`error converting killer ocap id to uint: %v`, err)
+	}
+
+	// try and find killer in DB to associate
+	killerId := uint(0)
+	// first, look in soldiers
+	err = DB.Where(&defs.Soldier{
+		OcapID:  uint16(killerOcapId),
+		Mission: CurrentMission,
+	}).Pluck("id", &killerId).Error
+	if err != nil && err != gorm.ErrRecordNotFound {
+		return killEvent, fmt.Errorf(`error finding killer in db: %v`, err)
+	}
+	if killerId != 0 {
+
+		killEvent.KillerIDSoldier = killerId
+	}
+
+	// if not found, look in vehicles
+	if killerId == 0 {
+		err = DB.Where(&defs.Vehicle{
+			OcapID:  uint16(killerOcapId),
+			Mission: CurrentMission,
+		}).Pluck("id", &killerId).Error
+		if err != nil && err != gorm.ErrRecordNotFound {
+			return killEvent, fmt.Errorf(`error finding killer in db: %v`, err)
+		}
+		if killerId != 0 {
+			killEvent.KillerIDVehicle = killerId
+		}
+	}
+
+	// if killer not found, log it
+	if killerId == 0 {
+		return killEvent, fmt.Errorf("killer ocap id not found in db: %v", err)
+	}
+
+	// get event text
+	killEvent.EventText = data[3]
+
+	// get event distance
+	distance, err := strconv.ParseFloat(data[4], 64)
+
+	if err != nil {
+		return killEvent, fmt.Errorf(`error converting distance to float: %v`, err)
+	}
+
+	killEvent.Distance = float32(distance)
+
+	return killEvent, nil
 }
 
 ///////////////////////
@@ -1349,9 +1711,11 @@ func goRVExtensionArgs(output *C.char, outputsize C.size_t, input *C.char, argv 
 	case ":FIRED:":
 		newFiredEventChan <- out
 	case ":EVENT:":
-		{
-			go processEvent(out)
-		}
+		newGeneralEventChan <- out
+	case ":HIT:":
+		newHitEventChan <- out
+	case ":KILL:":
+		newKillEventChan <- out
 	}
 
 	// Return a result to Arma
@@ -1462,15 +1826,14 @@ func populateDemoData() {
 
 	// declare test size counts
 	var (
-		numMissions                int = 2
-		missionDuration            int = 60 * 30                                          // s * value (m) = total (s)
-		numUnitsPerMission         int = 50                                               // num units per mission
-		numUnits                   int = numMissions * numUnitsPerMission                 // num missions * num unique units
-		numSoldiers                int = int(math.Ceil(float64(numUnits) * float64(0.8))) // numUnits / 3
-		numFiredEventsPerSoldier   int = 2700
-		numSoldierStatesPerSoldier int = missionDuration                                  // missionDuration (1s frames)
-		numVehicles                int = int(math.Ceil(float64(numUnits) * float64(0.2))) // numUnits / 3
-		numVehicleStates           int = numVehicles * missionDuration                    // numVehicles * missionDuration (1s frames)
+		numMissions              int = 1
+		missionDuration          int = 60 * 15                                                    // s * value (m) = total (s)
+		numUnitsPerMission       int = 60                                                         // num units per mission
+		numSoldiers              int = int(math.Ceil(float64(numUnitsPerMission) * float64(0.8))) // numUnits / 3
+		numFiredEventsPerSoldier int = 2700
+		numVehicles              int = numUnitsPerMission - numSoldiers // numUnits / 3
+
+		waitGroup = sync.WaitGroup{}
 
 		sides []string = []string{
 			"WEST",
@@ -1494,6 +1857,19 @@ func populateDemoData() {
 			"B_APC_Tracked_01_CRV_F",
 		}
 
+		ocapTypes []string = []string{
+			"ship",
+			"parachute",
+			"heli",
+			"plane",
+			"truck",
+			"car",
+			"apc",
+			"tank",
+			"staticMortar",
+			"unknown",
+		}
+
 		roles []string = []string{
 			"Rifleman",
 			"Team Leader",
@@ -1508,6 +1884,25 @@ func populateDemoData() {
 			"Rifleman (AT)",
 			"Rifleman (AA)",
 			"Officer",
+		}
+
+		roleDescriptions []string = []string{
+			"Rifleman@Alpha",
+			"Team Leader@Alpha",
+			"Auto Rifleman@Alpha",
+			"Assistant Auto Rifleman@Alpha",
+			"Grenadier@Alpha",
+			"Machine Gunner@Alpha",
+			"Assistant Machine Gunner@Alpha",
+			"Medic@Alpha",
+			"Rifleman@Bravo",
+			"Team Leader@Bravo",
+			"Auto Rifleman@Bravo",
+			"Assistant Auto Rifleman@Bravo",
+			"Grenadier@Bravo",
+			"Machine Gunner@Bravo",
+			"Assistant Machine Gunner@Bravo",
+			"Medic@Bravo",
 		}
 
 		weapons []string = []string{
@@ -1566,6 +1961,20 @@ func populateDemoData() {
 			"Intro",
 			"Desert2",
 		}
+
+		demoAddons [][]interface{} = [][]interface{}{
+			{"Community Base Addons v3.15.1", 0},
+			{"Arma 3 Contact", 0},
+			{"Arma 3 Creator DLC: Global Mobilization - Cold War Germany", 0},
+			{"Arma 3 Tanks", 0},
+			{"Arma 3 Tac-Ops", 0},
+			{"Arma 3 Laws of War", 0},
+			{"Arma 3 Apex", 0},
+			{"Arma 3 Marksmen", "332350"},
+			{"Arma 3 Helicopters", "304380"},
+			{"Arma 3 Karts", "288520"},
+			{"Arma 3 Zeus", "275700"},
+		}
 	)
 
 	// start a goroutine that will output channel lengths every second
@@ -1614,8 +2023,9 @@ func populateDemoData() {
 			"worldName":         worldName,
 			"worldNameOriginal": worldNameOriginal,
 			"worldSize":         10240,
-			"latitude":          0.0,
-			"longitude":         0.0,
+			// random lon lat
+			"latitude":  rand.Float64() * 180,
+			"longitude": rand.Float64() * 180,
 		}
 		worldDataJSON, err := json.Marshal(worldData)
 		if err != nil {
@@ -1635,16 +2045,22 @@ func populateDemoData() {
 		// ["worldName", toLower worldName],
 		// ["tag", EGVAR(settings,saveTag)]
 		missionData := map[string]interface{}{
-			"missionName":       fmt.Sprintf("Demo Mission %d", i),
-			"briefingName":      fmt.Sprintf("Demo Briefing %d", i),
-			"missionNameSource": fmt.Sprintf("Demo Mission %d", i),
-			"onLoadName":        "",
-			"author":            "Demo Author",
-			"serverName":        "Demo Server",
-			"serverProfile":     "Demo Profile",
-			"missionStart":      nil, // random time
-			"worldName":         fmt.Sprintf("demo_world_%d", i),
-			"tag":               "Demo Tag",
+			"missionName":                  fmt.Sprintf("Demo Mission %d", i),
+			"briefingName":                 fmt.Sprintf("Demo Briefing %d", i),
+			"missionNameSource":            fmt.Sprintf("Demo Mission %d", i),
+			"onLoadName":                   "",
+			"author":                       "Demo Author",
+			"serverName":                   "Demo Server",
+			"serverProfile":                "Demo Profile",
+			"missionStart":                 nil, // random time
+			"worldName":                    fmt.Sprintf("demo_world_%d", i),
+			"tag":                          "Demo Tag",
+			"captureDelay":                 "1.0",
+			"addonVersion":                 "1.0",
+			"extensionVersion":             "1.0",
+			"extensionBuild":               "1.0",
+			"ocapRecorderExtensionVersion": "1.0",
+			"addons":                       demoAddons,
 		}
 		missionDataJSON, err := json.Marshal(missionData)
 		if err != nil {
@@ -1663,220 +2079,216 @@ func populateDemoData() {
 	missionsElapsed := missionsEnd.Sub(missionsStart)
 	fmt.Printf("Sent %d missions in %s\n", numMissions, missionsElapsed)
 
-	// write soldiers, now that our missions exist and the channels have been created
-	soldiersStart := time.Now()
-	idCounter := 1
-	for i := 0; i < numSoldiers; i++ {
+	// for each mission
+	missions := []defs.Mission{}
+	DB.Model(&defs.Mission{}).Find(&missions)
 
-		// pick random mission
-		DB.Model(&defs.Mission{}).Order("RANDOM()").Limit(1).First(&CurrentMission)
+	waitGroup = sync.WaitGroup{}
+	for _, mission := range missions {
+		CurrentMission = mission
 
-		// soldier := Soldier{
-		// 	MissionID: mission.ID,
-		// 	// jointime is mission.StartTime + random time between 0 and missionDuration (seconds)
-		// 	JoinTime: mission.StartTime.Add(time.Duration(rand.Intn(missionDuration)) * time.Second),
-		// 	// joinframe is random time between 0 and missionDuration seconds
-		// 	JoinFrame: uint(rand.Intn(missionDuration)),
-		// 	// OcapID is random number between 1 and numUnits
-		// 	OcapID: uint16(rand.Intn(numUnits) + 1),
-		// 	// UnitName is random string
-		// 	UnitName: fmt.Sprintf("Demo Unit %d", i),
-		// 	// GroupID is random string
-		// 	GroupID: fmt.Sprintf("Demo Group %d", i),
-		// 	// Side is random string from sides
-		// 	Side: sides[rand.Intn(len(sides))],
-		// 	// isPlayer is random bool
-		// 	IsPlayer: rand.Intn(2) == 1,
-		// 	// RoleDescription is random string from roles
-		// 	RoleDescription: roles[rand.Intn(len(roles))],
-		// }
+		fmt.Printf("Populating mission with ID %d\n", mission.ID)
 
-		// these will be sent as an array
-		frame := strconv.FormatInt(int64(rand.Intn(missionDuration)), 10)
-		soldier := []string{
-			frame,
-			strconv.FormatInt(int64(idCounter), 10),
-			fmt.Sprintf("Demo Unit %d", i),
-			fmt.Sprintf("Demo Group %d", i),
-			sides[rand.Intn(len(sides))],
-			strconv.FormatBool(rand.Intn(2) == 1),
-			roles[rand.Intn(len(roles))],
-			// random player uid
-			strconv.FormatInt(int64(rand.Intn(1000000000)), 10),
+		// write soldiers, now that our missions exist and the channels have been created
+		idCounter := 1
+
+		for i := 0; i <= numSoldiers; i++ {
+			waitGroup.Add(1)
+			go func(thisId int) {
+				// these will be sent as an array
+				// frame := strconv.FormatInt(int64(rand.Intn(missionDuration)), 10)
+				soldierId := strconv.FormatInt(int64(thisId), 10)
+				soldier := []string{
+					soldierId,                                           // join frame
+					soldierId,                                           // ocapid
+					fmt.Sprintf("Demo Unit %d", i),                      // unit name
+					fmt.Sprintf("Demo Group %d", i),                     // group id
+					sides[rand.Intn(len(sides))],                        // side
+					strconv.FormatBool(rand.Intn(2) == 1),               // isplayer
+					roleDescriptions[rand.Intn(len(roleDescriptions))],  // roleDescription
+					strconv.FormatInt(int64(rand.Intn(1000000000)), 10), // random player uid
+				}
+
+				newSoldierChan <- soldier
+
+				// sleep to ensure soldier is written
+				time.Sleep(3000 * time.Millisecond)
+
+				// write soldier states
+				var randomPos [3]float64 = [3]float64{rand.Float64() * 30720, rand.Float64() * 30720, rand.Float64() * 30720}
+				var randomDir float64 = rand.Float64() * 360
+				var dirMoveOffset float64 = rand.Float64() * 360
+				var randomLifestate int = rand.Intn(3)
+				var currentRole string = roles[rand.Intn(len(roles))]
+				for i := 0; i <= missionDuration; i++ {
+					// sleep 500 ms to make sure there's enough time between processing so time doesn't match exactly
+					time.Sleep(50 * time.Millisecond)
+
+					stateFrame := i
+					// determine xy transform to translate pos in randomDir limited to 180 degress of dirMoveOffset
+					var xyTransform [2]float64 = [2]float64{0, 0}
+					if randomDir < 180 {
+						xyTransform[0] = math.Sin((randomDir + dirMoveOffset) * (math.Pi / 180))
+						xyTransform[1] = math.Cos((randomDir + dirMoveOffset) * (math.Pi / 180))
+					} else {
+						xyTransform[0] = math.Sin((randomDir - dirMoveOffset) * (math.Pi / 180))
+						xyTransform[1] = math.Cos((randomDir - dirMoveOffset) * (math.Pi / 180))
+					}
+					// adjust random pos by random + or - 4m in xyTransform direction
+					randomPos[0] += xyTransform[0] + (rand.Float64() * 8) - 4
+					randomPos[1] += xyTransform[1] + (rand.Float64() * 8) - 4
+					randomPos[2] += (rand.Float64() * 8) - 4
+
+					// adjust random dir by random + or - 4
+					randomDir += (rand.Float64() * 8) - 4
+
+					// 10% chance of setting random lifestate
+					if rand.Intn(10) == 0 {
+						randomLifestate = rand.Intn(3)
+					}
+
+					// 5% chance of setting random role
+					if rand.Intn(20) == 0 {
+						currentRole = roles[rand.Intn(len(roles))]
+					}
+
+					soldierState := []string{
+						// soldier id we just made
+						soldierId,
+						// random pos
+						fmt.Sprintf("[%f,%f,%f]", randomPos[0], randomPos[1], randomPos[2]),
+						// random dir rounded to int
+						strconv.FormatFloat(randomDir, 'f', 0, 64),
+						// random lifestate (0 to 2)
+						strconv.FormatInt(int64(randomLifestate), 10),
+						// random inVehicle bool
+						strconv.FormatBool(rand.Intn(2) == 1),
+						// random name
+						fmt.Sprintf("Demo Unit %d", i),
+						// random isPlayer bool
+						strconv.FormatBool(rand.Intn(2) == 1),
+						// random role
+						currentRole,
+						// capture frame
+						strconv.FormatInt(int64(stateFrame), 10),
+						// hasStableVitals 0 or 1
+						strconv.FormatInt(int64(rand.Intn(2)), 10),
+						// is being dragged/carried 0 or 1
+						strconv.FormatInt(int64(rand.Intn(2)), 10),
+						// scores, random uint array of length 6
+						fmt.Sprintf("%d,%d,%d,%d,%d,%d", rand.Intn(20), rand.Intn(20), rand.Intn(20), rand.Intn(20), rand.Intn(20), rand.Intn(20)),
+					}
+
+					newSoldierStateChan <- soldierState
+				}
+				waitGroup.Done()
+			}(idCounter)
+			idCounter++
 		}
 
-		newSoldierChan <- soldier
+		// write vehicles
+		for i := 0; i <= numVehicles; i++ {
+			waitGroup.Add(1)
+			go func(thisId int) {
+				vehicleId := strconv.FormatInt(int64(thisId), 10)
+				vehicle := []string{
+					// join frame
+					vehicleId,
+					// ocapid
+					vehicleId,
+					// random ocap type
+					ocapTypes[rand.Intn(len(ocapTypes))],
+					// random display name
+					fmt.Sprintf("Demo Vehicle %d", i),
+					// random classname
+					vehicleClassnames[rand.Intn(len(vehicleClassnames))],
+					// random vehicle customization
+					fmt.Sprintf(
+						`"[[""%s"", %d], [""%s"", %d], [""%s"", %d]]"`,
+						"wasp",
+						1,
+						"AddTread",
+						1,
+						"AddTread_Short",
+						1,
+					),
+				}
+				newVehicleChan <- vehicle
 
-		// sleep to ensure soldier is written
-		time.Sleep(2000 * time.Millisecond)
+				// sleep to ensure vehicle is written
+				time.Sleep(3000 * time.Millisecond)
 
-		// write soldier states
-		soldierStatesStart := time.Now()
-		var randomPos [3]float64 = [3]float64{rand.Float64() * 30720, rand.Float64() * 30720, rand.Float64() * 30720}
-		var randomDir float64 = rand.Float64() * 360
-		var randomLifestate int = rand.Intn(3)
-		var currentRole string = roles[rand.Intn(len(roles))]
-		for i := 0; i < numSoldierStatesPerSoldier; i++ {
+				// send vehicle states
+				for i := 0; i <= missionDuration; i++ {
+					vehicleState := []string{
+						// ocap id
+						vehicleId,
+						// random pos
+						fmt.Sprintf("[%f,%f,%f]", rand.Float64()*30720+1, rand.Float64()*30720+1, rand.Float64()*30720+1),
+						// random dir
+						fmt.Sprintf("%d", rand.Intn(360)),
+						// random isAlive bool
+						strconv.FormatBool(rand.Intn(2) == 1),
+						// random crew (array of soldiers)
+						fmt.Sprintf("[%d,%d,%d]", rand.Intn(numSoldiers)+1, rand.Intn(numSoldiers)+1, rand.Intn(numSoldiers)+1),
+						// random frame
+						strconv.FormatInt(int64(rand.Intn(missionDuration)), 10),
+					}
 
-			// determine xy transform to translate pos in randomDir
-			var xyTransform [2]float64 = [2]float64{math.Cos(randomDir), math.Sin(randomDir)}
-			// adjust random pos by random + or - 4 in xyTransform direction
-			randomPos[0] += xyTransform[0] + (rand.Float64() * 8) - 4
-			randomPos[1] += xyTransform[1] + (rand.Float64() * 8) - 4
-			randomPos[2] += (rand.Float64() * 8) - 4
-
-			// adjust random dir by random + or - 4
-			randomDir += (rand.Float64() * 8) - 4
-
-			// 10% chance of setting random lifestate
-			if rand.Intn(10) == 0 {
-				randomLifestate = rand.Intn(3)
-			}
-
-			// 5% chance of setting random role
-			if rand.Intn(20) == 0 {
-				currentRole = roles[rand.Intn(len(roles))]
-			}
-
-			soldierState := []string{
-				// random id
-				strconv.FormatInt(int64(idCounter), 10),
-				// random pos
-				fmt.Sprintf("[%f,%f,%f]", randomPos[0], randomPos[1], randomPos[2]),
-				// random dir
-				strconv.FormatFloat(randomDir, 'f', 6, 64),
-				// random lifestate (0 to 2)
-				strconv.FormatInt(int64(randomLifestate), 10),
-				// random inVehicle bool
-				strconv.FormatBool(rand.Intn(2) == 1),
-				// random name
-				fmt.Sprintf("Demo Unit %d", i),
-				// random isPlayer bool
-				strconv.FormatBool(rand.Intn(2) == 1),
-				// random role
-				currentRole,
-				// random capture frame
-				strconv.FormatInt(int64(rand.Intn(missionDuration)), 10),
-				// hasStableVitals 0 or 1
-				strconv.FormatInt(int64(rand.Intn(2)), 10),
-				// is being dragged/carried 0 or 1
-				strconv.FormatInt(int64(rand.Intn(2)), 10),
-			}
-
-			newSoldierStateChan <- soldierState
-		}
-		fmt.Printf("Sent %d soldier states in %s\n", numSoldierStatesPerSoldier, time.Since(soldierStatesStart))
-
-		idCounter++
-	}
-	soldiersEnd := time.Now()
-	soldiersElapsed := soldiersEnd.Sub(soldiersStart)
-	fmt.Printf("Sent %d soldiers in %s\n", numSoldiers, soldiersElapsed)
-
-	// allow 5 seconds for all soldiers to be written
-	fmt.Println("Waiting for soldiers to be written...")
-	time.Sleep(5 * time.Second)
-	fmt.Println("Done waiting.")
-
-	// write vehicles
-	vehiclesStart := time.Now()
-	vehicleIdCounter := 1
-	for i := 0; i < numVehicles; i++ {
-		// get random mission
-		DB.Model(&defs.Mission{}).Order("RANDOM()").Limit(1).First(&CurrentMission)
-
-		vehicle := []string{
-			// random frame
-			strconv.FormatInt(int64(rand.Intn(missionDuration)), 10),
-			// random id
-			strconv.FormatInt(int64(vehicleIdCounter), 10),
-			// random classname
-			vehicleClassnames[rand.Intn(len(vehicleClassnames))],
-			// random display name
-			fmt.Sprintf("Demo Vehicle %d", i),
+					newVehicleStateChan <- vehicleState
+				}
+				waitGroup.Done()
+			}(idCounter)
+			idCounter++
 		}
 
-		vehicleIdCounter += 1
-		newVehicleChan <- vehicle
-	}
+		// wait for all units and states to be created so fired events can associate
+		waitGroup.Wait()
 
-	fmt.Printf("Sent %d vehicles in %s\n", numVehicles, time.Since(vehiclesStart))
+		fmt.Println("Finished creating units and states.")
+		fmt.Println("Creating fired events...")
 
-	// allow 5 seconds for all vehicles to be written
-	fmt.Println("Waiting for vehicles to be written...")
-	time.Sleep(5 * time.Second)
-	fmt.Println("Done waiting.")
+		// create a new wait group
+		wg2 := sync.WaitGroup{}
+		// demo fired events, X per soldier per mission
+		for i := 0; i <= numSoldiers*numFiredEventsPerSoldier; i++ {
+			wg2.Add(1)
+			go func() {
+				var randomStartPos []float64 = []float64{rand.Float64()*30720 + 1, rand.Float64()*30720 + 1, rand.Float64()*30720 + 1}
+				// generate random end pos within 200 m
+				var randomEndPos []float64
+				for j := 0; j < 3; j++ {
+					randomEndPos = append(randomEndPos, randomStartPos[j]+rand.Float64()*400-200)
+				}
 
-	// send vehicle states
-	vehicleStatesStart := time.Now()
-	for i := 0; i < numVehicleStates; i++ {
-		// get random mission
-		DB.Model(&defs.Mission{}).Order("RANDOM()").Limit(1).First(&CurrentMission)
+				firedEvent := []string{
+					// random soldier id
+					strconv.FormatInt(int64(rand.Intn(numSoldiers)+1), 10),
+					// random frame
+					strconv.FormatInt(int64(rand.Intn(missionDuration)), 10),
+					// random start pos
+					fmt.Sprintf("[%f,%f,%f]", randomStartPos[0], randomStartPos[1], randomStartPos[2]),
+					// random end pos within 200m of start pos
+					fmt.Sprintf("[%f,%f,%f]", randomEndPos[0], randomEndPos[1], randomEndPos[2]),
+					// random weapon
+					weapons[rand.Intn(len(weapons))],
+					// random magazine
+					magazines[rand.Intn(len(magazines))],
+					// random firemode
+					firemodes[rand.Intn(len(firemodes))],
+				}
 
-		vehicleState := []string{
-			// random id
-			strconv.FormatInt(int64(rand.Intn(numVehicles)+1), 10),
-			// random pos
-			fmt.Sprintf("[%f,%f,%f]", rand.Float64()*30720+1, rand.Float64()*30720+1, rand.Float64()*30720+1),
-			// random dir
-			fmt.Sprintf("%d", rand.Intn(360)),
-			// random isAlive bool
-			strconv.FormatBool(rand.Intn(2) == 1),
-			// random crew (array of soldiers)
-			fmt.Sprintf("[%d,%d,%d]", rand.Intn(numUnitsPerMission)+1, rand.Intn(numUnitsPerMission)+1, rand.Intn(numUnitsPerMission)+1),
-			// random frame
-			strconv.FormatInt(int64(rand.Intn(missionDuration)), 10),
+				newFiredEventChan <- firedEvent
+				wg2.Done()
+			}()
 		}
-
-		newVehicleStateChan <- vehicleState
-	}
-
-	fmt.Printf("Sent %d vehicle states in %s\n", numVehicleStates, time.Since(vehicleStatesStart))
-
-	// allow 5 seconds for all vehicle states to be written
-	fmt.Println("Waiting for vehicle states to be written...")
-	time.Sleep(5 * time.Second)
-	fmt.Println("Done waiting.")
-
-	// demo fired events, X per soldier per mission
-	firedEventsStart := time.Now()
-	for i := 0; i < numSoldiers*numFiredEventsPerSoldier; i++ {
-		// get random mission
-		DB.Model(&defs.Mission{}).Order("RANDOM()").Limit(1).First(&CurrentMission)
-
-		var randomStartPos []float64 = []float64{rand.Float64()*30720 + 1, rand.Float64()*30720 + 1, rand.Float64()*30720 + 1}
-		// generate random end pos within 200 m
-		var randomEndPos []float64
-		for j := 0; j < 3; j++ {
-			randomEndPos = append(randomEndPos, randomStartPos[j]+rand.Float64()*400-200)
-		}
-
-		firedEvent := []string{
-			// random soldier id
-			strconv.FormatInt(int64(rand.Intn(numSoldiers)+1), 10),
-			// random frame
-			strconv.FormatInt(int64(rand.Intn(missionDuration)), 10),
-			// random start pos
-			fmt.Sprintf("[%f,%f,%f]", randomStartPos[0], randomStartPos[1], randomStartPos[2]),
-			// random end pos within 200m of start pos
-			fmt.Sprintf("[%f,%f,%f]", randomEndPos[0], randomEndPos[1], randomEndPos[2]),
-			// random weapon
-			weapons[rand.Intn(len(weapons))],
-			// random magazine
-			magazines[rand.Intn(len(magazines))],
-			// random firemode
-			firemodes[rand.Intn(len(firemodes))],
-		}
-
-		newFiredEventChan <- firedEvent
+		wg2.Wait()
 	}
 
-	fmt.Printf("Sent %d fired events in %s\n", numSoldiers*numFiredEventsPerSoldier, time.Since(firedEventsStart))
-
-	// allow 5 seconds for all fired events to be written
-	fmt.Println("Waiting for fired events to be written...")
-	time.Sleep(5 * time.Second)
-	fmt.Println("Done waiting.")
+	// pause until newFiredEventChan is empty
+	for len(newFiredEventChan) > 0 {
+		time.Sleep(1000 * time.Millisecond)
+	}
 
 	stopMonitorChan <- true
 
@@ -1982,7 +2394,7 @@ func getOcapRecording(missionIds []string) (err error) {
 			if err != nil {
 				return err
 			}
-			// get custom position arrays
+			// get "positions" arrays
 			for _, state := range soldierStates {
 				var thisPosition []interface{}
 
@@ -2002,10 +2414,28 @@ func getOcapRecording(missionIds []string) (err error) {
 				} else {
 					thisPosition = append(thisPosition, 0)
 				}
-				thisPosition = append(thisPosition, state.CurrentRole)
+				// unused by web
+				// thisPosition = append(thisPosition, state.CurrentRole)
 
 				// add frame to positions
 				jsonSoldier["positions"] = append(jsonSoldier["positions"].([]interface{}), thisPosition)
+			}
+
+			// fired frames
+			var firedEvents []defs.FiredEvent
+			err = DB.Model(&dbSoldier).Order("capture_frame ASC").Association("FiredEvents").Find(&firedEvents)
+			if err != nil {
+				return err
+			}
+
+			for _, event := range firedEvents {
+				var thisFiredFrame []interface{}
+				thisFiredFrame = append(thisFiredFrame, event.CaptureFrame)
+				endPos := geom.Point(event.EndPosition)
+				endPosArr := []float64{endPos.Coords().X(), endPos.Coords().Y(), endPos.Z()}
+				thisFiredFrame = append(thisFiredFrame, endPosArr)
+
+				jsonSoldier["framesFired"] = append(jsonSoldier["framesFired"].([]interface{}), thisFiredFrame)
 			}
 
 			ocapMission["entities"] = append(ocapMission["entities"].([]interface{}), jsonSoldier)
@@ -2031,7 +2461,7 @@ func getOcapRecording(missionIds []string) (err error) {
 			jsonVehicle := make(map[string]interface{})
 			jsonVehicle["id"] = dbVehicle.OcapID
 			jsonVehicle["name"] = dbVehicle.DisplayName
-			jsonVehicle["class"] = dbVehicle.VehicleClass
+			jsonVehicle["class"] = dbVehicle.OcapType
 			jsonVehicle["startFrameNum"] = dbVehicle.JoinFrame
 			jsonVehicle["framesFired"] = make([]interface{}, 0)
 			jsonVehicle["positions"] = make([]interface{}, 0)
@@ -2113,7 +2543,7 @@ func getOcapRecording(missionIds []string) (err error) {
 
 		// now we need to get the mission object in json format
 		txStart = time.Now()
-		missionJSON, err := json.MarshalIndent(ocapMission, "", "  ")
+		missionJSON, err := json.Marshal(ocapMission)
 		if err != nil {
 			return err
 		}
