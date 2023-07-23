@@ -1,37 +1,20 @@
 version: '3.8'
 
-name: ocap_db
+name: ocap2
 services:
-  mysql:
+  db:
     env_file:
       - .env
-    image: mysql:latest
-    restart: always
-    command: --default-authentication-plugin=mysql_native_password
-    environment:
-      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASS}
-      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASS}
-      MYSQL_DATABASE: ${DB_NAME}
-    # to persist data, uncomment:
-    volumes:
-      - mysql:/var/lib/mysql
-    ports:
-      - 3306:3306
-
-  timescale:
-    env_file:
-      - .env
-    image: timescale/timescaledb-ha:pg14-all
+    image: postgis/postgis:15-3.3
     restart: always
     environment:
       POSTGRES_PASSWORD: ${DB_ROOT_PASS}
       POSTGRES_USER: ${DB_ROOT_USER}
       POSTGRES_DB: ${DB_NAME}
     volumes:
-      - timescaledb:/var/lib/postgresql/data
+      - postgres:/var/lib/postgresql/data
     ports:
       - 5432:5432
 
 volumes:
-  mysql:
-  timescaledb:
+  postgres:

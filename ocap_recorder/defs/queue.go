@@ -1,6 +1,9 @@
 package defs
 
-import "sync"
+import (
+	"fmt"
+	"sync"
+)
 
 type ArraysQueue struct {
 	mu    sync.Mutex // protects q
@@ -495,4 +498,48 @@ func (q *KillEventsQueue) Clear() int {
 func (q *KillEventsQueue) GetAndEmpty() []KillEvent {
 	defer q.Clear()
 	return q.Queue
+}
+
+type SoldierStatesMap struct {
+	frameData map[uint][]interface{}
+	lastState []interface{}
+}
+
+func NewSoldierStatesMap() *SoldierStatesMap {
+	return &SoldierStatesMap{
+		frameData: make(map[uint][]interface{}),
+	}
+}
+
+func (q *SoldierStatesMap) Set(frame uint, state []interface{}) {
+	q.frameData[frame] = state
+}
+
+// Len
+func (q *SoldierStatesMap) Len() int {
+	return len(q.frameData)
+}
+
+// method to get the soldier state at a given capture frame, or scan forward to find the next state that exists
+// returns the state and an error if not found
+func (q *SoldierStatesMap) GetStateAtFrame(frame uint, endFrame uint) ([]interface{}, error) {
+	// get the soldier frame matching the capture frame
+	state, ok := q.frameData[frame]
+	if !ok {
+		// scan forward to find the next state that exists
+		for i := frame; i <= endFrame; i++ {
+			state, ok := q.frameData[i]
+			if ok {
+				q.lastState = state
+				return state, nil
+			}
+		}
+		return []interface{}{}, fmt.Errorf("no soldier state found for frame %d", frame)
+	}
+	return state, nil
+}
+
+// get last valid state
+func (q *SoldierStatesMap) GetLastState() []interface{} {
+	return q.lastState
 }

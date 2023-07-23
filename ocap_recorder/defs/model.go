@@ -1,6 +1,7 @@
 package defs
 
 import (
+	"database/sql"
 	"time"
 
 	"gorm.io/datatypes"
@@ -78,8 +79,9 @@ type Mission struct {
 	Addons                       []Addon   `json:"-" gorm:"many2many:mission_addons;"`
 	Soldiers                     []Soldier `gorm:"foreignkey:MissionID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
 	Vehicles                     []Vehicle `gorm:"foreignkey:MissionID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
-	// EventPlayerConnects    []EventPlayerConnect    `gorm:"foreignkey:MissionID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
-	// EventPlayerDisconnects []EventPlayerDisconnect `gorm:"foreignkey:MissionID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+	GeneralEvents                []GeneralEvent
+	HitEvents                    []HitEvent
+	KillEvents                   []KillEvent
 }
 
 type Addon struct {
@@ -93,7 +95,7 @@ type Soldier struct {
 	gorm.Model
 	Mission         Mission   `gorm:"foreignkey:MissionID"`
 	MissionID       uint      `json:"missionId"`
-	JoinTime        time.Time `json:"joinTime" gorm:"type:timestamptz;NOT NULL;"`
+	JoinTime        time.Time `json:"joinTime" gorm:"type:timestamptz;NOT NULL;index:idx_join_time"`
 	JoinFrame       uint      `json:"joinFrame"`
 	OcapID          uint16    `json:"ocapId" gorm:"index:idx_ocap_id"`
 	UnitName        string    `json:"unitName" gorm:"size:64"`
@@ -102,7 +104,8 @@ type Soldier struct {
 	IsPlayer        bool      `json:"isPlayer" gorm:"default:false"`
 	RoleDescription string    `json:"roleDescription" gorm:"size:64"`
 	PlayerUID       string    `json:"playerUID" gorm:"size:64; default:NULL; index:idx_player_uid"`
-	Type            string    `json:"type" gorm:"default:unit;size:16"`
+	ClassName       string    `json:"type" gorm:"default:NULL;size:64"`
+	DisplayName     string    `json:"displayName" gorm:"default:NULL;size:64"`
 	SoldierStates   []SoldierState
 	FiredEvents     []FiredEvent
 }
@@ -110,12 +113,13 @@ type Soldier struct {
 // SoldierState inherits from Frame
 type SoldierState struct {
 	// composite primary key with Time and OCAPID
-	Time         time.Time `json:"time" gorm:"type:timestamptz;NOT NULL;primarykey;"`
-	SoldierID    uint      `json:"soldierId" gorm:"primarykey;index:idx_soldier_id"`
+	ID           uint      `json:"id" gorm:"primarykey;autoIncrement;"`
+	Time         time.Time `json:"time" gorm:"type:timestamptz;"`
+	SoldierID    uint      `json:"soldierId" gorm:"index:idx_soldier_id"`
 	Soldier      Soldier   `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:SoldierID;"`
-	MissionID    uint      `json:"missionId" gorm:"primarykey;index:idx_mission_id"`
+	MissionID    uint      `json:"missionId" gorm:"index:idx_mission_id"`
 	Mission      Mission   `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:MissionID;"`
-	CaptureFrame uint      `json:"captureFrame" gorm:"primarykey;"`
+	CaptureFrame uint      `json:"captureFrame" gorm:"index:idx_capture_frame"`
 
 	Position         GPSCoordinates `json:"position"`
 	ElevationASL     float32        `json:"elevationASL"`
@@ -143,7 +147,7 @@ type Vehicle struct {
 	gorm.Model
 	Mission       Mission   `gorm:"foreignkey:MissionID"`
 	MissionID     uint      `json:"missionId"`
-	JoinTime      time.Time `json:"joinTime" gorm:"type:timestamptz;NOT NULL;"`
+	JoinTime      time.Time `json:"joinTime" gorm:"type:timestamptz;NOT NULL;index:idx_join_time"`
 	JoinFrame     uint      `json:"joinFrame"`
 	OcapID        uint16    `json:"ocapId" gorm:"index:idx_ocap_id"`
 	OcapType      string    `json:"vehicleClass" gorm:"size:64"`
@@ -155,27 +159,33 @@ type Vehicle struct {
 
 type VehicleState struct {
 	// composite primary key with Time and OCAPID
-	Time         time.Time      `json:"time" gorm:"type:timestamptz;NOT NULL;primarykey;"`
-	VehicleID    uint           `json:"soldierID" gorm:"primarykey;index:idx_vehicle_id"`
+	ID           uint           `json:"id" gorm:"primarykey;autoIncrement;"`
+	Time         time.Time      `json:"time" gorm:"type:timestamptz;"`
+	VehicleID    uint           `json:"soldierID" gorm:"index:idx_vehicle_id"`
 	Vehicle      Vehicle        `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:VehicleID;"`
-	MissionID    uint           `json:"missionId" gorm:"primarykey;index:idx_mission_id"`
+	MissionID    uint           `json:"missionId" gorm:"index:idx_mission_id"`
 	Mission      Mission        `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:MissionID;"`
-	CaptureFrame uint           `json:"captureFrame" gorm:"primarykey;"`
+	CaptureFrame uint           `json:"captureFrame" gorm:"index:idx_capture_frame"`
 	Position     GPSCoordinates `json:"position"`
 	ElevationASL float32        `json:"elevationASL"`
 	Bearing      uint16         `json:"bearing"`
 	IsAlive      bool           `json:"isAlive"`
 	Crew         string         `json:"crew" gorm:"size:128"`
+	Fuel         float32        `json:"fuel"`
+	Damage       float32        `json:"damage"`
+	Lock         bool           `json:"lock"`
+	EngineOn     bool           `json:"engineOn"`
 }
 
 // fired events
 type FiredEvent struct {
-	Time         time.Time `json:"time" gorm:"type:timestamptz;NOT NULL;primarykey;"`
-	SoldierID    uint      `json:"soldierId" gorm:"primarykey;index:idx_soldier_id"`
+	ID           uint      `json:"id" gorm:"primarykey;autoIncrement;"`
+	Time         time.Time `json:"time" gorm:"type:timestamptz;"`
+	SoldierID    uint      `json:"soldierId" gorm:"index:idx_soldier_id"`
 	Soldier      Soldier   `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:SoldierID;"`
-	MissionID    uint      `json:"missionId" gorm:"primarykey;index:idx_mission_id"`
+	MissionID    uint      `json:"missionId" gorm:"index:idx_mission_id"`
 	Mission      Mission   `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:MissionID;"`
-	CaptureFrame uint      `json:"captureFrame" gorm:"index:idx_capture_frame;primarykey;"`
+	CaptureFrame uint      `json:"captureFrame" gorm:"index:idx_capture_frame;"`
 	Weapon       string    `json:"weapon" gorm:"size:64"`
 	Magazine     string    `json:"magazine" gorm:"size:64"`
 	FiringMode   string    `json:"mode" gorm:"size:64"`
@@ -187,50 +197,53 @@ type FiredEvent struct {
 }
 
 type GeneralEvent struct {
-	Time         time.Time      `json:"time" gorm:"type:timestamptz;NOT NULL;primarykey;"`
-	MissionID    uint           `json:"missionId" gorm:"primarykey;index:idx_mission_id"`
+	ID           uint           `json:"id" gorm:"primarykey;autoIncrement;"`
+	Time         time.Time      `json:"time" gorm:"type:timestamptz;"`
+	MissionID    uint           `json:"missionId" gorm:"index:idx_mission_id"`
 	Mission      Mission        `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:MissionID;"`
-	CaptureFrame uint           `json:"captureFrame" gorm:"index:idx_capture_frame;primarykey;"`
+	CaptureFrame uint           `json:"captureFrame" gorm:"index:idx_capture_frame;"`
 	Name         string         `json:"name" gorm:"size:64"`
 	Message      string         `json:"message"`
 	ExtraData    datatypes.JSON `json:"extraData" gorm:"type:jsonb;default:'{}'"`
 }
 
 type HitEvent struct {
-	Time time.Time `json:"time" gorm:"type:timestamptz;NOT NULL;primarykey;"`
+	ID   uint      `json:"id" gorm:"primarykey;autoIncrement;"`
+	Time time.Time `json:"time" gorm:"type:timestamptz;"`
 	// caused by could be soldier or vehicle
-	VictimIDSoldier  uint    `json:"victimIdSoldier" gorm:"primarykey;index:idx_victim_id;default:NULL"`
-	VictimSoldier    Soldier `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:VictimIDSoldier;"`
-	VictimIDVehicle  uint    `json:"victimIdVehicle" gorm:"primarykey;index:idx_victim_id;default:NULL"`
-	VictimVehicle    Vehicle `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:VictimIDVehicle;"`
-	ShooterIDSoldier uint    `json:"shooterIdSoldier" gorm:"primarykey;index:idx_shooter_id"`
-	ShooterSoldier   Soldier `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:ShooterIDSoldier;"`
-	ShooterIDVehicle uint    `json:"shooterIdVehicle" gorm:"primarykey;index:idx_shooter_id"`
-	ShooterVehicle   Vehicle `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:ShooterIDVehicle;"`
+	VictimIDSoldier  sql.NullInt32 `json:"victimIdSoldier" gorm:"index:idx_victim_id;default:NULL"`
+	VictimSoldier    Soldier       `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:VictimIDSoldier;"`
+	VictimIDVehicle  sql.NullInt32 `json:"victimIdVehicle" gorm:"index:idx_victim_id;default:NULL"`
+	VictimVehicle    Vehicle       `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:VictimIDVehicle;"`
+	ShooterIDSoldier sql.NullInt32 `json:"shooterIdSoldier" gorm:"index:idx_shooter_id;default:NULL"`
+	ShooterSoldier   Soldier       `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:ShooterIDSoldier;"`
+	ShooterIDVehicle sql.NullInt32 `json:"shooterIdVehicle" gorm:"index:idx_shooter_id;default:NULL"`
+	ShooterVehicle   Vehicle       `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:ShooterIDVehicle;"`
 
-	MissionID    uint    `json:"missionId" gorm:"primarykey;index:idx_mission_id"`
+	MissionID    uint    `json:"missionId" gorm:"index:idx_mission_id"`
 	Mission      Mission `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:MissionID;"`
-	CaptureFrame uint    `json:"captureFrame" gorm:"index:idx_capture_frame;primarykey;"`
+	CaptureFrame uint    `json:"captureFrame" gorm:"index:idx_capture_frame;"`
 
 	EventText string  `json:"eventText" gorm:"size:80"`
 	Distance  float32 `json:"distance"`
 }
 
 type KillEvent struct {
-	Time time.Time `json:"time" gorm:"type:timestamptz;NOT NULL;primarykey;"`
+	ID   uint      `json:"id" gorm:"primarykey;autoIncrement;"`
+	Time time.Time `json:"time" gorm:"type:timestamptz;"`
 	// caused by could be soldier or vehicle
-	VictimIDSoldier uint    `json:"victimIdSoldier" gorm:"primarykey;index:idx_victim_id;default:NULL"`
-	VictimSoldier   Soldier `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:VictimIDSoldier;"`
-	VictimIDVehicle uint    `json:"victimIdVehicle" gorm:"primarykey;index:idx_victim_id;default:NULL"`
-	VictimVehicle   Vehicle `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:VictimIDVehicle;"`
-	KillerIDSoldier uint    `json:"killerIdSoldier" gorm:"primarykey;index:idx_killer_id;default:NULL"`
-	KillerSoldier   Soldier `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:KillerIDSoldier;"`
-	KillerIDVehicle uint    `json:"killerIdVehicle" gorm:"primarykey;index:idx_killer_id"`
-	KillerVehicle   Vehicle `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:KillerIDVehicle;"`
+	VictimIDSoldier sql.NullInt32 `json:"victimIdSoldier" gorm:"index:idx_victim_id;default:NULL"`
+	VictimSoldier   Soldier       `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:VictimIDSoldier;"`
+	VictimIDVehicle sql.NullInt32 `json:"victimIdVehicle" gorm:"index:idx_victim_id;default:NULL"`
+	VictimVehicle   Vehicle       `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:VictimIDVehicle;"`
+	KillerIDSoldier sql.NullInt32 `json:"killerIdSoldier" gorm:"index:idx_killer_id;default:NULL"`
+	KillerSoldier   Soldier       `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:KillerIDSoldier;"`
+	KillerIDVehicle sql.NullInt32 `json:"killerIdVehicle" gorm:"index:idx_killer_id"`
+	KillerVehicle   Vehicle       `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:KillerIDVehicle;"`
 
-	MissionID    uint    `json:"missionId" gorm:"primarykey;index:idx_mission_id"`
+	MissionID    uint    `json:"missionId" gorm:"index:idx_mission_id"`
 	Mission      Mission `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:MissionID;"`
-	CaptureFrame uint    `json:"captureFrame" gorm:"index:idx_capture_frame;primarykey;"`
+	CaptureFrame uint    `json:"captureFrame" gorm:"index:idx_capture_frame;"`
 
 	EventText string  `json:"eventText" gorm:"size:80"`
 	Distance  float32 `json:"distance"`
