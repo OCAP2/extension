@@ -74,12 +74,15 @@ var (
 	// channels for receiving new data and filing to DB
 	newSoldierChan      chan []string = make(chan []string, 1000)
 	newVehicleChan      chan []string = make(chan []string, 1000)
-	newSoldierStateChan chan []string = make(chan []string, 20000)
-	newVehicleStateChan chan []string = make(chan []string, 20000)
-	newFiredEventChan   chan []string = make(chan []string, 30000)
+	newSoldierStateChan chan []string = make(chan []string, 10000)
+	newVehicleStateChan chan []string = make(chan []string, 10000)
+	newFiredEventChan   chan []string = make(chan []string, 10000)
 	newGeneralEventChan chan []string = make(chan []string, 1000)
 	newHitEventChan     chan []string = make(chan []string, 2000)
 	newKillEventChan    chan []string = make(chan []string, 2000)
+	newChatEventChan    chan []string = make(chan []string, 1000)
+	newRadioEventChan   chan []string = make(chan []string, 1000)
+	newFpsEventChan     chan []string = make(chan []string, 1000)
 
 	// caches of processed models pending DB write
 	soldiersToWrite      = defs.SoldiersQueue{}
@@ -90,6 +93,9 @@ var (
 	generalEventsToWrite = defs.GeneralEventsQueue{}
 	hitEventsToWrite     = defs.HitEventsQueue{}
 	killEventsToWrite    = defs.KillEventsQueue{}
+	chatEventsToWrite    = defs.ChatEventsQueue{}
+	radioEventsToWrite   = defs.RadioEventsQueue{}
+	fpsEventsToWrite     = defs.FpsEventsQueue{}
 
 	// testing
 	TEST_DATA         bool = false
@@ -148,14 +154,16 @@ func init() {
 	log.SetOutput(f)
 
 	loadConfig()
+}
 
+func setLogFile() (err error) {
 	LOG_FILE = fmt.Sprintf(
 		`%s\%s.%s.log`,
 		ActiveSettings.LogsDir,
 		EXTENSION,
 		time.Now().Format("20060102_150405"),
 	)
-	log.Println("Log location specified in config as", LOG_FILE)
+	log.Println("Log location:", LOG_FILE)
 	LOCAL_DB_FILE = fmt.Sprintf(`%s\%s_%s.db`, ADDON_FOLDER, EXTENSION, SESSION_START_TIME.Format("20060102_150405"))
 
 	// resolve path set in ActiveSettings.LogsDir
@@ -164,11 +172,13 @@ func init() {
 		os.Mkdir(ActiveSettings.LogsDir, 0755)
 	}
 	// log to file
-	f, err = os.OpenFile(LOG_FILE, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	f, err := os.OpenFile(LOG_FILE, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
-		log.Fatalf("error opening file: %v", err)
+		return fmt.Errorf("error opening file: %v", err)
 	}
 	log.SetOutput(f)
+
+	return nil
 }
 
 func version() {
@@ -490,6 +500,9 @@ func getDB() (err error) {
 	toMigrate = append(toMigrate, &defs.GeneralEvent{})
 	toMigrate = append(toMigrate, &defs.HitEvent{})
 	toMigrate = append(toMigrate, &defs.KillEvent{})
+	toMigrate = append(toMigrate, &defs.ChatEvent{})
+	toMigrate = append(toMigrate, &defs.RadioEvent{})
+	toMigrate = append(toMigrate, &defs.ServerFpsEvent{})
 
 	err = DB.AutoMigrate(toMigrate...)
 	if err != nil {
@@ -653,6 +666,8 @@ var CurrentMission defs.Mission
 func logNewMission(data []string) (err error) {
 	functionName := ":NEW:MISSION:"
 
+	setLogFile()
+
 	// fix received data
 	for i, v := range data {
 		data[i] = fixEscapeQuotes(trimQuotes(v))
@@ -741,11 +756,10 @@ func logNewMission(data []string) (err error) {
 
 	// check if world exists
 	err = DB.Where("world_name = ?", world.WorldName).First(&world).Error
-	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+	if err != nil && err != gorm.ErrRecordNotFound {
 		writeLog(functionName, fmt.Sprintf(`Error checking if world exists: %v`, err), "ERROR")
 		return err
-	}
-	if world.ID == 0 {
+	} else if err == gorm.ErrRecordNotFound {
 		// world does not exist, create it
 		err = DB.Create(&world).Error
 		if err != nil {
@@ -863,20 +877,20 @@ func logSoldierState(data []string) (soldierState defs.SoldierState, err error) 
 	}
 
 	// try and find soldier in DB to associate
-	soldierId := uint(0)
-	err = DB.Model(&defs.Soldier{}).Select("id").Order(
+	soldier := defs.Soldier{}
+	err = DB.Model(&defs.Soldier{}).Order(
 		"join_time DESC",
 	).Where(
 		&defs.Soldier{
 			OcapID:    uint16(ocapId),
 			MissionID: CurrentMission.ID,
-		}).Limit(1).First(&soldierId).Error
+		}).First(&soldier).Error
 	if err != nil {
 		json, _ := json.Marshal(data)
-		writeLog(functionName, fmt.Sprintf("Error finding soldier in DB:\n%s\n%v", json, err), "ERROR")
+		writeLog(functionName, fmt.Sprintf("Error finding soldier in DB:\n%s\n%v\nMissionID: %d", json, err, CurrentMission.ID), "ERROR")
 		return soldierState, err
 	}
-	soldierState.SoldierID = soldierId
+	soldierState.Soldier = soldier
 
 	// timestamp will always be appended as the last element of data, in unixnano format as a string
 	timestampStr := data[len(data)-1]
@@ -948,6 +962,8 @@ func logSoldierState(data []string) (soldierState defs.SoldierState, err error) 
 			TotalScore:    scoresInt[5],
 		}
 	}
+
+	soldierState.VehicleRole = data[12]
 
 	return soldierState, nil
 }
@@ -1030,20 +1046,20 @@ func logVehicleState(data []string) (vehicleState defs.VehicleState, err error) 
 	}
 
 	// try and find vehicle in DB to associate
-	vehicleId := uint(0)
-	err = DB.Model(&defs.Vehicle{}).Select("id").Order(
+	vehicle := defs.Vehicle{}
+	err = DB.Model(&defs.Vehicle{}).Order(
 		"join_time DESC",
 	).Where(
 		&defs.Vehicle{
 			OcapID:    uint16(ocapId),
 			MissionID: CurrentMission.ID,
-		}).Limit(1).Scan(&vehicleId).Error
+		}).First(&vehicle).Error
 	if err != nil {
 		json, _ := json.Marshal(data)
 		writeLog(functionName, fmt.Sprintf("Error finding vehicle in DB:\n%s\n%v", json, err), "ERROR")
 		return vehicleState, err
 	}
-	vehicleState.VehicleID = vehicleId
+	vehicleState.Vehicle = vehicle
 
 	// timestamp will always be appended as the last element of data, in unixnano format as a string
 	timestampStr := data[len(data)-1]
@@ -1100,6 +1116,15 @@ func logVehicleState(data []string) (vehicleState defs.VehicleState, err error) 
 		return vehicleState, fmt.Errorf(`error converting isEngineOn to bool: %v`, err)
 	}
 	vehicleState.EngineOn = isEngineOn
+
+	// locked
+	locked, err := strconv.ParseBool(data[9])
+	if err != nil {
+		return vehicleState, fmt.Errorf(`error converting locked to bool: %v`, err)
+	}
+	vehicleState.Locked = locked
+
+	vehicleState.Side = data[10]
 
 	return vehicleState, nil
 }
@@ -1490,6 +1515,214 @@ func logKillEvent(data []string) (killEvent defs.KillEvent, err error) {
 	return killEvent, nil
 }
 
+func logChatEvent(data []string) (chatEvent defs.ChatEvent, err error) {
+	// check if DB is valid
+	if !DB_VALID {
+		return chatEvent, nil
+	}
+
+	// fix received data
+	for i, v := range data {
+		data[i] = fixEscapeQuotes(trimQuotes(v))
+	}
+
+	// get frame
+	frameStr := data[0]
+	capframe, err := strconv.ParseInt(frameStr, 10, 64)
+	if err != nil {
+		return chatEvent, fmt.Errorf(`error converting capture frame to int: %s`, err)
+	}
+
+	// timestamp will always be appended as the last element of data, in unixnano format as a string
+	timestampStr := data[len(data)-1]
+	timestampInt, err := strconv.ParseInt(timestampStr, 10, 64)
+	if err != nil {
+		return chatEvent, fmt.Errorf(`error converting timestamp to int: %v`, err)
+	}
+	chatEvent.Time = time.Unix(0, timestampInt)
+
+	chatEvent.CaptureFrame = uint(capframe)
+	chatEvent.Mission = CurrentMission
+
+	// parse data in array
+	senderOcapId, err := strconv.ParseInt(data[1], 10, 64)
+	if err != nil {
+		return chatEvent, fmt.Errorf(`error converting sender ocap id to uint: %v`, err)
+	}
+
+	// try and find sender solder in DB to associate if not -1
+	if senderOcapId != -1 {
+		senderSoldier := defs.Soldier{}
+		err = DB.Model(&defs.Soldier{}).Where(
+			&defs.Soldier{
+				OcapID:    uint16(senderOcapId),
+				MissionID: CurrentMission.ID,
+			}).First(&senderSoldier).Error
+		if err != nil && err != gorm.ErrRecordNotFound {
+			return chatEvent, fmt.Errorf(`error finding sender in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, senderOcapId, err)
+		} else if err == nil {
+			chatEvent.Soldier = senderSoldier
+		}
+	}
+
+	// parse the rest of array
+
+	// channel is the 3rd element, compare against map
+	// parse string to int
+	channelInt, err := strconv.ParseInt(data[2], 10, 64)
+	if err != nil {
+		return chatEvent, fmt.Errorf(`error converting channel to int: %v`, err)
+	}
+	channelName, ok := defs.ChatChannels[int(channelInt)]
+	if ok {
+		chatEvent.Channel = channelName
+	} else {
+		chatEvent.Channel = "System"
+	}
+
+	// next is from (formatted as the game message)
+	chatEvent.FromName = data[3]
+
+	// next is actual name
+	chatEvent.SenderName = data[4]
+
+	// next is message
+	chatEvent.Message = data[5]
+
+	// next is playerUID
+	chatEvent.PlayerUid = data[6]
+
+	return chatEvent, nil
+}
+
+// radio events
+func logRadioEvent(data []string) (radioEvent defs.RadioEvent, err error) {
+	// check if DB is valid
+	if !DB_VALID {
+		return radioEvent, nil
+	}
+
+	// fix received data
+	for i, v := range data {
+		data[i] = fixEscapeQuotes(trimQuotes(v))
+	}
+
+	// get frame
+	frameStr := data[0]
+	capframe, err := strconv.ParseInt(frameStr, 10, 64)
+	if err != nil {
+		return radioEvent, fmt.Errorf(`error converting capture frame to int: %s`, err)
+	}
+
+	// timestamp will always be appended as the last element of data, in unixnano format as a string
+	timestampStr := data[len(data)-1]
+	timestampInt, err := strconv.ParseInt(timestampStr, 10, 64)
+	if err != nil {
+		return radioEvent, fmt.Errorf(`error converting timestamp to int: %v`, err)
+	}
+	radioEvent.Time = time.Unix(0, timestampInt)
+
+	radioEvent.CaptureFrame = uint(capframe)
+	radioEvent.Mission = CurrentMission
+
+	// parse data in array
+	senderOcapId, err := strconv.ParseInt(data[1], 10, 64)
+	if err != nil {
+		return radioEvent, fmt.Errorf(`error converting sender ocap id to uint: %v`, err)
+	}
+
+	// try and find sender solder in DB to associate if not -1
+	if senderOcapId != -1 {
+		senderSoldier := defs.Soldier{}
+		err = DB.Model(&defs.Soldier{}).Where(
+			&defs.Soldier{
+				OcapID:    uint16(senderOcapId),
+				MissionID: CurrentMission.ID,
+			}).First(&senderSoldier).Error
+		if err != nil && err != gorm.ErrRecordNotFound {
+			return radioEvent, fmt.Errorf(`error finding sender in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, senderOcapId, err)
+		} else if err == nil {
+			radioEvent.Soldier = senderSoldier
+		}
+	}
+
+	// parse the rest of array
+	// radio
+	radioEvent.Radio = data[2]
+	// radio type (SW or LR)
+	radioEvent.RadioType = data[3]
+	// transmission type (start/end)
+	radioEvent.StartEnd = data[4]
+	// channel on radio (1-8) int8
+	channelInt, err := strconv.ParseInt(data[5], 10, 64)
+	if err != nil {
+		return radioEvent, fmt.Errorf(`error converting channel to int: %v`, err)
+	}
+	radioEvent.Channel = int8(channelInt)
+	// is primary or additional channel
+	isAddtl, err := strconv.ParseBool(data[6])
+	if err != nil {
+		return radioEvent, fmt.Errorf(`error converting isAddtl to bool: %v`, err)
+	}
+	radioEvent.IsAdditional = isAddtl
+
+	// frequency
+	freq, err := strconv.ParseFloat(data[7], 64)
+	if err != nil {
+		return radioEvent, fmt.Errorf(`error converting freq to float: %v`, err)
+	}
+	radioEvent.Frequency = float32(freq)
+
+	radioEvent.Code = data[8]
+
+	return radioEvent, nil
+}
+
+func logFpsEvent(data []string) (fpsEvent defs.ServerFpsEvent, err error) {
+	// check if DB is valid
+	if !DB_VALID {
+		return fpsEvent, nil
+	}
+
+	// fix received data
+	for i, v := range data {
+		data[i] = fixEscapeQuotes(trimQuotes(v))
+	}
+
+	// get frame
+	frameStr := data[0]
+	capframe, err := strconv.ParseInt(frameStr, 10, 64)
+	if err != nil {
+		return fpsEvent, fmt.Errorf(`error converting capture frame to int: %s`, err)
+	}
+
+	// timestamp will always be appended as the last element of data, in unixnano format as a string
+	timestampStr := data[len(data)-1]
+	timestampInt, err := strconv.ParseInt(timestampStr, 10, 64)
+	if err != nil {
+		return fpsEvent, fmt.Errorf(`error converting timestamp to int: %v`, err)
+	}
+
+	fpsEvent.CaptureFrame = uint(capframe)
+	fpsEvent.Time = time.Unix(0, timestampInt)
+	fpsEvent.Mission = CurrentMission
+
+	// parse data in array
+	fps, err := strconv.ParseFloat(data[1], 64)
+	if err != nil {
+		return fpsEvent, fmt.Errorf(`error converting fps to float: %v`, err)
+	}
+	fpsEvent.FpsAverage = float32(fps)
+
+	fpsMin, err := strconv.ParseFloat(data[2], 64)
+	if err != nil {
+		return fpsEvent, fmt.Errorf(`error converting fpsMin to float: %v`, err)
+	}
+	fpsEvent.FpsMin = float32(fpsMin)
+
+	return fpsEvent, nil
+}
+
 ///////////////////////
 // GOROUTINES //
 ///////////////////////
@@ -1628,6 +1861,57 @@ func startAsyncProcessors() {
 			}
 		}
 	}()
+
+	// chat events
+	go func() {
+		// process channel data
+		for v := range newChatEventChan {
+			if !DB_VALID {
+				return
+			}
+
+			obj, err := logChatEvent(v)
+			if err == nil {
+				chatEventsToWrite.Push([]defs.ChatEvent{obj})
+			} else {
+				writeLog(functionName, fmt.Sprintf(`Failed to log chat event. Err: %s`, err), "ERROR")
+			}
+		}
+	}()
+
+	// radio events
+	go func() {
+		// process channel data
+		for v := range newRadioEventChan {
+			if !DB_VALID {
+				return
+			}
+
+			obj, err := logRadioEvent(v)
+			if err == nil {
+				radioEventsToWrite.Push([]defs.RadioEvent{obj})
+			} else {
+				writeLog(functionName, fmt.Sprintf(`Failed to log radio event. Err: %s`, err), "ERROR")
+			}
+		}
+	}()
+
+	// fps events
+	go func() {
+		// process channel data
+		for v := range newFpsEventChan {
+			if !DB_VALID {
+				return
+			}
+
+			obj, err := logFpsEvent(v)
+			if err == nil {
+				fpsEventsToWrite.Push([]defs.ServerFpsEvent{obj})
+			} else {
+				writeLog(functionName, fmt.Sprintf(`Failed to log fps event. Err: %s`, err), "ERROR")
+			}
+		}
+	}()
 }
 
 func startDBWriters() {
@@ -1671,6 +1955,8 @@ func startDBWriters() {
 				tx.Commit()
 				if err != nil {
 					writeLog(functionName, fmt.Sprintf(`Error creating soldier states: %v`, err), "ERROR")
+					stmt := tx.Statement.SQL.String()
+					writeLog(functionName, stmt, "ERROR")
 					tx.Rollback()
 				}
 				soldierStatesToWrite.Clear()
@@ -1699,6 +1985,8 @@ func startDBWriters() {
 				tx.Commit()
 				if err != nil {
 					writeLog(functionName, fmt.Sprintf(`Error creating vehicle states: %v`, err), "ERROR")
+					stmt := tx.Statement.SQL.String()
+					writeLog(functionName, stmt, "ERROR")
 					tx.Rollback()
 				}
 				vehicleStatesToWrite.Clear()
@@ -1713,6 +2001,8 @@ func startDBWriters() {
 				tx.Commit()
 				if err != nil {
 					writeLog(functionName, fmt.Sprintf(`Error creating fired events: %v`, err), "ERROR")
+					stmt := tx.Statement.SQL.String()
+					writeLog(functionName, stmt, "ERROR")
 					tx.Rollback()
 				}
 				firedEventsToWrite.Clear()
@@ -1758,6 +2048,48 @@ func startDBWriters() {
 					tx.Rollback()
 				}
 				killEventsToWrite.Clear()
+			}
+
+			// write chat events
+			if !chatEventsToWrite.Empty() {
+				tx := DB.Begin()
+				chatEventsToWrite.Lock()
+				err := tx.Create(&chatEventsToWrite.Queue).Error
+				chatEventsToWrite.Unlock()
+				tx.Commit()
+				if err != nil {
+					writeLog(functionName, fmt.Sprintf(`Error creating chat events: %v`, err), "ERROR")
+					tx.Rollback()
+				}
+				chatEventsToWrite.Clear()
+			}
+
+			// write radio events
+			if !radioEventsToWrite.Empty() {
+				tx := DB.Begin()
+				radioEventsToWrite.Lock()
+				err := tx.Create(&radioEventsToWrite.Queue).Error
+				radioEventsToWrite.Unlock()
+				tx.Commit()
+				if err != nil {
+					writeLog(functionName, fmt.Sprintf(`Error creating radio events: %v`, err), "ERROR")
+					tx.Rollback()
+				}
+				radioEventsToWrite.Clear()
+			}
+
+			// write serverfps events
+			if !fpsEventsToWrite.Empty() {
+				tx := DB.Begin()
+				fpsEventsToWrite.Lock()
+				err := tx.Create(&fpsEventsToWrite.Queue).Error
+				fpsEventsToWrite.Unlock()
+				tx.Commit()
+				if err != nil {
+					writeLog(functionName, fmt.Sprintf(`Error creating serverfps events: %v`, err), "ERROR")
+					tx.Rollback()
+				}
+				fpsEventsToWrite.Clear()
 			}
 
 			LAST_WRITE_DURATION = time.Since(writeStart)
@@ -1846,6 +2178,21 @@ func goRVExtensionArgs(output *C.char, outputsize C.size_t, input *C.char, argv 
 		go func(data []string, timestamp string) {
 			data = append(data, timestamp)
 			newKillEventChan <- data
+		}(out, fmt.Sprintf("%d", timestamp.UnixNano()))
+	case ":CHAT:":
+		go func(data []string, timestamp string) {
+			data = append(data, timestamp)
+			newChatEventChan <- data
+		}(out, fmt.Sprintf("%d", timestamp.UnixNano()))
+	case ":RADIO:":
+		go func(data []string, timestamp string) {
+			data = append(data, timestamp)
+			newRadioEventChan <- data
+		}(out, fmt.Sprintf("%d", timestamp.UnixNano()))
+	case ":FPS:":
+		go func(data []string, timestamp string) {
+			data = append(data, timestamp)
+			newFpsEventChan <- data
 		}(out, fmt.Sprintf("%d", timestamp.UnixNano()))
 	default:
 		temp = fmt.Sprintf(`["%s"]`, "Unknown Function")
@@ -2167,14 +2514,14 @@ func populateDemoData() {
 			"missionName":                  fmt.Sprintf("Demo Mission %d", i),
 			"briefingName":                 fmt.Sprintf("Demo Briefing %d", i),
 			"missionNameSource":            fmt.Sprintf("Demo Mission %d", i),
-			"onLoadName":                   "",
+			"onLoadName":                   "TestLoadName",
 			"author":                       "Demo Author",
 			"serverName":                   "Demo Server",
 			"serverProfile":                "Demo Profile",
 			"missionStart":                 nil, // random time
 			"worldName":                    fmt.Sprintf("demo_world_%d", i),
 			"tag":                          "Demo Tag",
-			"captureDelay":                 "1.0",
+			"captureDelay":                 1.0,
 			"addonVersion":                 "1.0",
 			"extensionVersion":             "1.0",
 			"extensionBuild":               "1.0",
@@ -2218,13 +2565,15 @@ func populateDemoData() {
 				// frame := strconv.FormatInt(int64(rand.Intn(missionDuration)), 10)
 				soldierId := strconv.FormatInt(int64(thisId), 10)
 				soldier := []string{
-					soldierId,                                           // join frame
-					soldierId,                                           // ocapid
-					fmt.Sprintf("Demo Unit %d", i),                      // unit name
-					fmt.Sprintf("Demo Group %d", i),                     // group id
-					sides[rand.Intn(len(sides))],                        // side
-					strconv.FormatBool(rand.Intn(2) == 1),               // isplayer
-					roleDescriptions[rand.Intn(len(roleDescriptions))],  // roleDescription
+					soldierId,                                          // join frame
+					soldierId,                                          // ocapid
+					fmt.Sprintf("Demo Unit %d", i),                     // unit name
+					fmt.Sprintf("Demo Group %d", i),                    // group id
+					sides[rand.Intn(len(sides))],                       // side
+					strconv.FormatBool(rand.Intn(2) == 1),              // isplayer
+					roleDescriptions[rand.Intn(len(roleDescriptions))], // roleDescription
+					"B_Soldier_F",                                      // unit classname
+					"Rifleman",                                         // unit display name
 					strconv.FormatInt(int64(rand.Intn(1000000000)), 10), // random player uid
 				}
 
@@ -2298,6 +2647,8 @@ func populateDemoData() {
 						strconv.FormatInt(int64(rand.Intn(2)), 10),
 						// scores, random uint array of length 6
 						fmt.Sprintf("%d,%d,%d,%d,%d,%d", rand.Intn(20), rand.Intn(20), rand.Intn(20), rand.Intn(20), rand.Intn(20), rand.Intn(20)),
+						// vehicle role, select random
+						"Passenger",
 					}
 
 					// add timestamp to end of array
@@ -2361,6 +2712,14 @@ func populateDemoData() {
 						fmt.Sprintf("[%d,%d,%d]", rand.Intn(numSoldiers)+1, rand.Intn(numSoldiers)+1, rand.Intn(numSoldiers)+1),
 						// random frame
 						strconv.FormatInt(int64(rand.Intn(missionDuration)), 10),
+						// random fuel 0 to 1.0
+						fmt.Sprintf("%f", rand.Float64()),
+						// random damage 0 to 1.0
+						fmt.Sprintf("%f", rand.Float64()),
+						// random isEngineOn bool (1 in 10 chance of being true)
+						strconv.FormatBool(rand.Intn(10) == 0),
+						// random locked bool (1 in 10 chance of being true)
+						strconv.FormatBool(rand.Intn(10) == 0),
 					}
 
 					// add timestamp to end of array
@@ -2399,9 +2758,9 @@ func populateDemoData() {
 					// random frame
 					strconv.FormatInt(int64(rand.Intn(missionDuration)), 10),
 					// random start pos
-					fmt.Sprintf("[%f,%f,%f]", randomStartPos[0], randomStartPos[1], randomStartPos[2]),
+					fmt.Sprintf("%f,%f,%f", randomStartPos[0], randomStartPos[1], randomStartPos[2]),
 					// random end pos within 200m of start pos
-					fmt.Sprintf("[%f,%f,%f]", randomEndPos[0], randomEndPos[1], randomEndPos[2]),
+					fmt.Sprintf("%f,%f,%f", randomEndPos[0], randomEndPos[1], randomEndPos[2]),
 					// random weapon
 					weapons[rand.Intn(len(weapons))],
 					// random magazine

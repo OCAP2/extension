@@ -500,6 +500,176 @@ func (q *KillEventsQueue) GetAndEmpty() []KillEvent {
 	return q.Queue
 }
 
+type ChatEventsQueue struct {
+	mu    sync.Mutex // protects q
+	Queue []ChatEvent
+}
+
+// lock, unlock, empty, push, pop, len, clear, getandempty
+func (q *ChatEventsQueue) Lock() bool {
+	q.mu.Lock()
+	return true
+}
+
+func (q *ChatEventsQueue) Unlock() {
+	q.mu.Unlock()
+}
+
+func (q *ChatEventsQueue) Empty() bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.Queue) == 0
+}
+
+func (q *ChatEventsQueue) Push(n []ChatEvent) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.Queue = append(q.Queue, n...)
+}
+
+func (q *ChatEventsQueue) Pop() ChatEvent {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if len(q.Queue) == 0 {
+		return ChatEvent{}
+	}
+	n := q.Queue[0]
+	q.Queue = q.Queue[1:]
+	return n
+}
+
+func (q *ChatEventsQueue) Len() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.Queue)
+}
+
+func (q *ChatEventsQueue) Clear() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.Queue = []ChatEvent{}
+	return len(q.Queue)
+}
+
+func (q *ChatEventsQueue) GetAndEmpty() []ChatEvent {
+	defer q.Clear()
+	return q.Queue
+}
+
+type RadioEventsQueue struct {
+	mu    sync.Mutex // protects q
+	Queue []RadioEvent
+}
+
+// lock, unlock, empty, push, pop, len, clear, getandempty
+func (q *RadioEventsQueue) Lock() bool {
+	q.mu.Lock()
+	return true
+}
+
+func (q *RadioEventsQueue) Unlock() {
+	q.mu.Unlock()
+}
+
+func (q *RadioEventsQueue) Empty() bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.Queue) == 0
+}
+
+func (q *RadioEventsQueue) Push(n []RadioEvent) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.Queue = append(q.Queue, n...)
+}
+
+func (q *RadioEventsQueue) Pop() RadioEvent {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if len(q.Queue) == 0 {
+		return RadioEvent{}
+	}
+	n := q.Queue[0]
+	q.Queue = q.Queue[1:]
+	return n
+}
+
+func (q *RadioEventsQueue) Len() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.Queue)
+}
+
+func (q *RadioEventsQueue) Clear() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.Queue = []RadioEvent{}
+	return len(q.Queue)
+}
+
+func (q *RadioEventsQueue) GetAndEmpty() []RadioEvent {
+	defer q.Clear()
+	return q.Queue
+}
+
+type FpsEventsQueue struct {
+	mu    sync.Mutex // protects q
+	Queue []ServerFpsEvent
+}
+
+// lock, unlock, empty, push, pop, len, clear, getandempty
+func (q *FpsEventsQueue) Lock() bool {
+	q.mu.Lock()
+	return true
+}
+
+func (q *FpsEventsQueue) Unlock() {
+	q.mu.Unlock()
+}
+
+func (q *FpsEventsQueue) Empty() bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.Queue) == 0
+}
+
+func (q *FpsEventsQueue) Push(n []ServerFpsEvent) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.Queue = append(q.Queue, n...)
+}
+
+func (q *FpsEventsQueue) Pop() ServerFpsEvent {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if len(q.Queue) == 0 {
+		return ServerFpsEvent{}
+	}
+	n := q.Queue[0]
+	q.Queue = q.Queue[1:]
+	return n
+}
+
+func (q *FpsEventsQueue) Len() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.Queue)
+}
+
+func (q *FpsEventsQueue) Clear() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.Queue = []ServerFpsEvent{}
+	return len(q.Queue)
+}
+
+func (q *FpsEventsQueue) GetAndEmpty() []ServerFpsEvent {
+	defer q.Clear()
+	return q.Queue
+}
+
+/* Map to process soldier states for write out to JSON */
+
 type SoldierStatesMap struct {
 	frameData map[uint][]interface{}
 	lastState []interface{}

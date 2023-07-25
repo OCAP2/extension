@@ -82,6 +82,10 @@ type Mission struct {
 	GeneralEvents                []GeneralEvent
 	HitEvents                    []HitEvent
 	KillEvents                   []KillEvent
+	FiredEvents                  []FiredEvent
+	ChatEvents                   []ChatEvent
+	RadioEvents                  []RadioEvent
+	ServerFpsEvents              []ServerFpsEvent
 }
 
 type Addon struct {
@@ -108,6 +112,8 @@ type Soldier struct {
 	DisplayName     string    `json:"displayName" gorm:"default:NULL;size:64"`
 	SoldierStates   []SoldierState
 	FiredEvents     []FiredEvent
+	ChatEvents      []ChatEvent
+	RadioEvents     []RadioEvent
 }
 
 // SoldierState inherits from Frame
@@ -126,6 +132,7 @@ type SoldierState struct {
 	Bearing          uint16         `json:"bearing" gorm:"default:0"`
 	Lifestate        uint8          `json:"lifestate" gorm:"default:0"`
 	InVehicle        bool           `json:"inVehicle" gorm:"default:false"`
+	VehicleRole      string         `json:"vehicleRole" gorm:"size:64"`
 	UnitName         string         `json:"unitName" gorm:"size:64"`
 	IsPlayer         bool           `json:"isPlayer" gorm:"default:false"`
 	CurrentRole      string         `json:"currentRole" gorm:"size:64"`
@@ -173,8 +180,9 @@ type VehicleState struct {
 	Crew         string         `json:"crew" gorm:"size:128"`
 	Fuel         float32        `json:"fuel"`
 	Damage       float32        `json:"damage"`
-	Lock         bool           `json:"lock"`
+	Locked       bool           `json:"locked"`
 	EngineOn     bool           `json:"engineOn"`
+	Side         string         `json:"side" gorm:"size:16"`
 }
 
 // fired events
@@ -249,23 +257,54 @@ type KillEvent struct {
 	Distance  float32 `json:"distance"`
 }
 
-// event types
-type EventPlayerConnect struct {
-	gorm.Model
-	Mission      Mission `gorm:"foreignkey:MissionID"`
-	MissionID    uint
-	CaptureFrame uint32 `json:"captureFrame"`
-	EventType    string `json:"eventType" gorm:"size:32"`
-	PlayerUID    string `json:"playerUid" gorm:"index:idx_player_uid;size:20"`
-	ProfileName  string `json:"playerName" gorm:"size:32"`
+var ChatChannels map[int]string = map[int]string{
+	0:  "Global",
+	1:  "Side",
+	2:  "Command",
+	3:  "Group",
+	4:  "Vehicle",
+	5:  "Direct",
+	16: "System",
 }
 
-type EventPlayerDisconnect struct {
-	gorm.Model
-	Mission      Mission `gorm:"foreignkey:MissionID"`
-	MissionID    uint
-	CaptureFrame uint32 `json:"captureFrame"`
-	EventType    string `json:"eventType" gorm:"size:32"`
-	PlayerUID    string `json:"playerUid" gorm:"index:idx_player_uid;size:20"`
-	ProfileName  string `json:"playerName" gorm:"size:32"`
+type ChatEvent struct {
+	ID           uint          `json:"id" gorm:"primarykey;autoIncrement;"`
+	Time         time.Time     `json:"time" gorm:"type:timestamptz;"`
+	MissionID    uint          `json:"missionId" gorm:"index:idx_mission_id"`
+	Mission      Mission       `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:MissionID;"`
+	SoldierID    sql.NullInt32 `json:"soldierId" gorm:"index:idx_soldier_id;default:NULL"`
+	Soldier      Soldier       `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:SoldierID;"`
+	CaptureFrame uint          `json:"captureFrame" gorm:"index:idx_capture_frame;"`
+	Channel      string        `json:"channel" gorm:"size:64"`
+	FromName     string        `json:"from" gorm:"size:64"`
+	SenderName   string        `json:"name" gorm:"size:64"`
+	Message      string        `json:"text"`
+	PlayerUid    string        `json:"playerUID" gorm:"size:64; default:NULL; index:idx_player_uid"`
+}
+
+type RadioEvent struct {
+	ID           uint          `json:"id" gorm:"primarykey;autoIncrement;"`
+	Time         time.Time     `json:"time" gorm:"type:timestamptz;"`
+	MissionID    uint          `json:"missionId" gorm:"index:idx_mission_id"`
+	Mission      Mission       `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:MissionID;"`
+	SoldierID    sql.NullInt32 `json:"soldierId" gorm:"index:idx_soldier_id;default:NULL"`
+	Soldier      Soldier       `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:SoldierID;"`
+	CaptureFrame uint          `json:"captureFrame" gorm:"index:idx_capture_frame;"`
+
+	Radio        string  `json:"radio" gorm:"size:32"`
+	RadioType    string  `json:"radioType" gorm:"size:8"`
+	StartEnd     string  `json:"startEnd" gorm:"size:8"`
+	Channel      int8    `json:"channel"`
+	IsAdditional bool    `json:"isAdditional"`
+	Frequency    float32 `json:"frequency"`
+	Code         string  `json:"code" gorm:"size:32"`
+}
+
+type ServerFpsEvent struct {
+	Time         time.Time `json:"time" gorm:"type:timestamptz;"`
+	MissionID    uint      `json:"missionId" gorm:"index:idx_mission_id"`
+	Mission      Mission   `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:MissionID;"`
+	CaptureFrame uint      `json:"captureFrame" gorm:"index:idx_capture_frame;"`
+	FpsAverage   float32   `json:"fpsAvg"`
+	FpsMin       float32   `json:"fpsMin"`
 }
