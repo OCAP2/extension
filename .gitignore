@@ -347,3 +347,5 @@ database/.env
 ocap_recorder/status.txt
 
 ocap_recorder/\@ocap/
+
+.vscode/

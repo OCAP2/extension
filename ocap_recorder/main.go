@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"math"
 	"math/rand"
@@ -236,7 +237,7 @@ func getProgramStatus(
 	rawBuffers bool,
 	writeQueues bool,
 	lastWrite bool,
-) (output []string) {
+) (output []string, model defs.OcapPerformance) {
 	// returns a slice of strings containing the current program status
 	// rawBuffers: include raw buffers in output
 	rawBuffersStr := fmt.Sprintf("TO PROCESS: Soldiers: %d | Vehicles: %d | SoldierStates: %d | VehicleStates: %d | FiredEvents: %d",
@@ -267,7 +268,44 @@ func getProgramStatus(
 		output = append(output, lastWriteStr)
 	}
 
-	return output
+	buffersObj := defs.BufferLengths{
+		Soldiers:        uint16(len(newSoldierChan)),
+		Vehicles:        uint16(len(newVehicleChan)),
+		SoldierStates:   uint16(len(newSoldierStateChan)),
+		VehicleStates:   uint16(len(newVehicleStateChan)),
+		FiredEvents:     uint16(len(newFiredEventChan)),
+		GeneralEvents:   uint16(len(newGeneralEventChan)),
+		HitEvents:       uint16(len(newHitEventChan)),
+		KillEvents:      uint16(len(newKillEventChan)),
+		ChatEvents:      uint16(len(newChatEventChan)),
+		RadioEvents:     uint16(len(newRadioEventChan)),
+		ServerFpsEvents: uint16(len(newFpsEventChan)),
+	}
+
+	writeQueuesObj := defs.WriteQueueLengths{
+		Soldiers:        uint16(soldiersToWrite.Len()),
+		Vehicles:        uint16(vehiclesToWrite.Len()),
+		SoldierStates:   uint16(soldierStatesToWrite.Len()),
+		VehicleStates:   uint16(vehicleStatesToWrite.Len()),
+		FiredEvents:     uint16(firedEventsToWrite.Len()),
+		GeneralEvents:   uint16(generalEventsToWrite.Len()),
+		HitEvents:       uint16(hitEventsToWrite.Len()),
+		KillEvents:      uint16(killEventsToWrite.Len()),
+		ChatEvents:      uint16(chatEventsToWrite.Len()),
+		RadioEvents:     uint16(radioEventsToWrite.Len()),
+		ServerFpsEvents: uint16(fpsEventsToWrite.Len()),
+	}
+
+	perf := defs.OcapPerformance{
+		Time:              time.Now(),
+		MissionID:         CurrentMission.ID,
+		BufferLengths:     buffersObj,
+		WriteQueueLengths: writeQueuesObj,
+		// get float32 in ms
+		LastWriteDurationMs: float32(LAST_WRITE_DURATION.Milliseconds()),
+	}
+
+	return output, perf
 }
 
 ///////////////////////
@@ -503,6 +541,7 @@ func getDB() (err error) {
 	toMigrate = append(toMigrate, &defs.ChatEvent{})
 	toMigrate = append(toMigrate, &defs.RadioEvent{})
 	toMigrate = append(toMigrate, &defs.ServerFpsEvent{})
+	toMigrate = append(toMigrate, &defs.OcapPerformance{})
 
 	err = DB.AutoMigrate(toMigrate...)
 	if err != nil {
@@ -567,18 +606,22 @@ func getDB() (err error) {
 		}
 		defer statusFile.Close()
 		for {
-			time.Sleep(1500 * time.Millisecond)
+			time.Sleep(3000 * time.Millisecond)
 			// clear the file contents and then write status
 			statusFile.Truncate(0)
 			statusFile.Seek(0, 0)
-			for _, line := range getProgramStatus(true, true, true) {
+			statusStr, model := getProgramStatus(true, true, true)
+			for _, line := range statusStr {
 				statusFile.WriteString(line + "\n")
+			}
+
+			// write model to db
+			err = DB.Create(&model).Error
+			if err != nil {
+				writeLog(functionName, fmt.Sprintf(`Error writing ocap perfromance to db: %v`, err), "ERROR")
 			}
 		}
 	}()
-
-	// sleep a second to let the goroutines start
-	time.Sleep(1 * time.Second)
 
 	// log post goroutine creation
 	writeLog(functionName, "Goroutines started successfully", "INFO")
@@ -864,16 +907,14 @@ func logSoldierState(data []string) (soldierState defs.SoldierState, err error) 
 	frameStr := data[8]
 	capframe, err := strconv.ParseInt(frameStr, 10, 64)
 	if err != nil {
-		writeLog(functionName, fmt.Sprintf(`Error converting capture frame to int: %s`, err), "ERROR")
-		return soldierState, err
+		return soldierState, fmt.Errorf(`error converting capture frame to int: %s`, err)
 	}
 	soldierState.CaptureFrame = uint(capframe)
 
 	// parse data in array
 	ocapId, err := strconv.ParseUint(data[0], 10, 64)
 	if err != nil {
-		writeLog(functionName, fmt.Sprintf(`Error converting ocapId to uint: %v`, err), "ERROR")
-		return soldierState, err
+		return soldierState, fmt.Errorf(`error converting ocapId to uint: %v`, err)
 	}
 
 	// try and find soldier in DB to associate
@@ -886,9 +927,11 @@ func logSoldierState(data []string) (soldierState defs.SoldierState, err error) 
 			MissionID: CurrentMission.ID,
 		}).First(&soldier).Error
 	if err != nil {
+		if err == gorm.ErrRecordNotFound && capframe < 10 {
+			return defs.SoldierState{}, errTooEarlyForStateAssociation
+		}
 		json, _ := json.Marshal(data)
-		writeLog(functionName, fmt.Sprintf("Error finding soldier in DB:\n%s\n%v\nMissionID: %d", json, err, CurrentMission.ID), "ERROR")
-		return soldierState, err
+		return soldierState, fmt.Errorf("error finding soldier in DB:\n%s\n%v\nMissionID: %d", json, err, CurrentMission.ID)
 	}
 	soldierState.Soldier = soldier
 
@@ -1055,6 +1098,9 @@ func logVehicleState(data []string) (vehicleState defs.VehicleState, err error) 
 			MissionID: CurrentMission.ID,
 		}).First(&vehicle).Error
 	if err != nil {
+		if err == gorm.ErrRecordNotFound && capframe < 10 {
+			return defs.VehicleState{}, errTooEarlyForStateAssociation
+		}
 		json, _ := json.Marshal(data)
 		writeLog(functionName, fmt.Sprintf("Error finding vehicle in DB:\n%s\n%v", json, err), "ERROR")
 		return vehicleState, err
@@ -1174,6 +1220,9 @@ func logFiredEvent(data []string) (firedEvent defs.FiredEvent, err error) {
 		writeLog(functionName, fmt.Sprintf("Error finding soldier in DB:\n%s\n%v", json, err), "ERROR")
 		return firedEvent, err
 	} else if err == gorm.ErrRecordNotFound {
+		if capframe < 10 {
+			return firedEvent, errTooEarlyForStateAssociation
+		}
 		// soldier not found, return
 		return firedEvent, nil
 	}
@@ -1345,6 +1394,9 @@ func logHitEvent(data []string) (hitEvent defs.HitEvent, err error) {
 		if err != nil && err != gorm.ErrRecordNotFound {
 			return hitEvent, fmt.Errorf(`error finding victim in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, victimOcapId, err)
 		} else if err == gorm.ErrRecordNotFound {
+			if capframe < 10 {
+				return defs.HitEvent{}, errTooEarlyForStateAssociation
+			}
 			return hitEvent, fmt.Errorf(`victim ocap id not found in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, victimOcapId, err)
 		} else {
 			hitEvent.VictimVehicle = victimVehicle
@@ -1381,6 +1433,9 @@ func logHitEvent(data []string) (hitEvent defs.HitEvent, err error) {
 		if err != nil && err != gorm.ErrRecordNotFound {
 			return hitEvent, fmt.Errorf(`error finding shooter in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, shooterOcapId, err)
 		} else if err == gorm.ErrRecordNotFound {
+			if capframe < 10 {
+				return defs.HitEvent{}, errTooEarlyForStateAssociation
+			}
 			return hitEvent, fmt.Errorf(`shooter ocap id not found in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, shooterOcapId, err)
 		} else {
 			hitEvent.ShooterVehicle = shooterVehicle
@@ -1459,6 +1514,9 @@ func logKillEvent(data []string) (killEvent defs.KillEvent, err error) {
 		if err != nil && err != gorm.ErrRecordNotFound {
 			return killEvent, fmt.Errorf(`error finding victim in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, victimOcapId, err)
 		} else if err == gorm.ErrRecordNotFound {
+			if capframe < 10 {
+				return defs.KillEvent{}, errTooEarlyForStateAssociation
+			}
 			return killEvent, fmt.Errorf(`victim ocap id not found in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, victimOcapId, err)
 		} else {
 			killEvent.VictimVehicle = victimVehicle
@@ -1494,6 +1552,9 @@ func logKillEvent(data []string) (killEvent defs.KillEvent, err error) {
 		if err != nil && err != gorm.ErrRecordNotFound {
 			return killEvent, fmt.Errorf(`error finding killer in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, killerOcapId, err)
 		} else if err == gorm.ErrRecordNotFound {
+			if capframe < 10 {
+				return defs.KillEvent{}, errTooEarlyForStateAssociation
+			}
 			return killEvent, fmt.Errorf(`killer ocap id not found in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, killerOcapId, err)
 		} else {
 			killEvent.KillerVehicle = killerVehicle
@@ -1560,6 +1621,11 @@ func logChatEvent(data []string) (chatEvent defs.ChatEvent, err error) {
 			}).First(&senderSoldier).Error
 		if err != nil && err != gorm.ErrRecordNotFound {
 			return chatEvent, fmt.Errorf(`error finding sender in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, senderOcapId, err)
+		} else if err == gorm.ErrRecordNotFound {
+			if capframe < 10 {
+				return defs.ChatEvent{}, errTooEarlyForStateAssociation
+			}
+			return chatEvent, fmt.Errorf(`sender ocap id not found in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, senderOcapId, err)
 		} else if err == nil {
 			chatEvent.Soldier = senderSoldier
 		}
@@ -1641,6 +1707,11 @@ func logRadioEvent(data []string) (radioEvent defs.RadioEvent, err error) {
 			}).First(&senderSoldier).Error
 		if err != nil && err != gorm.ErrRecordNotFound {
 			return radioEvent, fmt.Errorf(`error finding sender in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, senderOcapId, err)
+		} else if err == gorm.ErrRecordNotFound {
+			if capframe < 10 {
+				return defs.RadioEvent{}, errTooEarlyForStateAssociation
+			}
+			return radioEvent, fmt.Errorf(`sender ocap id not found in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, senderOcapId, err)
 		} else if err == nil {
 			radioEvent.Soldier = senderSoldier
 		}
@@ -1775,6 +1846,10 @@ func startAsyncProcessors() {
 			if err == nil {
 				soldierStatesToWrite.Push([]defs.SoldierState{obj})
 			} else {
+				// if its within the first 10 frames, we don't want to log the error (because it's likely the unit itself isn't inserted yet)
+				if err == errTooEarlyForStateAssociation {
+					continue
+				}
 				writeLog(functionName, fmt.Sprintf(`Failed to log soldier state. Err: %s`, err), "ERROR")
 			}
 		}
@@ -1792,6 +1867,10 @@ func startAsyncProcessors() {
 				vehicleStatesToWrite.Push([]defs.VehicleState{obj})
 				continue
 			} else {
+				// if its within the first 10 frames, we don't want to log the error (because it's likely the unit itself isn't inserted yet)
+				if err == errTooEarlyForStateAssociation {
+					continue
+				}
 				writeLog(functionName, fmt.Sprintf(`Failed to log vehicle state. Err: %s`, err), "ERROR")
 				continue
 			}
@@ -1809,6 +1888,10 @@ func startAsyncProcessors() {
 			if err == nil {
 				firedEventsToWrite.Push([]defs.FiredEvent{obj})
 			} else {
+				// if its within the first 10 frames, we don't want to log the error (because it's likely the unit itself isn't inserted yet)
+				if err == errTooEarlyForStateAssociation {
+					continue
+				}
 				writeLog(functionName, fmt.Sprintf(`Failed to log fired event. Err: %s`, err), "ERROR")
 			}
 		}
@@ -1841,6 +1924,10 @@ func startAsyncProcessors() {
 			if err == nil {
 				hitEventsToWrite.Push([]defs.HitEvent{obj})
 			} else {
+				// if its within the first 10 frames, we don't want to log the error (because it's likely the unit itself isn't inserted yet)
+				if err == errTooEarlyForStateAssociation {
+					continue
+				}
 				writeLog(functionName, fmt.Sprintf(`Failed to log hit event. Err: %s`, err), "ERROR")
 			}
 		}
@@ -1857,6 +1944,10 @@ func startAsyncProcessors() {
 			if err == nil {
 				killEventsToWrite.Push([]defs.KillEvent{obj})
 			} else {
+				// if its within the first 10 frames, we don't want to log the error (because it's likely the unit itself isn't inserted yet)
+				if err == errTooEarlyForStateAssociation {
+					continue
+				}
 				writeLog(functionName, fmt.Sprintf(`Failed to log kill event. Err: %s`, err), "ERROR")
 			}
 		}
@@ -1874,6 +1965,10 @@ func startAsyncProcessors() {
 			if err == nil {
 				chatEventsToWrite.Push([]defs.ChatEvent{obj})
 			} else {
+				// if its within the first 10 frames, we don't want to log the error (because it's likely the unit itself isn't inserted yet)
+				if err == errTooEarlyForStateAssociation {
+					continue
+				}
 				writeLog(functionName, fmt.Sprintf(`Failed to log chat event. Err: %s`, err), "ERROR")
 			}
 		}
@@ -1891,6 +1986,10 @@ func startAsyncProcessors() {
 			if err == nil {
 				radioEventsToWrite.Push([]defs.RadioEvent{obj})
 			} else {
+				// if its within the first 10 frames, we don't want to log the error (because it's likely the unit itself isn't inserted yet)
+				if err == errTooEarlyForStateAssociation {
+					continue
+				}
 				writeLog(functionName, fmt.Sprintf(`Failed to log radio event. Err: %s`, err), "ERROR")
 			}
 		}
@@ -1913,6 +2012,8 @@ func startAsyncProcessors() {
 		}
 	}()
 }
+
+var errTooEarlyForStateAssociation error = fmt.Errorf(`too early for state association`)
 
 func startDBWriters() {
 	functionName := ":DB:WRITER:"
@@ -1955,8 +2056,6 @@ func startDBWriters() {
 				tx.Commit()
 				if err != nil {
 					writeLog(functionName, fmt.Sprintf(`Error creating soldier states: %v`, err), "ERROR")
-					stmt := tx.Statement.SQL.String()
-					writeLog(functionName, stmt, "ERROR")
 					tx.Rollback()
 				}
 				soldierStatesToWrite.Clear()
@@ -3414,6 +3513,91 @@ func reduceMission(missionIds []string) (err error) {
 	return nil
 }
 
+func testQuery() (err error) {
+	query := `
+select 
+    s.ocap_id,
+    ss.capture_frame,
+    json_agg(ss.*) as states,
+    json_agg(hit.*) as hits,
+    json_agg(kill.*) as kills,
+    json_agg(fire.*) as fired,
+    json_agg(re.*) as radio,
+    json_agg(ce.*) as chat
+from soldiers s
+  left join (
+    select *
+    from soldier_states
+    order by capture_frame asc
+  ) ss on ss.soldier_id = s.id
+  left join kill_events kill on (
+    kill.victim_id_soldier = s.id
+    or kill.killer_id_soldier = s.id
+  )
+  and ss.capture_frame = kill.capture_frame
+  left join hit_events hit on (
+    hit.victim_id_soldier = s.id
+    or hit.shooter_id_soldier = s.id
+  )
+  and ss.capture_frame = hit.capture_frame
+  left join fired_events fire on fire.soldier_id = s.id
+  and ss.capture_frame = fire.capture_frame
+  left join radio_events re on re.soldier_id = s.id
+  and ss.capture_frame = re.capture_frame
+  left join chat_events ce on ce.soldier_id = s.id
+  and ss.capture_frame = ce.capture_frame
+where s.mission_id = ? and ss.capture_frame between ? and ?
+group by s.ocap_id,
+  ss.capture_frame
+order by s.ocap_id,
+  ss.capture_frame;
+`
+
+	// get rows
+	frameData := []defs.FrameData{}
+	err = DB.Raw(query, 4, 0, 100).Scan(&frameData).Error
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	// create json data
+	// jsonData := make(map[string]interface{})
+
+	// for rows.Next() {
+
+	// 	rowData := defs.FrameData{}
+	// 	err = DB.ScanRows(rows, &rowData)
+	// 	if err != nil {
+	// 		fmt.Println(err)
+	// 		return
+	// 	}
+
+	// 	soldierId := strconv.Itoa(int(rowData.OcapId))
+	// 	captureFrame := strconv.Itoa(int(rowData.CaptureFrame))
+
+	// 	// check if soldier exists in jsonData
+	// 	if jsonData[soldierId] == nil {
+	// 		jsonData[soldierId] = make(map[string]interface{})
+	// 	}
+	// 	// add frameData to jsonData
+	// 	jsonData[soldierId].(map[string]interface{})[captureFrame] = rowData
+	// }
+
+	// marshal and write data to file
+	// jsonBytes, err := json.MarshalIndent(frameData, "", "  ")
+	jsonBytes, err := json.Marshal(frameData)
+	if err != nil {
+		return err
+	}
+	err = ioutil.WriteFile("test.json", jsonBytes, 0644)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("Done!")
+	return nil
+}
+
 func main() {
 	fmt.Println("Running DB connect/migrate to build schema...")
 	err := getDB()
@@ -3454,6 +3638,13 @@ func main() {
 				}
 			} else {
 				fmt.Println("No mission IDs provided.")
+			}
+		}
+
+		if strings.ToLower(args[0]) == "testquery" {
+			err = testQuery()
+			if err != nil {
+				panic(err)
 			}
 		}
 	} else {
