@@ -154,13 +154,14 @@ type Soldier struct {
 	JoinTime        time.Time `json:"joinTime" gorm:"type:timestamptz;NOT NULL;index:idx_join_time"`
 	JoinFrame       uint      `json:"joinFrame"`
 	OcapID          uint16    `json:"ocapId" gorm:"index:idx_ocap_id"`
+	OcapType        string    `json:"type" gorm:"size:16;default:man"`
 	UnitName        string    `json:"unitName" gorm:"size:64"`
 	GroupID         string    `json:"groupId" gorm:"size:64"`
 	Side            string    `json:"side" gorm:"size:16"`
 	IsPlayer        bool      `json:"isPlayer" gorm:"default:false"`
 	RoleDescription string    `json:"roleDescription" gorm:"size:64"`
 	PlayerUID       string    `json:"playerUID" gorm:"size:64; default:NULL; index:idx_player_uid"`
-	ClassName       string    `json:"type" gorm:"default:NULL;size:64"`
+	ClassName       string    `json:"className" gorm:"default:NULL;size:64"`
 	DisplayName     string    `json:"displayName" gorm:"default:NULL;size:64"`
 	SoldierStates   []SoldierState
 	FiredEvents     []FiredEvent

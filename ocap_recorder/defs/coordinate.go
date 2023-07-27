@@ -42,7 +42,7 @@ func (g *GPSCoordinates) ToString() string {
 }
 
 func (g GPSCoordinates) GormDataType() string {
-	return "geometry"
+	return "point"
 }
 
 func (g GPSCoordinates) GormValue(ctx context.Context, db *gorm.DB) clause.Expr {
