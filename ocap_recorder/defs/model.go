@@ -312,6 +312,32 @@ type KillEvent struct {
 	Distance  float32 `json:"distance"`
 }
 
+// for medical mods, capture death events (ACE3)
+type DeathEvent struct {
+	ID           uint      `json:"id" gorm:"primarykey;autoIncrement;"`
+	Time         time.Time `json:"time" gorm:"type:timestamptz;"`
+	MissionID    uint      `json:"missionId" gorm:"index:idx_mission_id"`
+	Mission      Mission   `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:MissionID;"`
+	CaptureFrame uint      `json:"captureFrame" gorm:"index:idx_capture_frame;"`
+	SoldierID    uint      `json:"soldierId" gorm:"index:idx_soldier_id"`
+	Soldier      Soldier   `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:SoldierID;"`
+
+	Reason string `json:"reason"`
+}
+
+// for medical mods, capture unconscious events (ACE3)
+type UnconsciousEvent struct {
+	ID           uint      `json:"id" gorm:"primarykey;autoIncrement;"`
+	Time         time.Time `json:"time" gorm:"type:timestamptz;"`
+	MissionID    uint      `json:"missionId" gorm:"index:idx_mission_id"`
+	Mission      Mission   `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:MissionID;"`
+	CaptureFrame uint      `json:"captureFrame" gorm:"index:idx_capture_frame;"`
+	SoldierID    uint      `json:"soldierId" gorm:"index:idx_soldier_id"`
+	Soldier      Soldier   `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:SoldierID;"`
+
+	IsAwake bool `json:"isAwake"`
+}
+
 var ChatChannels map[int]string = map[int]string{
 	0:  "Global",
 	1:  "Side",

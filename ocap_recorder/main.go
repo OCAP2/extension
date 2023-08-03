@@ -10,6 +10,7 @@ import "C" // This is required to import the C code
 
 import (
 	"compress/gzip"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -31,6 +32,9 @@ import (
 
 	defs "ocap_recorder/defs"
 
+	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
+	influxdb2_api "github.com/influxdata/influxdb-client-go/v2/api"
+	"github.com/influxdata/influxdb-client-go/v2/domain"
 	_ "golang.org/x/sys/unix"
 
 	"github.com/glebarez/sqlite"
@@ -70,6 +74,9 @@ var SAVE_LOCAL bool = false
 var DB *gorm.DB
 var DB_VALID bool = false
 var sqlDB *sql.DB
+var INFLUX_VALID bool = false
+
+var InfluxClient influxdb2.Client
 
 var (
 	// channels for receiving new data and filing to DB
@@ -105,8 +112,12 @@ var (
 	// sqlite flow
 	PAUSE_INSERTS bool = false
 
-	SESSION_START_TIME  time.Time = time.Now()
-	LAST_WRITE_DURATION time.Duration
+	SESSION_START_TIME     time.Time = time.Now()
+	LAST_WRITE_DURATION    time.Duration
+	STATUS_MONITOR_RUNNING bool = false
+
+	BACKUP_FILE_PATH string = ADDON_FOLDER + "\\local_backup.log.gzip"
+	BACKUP_WRITER    *gzip.Writer
 )
 
 type APIConfig struct {
@@ -122,12 +133,22 @@ type DBConfig struct {
 	Database string `json:"database"`
 }
 
+type InfluxConfig struct {
+	Enabled  bool   `json:"enabled"`
+	Host     string `json:"host"`
+	Port     string `json:"port"`
+	Protocol string `json:"protocol"`
+	Token    string `json:"token"`
+	Org      string `json:"org"`
+}
+
 type ConfigJson struct {
-	Debug      bool      `json:"debug"`
-	DefaultTag string    `json:"defaultTag"`
-	LogsDir    string    `json:"logsDir"`
-	APIConfig  APIConfig `json:"api"`
-	DBConfig   DBConfig  `json:"db"`
+	Debug        bool         `json:"debug"`
+	DefaultTag   string       `json:"defaultTag"`
+	LogsDir      string       `json:"logsDir"`
+	APIConfig    APIConfig    `json:"api"`
+	DBConfig     DBConfig     `json:"db"`
+	InfluxConfig InfluxConfig `json:"influx"`
 }
 
 var ActiveSettings ConfigJson = ConfigJson{}
@@ -296,9 +317,15 @@ func getProgramStatus(
 		ServerFpsEvents: uint16(fpsEventsToWrite.Len()),
 	}
 
+	if CurrentMission == nil {
+		CurrentMission = &defs.Mission{
+			MissionName: "No mission loaded",
+		}
+	}
+
 	perf := defs.OcapPerformance{
 		Time:              time.Now(),
-		MissionID:         CurrentMission.ID,
+		Mission:           *CurrentMission,
 		BufferLengths:     buffersObj,
 		WriteQueueLengths: writeQueuesObj,
 		// get float32 in ms
@@ -306,6 +333,118 @@ func getProgramStatus(
 	}
 
 	return output, perf
+}
+
+// /////////////////////
+// INFLUXDB OPS //
+// /////////////////////
+// return db client and error
+func connectToInflux() (influxdb2.Client, error) {
+
+	if ActiveSettings.InfluxConfig.Host == "" ||
+		ActiveSettings.InfluxConfig.Host == "http://INFLUX_URL:8086" {
+
+		writeLog("connectToInflux", `Influx connection settings not configured. Using local backup`, "INFO")
+		writeLog("connectToInflux", fmt.Sprintf(`Influx connection settings: %v`, ActiveSettings.InfluxConfig), "DEBUG")
+
+		return nil, errors.New("InfluxConfig.Host is empty")
+	}
+
+	if !ActiveSettings.InfluxConfig.Enabled {
+		return nil, errors.New("influxdb.Enabled is false")
+	}
+
+	InfluxClient = influxdb2.NewClientWithOptions(
+		fmt.Sprintf(
+			"%s://%s:%s",
+			ActiveSettings.InfluxConfig.Protocol,
+			ActiveSettings.InfluxConfig.Host,
+			ActiveSettings.InfluxConfig.Port,
+		),
+		ActiveSettings.InfluxConfig.Token,
+		influxdb2.DefaultOptions().
+			SetBatchSize(2500).
+			SetFlushInterval(1000),
+	)
+
+	// validate client connection health
+	pingCtxTimeout := time.Duration(2 * time.Second)
+	pingCtx, _ := context.WithTimeout(context.Background(), pingCtxTimeout)
+	running, err := InfluxClient.Ping(pingCtx)
+
+	if err != nil || !running {
+		INFLUX_VALID = false
+		// create backup writer
+		if BACKUP_WRITER == nil {
+			writeLog("connectToInflux", fmt.Sprintf(`Failed to initialize InfluxDB client, writing to new backup file: %s`, BACKUP_FILE_PATH), "INFO")
+
+			// create if not exists
+			file, err := os.OpenFile(BACKUP_FILE_PATH, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if err != nil {
+				writeLog("connectToInflux", fmt.Sprintf(`Error opening backup file: %s`, err), "ERROR")
+				return nil, err
+			}
+			BACKUP_WRITER = gzip.NewWriter(file)
+			if err != nil {
+				writeLog("connectToInflux", fmt.Sprintf(`Error creating gzip writer: %s`, err), "ERROR")
+				return nil, err
+			} else {
+				writeLog("connectToInflux", fmt.Sprintf(`Writing to backup file: %s`, BACKUP_FILE_PATH), "INFO")
+			}
+		}
+	}
+
+	// ensure org exists
+	ctx := context.Background()
+	_, err = InfluxClient.OrganizationsAPI().
+		FindOrganizationByName(ctx, ActiveSettings.InfluxConfig.Org)
+	if err != nil {
+		writeLog("connectToInflux", fmt.Sprintf(`Organization not found, creating: %s`, ActiveSettings.InfluxConfig.Org), "INFO")
+		_, err = InfluxClient.OrganizationsAPI().
+			CreateOrganizationWithName(ctx, ActiveSettings.InfluxConfig.Org)
+		if err != nil {
+			writeLog("connectToInflux", fmt.Sprintf(`Error creating organization: %s`, err), "ERROR")
+			return nil, err
+		}
+	}
+
+	// get influxOrg
+	influxOrg, err := InfluxClient.OrganizationsAPI().
+		FindOrganizationByName(ctx, ActiveSettings.InfluxConfig.Org)
+	if err != nil {
+		writeLog("connectToInflux", fmt.Sprintf(`Error getting organization: %s`, err), "ERROR")
+		return nil, err
+	}
+
+	// ensure buckets exist with 90 day retention
+	for _, bucket := range []string{
+		"mission_data",
+		"ocap_performance",
+		"player_performance",
+		"server_performance",
+		"soldier_ammo",
+	} {
+		_, err = InfluxClient.BucketsAPI().
+			FindBucketByName(ctx, bucket)
+		if err != nil {
+			writeLog("connectToInflux", fmt.Sprintf(`Bucket not found, creating: %s`, bucket), "INFO")
+
+			_, err = InfluxClient.BucketsAPI().
+				CreateBucketWithName(ctx, influxOrg, bucket, domain.RetentionRule{
+					Type:         domain.RetentionRuleTypeExpire,
+					EverySeconds: 60 * 60 * 24 * 90, // 90 days
+				})
+			if err != nil {
+				writeLog("connectToInflux", fmt.Sprintf(`Error creating bucket: %s`, err), "ERROR")
+				return nil, err
+			}
+		}
+	}
+
+	INFLUX_VALID = true
+	writeLog("connectToInflux", `InfluxDB client initialized`, "INFO")
+
+	return InfluxClient, nil
 }
 
 ///////////////////////
@@ -423,7 +562,6 @@ func connectMySql() (err error) {
 		DB_VALID = true
 		return
 	}
-
 }
 
 // getDB connects to the MySql/MariaDB database, and if it fails, it will use a local SQlite DB
@@ -538,6 +676,8 @@ func getDB() (err error) {
 	toMigrate = append(toMigrate, &defs.GeneralEvent{})
 	toMigrate = append(toMigrate, &defs.HitEvent{})
 	toMigrate = append(toMigrate, &defs.KillEvent{})
+	toMigrate = append(toMigrate, &defs.DeathEvent{})
+	toMigrate = append(toMigrate, &defs.UnconsciousEvent{})
 	toMigrate = append(toMigrate, &defs.ChatEvent{})
 	toMigrate = append(toMigrate, &defs.RadioEvent{})
 	toMigrate = append(toMigrate, &defs.ServerFpsEvent{})
@@ -594,32 +734,6 @@ func getDB() (err error) {
 
 			// resume insert execution
 			PAUSE_INSERTS = false
-		}
-	}()
-
-	// start a goroutine that will output channel lengths every second
-	go func() {
-		// get status file writer with full control of file
-		statusFile, err := os.OpenFile(ADDON_FOLDER+"/status.txt", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
-		if err != nil {
-			writeLog(functionName, fmt.Sprintf(`Error opening status file: %v`, err), "ERROR")
-		}
-		defer statusFile.Close()
-		for {
-			time.Sleep(3000 * time.Millisecond)
-			// clear the file contents and then write status
-			statusFile.Truncate(0)
-			statusFile.Seek(0, 0)
-			statusStr, model := getProgramStatus(true, true, true)
-			for _, line := range statusStr {
-				statusFile.WriteString(line + "\n")
-			}
-
-			// write model to db
-			err = DB.Create(&model).Error
-			if err != nil {
-				writeLog(functionName, fmt.Sprintf(`Error writing ocap perfromance to db: %v`, err), "ERROR")
-			}
 		}
 	}()
 
@@ -701,9 +815,126 @@ func validateHypertables(tables map[string][]string) (err error) {
 	return nil
 }
 
+// start a goroutine that will output channel lengths to status.txt and influxdb every X time
+func startStatusMonitor() {
+	go func() {
+		functionName := ":STATUS:MONITOR:"
+		STATUS_MONITOR_RUNNING = true
+		defer func() {
+			STATUS_MONITOR_RUNNING = false
+		}()
+
+		// get status file writer with full control of file
+		statusFile, err := os.OpenFile(ADDON_FOLDER+"/status.txt", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+		if err != nil {
+			writeLog(functionName, fmt.Sprintf(`Error opening status file: %v`, err), "ERROR")
+		}
+		defer statusFile.Close()
+
+		// set up influxdb writer for metrics
+		// write model to influxdb
+		var influxStatusWriter influxdb2_api.WriteAPI
+		if INFLUX_VALID && ActiveSettings.InfluxConfig.Enabled {
+
+			// Get non-blocking write client
+			influxStatusWriter = InfluxClient.WriteAPI(
+				ActiveSettings.InfluxConfig.Org,
+				"ocap_performance",
+			)
+
+			if influxStatusWriter == nil {
+				writeLog(functionName, "Error creating InfluxDB write API", "ERROR")
+			}
+			// Get errors channel
+			errorsCh := influxStatusWriter.Errors()
+			go func() {
+				for writeErr := range errorsCh {
+					writeLog(functionName, fmt.Sprintf(`Error sending data to InfluxDB: %s`, writeErr.Error()), "ERROR")
+				}
+			}()
+		}
+
+		for {
+			time.Sleep(1000 * time.Millisecond)
+			// clear the file contents and then write status
+			statusFile.Truncate(0)
+			statusFile.Seek(0, 0)
+			statusStr, perfModel := getProgramStatus(true, true, true)
+			for _, line := range statusStr {
+				statusFile.WriteString(line + "\n")
+			}
+
+			// ! write model to Postgres
+			// err = DB.Create(&perfModel).Error
+			// if err != nil {
+			// 	writeLog(functionName, fmt.Sprintf(`Error writing ocap perfromance to db: %v`, err), "ERROR")
+			// }
+
+			// write to influxDB
+			if influxStatusWriter != nil {
+				// write buffer lengths
+				p := influxdb2.NewPointWithMeasurement(
+					"ext_buffer_lengths",
+				).
+					AddTag("db_url", ActiveSettings.DBConfig.Host).
+					AddTag("mission_name", perfModel.Mission.MissionName).
+					AddTag("mission_id", fmt.Sprintf("%d", perfModel.Mission.ID)).
+					AddField("soldiers", perfModel.BufferLengths.Soldiers).
+					AddField("vehicles", perfModel.BufferLengths.Vehicles).
+					AddField("soldier_states", perfModel.BufferLengths.SoldierStates).
+					AddField("vehicle_states", perfModel.BufferLengths.VehicleStates).
+					AddField("general_events", perfModel.BufferLengths.GeneralEvents).
+					AddField("hit_events", perfModel.BufferLengths.HitEvents).
+					AddField("kill_events", perfModel.BufferLengths.KillEvents).
+					AddField("fired_events", perfModel.BufferLengths.FiredEvents).
+					AddField("chat_events", perfModel.BufferLengths.ChatEvents).
+					AddField("radio_events", perfModel.BufferLengths.RadioEvents).
+					AddField("server_fps_events", perfModel.BufferLengths.ServerFpsEvents).
+					SetTime(time.Now())
+
+				influxStatusWriter.WritePoint(p)
+
+				// write db write queue lengths
+				p = influxdb2.NewPointWithMeasurement(
+					"ext_db_queue_lengths",
+				).
+					AddTag("db_url", ActiveSettings.DBConfig.Host).
+					AddTag("mission_name", perfModel.Mission.MissionName).
+					AddTag("mission_id", fmt.Sprintf("%d", perfModel.Mission.ID)).
+					AddField("soldiers", perfModel.WriteQueueLengths.Soldiers).
+					AddField("vehicles", perfModel.WriteQueueLengths.Vehicles).
+					AddField("soldier_states", perfModel.WriteQueueLengths.SoldierStates).
+					AddField("vehicle_states", perfModel.WriteQueueLengths.VehicleStates).
+					AddField("general_events", perfModel.WriteQueueLengths.GeneralEvents).
+					AddField("hit_events", perfModel.WriteQueueLengths.HitEvents).
+					AddField("kill_events", perfModel.WriteQueueLengths.KillEvents).
+					AddField("fired_events", perfModel.WriteQueueLengths.FiredEvents).
+					AddField("chat_events", perfModel.WriteQueueLengths.ChatEvents).
+					AddField("radio_events", perfModel.WriteQueueLengths.RadioEvents).
+					AddField("server_fps_events", perfModel.WriteQueueLengths.ServerFpsEvents).
+					SetTime(time.Now())
+
+				influxStatusWriter.WritePoint(p)
+
+				// write last write duration
+				p = influxdb2.NewPointWithMeasurement(
+					"ext_db_lastwrite_duration_ms",
+				).
+					AddTag("db_url", ActiveSettings.DBConfig.Host).
+					AddTag("mission_name", perfModel.Mission.MissionName).
+					AddTag("mission_id", fmt.Sprintf("%d", perfModel.Mission.ID)).
+					AddField("value", perfModel.LastWriteDurationMs).
+					SetTime(time.Now())
+
+				influxStatusWriter.WritePoint(p)
+			}
+		}
+	}()
+}
+
 // WORLDS AND MISSIONS
-var CurrentWorld defs.World
-var CurrentMission defs.Mission
+var CurrentWorld *defs.World
+var CurrentMission *defs.Mission
 
 // logNewMission logs a new mission to the database and associates the world it's played on
 func logNewMission(data []string) (err error) {
@@ -823,8 +1054,13 @@ func logNewMission(data []string) (err error) {
 	writeLog(functionName, fmt.Sprintf(`New mission logged: %s`, mission.MissionName), "INFO")
 
 	// set current world and mission
-	CurrentWorld = world
-	CurrentMission = mission
+	CurrentWorld = &world
+	CurrentMission = &mission
+
+	if !STATUS_MONITOR_RUNNING {
+		// start status monitor
+		startStatusMonitor()
+	}
 
 	writeLog(`:MISSION:OK:`, `[0, "OK"]`, "INFO")
 	return nil
@@ -1311,7 +1547,7 @@ func logGeneralEvent(data []string) (thisEvent defs.GeneralEvent, err error) {
 	}
 	thisEvent.Time = time.Unix(0, timestampInt)
 
-	thisEvent.Mission = CurrentMission
+	thisEvent.Mission = *CurrentMission
 
 	// get event type
 	thisEvent.CaptureFrame = uint(capframe)
@@ -1354,7 +1590,7 @@ func logHitEvent(data []string) (hitEvent defs.HitEvent, err error) {
 	}
 
 	hitEvent.CaptureFrame = uint(capframe)
-	hitEvent.Mission = CurrentMission
+	hitEvent.Mission = *CurrentMission
 
 	// timestamp will always be appended as the last element of data, in unixnano format as a string
 	timestampStr := data[len(data)-1]
@@ -1482,7 +1718,7 @@ func logKillEvent(data []string) (killEvent defs.KillEvent, err error) {
 	killEvent.Time = time.Unix(0, timestampInt)
 
 	killEvent.CaptureFrame = uint(capframe)
-	killEvent.Mission = CurrentMission
+	killEvent.Mission = *CurrentMission
 
 	// parse data in array
 	victimOcapId, err := strconv.ParseUint(data[1], 10, 64)
@@ -1509,7 +1745,7 @@ func logKillEvent(data []string) (killEvent defs.KillEvent, err error) {
 		err = DB.Model(&defs.Vehicle{}).Where(
 			&defs.Vehicle{
 				OcapID:  uint16(victimOcapId),
-				Mission: CurrentMission,
+				Mission: *CurrentMission,
 			}).First(&victimVehicle).Error
 		if err != nil && err != gorm.ErrRecordNotFound {
 			return killEvent, fmt.Errorf(`error finding victim in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, victimOcapId, err)
@@ -1547,7 +1783,7 @@ func logKillEvent(data []string) (killEvent defs.KillEvent, err error) {
 		err = DB.Model(&defs.Vehicle{}).Where(
 			&defs.Vehicle{
 				OcapID:  uint16(killerOcapId),
-				Mission: CurrentMission,
+				Mission: *CurrentMission,
 			}).First(&killerVehicle).Error
 		if err != nil && err != gorm.ErrRecordNotFound {
 			return killEvent, fmt.Errorf(`error finding killer in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, killerOcapId, err)
@@ -1574,6 +1810,118 @@ func logKillEvent(data []string) (killEvent defs.KillEvent, err error) {
 	killEvent.Distance = float32(distance)
 
 	return killEvent, nil
+}
+
+func logDeathEvent(data []string) (deathEvent defs.DeathEvent, err error) {
+	// check if DB is valid
+	if !DB_VALID {
+		return deathEvent, nil
+	}
+
+	// fix received data
+	for i, v := range data {
+		data[i] = fixEscapeQuotes(trimQuotes(v))
+	}
+
+	// get frame
+	frameStr := data[0]
+	capframe, err := strconv.ParseInt(frameStr, 10, 64)
+	if err != nil {
+		return deathEvent, fmt.Errorf(`error converting capture frame to int: %s`, err)
+	}
+
+	// timestamp will always be appended as the last element of data, in unixnano format as a string
+	timestampStr := data[len(data)-1]
+	timestampInt, err := strconv.ParseInt(timestampStr, 10, 64)
+	if err != nil {
+		return deathEvent, fmt.Errorf(`error converting timestamp to int: %v`, err)
+	}
+	deathEvent.Time = time.Unix(0, timestampInt)
+
+	deathEvent.CaptureFrame = uint(capframe)
+	deathEvent.Mission = *CurrentMission
+
+	// parse data in array
+	victimOcapId, err := strconv.ParseUint(data[1], 10, 64)
+	if err != nil {
+		return deathEvent, fmt.Errorf(`error converting victim ocap id to uint: %v`, err)
+	}
+
+	// try and find victim in DB to associate
+	// first, look in soldiers
+	victimSoldier := defs.Soldier{}
+	err = DB.Model(&defs.Soldier{}).Where(
+		&defs.Soldier{
+			OcapID:    uint16(victimOcapId),
+			MissionID: CurrentMission.ID,
+		}).First(&victimSoldier).Error
+	if err != nil && err != gorm.ErrRecordNotFound {
+		return deathEvent, fmt.Errorf(`error finding victim in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, victimOcapId, err)
+	} else if err == gorm.ErrRecordNotFound {
+		if capframe < 10 {
+			return defs.DeathEvent{}, errTooEarlyForStateAssociation
+		}
+		return deathEvent, fmt.Errorf(`victim ocap id not found in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, victimOcapId, err)
+	}
+	deathEvent.Soldier = victimSoldier
+
+	deathEvent.Reason = data[2]
+
+	return deathEvent, nil
+}
+
+func logUnconsciousEvent(data []string) (unconsciousEvent defs.UnconsciousEvent, err error) {
+	// check if DB is valid
+	if !DB_VALID {
+		return unconsciousEvent, nil
+	}
+
+	// fix received data
+	for i, v := range data {
+		data[i] = fixEscapeQuotes(trimQuotes(v))
+	}
+
+	// get frame
+	frameStr := data[0]
+	capframe, err := strconv.ParseInt(frameStr, 10, 64)
+	if err != nil {
+		return unconsciousEvent, fmt.Errorf(`error converting capture frame to int: %s`, err)
+	}
+
+	unconsciousEvent.CaptureFrame = uint(capframe)
+	unconsciousEvent.Mission = *CurrentMission
+
+	// parse data in array
+	ocapId, err := strconv.ParseUint(data[1], 10, 64)
+	if err != nil {
+		return unconsciousEvent, fmt.Errorf(`error converting ocap id to uint: %v`, err)
+	}
+
+	// try and find soldier in DB to associate
+	soldier := defs.Soldier{}
+	err = DB.Model(&defs.Soldier{}).Where(
+		&defs.Soldier{
+			OcapID:    uint16(ocapId),
+			MissionID: CurrentMission.ID,
+		}).First(&soldier).Error
+	if err != nil && err != gorm.ErrRecordNotFound {
+		return unconsciousEvent, fmt.Errorf(`error finding soldier in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, ocapId, err)
+	} else if err == gorm.ErrRecordNotFound {
+		if capframe < 10 {
+			return defs.UnconsciousEvent{}, errTooEarlyForStateAssociation
+		}
+		return unconsciousEvent, fmt.Errorf(`ocap id not found in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, ocapId, err)
+	}
+
+	unconsciousEvent.Soldier = soldier
+
+	isAwake, err := strconv.ParseBool(data[2])
+	if err != nil {
+		return unconsciousEvent, fmt.Errorf(`error converting isAwake to bool: %v`, err)
+	}
+	unconsciousEvent.IsAwake = isAwake
+
+	return unconsciousEvent, nil
 }
 
 func logChatEvent(data []string) (chatEvent defs.ChatEvent, err error) {
@@ -1603,7 +1951,7 @@ func logChatEvent(data []string) (chatEvent defs.ChatEvent, err error) {
 	chatEvent.Time = time.Unix(0, timestampInt)
 
 	chatEvent.CaptureFrame = uint(capframe)
-	chatEvent.Mission = CurrentMission
+	chatEvent.Mission = *CurrentMission
 
 	// parse data in array
 	senderOcapId, err := strconv.ParseInt(data[1], 10, 64)
@@ -1643,7 +1991,11 @@ func logChatEvent(data []string) (chatEvent defs.ChatEvent, err error) {
 	if ok {
 		chatEvent.Channel = channelName
 	} else {
-		chatEvent.Channel = "System"
+		if channelInt > 5 && channelInt < 16 {
+			chatEvent.Channel = "Custom"
+		} else {
+			chatEvent.Channel = "System"
+		}
 	}
 
 	// next is from (formatted as the game message)
@@ -1689,7 +2041,7 @@ func logRadioEvent(data []string) (radioEvent defs.RadioEvent, err error) {
 	radioEvent.Time = time.Unix(0, timestampInt)
 
 	radioEvent.CaptureFrame = uint(capframe)
-	radioEvent.Mission = CurrentMission
+	radioEvent.Mission = *CurrentMission
 
 	// parse data in array
 	senderOcapId, err := strconv.ParseInt(data[1], 10, 64)
@@ -1776,7 +2128,7 @@ func logFpsEvent(data []string) (fpsEvent defs.ServerFpsEvent, err error) {
 
 	fpsEvent.CaptureFrame = uint(capframe)
 	fpsEvent.Time = time.Unix(0, timestampInt)
-	fpsEvent.Mission = CurrentMission
+	fpsEvent.Mission = *CurrentMission
 
 	// parse data in array
 	fps, err := strconv.ParseFloat(data[1], 64)
@@ -2235,7 +2587,9 @@ func goRVExtensionArgs(output *C.char, outputsize C.size_t, input *C.char, argv 
 
 	switch C.GoString(input) {
 	case ":INIT:DB:":
+		loadConfig()
 		go getDB()
+		go connectToInflux()
 	case ":NEW:MISSION:":
 		go logNewMission(out)
 	case ":NEW:SOLDIER:":
@@ -2646,11 +3000,14 @@ func populateDemoData() {
 
 	// for each mission
 	missions := []defs.Mission{}
-	DB.Model(&defs.Mission{}).Find(&missions)
+	DB.Model(&defs.Mission{}).Where(
+		"created_at > ?",
+		missionsStart,
+	).Find(&missions)
 
 	waitGroup = sync.WaitGroup{}
 	for _, mission := range missions {
-		CurrentMission = mission
+		CurrentMission = &mission
 
 		fmt.Printf("Populating mission with ID %d\n", mission.ID)
 
@@ -2819,6 +3176,8 @@ func populateDemoData() {
 						strconv.FormatBool(rand.Intn(10) == 0),
 						// random locked bool (1 in 10 chance of being true)
 						strconv.FormatBool(rand.Intn(10) == 0),
+						// random side
+						sides[rand.Intn(len(sides))],
 					}
 
 					// add timestamp to end of array
@@ -2841,8 +3200,10 @@ func populateDemoData() {
 		// demo fired events, X per soldier per mission
 		for i := 0; i <= numSoldiers*numFiredEventsPerSoldier; i++ {
 			wg2.Add(1)
+
 			// sleep 100 ms
-			time.Sleep(100 * time.Millisecond)
+			// time.Sleep(100 * time.Millisecond)
+
 			go func() {
 				var randomStartPos []float64 = []float64{rand.Float64()*30720 + 1, rand.Float64()*30720 + 1, rand.Float64()*30720 + 1}
 				// generate random end pos within 200 m
@@ -3375,8 +3736,8 @@ func getOcapRecording(missionIds []string) (err error) {
 
 		// now we need to get the mission object in json format
 		txStart = time.Now()
-		// missionJSON, err := json.Marshal(ocapMission)
-		missionJSON, err := json.MarshalIndent(ocapMission, "", "  ")
+		missionJSON, err := json.Marshal(ocapMission)
+		// missionJSON, err := json.MarshalIndent(ocapMission, "", "  ")
 		if err != nil {
 			return err
 		}
@@ -3605,6 +3966,12 @@ func main() {
 		panic(err)
 	}
 	fmt.Println("DB connect/migrate complete.")
+
+	fmt.Println("Connecting to Influx...")
+	_, err = connectToInflux()
+	if err != nil {
+		panic(err)
+	}
 
 	// get arguments
 	args := os.Args[1:]

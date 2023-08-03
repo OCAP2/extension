@@ -42,7 +42,7 @@ func (g *GPSCoordinates) ToString() string {
 }
 
 func (g GPSCoordinates) GormDataType() string {
-	return "point"
+	return "GEOMETRY(POINT)"
 }
 
 func (g GPSCoordinates) GormValue(ctx context.Context, db *gorm.DB) clause.Expr {
@@ -52,9 +52,13 @@ func (g GPSCoordinates) GormValue(ctx context.Context, db *gorm.DB) clause.Expr 
 	// if !b.Empty() {
 	if !SAVE_LOCAL {
 		// postgis
-		vars = []interface{}{fmt.Sprintf("SRID=%d;POINT(%f %f)", srid, b.X(), b.Y())}
+		vars = []interface{}{
+			b.X(),
+			b.Y(),
+			srid,
+		}
 		return clause.Expr{
-			SQL:  "ST_GeomFromText(?)",
+			SQL:  "ST_SetSRID(ST_Point(?, ?), ?)",
 			Vars: vars,
 		}
 	} else {
@@ -102,5 +106,9 @@ func GPSFromCoords(longitude float64, latitude float64, srid int) GPSCoordinates
 	if srid == 0 {
 		srid = 4326
 	}
-	return GPSCoordinates(*geom.NewPointFlat(geom.XY, geom.Coord{longitude, latitude}).SetSRID(srid))
+	point, err := geom.NewPoint(geom.XYZ).SetCoords([]float64{longitude, latitude, 0})
+	if err != nil {
+		panic(err)
+	}
+	return GPSCoordinates(*point.SetSRID(srid))
 }
