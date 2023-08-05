@@ -34,8 +34,9 @@ import (
 
 	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
 	influxdb2_api "github.com/influxdata/influxdb-client-go/v2/api"
+	influxdb2_write "github.com/influxdata/influxdb-client-go/v2/api/write"
 	"github.com/influxdata/influxdb-client-go/v2/domain"
-	_ "golang.org/x/sys/unix"
+	"github.com/spf13/viper"
 
 	"github.com/glebarez/sqlite"
 	"github.com/twpayne/go-geom"
@@ -45,39 +46,73 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-var EXTENSION_VERSION string = "0.0.1"
-var extensionCallbackFnc C.extensionCallback
+// module defs
+var (
+	CurrentExtensionNameVersion string = "0.0.1"
+	extensionCallbackFnc        C.extensionCallback
 
-var ADDON string = "ocap"
-var EXTENSION string = "ocap_recorder"
+	addon         string = "ocap"
+	ExtensionName string = "ocap_recorder"
+)
 
 // file paths
-var ADDON_FOLDER string = fmt.Sprintf(
-	"%s\\@%s",
-	getDir(),
-	ADDON,
+var (
+	AddonFolder string = fmt.Sprintf(
+		"%s\\@%s",
+		getDir(),
+		addon,
+	)
+	PrimaryLogFIle string = fmt.Sprintf(
+		"%s\\%s.log",
+		AddonFolder,
+		ExtensionName,
+	)
+	ConfigurationFile string = fmt.Sprintf(
+		"%s\\%s.cfg.json",
+		AddonFolder,
+		ExtensionName,
+	)
+	// InfluxBackupFilePath is the path to the gzip where influx lineprotocol is stored if InfluxDB is not available
+	InfluxBackupFilePath string = AddonFolder + "\\local_backup.log.gzip"
+
+	// SqliteDBFilePath refers to the sqlite database file
+	SqliteDBFilePath string = AddonFolder + "\\ocap_recorder.db"
 )
-var LOG_FILE string = fmt.Sprintf(
-	"%s\\%s.log",
-	ADDON_FOLDER,
-	EXTENSION,
-)
-var CONFIG_FILE string = fmt.Sprintf(
-	"%s\\%s.cfg.json",
-	ADDON_FOLDER,
-	EXTENSION,
-)
-var LOCAL_DB_FILE string = ADDON_FOLDER + "\\ocap_recorder.db"
 
 // global variables
-var SAVE_LOCAL bool = false
-var DB *gorm.DB
-var DB_VALID bool = false
-var sqlDB *sql.DB
-var INFLUX_VALID bool = false
+var (
+	// ShouldSaveLocal indicates whether we're saving to Postgres or local SQLite
+	ShouldSaveLocal bool = false
 
-var InfluxClient influxdb2.Client
+	// DB is the GORM DB interface
+	DB *gorm.DB
 
+	// IsDatabaseValid indicates whether or not any DB connection could be established
+	IsDatabaseValid bool = false
+
+	// sqlDB is the native Go SQL interface
+	sqlDB *sql.DB
+
+	// IsInfluxValid indicates whether or not InfluxDB connection could be established
+	IsInfluxValid bool = false
+
+	// InfluxClient is the InfluxDB client
+	InfluxClient influxdb2.Client
+	// InfluxBackupWriter is the gzip writer Influx will use
+	InfluxBackupWriter *gzip.Writer
+
+	// testing
+	IsDemoData bool = false
+
+	// sqlite flow
+	DBInsertsPaused bool = false
+
+	SessionStartTime       time.Time = time.Now()
+	LastDBWriteDuration    time.Duration
+	IsStatusProcessRunning bool = false
+)
+
+// channels
 var (
 	// channels for receiving new data and filing to DB
 	newSoldierChan      chan []string = make(chan []string, 1000)
@@ -105,53 +140,15 @@ var (
 	radioEventsToWrite   = defs.RadioEventsQueue{}
 	fpsEventsToWrite     = defs.FpsEventsQueue{}
 
-	// testing
-	TEST_DATA         bool = false
-	TEST_DATA_TIMEINC      = defs.SafeCounter{}
-
-	// sqlite flow
-	PAUSE_INSERTS bool = false
-
-	SESSION_START_TIME     time.Time = time.Now()
-	LAST_WRITE_DURATION    time.Duration
-	STATUS_MONITOR_RUNNING bool = false
-
-	BACKUP_FILE_PATH string = ADDON_FOLDER + "\\local_backup.log.gzip"
-	BACKUP_WRITER    *gzip.Writer
+	InfluxBucketNames = []string{
+		"mission_data",
+		"ocap_performance",
+		"player_performance",
+		"server_performance",
+		"soldier_ammo",
+	}
+	InfluxWriters = make(map[string]influxdb2_api.WriteAPI)
 )
-
-type APIConfig struct {
-	ServerURL string `json:"serverUrl"`
-	APIKey    string `json:"apiKey"`
-}
-
-type DBConfig struct {
-	Host     string `json:"host"`
-	Port     string `json:"port"`
-	Username string `json:"username"`
-	Password string `json:"password"`
-	Database string `json:"database"`
-}
-
-type InfluxConfig struct {
-	Enabled  bool   `json:"enabled"`
-	Host     string `json:"host"`
-	Port     string `json:"port"`
-	Protocol string `json:"protocol"`
-	Token    string `json:"token"`
-	Org      string `json:"org"`
-}
-
-type ConfigJson struct {
-	Debug        bool         `json:"debug"`
-	DefaultTag   string       `json:"defaultTag"`
-	LogsDir      string       `json:"logsDir"`
-	APIConfig    APIConfig    `json:"api"`
-	DBConfig     DBConfig     `json:"db"`
-	InfluxConfig InfluxConfig `json:"influx"`
-}
-
-var ActiveSettings ConfigJson = ConfigJson{}
 
 // configure log output
 func init() {
@@ -159,16 +156,16 @@ func init() {
 
 	// check if parent folder exists
 	// if it doesn't, create it
-	if _, err := os.Stat(ADDON_FOLDER); os.IsNotExist(err) {
-		os.Mkdir(ADDON_FOLDER, 0755)
+	if _, err := os.Stat(AddonFolder); os.IsNotExist(err) {
+		os.Mkdir(AddonFolder, 0755)
 	}
-	// check if LOG_FILE exists
-	// if it does, move it to LOG_FILE.old
+	// check if PrimaryLogFIle exists
+	// if it does, move it to PrimaryLogFIle.old
 	// if it doesn't, create it
-	if _, err := os.Stat(LOG_FILE); err == nil {
-		os.Rename(LOG_FILE, LOG_FILE+".old")
+	if _, err := os.Stat(PrimaryLogFIle); err == nil {
+		os.Rename(PrimaryLogFIle, PrimaryLogFIle+".old")
 	}
-	f, err := os.OpenFile(LOG_FILE, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	f, err := os.OpenFile(PrimaryLogFIle, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
 		log.Fatalf("error opening file: %v", err)
 	}
@@ -176,25 +173,26 @@ func init() {
 	log.SetOutput(f)
 
 	loadConfig()
+
 }
 
 func setLogFile() (err error) {
-	LOG_FILE = fmt.Sprintf(
+	PrimaryLogFIle = fmt.Sprintf(
 		`%s\%s.%s.log`,
-		ActiveSettings.LogsDir,
-		EXTENSION,
+		viper.GetString("logsDir"),
+		ExtensionName,
 		time.Now().Format("20060102_150405"),
 	)
-	log.Println("Log location:", LOG_FILE)
-	LOCAL_DB_FILE = fmt.Sprintf(`%s\%s_%s.db`, ADDON_FOLDER, EXTENSION, SESSION_START_TIME.Format("20060102_150405"))
+	log.Println("Log location:", PrimaryLogFIle)
+	SqliteDBFilePath = fmt.Sprintf(`%s\%s_%s.db`, AddonFolder, ExtensionName, SessionStartTime.Format("20060102_150405"))
 
-	// resolve path set in ActiveSettings.LogsDir
+	// resolve path set in config
 	// create logs dir if it doesn't exist
-	if _, err := os.Stat(ActiveSettings.LogsDir); os.IsNotExist(err) {
-		os.Mkdir(ActiveSettings.LogsDir, 0755)
+	if _, err := os.Stat(viper.GetString("logsDir")); os.IsNotExist(err) {
+		os.Mkdir(viper.GetString("logsDir"), 0755)
 	}
 	// log to file
-	f, err := os.OpenFile(LOG_FILE, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	f, err := os.OpenFile(PrimaryLogFIle, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
 		return fmt.Errorf("error opening file: %v", err)
 	}
@@ -205,7 +203,7 @@ func setLogFile() (err error) {
 
 func version() {
 	functionName := "version"
-	writeLog(functionName, fmt.Sprintf(`ocap_recorder version: %s`, EXTENSION_VERSION), "INFO")
+	writeLog(functionName, fmt.Sprintf(`ocap_recorder version: %s`, CurrentExtensionNameVersion), "INFO")
 }
 
 func getDir() string {
@@ -221,20 +219,37 @@ func loadConfig() {
 	// load config from file as JSON
 	functionName := "loadConfig"
 
-	file, err := os.OpenFile(CONFIG_FILE, os.O_RDONLY|os.O_CREATE, 0666)
+	// set default values
+	viper.SetDefault("debug", false)
+	viper.SetDefault("defaultTag", "Op")
+	viper.SetDefault("logsDir", "./ocaplogs")
+
+	viper.SetDefault("api.serverUrl", "http://localhost:5000")
+	viper.SetDefault("api.apiKey", "")
+
+	viper.SetDefault("db.host", "localhost")
+	viper.SetDefault("db.port", "5432")
+	viper.SetDefault("db.username", "postgres")
+	viper.SetDefault("db.password", "postgres")
+	viper.SetDefault("db.database", "ocap")
+
+	viper.SetDefault("influx.enabled", false)
+	viper.SetDefault("influx.host", "localhost")
+	viper.SetDefault("influx.port", "8086")
+	viper.SetDefault("influx.protocol", "http")
+	viper.SetDefault("influx.token", "supersecrettoken")
+	viper.SetDefault("influx.org", "ocap-metrics")
+
+	viper.SetConfigName("ocap_recorder.cfg.json")
+	viper.AddConfigPath(AddonFolder)
+	viper.SetConfigType("json")
+	err := viper.ReadInConfig()
 	if err != nil {
-		writeLog(functionName, fmt.Sprintf(`%s`, err), "ERROR")
+		writeLog(functionName, fmt.Sprintf(`error reading config file: %v`, err), "ERROR")
 		return
 	}
-	defer file.Close()
 
-	decoder := json.NewDecoder(file)
-	err = decoder.Decode(&ActiveSettings)
-	if err != nil {
-		writeLog(functionName, fmt.Sprintf(`%s`, err), "ERROR")
-		return
-	}
-
+	// log frontend status
 	checkServerStatus()
 
 	writeLog(functionName, `Config loaded`, "INFO")
@@ -246,7 +261,7 @@ func checkServerStatus() {
 
 	// check if server is running by making a healthcheck API request
 	// if server is not running, log error and exit
-	_, err = http.Get(ActiveSettings.APIConfig.ServerURL + "/healthcheck")
+	_, err = http.Get(viper.GetString("api.serverUrl") + "/healthcheck")
 	if err != nil {
 		writeLog(functionName, `OCAP Frontend is offline`, "WARN")
 	} else {
@@ -277,7 +292,7 @@ func getProgramStatus(
 		firedEventsToWrite.Len(),
 	)
 	// lastWrite: include last write duration in output
-	lastWriteStr := fmt.Sprintf("LAST WRITE TOOK: %s", LAST_WRITE_DURATION)
+	lastWriteStr := fmt.Sprintf("LAST WRITE TOOK: %s", LastDBWriteDuration)
 
 	if rawBuffers {
 		output = append(output, rawBuffersStr)
@@ -329,7 +344,7 @@ func getProgramStatus(
 		BufferLengths:     buffersObj,
 		WriteQueueLengths: writeQueuesObj,
 		// get float32 in ms
-		LastWriteDurationMs: float32(LAST_WRITE_DURATION.Milliseconds()),
+		LastWriteDurationMs: float32(LastDBWriteDuration.Milliseconds()),
 	}
 
 	return output, perf
@@ -341,27 +356,18 @@ func getProgramStatus(
 // return db client and error
 func connectToInflux() (influxdb2.Client, error) {
 
-	if ActiveSettings.InfluxConfig.Host == "" ||
-		ActiveSettings.InfluxConfig.Host == "http://INFLUX_URL:8086" {
-
-		writeLog("connectToInflux", `Influx connection settings not configured. Using local backup`, "INFO")
-		writeLog("connectToInflux", fmt.Sprintf(`Influx connection settings: %v`, ActiveSettings.InfluxConfig), "DEBUG")
-
-		return nil, errors.New("InfluxConfig.Host is empty")
-	}
-
-	if !ActiveSettings.InfluxConfig.Enabled {
+	if !viper.GetBool("influx.enabled") {
 		return nil, errors.New("influxdb.Enabled is false")
 	}
 
 	InfluxClient = influxdb2.NewClientWithOptions(
 		fmt.Sprintf(
 			"%s://%s:%s",
-			ActiveSettings.InfluxConfig.Protocol,
-			ActiveSettings.InfluxConfig.Host,
-			ActiveSettings.InfluxConfig.Port,
+			viper.GetString("influx.protocol"),
+			viper.GetString("influx.host"),
+			viper.GetString("influx.port"),
 		),
-		ActiveSettings.InfluxConfig.Token,
+		viper.GetString("influx.token"),
 		influxdb2.DefaultOptions().
 			SetBatchSize(2500).
 			SetFlushInterval(1000),
@@ -373,78 +379,127 @@ func connectToInflux() (influxdb2.Client, error) {
 	running, err := InfluxClient.Ping(pingCtx)
 
 	if err != nil || !running {
-		INFLUX_VALID = false
+		IsInfluxValid = false
 		// create backup writer
-		if BACKUP_WRITER == nil {
-			writeLog("connectToInflux", fmt.Sprintf(`Failed to initialize InfluxDB client, writing to new backup file: %s`, BACKUP_FILE_PATH), "INFO")
+		if InfluxBackupWriter == nil {
+			writeLog("connectToInflux", fmt.Sprintf(`Failed to initialize InfluxDB client, writing to backup file: %s`, InfluxBackupFilePath), "INFO")
 
 			// create if not exists
-			file, err := os.OpenFile(BACKUP_FILE_PATH, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			file, err := os.OpenFile(InfluxBackupFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 			if err != nil {
 				writeLog("connectToInflux", fmt.Sprintf(`Error opening backup file: %s`, err), "ERROR")
 				return nil, err
 			}
-			BACKUP_WRITER = gzip.NewWriter(file)
+			InfluxBackupWriter = gzip.NewWriter(file)
 			if err != nil {
 				writeLog("connectToInflux", fmt.Sprintf(`Error creating gzip writer: %s`, err), "ERROR")
 				return nil, err
-			} else {
-				writeLog("connectToInflux", fmt.Sprintf(`Writing to backup file: %s`, BACKUP_FILE_PATH), "INFO")
 			}
 		}
+	} else {
+		IsInfluxValid = true
 	}
 
-	// ensure org exists
-	ctx := context.Background()
-	_, err = InfluxClient.OrganizationsAPI().
-		FindOrganizationByName(ctx, ActiveSettings.InfluxConfig.Org)
-	if err != nil {
-		writeLog("connectToInflux", fmt.Sprintf(`Organization not found, creating: %s`, ActiveSettings.InfluxConfig.Org), "INFO")
+	if IsInfluxValid {
+		// ensure org exists
+		ctx := context.Background()
 		_, err = InfluxClient.OrganizationsAPI().
-			CreateOrganizationWithName(ctx, ActiveSettings.InfluxConfig.Org)
+			FindOrganizationByName(ctx, viper.GetString("influx.org"))
 		if err != nil {
-			writeLog("connectToInflux", fmt.Sprintf(`Error creating organization: %s`, err), "ERROR")
-			return nil, err
-		}
-	}
-
-	// get influxOrg
-	influxOrg, err := InfluxClient.OrganizationsAPI().
-		FindOrganizationByName(ctx, ActiveSettings.InfluxConfig.Org)
-	if err != nil {
-		writeLog("connectToInflux", fmt.Sprintf(`Error getting organization: %s`, err), "ERROR")
-		return nil, err
-	}
-
-	// ensure buckets exist with 90 day retention
-	for _, bucket := range []string{
-		"mission_data",
-		"ocap_performance",
-		"player_performance",
-		"server_performance",
-		"soldier_ammo",
-	} {
-		_, err = InfluxClient.BucketsAPI().
-			FindBucketByName(ctx, bucket)
-		if err != nil {
-			writeLog("connectToInflux", fmt.Sprintf(`Bucket not found, creating: %s`, bucket), "INFO")
-
-			_, err = InfluxClient.BucketsAPI().
-				CreateBucketWithName(ctx, influxOrg, bucket, domain.RetentionRule{
-					Type:         domain.RetentionRuleTypeExpire,
-					EverySeconds: 60 * 60 * 24 * 90, // 90 days
-				})
+			writeLog("connectToInflux", fmt.Sprintf(`Organization not found, creating: %s`, viper.GetString("influx.org")), "INFO")
+			_, err = InfluxClient.OrganizationsAPI().
+				CreateOrganizationWithName(ctx, viper.GetString("influx.org"))
 			if err != nil {
-				writeLog("connectToInflux", fmt.Sprintf(`Error creating bucket: %s`, err), "ERROR")
+				writeLog("connectToInflux", fmt.Sprintf(`Error creating organization: %s`, err), "ERROR")
 				return nil, err
 			}
 		}
+
+		// get influxOrg
+		influxOrg, err := InfluxClient.OrganizationsAPI().
+			FindOrganizationByName(ctx, viper.GetString("influx.org"))
+		if err != nil {
+			writeLog("connectToInflux", fmt.Sprintf(`Error getting organization: %s`, err), "ERROR")
+			return nil, err
+		}
+
+		// ensure buckets exist with 90 day retention
+		for _, bucket := range []string{
+			"mission_data",
+			"ocap_performance",
+			"player_performance",
+			"server_performance",
+			"soldier_ammo",
+		} {
+			_, err = InfluxClient.BucketsAPI().
+				FindBucketByName(ctx, bucket)
+			if err != nil {
+				writeLog("connectToInflux", fmt.Sprintf(`Bucket not found, creating: %s`, bucket), "INFO")
+
+				_, err = InfluxClient.BucketsAPI().
+					CreateBucketWithName(ctx, influxOrg, bucket, domain.RetentionRule{
+						Type:         domain.RetentionRuleTypeExpire,
+						EverySeconds: 60 * 60 * 24 * 90, // 90 days
+					})
+				if err != nil {
+					writeLog("connectToInflux", fmt.Sprintf(`Error creating bucket: %s`, err), "ERROR")
+					return nil, err
+				}
+			}
+		}
+
+		// create influx writers
+		createInfluxWriters()
+		writeLog("connectToInflux", `InfluxDB client initialized`, "INFO")
+	} else {
+		writeLog("connectToInflux", `InfluxDB client failed to initialize, using backup writer`, "WARN")
 	}
 
-	INFLUX_VALID = true
-	writeLog("connectToInflux", `InfluxDB client initialized`, "INFO")
-
 	return InfluxClient, nil
+}
+
+func createInfluxWriters() {
+	// create influx writers
+	for _, bucket := range InfluxBucketNames {
+		InfluxWriters[bucket] = InfluxClient.WriteAPI(viper.GetString("influx.org"), bucket)
+		errorsCh := InfluxWriters[bucket].Errors()
+		go func() {
+			for writeErr := range errorsCh {
+				writeLog(bucket, fmt.Sprintf(`Error sending data to InfluxDB: %s`, writeErr.Error()), "ERROR")
+			}
+		}()
+	}
+}
+
+func writeInfluxPoint(
+	ctx context.Context,
+	bucket string,
+	point *influxdb2_write.Point,
+) error {
+
+	if IsInfluxValid {
+		if _, ok := InfluxWriters[bucket]; !ok {
+			return fmt.Errorf("influxDB bucket '%s' not registered", bucket)
+		}
+
+		// write to influx
+		InfluxWriters[bucket].WritePoint(point)
+	} else {
+		if InfluxBackupWriter == nil {
+			return fmt.Errorf("influxDB client not initialized and backup writer not available")
+		}
+
+		// write to backup file
+		lineProtocol := influxdb2_write.PointToLineProtocol(
+			point, time.Duration(1*time.Nanosecond),
+		)
+		_, err := InfluxBackupWriter.Write([]byte(lineProtocol + "\n"))
+		if err != nil {
+			return fmt.Errorf("error writing to InfluxDB backup file: %s", err)
+		}
+	}
+
+	return nil
 }
 
 ///////////////////////
@@ -461,7 +516,7 @@ func getLocalDB() (err error) {
 		Logger:                 logger.Default.LogMode(logger.Silent),
 	})
 	if err != nil {
-		DB_VALID = false
+		IsDatabaseValid = false
 		return err
 	} else {
 		writeLog(functionName, "Using local SQlite DB", "INFO")
@@ -505,7 +560,7 @@ func getLocalDB() (err error) {
 			return err
 		}
 
-		DB_VALID = true
+		IsDatabaseValid = false
 		return nil
 	}
 }
@@ -513,10 +568,10 @@ func getLocalDB() (err error) {
 func dumpMemoryDBToDisk() (err error) {
 	functionName := "dumpMemoryDBToDisk"
 	// remove existing file if it exists
-	exists, err := os.Stat(LOCAL_DB_FILE)
+	exists, err := os.Stat(SqliteDBFilePath)
 	if err == nil {
 		if exists != nil {
-			err = os.Remove(LOCAL_DB_FILE)
+			err = os.Remove(SqliteDBFilePath)
 			if err != nil {
 				writeLog(functionName, "Error removing existing DB file", "ERROR")
 				return err
@@ -526,7 +581,7 @@ func dumpMemoryDBToDisk() (err error) {
 
 	// dump memory DB to disk
 	start := time.Now()
-	err = DB.Exec("VACUUM INTO 'file:" + LOCAL_DB_FILE + "';").Error
+	err = DB.Exec("VACUUM INTO 'file:" + SqliteDBFilePath + "';").Error
 	if err != nil {
 		writeLog(functionName, "Error dumping memory DB to disk", "ERROR")
 		return err
@@ -535,14 +590,15 @@ func dumpMemoryDBToDisk() (err error) {
 	return nil
 }
 
-func connectMySql() (err error) {
+// connectMySQL connect to mysql database
+func connectMySQL() (err error) {
 	// connect to database (MySQL/MariaDB)
 	dsn := fmt.Sprintf(`%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True`,
-		ActiveSettings.DBConfig.Username,
-		ActiveSettings.DBConfig.Password,
-		ActiveSettings.DBConfig.Host,
-		ActiveSettings.DBConfig.Port,
-		ActiveSettings.DBConfig.Database,
+		viper.GetString("db.user"),
+		viper.GetString("db.password"),
+		viper.GetString("db.host"),
+		viper.GetString("db.port"),
+		viper.GetString("db.database"),
 	)
 
 	// wrap with gorm
@@ -555,11 +611,11 @@ func connectMySql() (err error) {
 
 	if err != nil {
 		writeLog("connectMySql", fmt.Sprintf(`Failed to connect to MySQL/MariaDB. Err: %s`, err), "ERROR")
-		DB_VALID = false
+		IsDatabaseValid = false
 		return
 	} else {
 		writeLog("connectMySql", "Connected to MySQL/MariaDB", "INFO")
-		DB_VALID = true
+		IsDatabaseValid = true
 		return
 	}
 }
@@ -570,11 +626,11 @@ func getDB() (err error) {
 
 	// connect to database (Postgres) using gorm
 	dsn := fmt.Sprintf(`host=%s port=%s user=%s password=%s dbname=%s sslmode=disable`,
-		ActiveSettings.DBConfig.Host,
-		ActiveSettings.DBConfig.Port,
-		ActiveSettings.DBConfig.Username,
-		ActiveSettings.DBConfig.Password,
-		ActiveSettings.DBConfig.Database,
+		viper.GetString("db.host"),
+		viper.GetString("db.port"),
+		viper.GetString("db.user"),
+		viper.GetString("db.password"),
+		viper.GetString("db.database"),
 	)
 
 	DB, err = gorm.Open(postgres.New(postgres.Config{
@@ -589,9 +645,10 @@ func getDB() (err error) {
 	configValid := err == nil
 	if !configValid {
 		writeLog(functionName, fmt.Sprintf(`Failed to set up Postgres. Err: %s`, err), "ERROR")
-		SAVE_LOCAL = true
+		ShouldSaveLocal = true
 		getLocalDB()
 	}
+
 	// test connection
 	sqlDB, err = DB.DB()
 	if err != nil {
@@ -599,38 +656,38 @@ func getDB() (err error) {
 	}
 	err = sqlDB.Ping()
 	if err != nil {
-		writeLog(functionName, fmt.Sprintf(`Failed to connect to Postgres. Err: %s`, err), "ERROR")
-		SAVE_LOCAL = true
+		writeLog(functionName, fmt.Sprintf(`Failed to connect to SQL. Err: %s`, err), "ERROR")
+		ShouldSaveLocal = true
 		err = getLocalDB()
 		if err != nil {
-			writeLog(functionName, fmt.Sprintf(`Failed to connect to SQLite. Err: %s`, err), "ERROR")
-			DB_VALID = false
+			writeLog(functionName, fmt.Sprintf(`Failed to connect to SQL. Err: %s`, err), "ERROR")
+			IsDatabaseValid = false
 		} else {
-			DB_VALID = true
+			IsDatabaseValid = true
 		}
 	} else {
-		writeLog(functionName, "Connected to Postgres", "INFO")
-		SAVE_LOCAL = false
-		DB_VALID = true
+		writeLog(functionName, "Connected to database", "INFO")
+		ShouldSaveLocal = false
+		IsDatabaseValid = true
 	}
 
-	if !DB_VALID {
+	if !IsDatabaseValid {
 		writeLog(functionName, "DB not valid. Not saving!", "ERROR")
 		return fmt.Errorf("db not valid. not saving")
 	}
 
-	if !SAVE_LOCAL {
-		// Ensure PostGIS extension is installed
+	if err := sqlDB.Ping(); !ShouldSaveLocal && err != nil {
+		// Ensure PostGIS ExtensionName is installed
 		err = DB.Exec(`
-		CREATE EXTENSION IF NOT EXISTS postgis;
+		CREATE ExtensionName IF NOT EXISTS postgis;
 		`).Error
 		if err != nil {
-			writeLog(functionName, fmt.Sprintf(`Failed to create PostGIS extension. Err: %s`, err), "ERROR")
-			DB_VALID = false
+			writeLog(functionName, fmt.Sprintf(`Failed to create PostGIS ExtensionName. Err: %s`, err), "ERROR")
+			IsDatabaseValid = false
 			return err
-		} else {
-			writeLog(functionName, "PostGIS extension created", "INFO")
 		}
+		writeLog(functionName, "PostGIS ExtensionName created", "INFO")
+
 	}
 
 	// Check if OcapInfo table exists
@@ -639,7 +696,7 @@ func getDB() (err error) {
 		err = DB.AutoMigrate(&defs.OcapInfo{})
 		if err != nil {
 			writeLog(functionName, fmt.Sprintf(`Failed to create ocap_info table. Err: %s`, err), "ERROR")
-			DB_VALID = false
+			IsDatabaseValid = false
 			return err
 		}
 		// Create the default settings
@@ -652,7 +709,7 @@ func getDB() (err error) {
 
 		if err != nil {
 			writeLog(functionName, fmt.Sprintf(`Failed to create ocap_info entry. Err: %s`, err), "ERROR")
-			DB_VALID = false
+			IsDatabaseValid = false
 			return err
 		}
 	}
@@ -686,30 +743,21 @@ func getDB() (err error) {
 	err = DB.AutoMigrate(toMigrate...)
 	if err != nil {
 		writeLog(functionName, fmt.Sprintf(`Failed to migrate DB schema. Err: %s`, err), "ERROR")
-		DB_VALID = false
+		IsDatabaseValid = false
 		return err
 	}
 
-	if !SAVE_LOCAL {
+	if !ShouldSaveLocal {
 		// if running TimescaleDB (Postgres), configure
 		sqlDB, err = DB.DB()
 		if err != nil {
 			writeLog(functionName, fmt.Sprintf(`Failed to get DB.DB(). Err: %s`, err), "ERROR")
-			DB_VALID = false
+			IsDatabaseValid = false
 			return err
 		}
 
 		sqlDB.SetMaxOpenConns(30)
 	}
-
-	writeLog(
-		functionName,
-		fmt.Sprintf("DB Valid: %v", DB_VALID),
-		"INFO",
-	)
-
-	// init caches
-	TEST_DATA_TIMEINC.Set(0)
 
 	startAsyncProcessors()
 	startDBWriters()
@@ -717,14 +765,14 @@ func getDB() (err error) {
 	// goroutine to, every x seconds, pause insert execution and dump memory sqlite db to disk
 	go func() {
 		for {
-			if !DB_VALID || !SAVE_LOCAL {
+			if !IsDatabaseValid || !ShouldSaveLocal {
 				return
 			}
 
 			time.Sleep(3 * time.Minute)
 
 			// pause insert execution
-			PAUSE_INSERTS = true
+			DBInsertsPaused = true
 
 			// dump memory sqlite db to disk
 			err = dumpMemoryDBToDisk()
@@ -733,7 +781,7 @@ func getDB() (err error) {
 			}
 
 			// resume insert execution
-			PAUSE_INSERTS = false
+			DBInsertsPaused = false
 		}
 	}()
 
@@ -741,7 +789,7 @@ func getDB() (err error) {
 	writeLog(functionName, "Goroutines started successfully", "INFO")
 
 	// only if everything worked should we send a callback letting the addon know we're ready
-	if DB_VALID {
+	if IsDatabaseValid {
 		writeLog(":DB:OK:", "DB ready", "INFO")
 	}
 
@@ -777,9 +825,8 @@ func validateHypertables(tables map[string][]string) (err error) {
 		if err != nil {
 			writeLog(functionName, fmt.Sprintf(`Failed to create hypertable for %s. Err: %s`, table, err), "ERROR")
 			return err
-		} else {
-			writeLog(functionName, fmt.Sprintf(`Created hypertable for %s`, table), "INFO")
 		}
+		writeLog(functionName, fmt.Sprintf(`Created hypertable for %s`, table), "INFO")
 
 		// set compression
 		queryCompressHypertable := fmt.Sprintf(`
@@ -794,9 +841,8 @@ func validateHypertables(tables map[string][]string) (err error) {
 		if err != nil {
 			writeLog(functionName, fmt.Sprintf(`Failed to enable compression for %s. Err: %s`, table, err), "ERROR")
 			return err
-		} else {
-			writeLog(functionName, fmt.Sprintf(`Enabled hypertable compression for %s`, table), "INFO")
 		}
+		writeLog(functionName, fmt.Sprintf(`Enabled hypertable compression for %s`, table), "INFO")
 
 		// set compress_after
 		queryCompressAfterHypertable := fmt.Sprintf(`
@@ -808,9 +854,9 @@ func validateHypertables(tables map[string][]string) (err error) {
 		if err != nil {
 			writeLog(functionName, fmt.Sprintf(`Failed to set compress_after for %s. Err: %s`, table, err), "ERROR")
 			return err
-		} else {
-			writeLog(functionName, fmt.Sprintf(`Set compress_after for %s`, table), "INFO")
 		}
+		writeLog(functionName, fmt.Sprintf(`Set compress_after for %s`, table), "INFO")
+
 	}
 	return nil
 }
@@ -819,40 +865,17 @@ func validateHypertables(tables map[string][]string) (err error) {
 func startStatusMonitor() {
 	go func() {
 		functionName := ":STATUS:MONITOR:"
-		STATUS_MONITOR_RUNNING = true
+		IsStatusProcessRunning = true
 		defer func() {
-			STATUS_MONITOR_RUNNING = false
+			IsStatusProcessRunning = false
 		}()
 
 		// get status file writer with full control of file
-		statusFile, err := os.OpenFile(ADDON_FOLDER+"/status.txt", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+		statusFile, err := os.OpenFile(AddonFolder+"/status.txt", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
 		if err != nil {
 			writeLog(functionName, fmt.Sprintf(`Error opening status file: %v`, err), "ERROR")
 		}
 		defer statusFile.Close()
-
-		// set up influxdb writer for metrics
-		// write model to influxdb
-		var influxStatusWriter influxdb2_api.WriteAPI
-		if INFLUX_VALID && ActiveSettings.InfluxConfig.Enabled {
-
-			// Get non-blocking write client
-			influxStatusWriter = InfluxClient.WriteAPI(
-				ActiveSettings.InfluxConfig.Org,
-				"ocap_performance",
-			)
-
-			if influxStatusWriter == nil {
-				writeLog(functionName, "Error creating InfluxDB write API", "ERROR")
-			}
-			// Get errors channel
-			errorsCh := influxStatusWriter.Errors()
-			go func() {
-				for writeErr := range errorsCh {
-					writeLog(functionName, fmt.Sprintf(`Error sending data to InfluxDB: %s`, writeErr.Error()), "ERROR")
-				}
-			}()
-		}
 
 		for {
 			time.Sleep(1000 * time.Millisecond)
@@ -871,12 +894,13 @@ func startStatusMonitor() {
 			// }
 
 			// write to influxDB
-			if influxStatusWriter != nil {
+			if viper.GetBool("influxdb.enabled") {
+
 				// write buffer lengths
 				p := influxdb2.NewPointWithMeasurement(
 					"ext_buffer_lengths",
 				).
-					AddTag("db_url", ActiveSettings.DBConfig.Host).
+					AddTag("db_url", viper.GetString("influxdb.url")).
 					AddTag("mission_name", perfModel.Mission.MissionName).
 					AddTag("mission_id", fmt.Sprintf("%d", perfModel.Mission.ID)).
 					AddField("soldiers", perfModel.BufferLengths.Soldiers).
@@ -892,13 +916,17 @@ func startStatusMonitor() {
 					AddField("server_fps_events", perfModel.BufferLengths.ServerFpsEvents).
 					SetTime(time.Now())
 
-				influxStatusWriter.WritePoint(p)
+				writeInfluxPoint(
+					context.Background(),
+					"ocap_performance",
+					p,
+				)
 
 				// write db write queue lengths
 				p = influxdb2.NewPointWithMeasurement(
 					"ext_db_queue_lengths",
 				).
-					AddTag("db_url", ActiveSettings.DBConfig.Host).
+					AddTag("db_url", viper.GetString("influxdb.url")).
 					AddTag("mission_name", perfModel.Mission.MissionName).
 					AddTag("mission_id", fmt.Sprintf("%d", perfModel.Mission.ID)).
 					AddField("soldiers", perfModel.WriteQueueLengths.Soldiers).
@@ -914,26 +942,40 @@ func startStatusMonitor() {
 					AddField("server_fps_events", perfModel.WriteQueueLengths.ServerFpsEvents).
 					SetTime(time.Now())
 
-				influxStatusWriter.WritePoint(p)
+				writeInfluxPoint(
+					context.Background(),
+					"ocap_performance",
+					p,
+				)
 
 				// write last write duration
 				p = influxdb2.NewPointWithMeasurement(
 					"ext_db_lastwrite_duration_ms",
 				).
-					AddTag("db_url", ActiveSettings.DBConfig.Host).
+					AddTag("db_url", viper.GetString("influxdb.url")).
 					AddTag("mission_name", perfModel.Mission.MissionName).
 					AddTag("mission_id", fmt.Sprintf("%d", perfModel.Mission.ID)).
 					AddField("value", perfModel.LastWriteDurationMs).
 					SetTime(time.Now())
 
-				influxStatusWriter.WritePoint(p)
+				writeInfluxPoint(
+					context.Background(),
+					"ocap_performance",
+					p,
+				)
 			}
 		}
 	}()
 }
 
+/////////////////////////////////////
 // WORLDS AND MISSIONS
+/////////////////////////////////////
+
+// CurrentWorld is the world that is currently being played
 var CurrentWorld *defs.World
+
+// CurrentMission is the mission that is currently being played
 var CurrentMission *defs.Mission
 
 // logNewMission logs a new mission to the database and associates the world it's played on
@@ -959,7 +1001,7 @@ func logNewMission(data []string) (err error) {
 	writeLog(functionName, fmt.Sprintf(`World data: %v`, world), "DEBUG")
 
 	// preprocess the world 'location' to geopoint
-	worldLocation := defs.GPSFromCoords(
+	worldLocation, err := defs.GPSFromCoords(
 		float64(world.Longitude),
 		float64(world.Latitude),
 		4326,
@@ -983,33 +1025,33 @@ func logNewMission(data []string) (err error) {
 	// add addons
 	addons := []defs.Addon{}
 	for _, addon := range missionTemp["addons"].([]interface{}) {
-		thisAddon := defs.Addon{
+		thisaddon := defs.Addon{
 			Name: addon.([]interface{})[0].(string),
 		}
 		// if addon[1] workshopId is int, convert to string
 		if reflect.TypeOf(addon.([]interface{})[1]).Kind() == reflect.Float64 {
-			thisAddon.WorkshopID = strconv.Itoa(int(addon.([]interface{})[1].(float64)))
+			thisaddon.WorkshopID = strconv.Itoa(int(addon.([]interface{})[1].(float64)))
 		} else {
-			thisAddon.WorkshopID = addon.([]interface{})[1].(string)
+			thisaddon.WorkshopID = addon.([]interface{})[1].(string)
 		}
 
 		// if addon doesn't exist, insert it
-		err = DB.Where("name = ?", thisAddon.Name).First(&thisAddon).Error
+		err = DB.Where("name = ?", thisaddon.Name).First(&thisaddon).Error
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			writeLog(functionName, fmt.Sprintf(`Error checking if addon exists: %v`, err), "ERROR")
 			return err
 		}
-		if thisAddon.ID == 0 {
+		if thisaddon.ID == 0 {
 			// addon does not exist, create it
-			if err = DB.Create(&thisAddon).Error; err != nil {
+			if err = DB.Create(&thisaddon).Error; err != nil {
 				writeLog(functionName, fmt.Sprintf(`Error creating addon: %v`, err), "ERROR")
 				return err
-			} else {
-				addons = append(addons, thisAddon)
 			}
+			addons = append(addons, thisaddon)
+
 		} else {
 			// addon exists, append it
-			addons = append(addons, thisAddon)
+			addons = append(addons, thisaddon)
 		}
 	}
 	mission.Addons = addons
@@ -1057,7 +1099,7 @@ func logNewMission(data []string) (err error) {
 	CurrentWorld = &world
 	CurrentMission = &mission
 
-	if !STATUS_MONITOR_RUNNING {
+	if !IsStatusProcessRunning {
 		// start status monitor
 		startStatusMonitor()
 	}
@@ -1072,7 +1114,7 @@ func logNewMission(data []string) (err error) {
 func logNewSoldier(data []string) (soldier defs.Soldier, err error) {
 	functionName := ":NEW:SOLDIER:"
 	// check if DB is valid
-	if !DB_VALID {
+	if !IsDatabaseValid {
 		return
 	}
 
@@ -1102,12 +1144,12 @@ func logNewSoldier(data []string) (soldier defs.Soldier, err error) {
 	}
 	soldier.JoinTime = time.Unix(0, timestampInt)
 
-	ocapId, err := strconv.ParseUint(data[1], 10, 64)
+	ocapID, err := strconv.ParseUint(data[1], 10, 64)
 	if err != nil {
 		writeLog(functionName, fmt.Sprintf(`Error converting ocapId to uint: %v`, err), "ERROR")
 		return soldier, err
 	}
-	soldier.OcapID = uint16(ocapId)
+	soldier.OcapID = uint16(ocapID)
 	soldier.UnitName = data[2]
 	soldier.GroupID = data[3]
 	soldier.Side = data[4]
@@ -1129,7 +1171,7 @@ func logNewSoldier(data []string) (soldier defs.Soldier, err error) {
 func logSoldierState(data []string) (soldierState defs.SoldierState, err error) {
 	functionName := ":NEW:SOLDIER:STATE:"
 	// check if DB is valid
-	if !DB_VALID {
+	if !IsDatabaseValid {
 		return soldierState, nil
 	}
 
@@ -1148,7 +1190,7 @@ func logSoldierState(data []string) (soldierState defs.SoldierState, err error) 
 	soldierState.CaptureFrame = uint(capframe)
 
 	// parse data in array
-	ocapId, err := strconv.ParseUint(data[0], 10, 64)
+	ocapID, err := strconv.ParseUint(data[0], 10, 64)
 	if err != nil {
 		return soldierState, fmt.Errorf(`error converting ocapId to uint: %v`, err)
 	}
@@ -1159,7 +1201,7 @@ func logSoldierState(data []string) (soldierState defs.SoldierState, err error) 
 		"join_time DESC",
 	).Where(
 		&defs.Soldier{
-			OcapID:    uint16(ocapId),
+			OcapID:    uint16(ocapID),
 			MissionID: CurrentMission.ID,
 		}).First(&soldier).Error
 	if err != nil {
@@ -1184,7 +1226,7 @@ func logSoldierState(data []string) (soldierState defs.SoldierState, err error) 
 	pos := data[1]
 	pos = strings.TrimPrefix(pos, "[")
 	pos = strings.TrimSuffix(pos, "]")
-	point, elev, err := defs.GPSFromString(pos, 3857, SAVE_LOCAL)
+	point, elev, err := defs.GPSFromString(pos, 3857)
 	if err != nil {
 		json, _ := json.Marshal(data)
 		writeLog(functionName, fmt.Sprintf("Error converting position to Point:\n%s\n%v", json, err), "ERROR")
@@ -1251,7 +1293,7 @@ func logSoldierState(data []string) (soldierState defs.SoldierState, err error) 
 func logNewVehicle(data []string) (vehicle defs.Vehicle, err error) {
 	functionName := ":NEW:VEHICLE:"
 	// check if DB is valid
-	if !DB_VALID {
+	if !IsDatabaseValid {
 		return vehicle, nil
 	}
 
@@ -1280,12 +1322,12 @@ func logNewVehicle(data []string) (vehicle defs.Vehicle, err error) {
 	// parse array
 	vehicle.MissionID = CurrentMission.ID
 	vehicle.JoinFrame = uint(capframe)
-	ocapId, err := strconv.ParseUint(data[1], 10, 64)
+	ocapID, err := strconv.ParseUint(data[1], 10, 64)
 	if err != nil {
-		writeLog(functionName, fmt.Sprintf(`Error converting ocapId to uint: %v`, err), "ERROR")
+		writeLog(functionName, fmt.Sprintf(`Error converting ocapID to uint: %v`, err), "ERROR")
 		return vehicle, err
 	}
-	vehicle.OcapID = uint16(ocapId)
+	vehicle.OcapID = uint16(ocapID)
 	vehicle.OcapType = data[2]
 	vehicle.DisplayName = data[3]
 	vehicle.ClassName = data[4]
@@ -1297,7 +1339,7 @@ func logNewVehicle(data []string) (vehicle defs.Vehicle, err error) {
 func logVehicleState(data []string) (vehicleState defs.VehicleState, err error) {
 	functionName := ":NEW:VEHICLE:STATE:"
 	// check if DB is valid
-	if !DB_VALID {
+	if !IsDatabaseValid {
 		return vehicleState, nil
 	}
 
@@ -1318,7 +1360,7 @@ func logVehicleState(data []string) (vehicleState defs.VehicleState, err error) 
 	vehicleState.CaptureFrame = uint(capframe)
 
 	// parse data in array
-	ocapId, err := strconv.ParseUint(data[0], 10, 64)
+	ocapID, err := strconv.ParseUint(data[0], 10, 64)
 	if err != nil {
 		writeLog(functionName, fmt.Sprintf(`Error converting ocapId to uint: %v`, err), "ERROR")
 		return vehicleState, err
@@ -1330,7 +1372,7 @@ func logVehicleState(data []string) (vehicleState defs.VehicleState, err error) 
 		"join_time DESC",
 	).Where(
 		&defs.Vehicle{
-			OcapID:    uint16(ocapId),
+			OcapID:    uint16(ocapID),
 			MissionID: CurrentMission.ID,
 		}).First(&vehicle).Error
 	if err != nil {
@@ -1356,7 +1398,7 @@ func logVehicleState(data []string) (vehicleState defs.VehicleState, err error) 
 	pos := data[1]
 	pos = strings.TrimPrefix(pos, "[")
 	pos = strings.TrimSuffix(pos, "]")
-	point, elev, err := defs.GPSFromString(pos, 3857, SAVE_LOCAL)
+	point, elev, err := defs.GPSFromString(pos, 3857)
 	if err != nil {
 		json, _ := json.Marshal(data)
 		writeLog(functionName, fmt.Sprintf("Error converting position to Point:\n%s\n%v", json, err), "ERROR")
@@ -1415,7 +1457,7 @@ func logVehicleState(data []string) (vehicleState defs.VehicleState, err error) 
 func logFiredEvent(data []string) (firedEvent defs.FiredEvent, err error) {
 	functionName := ":FIRED:"
 	// check if DB is valid
-	if !DB_VALID {
+	if !IsDatabaseValid {
 		return firedEvent, nil
 	}
 
@@ -1436,21 +1478,21 @@ func logFiredEvent(data []string) (firedEvent defs.FiredEvent, err error) {
 	firedEvent.CaptureFrame = uint(capframe)
 
 	// parse data in array
-	ocapId, err := strconv.ParseUint(data[0], 10, 64)
+	ocapID, err := strconv.ParseUint(data[0], 10, 64)
 	if err != nil {
-		writeLog(functionName, fmt.Sprintf(`Error converting ocapId to uint: %v`, err), "ERROR")
+		writeLog(functionName, fmt.Sprintf(`Error converting ocapID to uint: %v`, err), "ERROR")
 		return firedEvent, err
 	}
 
 	// try and find soldier in DB to associate
-	soldierId := uint(0)
+	soldierID := uint(0)
 	err = DB.Model(&defs.Soldier{}).Select("id").Order(
 		"join_time DESC",
 	).Where(
 		&defs.Soldier{
-			OcapID:    uint16(ocapId),
+			OcapID:    uint16(ocapID),
 			MissionID: CurrentMission.ID,
-		}).Limit(1).Scan(&soldierId).Error
+		}).Limit(1).Scan(&soldierID).Error
 	if err != nil && err != gorm.ErrRecordNotFound {
 		json, _ := json.Marshal(data)
 		writeLog(functionName, fmt.Sprintf("Error finding soldier in DB:\n%s\n%v", json, err), "ERROR")
@@ -1462,7 +1504,7 @@ func logFiredEvent(data []string) (firedEvent defs.FiredEvent, err error) {
 		// soldier not found, return
 		return firedEvent, nil
 	}
-	firedEvent.SoldierID = soldierId
+	firedEvent.SoldierID = soldierID
 
 	// timestamp will always be appended as the last element of data, in unixnano format as a string
 	timestampStr := data[len(data)-1]
@@ -1475,7 +1517,7 @@ func logFiredEvent(data []string) (firedEvent defs.FiredEvent, err error) {
 
 	// parse BULLET END POS from an arma string
 	endpos := data[2]
-	endpoint, endelev, err := defs.GPSFromString(endpos, 3857, SAVE_LOCAL)
+	endpoint, endelev, err := defs.GPSFromString(endpos, 3857)
 	if err != nil {
 		json, _ := json.Marshal(data)
 		writeLog(functionName, fmt.Sprintf("Error converting position to Point:\n%s\n%v", json, err), "ERROR")
@@ -1486,7 +1528,7 @@ func logFiredEvent(data []string) (firedEvent defs.FiredEvent, err error) {
 
 	// parse BULLET START POS from an arma string
 	startpos := data[3]
-	startpoint, startelev, err := defs.GPSFromString(startpos, 3857, SAVE_LOCAL)
+	startpoint, startelev, err := defs.GPSFromString(startpos, 3857)
 	if err != nil {
 		json, _ := json.Marshal(data)
 		writeLog(functionName, fmt.Sprintf("Error converting position to Point:\n%s\n%v", json, err), "ERROR")
@@ -1521,7 +1563,7 @@ func logGeneralEvent(data []string) (thisEvent defs.GeneralEvent, err error) {
 	functionName := ":EVENT:"
 
 	// check if DB is valid
-	if !DB_VALID {
+	if !IsDatabaseValid {
 		return thisEvent, nil
 	}
 
@@ -1573,7 +1615,7 @@ func logGeneralEvent(data []string) (thisEvent defs.GeneralEvent, err error) {
 
 func logHitEvent(data []string) (hitEvent defs.HitEvent, err error) {
 	// check if DB is valid
-	if !DB_VALID {
+	if !IsDatabaseValid {
 		return hitEvent, nil
 	}
 
@@ -1601,7 +1643,7 @@ func logHitEvent(data []string) (hitEvent defs.HitEvent, err error) {
 	hitEvent.Time = time.Unix(0, timestampInt)
 
 	// parse data in array
-	victimOcapId, err := strconv.ParseUint(data[1], 10, 64)
+	victimOcapID, err := strconv.ParseUint(data[1], 10, 64)
 	if err != nil {
 		return hitEvent, fmt.Errorf(`error converting victim ocap id to uint: %v`, err)
 	}
@@ -1611,11 +1653,11 @@ func logHitEvent(data []string) (hitEvent defs.HitEvent, err error) {
 	// first, look in soldiers
 	err = DB.Model(&defs.Soldier{}).Where(
 		&defs.Soldier{
-			OcapID:    uint16(victimOcapId),
+			OcapID:    uint16(victimOcapID),
 			MissionID: CurrentMission.ID,
 		}).First(&victimSoldier).Error
 	if err != nil && err != gorm.ErrRecordNotFound {
-		return hitEvent, fmt.Errorf(`error finding victim in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, victimOcapId, err)
+		return hitEvent, fmt.Errorf(`error finding victim in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, victimOcapID, err)
 	}
 	if err == nil {
 		hitEvent.VictimSoldier = victimSoldier
@@ -1624,23 +1666,23 @@ func logHitEvent(data []string) (hitEvent defs.HitEvent, err error) {
 		victimVehicle := defs.Vehicle{}
 		err = DB.Model(&defs.Vehicle{}).Where(
 			&defs.Vehicle{
-				OcapID:    uint16(victimOcapId),
+				OcapID:    uint16(victimOcapID),
 				MissionID: CurrentMission.ID,
 			}).First(&victimVehicle).Error
 		if err != nil && err != gorm.ErrRecordNotFound {
-			return hitEvent, fmt.Errorf(`error finding victim in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, victimOcapId, err)
+			return hitEvent, fmt.Errorf(`error finding victim in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, victimOcapID, err)
 		} else if err == gorm.ErrRecordNotFound {
 			if capframe < 10 {
 				return defs.HitEvent{}, errTooEarlyForStateAssociation
 			}
-			return hitEvent, fmt.Errorf(`victim ocap id not found in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, victimOcapId, err)
+			return hitEvent, fmt.Errorf(`victim ocap id not found in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, victimOcapID, err)
 		} else {
 			hitEvent.VictimVehicle = victimVehicle
 		}
 	}
 
 	// now look for the shooter
-	shooterOcapId, err := strconv.ParseUint(data[2], 10, 64)
+	shooterOcapID, err := strconv.ParseUint(data[2], 10, 64)
 	if err != nil {
 		return hitEvent, fmt.Errorf(`error converting shooter ocap id to uint: %v`, err)
 	}
@@ -1650,11 +1692,11 @@ func logHitEvent(data []string) (hitEvent defs.HitEvent, err error) {
 	shooterSoldier := defs.Soldier{}
 	err = DB.Model(&defs.Soldier{}).Where(
 		&defs.Soldier{
-			OcapID:    uint16(shooterOcapId),
+			OcapID:    uint16(shooterOcapID),
 			MissionID: CurrentMission.ID,
 		}).First(&shooterSoldier).Error
 	if err != nil && err != gorm.ErrRecordNotFound {
-		return hitEvent, fmt.Errorf(`error finding shooter in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, shooterOcapId, err)
+		return hitEvent, fmt.Errorf(`error finding shooter in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, shooterOcapID, err)
 	}
 	if err == nil {
 		hitEvent.ShooterSoldier = shooterSoldier
@@ -1663,16 +1705,16 @@ func logHitEvent(data []string) (hitEvent defs.HitEvent, err error) {
 		shooterVehicle := defs.Vehicle{}
 		err = DB.Model(&defs.Vehicle{}).Where(
 			&defs.Vehicle{
-				OcapID:    uint16(shooterOcapId),
+				OcapID:    uint16(shooterOcapID),
 				MissionID: CurrentMission.ID,
 			}).First(&shooterVehicle).Error
 		if err != nil && err != gorm.ErrRecordNotFound {
-			return hitEvent, fmt.Errorf(`error finding shooter in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, shooterOcapId, err)
+			return hitEvent, fmt.Errorf(`error finding shooter in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, shooterOcapID, err)
 		} else if err == gorm.ErrRecordNotFound {
 			if capframe < 10 {
 				return defs.HitEvent{}, errTooEarlyForStateAssociation
 			}
-			return hitEvent, fmt.Errorf(`shooter ocap id not found in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, shooterOcapId, err)
+			return hitEvent, fmt.Errorf(`shooter ocap id not found in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, shooterOcapID, err)
 		} else {
 			hitEvent.ShooterVehicle = shooterVehicle
 		}
@@ -1693,7 +1735,7 @@ func logHitEvent(data []string) (hitEvent defs.HitEvent, err error) {
 
 func logKillEvent(data []string) (killEvent defs.KillEvent, err error) {
 	// check if DB is valid
-	if !DB_VALID {
+	if !IsDatabaseValid {
 		return killEvent, nil
 	}
 
@@ -1721,7 +1763,7 @@ func logKillEvent(data []string) (killEvent defs.KillEvent, err error) {
 	killEvent.Mission = *CurrentMission
 
 	// parse data in array
-	victimOcapId, err := strconv.ParseUint(data[1], 10, 64)
+	victimOcapID, err := strconv.ParseUint(data[1], 10, 64)
 	if err != nil {
 		return killEvent, fmt.Errorf(`error converting victim ocap id to uint: %v`, err)
 	}
@@ -1731,11 +1773,11 @@ func logKillEvent(data []string) (killEvent defs.KillEvent, err error) {
 	victimSoldier := defs.Soldier{}
 	err = DB.Model(&defs.Soldier{}).Where(
 		&defs.Soldier{
-			OcapID:    uint16(victimOcapId),
+			OcapID:    uint16(victimOcapID),
 			MissionID: CurrentMission.ID,
 		}).First(&victimSoldier).Error
 	if err != nil && err != gorm.ErrRecordNotFound {
-		return killEvent, fmt.Errorf(`error finding victim in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, victimOcapId, err)
+		return killEvent, fmt.Errorf(`error finding victim in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, victimOcapID, err)
 	}
 	if err == nil {
 		killEvent.VictimSoldier = victimSoldier
@@ -1744,23 +1786,23 @@ func logKillEvent(data []string) (killEvent defs.KillEvent, err error) {
 		victimVehicle := defs.Vehicle{}
 		err = DB.Model(&defs.Vehicle{}).Where(
 			&defs.Vehicle{
-				OcapID:  uint16(victimOcapId),
+				OcapID:  uint16(victimOcapID),
 				Mission: *CurrentMission,
 			}).First(&victimVehicle).Error
 		if err != nil && err != gorm.ErrRecordNotFound {
-			return killEvent, fmt.Errorf(`error finding victim in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, victimOcapId, err)
+			return killEvent, fmt.Errorf(`error finding victim in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, victimOcapID, err)
 		} else if err == gorm.ErrRecordNotFound {
 			if capframe < 10 {
 				return defs.KillEvent{}, errTooEarlyForStateAssociation
 			}
-			return killEvent, fmt.Errorf(`victim ocap id not found in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, victimOcapId, err)
+			return killEvent, fmt.Errorf(`victim ocap id not found in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, victimOcapID, err)
 		} else {
 			killEvent.VictimVehicle = victimVehicle
 		}
 	}
 
 	// now look for the killer
-	killerOcapId, err := strconv.ParseUint(data[2], 10, 64)
+	killerOcapID, err := strconv.ParseUint(data[2], 10, 64)
 	if err != nil {
 		return killEvent, fmt.Errorf(`error converting killer ocap id to uint: %v`, err)
 	}
@@ -1770,11 +1812,11 @@ func logKillEvent(data []string) (killEvent defs.KillEvent, err error) {
 	killerSoldier := defs.Soldier{}
 	err = DB.Model(&defs.Soldier{}).Where(
 		&defs.Soldier{
-			OcapID:    uint16(killerOcapId),
+			OcapID:    uint16(killerOcapID),
 			MissionID: CurrentMission.ID,
 		}).First(&killerSoldier).Error
 	if err != nil && err != gorm.ErrRecordNotFound {
-		return killEvent, fmt.Errorf(`error finding killer in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, killerOcapId, err)
+		return killEvent, fmt.Errorf(`error finding killer in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, killerOcapID, err)
 	} else if err == nil {
 		killEvent.KillerSoldier = killerSoldier
 	} else if err == gorm.ErrRecordNotFound {
@@ -1782,16 +1824,16 @@ func logKillEvent(data []string) (killEvent defs.KillEvent, err error) {
 		killerVehicle := defs.Vehicle{}
 		err = DB.Model(&defs.Vehicle{}).Where(
 			&defs.Vehicle{
-				OcapID:  uint16(killerOcapId),
+				OcapID:  uint16(killerOcapID),
 				Mission: *CurrentMission,
 			}).First(&killerVehicle).Error
 		if err != nil && err != gorm.ErrRecordNotFound {
-			return killEvent, fmt.Errorf(`error finding killer in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, killerOcapId, err)
+			return killEvent, fmt.Errorf(`error finding killer in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, killerOcapID, err)
 		} else if err == gorm.ErrRecordNotFound {
 			if capframe < 10 {
 				return defs.KillEvent{}, errTooEarlyForStateAssociation
 			}
-			return killEvent, fmt.Errorf(`killer ocap id not found in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, killerOcapId, err)
+			return killEvent, fmt.Errorf(`killer ocap id not found in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, killerOcapID, err)
 		} else {
 			killEvent.KillerVehicle = killerVehicle
 		}
@@ -1814,7 +1856,7 @@ func logKillEvent(data []string) (killEvent defs.KillEvent, err error) {
 
 func logDeathEvent(data []string) (deathEvent defs.DeathEvent, err error) {
 	// check if DB is valid
-	if !DB_VALID {
+	if !IsDatabaseValid {
 		return deathEvent, nil
 	}
 
@@ -1842,7 +1884,7 @@ func logDeathEvent(data []string) (deathEvent defs.DeathEvent, err error) {
 	deathEvent.Mission = *CurrentMission
 
 	// parse data in array
-	victimOcapId, err := strconv.ParseUint(data[1], 10, 64)
+	victimOcapID, err := strconv.ParseUint(data[1], 10, 64)
 	if err != nil {
 		return deathEvent, fmt.Errorf(`error converting victim ocap id to uint: %v`, err)
 	}
@@ -1852,16 +1894,16 @@ func logDeathEvent(data []string) (deathEvent defs.DeathEvent, err error) {
 	victimSoldier := defs.Soldier{}
 	err = DB.Model(&defs.Soldier{}).Where(
 		&defs.Soldier{
-			OcapID:    uint16(victimOcapId),
+			OcapID:    uint16(victimOcapID),
 			MissionID: CurrentMission.ID,
 		}).First(&victimSoldier).Error
 	if err != nil && err != gorm.ErrRecordNotFound {
-		return deathEvent, fmt.Errorf(`error finding victim in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, victimOcapId, err)
+		return deathEvent, fmt.Errorf(`error finding victim in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, victimOcapID, err)
 	} else if err == gorm.ErrRecordNotFound {
 		if capframe < 10 {
 			return defs.DeathEvent{}, errTooEarlyForStateAssociation
 		}
-		return deathEvent, fmt.Errorf(`victim ocap id not found in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, victimOcapId, err)
+		return deathEvent, fmt.Errorf(`victim ocap id not found in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, victimOcapID, err)
 	}
 	deathEvent.Soldier = victimSoldier
 
@@ -1872,7 +1914,7 @@ func logDeathEvent(data []string) (deathEvent defs.DeathEvent, err error) {
 
 func logUnconsciousEvent(data []string) (unconsciousEvent defs.UnconsciousEvent, err error) {
 	// check if DB is valid
-	if !DB_VALID {
+	if !IsDatabaseValid {
 		return unconsciousEvent, nil
 	}
 
@@ -1892,7 +1934,7 @@ func logUnconsciousEvent(data []string) (unconsciousEvent defs.UnconsciousEvent,
 	unconsciousEvent.Mission = *CurrentMission
 
 	// parse data in array
-	ocapId, err := strconv.ParseUint(data[1], 10, 64)
+	ocapID, err := strconv.ParseUint(data[1], 10, 64)
 	if err != nil {
 		return unconsciousEvent, fmt.Errorf(`error converting ocap id to uint: %v`, err)
 	}
@@ -1901,16 +1943,16 @@ func logUnconsciousEvent(data []string) (unconsciousEvent defs.UnconsciousEvent,
 	soldier := defs.Soldier{}
 	err = DB.Model(&defs.Soldier{}).Where(
 		&defs.Soldier{
-			OcapID:    uint16(ocapId),
+			OcapID:    uint16(ocapID),
 			MissionID: CurrentMission.ID,
 		}).First(&soldier).Error
 	if err != nil && err != gorm.ErrRecordNotFound {
-		return unconsciousEvent, fmt.Errorf(`error finding soldier in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, ocapId, err)
+		return unconsciousEvent, fmt.Errorf(`error finding soldier in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, ocapID, err)
 	} else if err == gorm.ErrRecordNotFound {
 		if capframe < 10 {
 			return defs.UnconsciousEvent{}, errTooEarlyForStateAssociation
 		}
-		return unconsciousEvent, fmt.Errorf(`ocap id not found in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, ocapId, err)
+		return unconsciousEvent, fmt.Errorf(`ocap id not found in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, ocapID, err)
 	}
 
 	unconsciousEvent.Soldier = soldier
@@ -1926,7 +1968,7 @@ func logUnconsciousEvent(data []string) (unconsciousEvent defs.UnconsciousEvent,
 
 func logChatEvent(data []string) (chatEvent defs.ChatEvent, err error) {
 	// check if DB is valid
-	if !DB_VALID {
+	if !IsDatabaseValid {
 		return chatEvent, nil
 	}
 
@@ -1954,26 +1996,26 @@ func logChatEvent(data []string) (chatEvent defs.ChatEvent, err error) {
 	chatEvent.Mission = *CurrentMission
 
 	// parse data in array
-	senderOcapId, err := strconv.ParseInt(data[1], 10, 64)
+	senderOcapID, err := strconv.ParseInt(data[1], 10, 64)
 	if err != nil {
 		return chatEvent, fmt.Errorf(`error converting sender ocap id to uint: %v`, err)
 	}
 
 	// try and find sender solder in DB to associate if not -1
-	if senderOcapId != -1 {
+	if senderOcapID != -1 {
 		senderSoldier := defs.Soldier{}
 		err = DB.Model(&defs.Soldier{}).Where(
 			&defs.Soldier{
-				OcapID:    uint16(senderOcapId),
+				OcapID:    uint16(senderOcapID),
 				MissionID: CurrentMission.ID,
 			}).First(&senderSoldier).Error
 		if err != nil && err != gorm.ErrRecordNotFound {
-			return chatEvent, fmt.Errorf(`error finding sender in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, senderOcapId, err)
+			return chatEvent, fmt.Errorf(`error finding sender in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, senderOcapID, err)
 		} else if err == gorm.ErrRecordNotFound {
 			if capframe < 10 {
 				return defs.ChatEvent{}, errTooEarlyForStateAssociation
 			}
-			return chatEvent, fmt.Errorf(`sender ocap id not found in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, senderOcapId, err)
+			return chatEvent, fmt.Errorf(`sender ocap id not found in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, senderOcapID, err)
 		} else if err == nil {
 			chatEvent.Soldier = senderSoldier
 		}
@@ -2008,7 +2050,7 @@ func logChatEvent(data []string) (chatEvent defs.ChatEvent, err error) {
 	chatEvent.Message = data[5]
 
 	// next is playerUID
-	chatEvent.PlayerUid = data[6]
+	chatEvent.PlayerUID = data[6]
 
 	return chatEvent, nil
 }
@@ -2016,7 +2058,7 @@ func logChatEvent(data []string) (chatEvent defs.ChatEvent, err error) {
 // radio events
 func logRadioEvent(data []string) (radioEvent defs.RadioEvent, err error) {
 	// check if DB is valid
-	if !DB_VALID {
+	if !IsDatabaseValid {
 		return radioEvent, nil
 	}
 
@@ -2044,26 +2086,26 @@ func logRadioEvent(data []string) (radioEvent defs.RadioEvent, err error) {
 	radioEvent.Mission = *CurrentMission
 
 	// parse data in array
-	senderOcapId, err := strconv.ParseInt(data[1], 10, 64)
+	senderOcapID, err := strconv.ParseInt(data[1], 10, 64)
 	if err != nil {
 		return radioEvent, fmt.Errorf(`error converting sender ocap id to uint: %v`, err)
 	}
 
 	// try and find sender solder in DB to associate if not -1
-	if senderOcapId != -1 {
+	if senderOcapID != -1 {
 		senderSoldier := defs.Soldier{}
 		err = DB.Model(&defs.Soldier{}).Where(
 			&defs.Soldier{
-				OcapID:    uint16(senderOcapId),
+				OcapID:    uint16(senderOcapID),
 				MissionID: CurrentMission.ID,
 			}).First(&senderSoldier).Error
 		if err != nil && err != gorm.ErrRecordNotFound {
-			return radioEvent, fmt.Errorf(`error finding sender in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, senderOcapId, err)
+			return radioEvent, fmt.Errorf(`error finding sender in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, senderOcapID, err)
 		} else if err == gorm.ErrRecordNotFound {
 			if capframe < 10 {
 				return defs.RadioEvent{}, errTooEarlyForStateAssociation
 			}
-			return radioEvent, fmt.Errorf(`sender ocap id not found in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, senderOcapId, err)
+			return radioEvent, fmt.Errorf(`sender ocap id not found in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, senderOcapID, err)
 		} else if err == nil {
 			radioEvent.Soldier = senderSoldier
 		}
@@ -2103,7 +2145,7 @@ func logRadioEvent(data []string) (radioEvent defs.RadioEvent, err error) {
 
 func logFpsEvent(data []string) (fpsEvent defs.ServerFpsEvent, err error) {
 	// check if DB is valid
-	if !DB_VALID {
+	if !IsDatabaseValid {
 		return fpsEvent, nil
 	}
 
@@ -2158,7 +2200,7 @@ func startAsyncProcessors() {
 	go func() {
 		// process channel data
 		for v := range newSoldierChan {
-			if !DB_VALID {
+			if !IsDatabaseValid {
 				return
 			}
 
@@ -2174,7 +2216,7 @@ func startAsyncProcessors() {
 	go func() {
 		// process channel data
 		for v := range newVehicleChan {
-			if !DB_VALID {
+			if !IsDatabaseValid {
 				return
 			}
 
@@ -2190,7 +2232,7 @@ func startAsyncProcessors() {
 	go func() {
 		// process channel data
 		for v := range newSoldierStateChan {
-			if !DB_VALID {
+			if !IsDatabaseValid {
 				return
 			}
 
@@ -2210,7 +2252,7 @@ func startAsyncProcessors() {
 	go func() {
 		// process channel data
 		for v := range newVehicleStateChan {
-			if !DB_VALID {
+			if !IsDatabaseValid {
 				return
 			}
 
@@ -2232,7 +2274,7 @@ func startAsyncProcessors() {
 	go func() {
 		// process channel data
 		for v := range newFiredEventChan {
-			if !DB_VALID {
+			if !IsDatabaseValid {
 				return
 			}
 
@@ -2252,7 +2294,7 @@ func startAsyncProcessors() {
 	go func() {
 		// process channel data
 		for v := range newGeneralEventChan {
-			if !DB_VALID {
+			if !IsDatabaseValid {
 				return
 			}
 
@@ -2268,7 +2310,7 @@ func startAsyncProcessors() {
 	go func() {
 		// process channel data
 		for v := range newHitEventChan {
-			if !DB_VALID {
+			if !IsDatabaseValid {
 				return
 			}
 
@@ -2288,7 +2330,7 @@ func startAsyncProcessors() {
 	go func() {
 		// process channel data
 		for v := range newKillEventChan {
-			if !DB_VALID {
+			if !IsDatabaseValid {
 				return
 			}
 
@@ -2309,7 +2351,7 @@ func startAsyncProcessors() {
 	go func() {
 		// process channel data
 		for v := range newChatEventChan {
-			if !DB_VALID {
+			if !IsDatabaseValid {
 				return
 			}
 
@@ -2330,7 +2372,7 @@ func startAsyncProcessors() {
 	go func() {
 		// process channel data
 		for v := range newRadioEventChan {
-			if !DB_VALID {
+			if !IsDatabaseValid {
 				return
 			}
 
@@ -2351,7 +2393,7 @@ func startAsyncProcessors() {
 	go func() {
 		// process channel data
 		for v := range newFpsEventChan {
-			if !DB_VALID {
+			if !IsDatabaseValid {
 				return
 			}
 
@@ -2372,11 +2414,11 @@ func startDBWriters() {
 	// start the DB Write goroutine
 	go func() {
 		for {
-			if !DB_VALID {
+			if !IsDatabaseValid {
 				return
 			}
 
-			if PAUSE_INSERTS {
+			if DBInsertsPaused {
 				time.Sleep(100 * time.Millisecond)
 				continue
 			}
@@ -2543,7 +2585,7 @@ func startDBWriters() {
 				fpsEventsToWrite.Clear()
 			}
 
-			LAST_WRITE_DURATION = time.Since(writeStart)
+			LastDBWriteDuration = time.Since(writeStart)
 
 			// sleep
 			time.Sleep(750 * time.Millisecond)
@@ -2556,13 +2598,13 @@ func startDBWriters() {
 // EXPORTED FUNCTIONS //
 ///////////////////////
 
-func runExtensionCallback(name *C.char, function *C.char, data *C.char) C.int {
+func runextensionCallback(name *C.char, function *C.char, data *C.char) C.int {
 	return C.runExtensionCallback(extensionCallbackFnc, name, function, data)
 }
 
 //export goRVExtensionVersion
 func goRVExtensionVersion(output *C.char, outputsize C.size_t) {
-	result := C.CString(EXTENSION_VERSION)
+	result := C.CString(CurrentExtensionNameVersion)
 	defer C.free(unsafe.Pointer(result))
 	var size = C.strlen(result) + 1
 	if size > outputsize {
@@ -2672,7 +2714,7 @@ func callBackExample() {
 		time.Sleep(2 * time.Second)
 		param := C.CString(fmt.Sprintf("Loop: %d", i))
 		defer C.free(unsafe.Pointer(param))
-		runExtensionCallback(name, function, param)
+		runextensionCallback(name, function, param)
 	}
 }
 
@@ -2696,7 +2738,7 @@ func writeLog(functionName string, data string, level string) {
 	// get calling function & line
 	_, file, line, _ := runtime.Caller(1)
 
-	if ActiveSettings.Debug && level == "DEBUG" {
+	if viper.GetBool("debug") && level == "DEBUG" {
 		log.Printf(`%s:%d %s [%s] %s`, path.Base(file), line, functionName, level, data)
 	} else if level != "DEBUG" {
 		log.Printf(`%s:%d %s [%s] %s`, path.Base(file), line, functionName, level, data)
@@ -2712,13 +2754,13 @@ func writeLog(functionName string, data string, level string) {
 		escapedData = strings.Replace(escapedData, `]`, `)`, -1)
 		a3Message := fmt.Sprintf(`["%s", "%s"]`, escapedData, level)
 
-		statusName := C.CString(EXTENSION)
+		statusName := C.CString(ExtensionName)
 		defer C.free(unsafe.Pointer(statusName))
 		statusFunction := C.CString(functionName)
 		defer C.free(unsafe.Pointer(statusFunction))
 		statusParam := C.CString(a3Message)
 		defer C.free(unsafe.Pointer(statusParam))
-		runExtensionCallback(statusName, statusFunction, statusParam)
+		runextensionCallback(statusName, statusFunction, statusParam)
 	}
 }
 
@@ -2731,7 +2773,7 @@ func goRVExtension(output *C.char, outputsize C.size_t, input *C.char) {
 
 	switch C.GoString(input) {
 	case "version":
-		temp = EXTENSION_VERSION
+		temp = CurrentExtensionNameVersion
 	case "getDir":
 		temp = getDir()
 
@@ -2756,7 +2798,7 @@ func goRVExtensionRegisterCallback(fnc C.extensionCallback) {
 }
 
 func populateDemoData() {
-	if !DB_VALID {
+	if !IsDatabaseValid {
 		return
 	}
 
@@ -2898,8 +2940,8 @@ func populateDemoData() {
 			"Desert2",
 		}
 
-		demoAddons [][]interface{} = [][]interface{}{
-			{"Community Base Addons v3.15.1", 0},
+		demoaddons [][]interface{} = [][]interface{}{
+			{"Community Base addons v3.15.1", 0},
 			{"Arma 3 Contact", 0},
 			{"Arma 3 Creator DLC: Global Mobilization - Cold War Germany", 0},
 			{"Arma 3 Tanks", 0},
@@ -2964,22 +3006,22 @@ func populateDemoData() {
 		// ["worldName", toLower worldName],
 		// ["tag", EGVAR(settings,saveTag)]
 		missionData := map[string]interface{}{
-			"missionName":                  fmt.Sprintf("Demo Mission %d", i),
-			"briefingName":                 fmt.Sprintf("Demo Briefing %d", i),
-			"missionNameSource":            fmt.Sprintf("Demo Mission %d", i),
-			"onLoadName":                   "TestLoadName",
-			"author":                       "Demo Author",
-			"serverName":                   "Demo Server",
-			"serverProfile":                "Demo Profile",
-			"missionStart":                 nil, // random time
-			"worldName":                    fmt.Sprintf("demo_world_%d", i),
-			"tag":                          "Demo Tag",
-			"captureDelay":                 1.0,
-			"addonVersion":                 "1.0",
-			"extensionVersion":             "1.0",
-			"extensionBuild":               "1.0",
-			"ocapRecorderExtensionVersion": "1.0",
-			"addons":                       demoAddons,
+			"missionName":                      fmt.Sprintf("Demo Mission %d", i),
+			"briefingName":                     fmt.Sprintf("Demo Briefing %d", i),
+			"missionNameSource":                fmt.Sprintf("Demo Mission %d", i),
+			"onLoadName":                       "TestLoadName",
+			"author":                           "Demo Author",
+			"serverName":                       "Demo Server",
+			"serverProfile":                    "Demo Profile",
+			"missionStart":                     nil, // random time
+			"worldName":                        fmt.Sprintf("demo_world_%d", i),
+			"tag":                              "Demo Tag",
+			"captureDelay":                     1.0,
+			"addonVersion":                     "1.0",
+			"ExtensionNameVersion":             "1.0",
+			"ExtensionNameBuild":               "1.0",
+			"ocapRecorderExtensionNameVersion": "1.0",
+			"addons":                           demoaddons,
 		}
 		missionDataJSON, err := json.Marshal(missionData)
 		if err != nil {
@@ -3019,10 +3061,10 @@ func populateDemoData() {
 			go func(thisId int) {
 				// these will be sent as an array
 				// frame := strconv.FormatInt(int64(rand.Intn(missionDuration)), 10)
-				soldierId := strconv.FormatInt(int64(thisId), 10)
+				soldierID := strconv.FormatInt(int64(thisId), 10)
 				soldier := []string{
-					soldierId,                                          // join frame
-					soldierId,                                          // ocapid
+					soldierID,                                          // join frame
+					soldierID,                                          // ocapid
 					fmt.Sprintf("Demo Unit %d", i),                     // unit name
 					fmt.Sprintf("Demo Group %d", i),                    // group id
 					sides[rand.Intn(len(sides))],                       // side
@@ -3080,7 +3122,7 @@ func populateDemoData() {
 
 					soldierState := []string{
 						// soldier id we just made
-						soldierId,
+						soldierID,
 						// random pos
 						fmt.Sprintf("[%f,%f,%f]", randomPos[0], randomPos[1], randomPos[2]),
 						// random dir rounded to int
@@ -3120,12 +3162,12 @@ func populateDemoData() {
 		for i := 0; i <= numVehicles; i++ {
 			waitGroup.Add(1)
 			go func(thisId int) {
-				vehicleId := strconv.FormatInt(int64(thisId), 10)
+				vehicleID := strconv.FormatInt(int64(thisId), 10)
 				vehicle := []string{
 					// join frame
-					vehicleId,
+					vehicleID,
 					// ocapid
-					vehicleId,
+					vehicleID,
 					// random ocap type
 					ocapTypes[rand.Intn(len(ocapTypes))],
 					// random display name
@@ -3157,7 +3199,7 @@ func populateDemoData() {
 					time.Sleep(100 * time.Millisecond)
 					vehicleState := []string{
 						// ocap id
-						vehicleId,
+						vehicleID,
 						// random pos
 						fmt.Sprintf("[%f,%f,%f]", rand.Float64()*30720+1, rand.Float64()*30720+1, rand.Float64()*30720+1),
 						// random dir
@@ -3245,15 +3287,15 @@ func populateDemoData() {
 
 }
 
-func getOcapRecording(missionIds []string) (err error) {
-	fmt.Println("Getting JSON for mission IDs: ", missionIds)
+func getOcapRecording(missionIDs []string) (err error) {
+	fmt.Println("Getting JSON for mission IDs: ", missionIDs)
 
 	queries := []string{}
 
-	for _, missionId := range missionIds {
+	for _, missionID := range missionIDs {
 
 		// get missionIdInt
-		missionIdInt, err := strconv.Atoi(missionId)
+		missionIDInt, err := strconv.Atoi(missionID)
 		if err != nil {
 			return err
 		}
@@ -3265,16 +3307,16 @@ func getOcapRecording(missionIds []string) (err error) {
 		txStart = time.Now()
 		var mission defs.Mission
 		ocapMission := make(map[string]interface{})
-		err = DB.Model(&defs.Mission{}).Where("id = ?", missionIdInt).First(&mission).Error
+		err = DB.Model(&defs.Mission{}).Where("id = ?", missionIDInt).First(&mission).Error
 		if err != nil {
 			return err
 		}
 
 		// preprocess mission data into an object
 		ocapMission["addonVersion"] = mission.AddonVersion
-		ocapMission["extensionVersion"] = mission.ExtensionVersion
-		ocapMission["extensionBuild"] = mission.ExtensionBuild
-		ocapMission["ocapRecorderExtensionVersion"] = mission.OcapRecorderExtensionVersion
+		ocapMission["ExtensionNameVersion"] = mission.ExtensionVersion
+		ocapMission["ExtensionNameBuild"] = mission.ExtensionBuild
+		ocapMission["ocapRecorderExtensionNameVersion"] = mission.OcapRecorderExtensionVersion
 
 		ocapMission["missionAuthor"] = mission.Author
 		ocapMission["missionName"] = mission.OnLoadName
@@ -3596,27 +3638,27 @@ func getOcapRecording(missionIds []string) (err error) {
 			jsonEvent[0] = hitEvent.CaptureFrame
 			jsonEvent[1] = "hit"
 			// victimIDVehicle or victimIDSoldier, whichever is not empty
-			victimId := uint(0)
+			victimID := uint(0)
 
 			// get soldier ocap_id
 			err = DB.Model(&defs.Soldier{}).Where("id = ?", hitEvent.VictimIDSoldier).Pluck(
-				"ocap_id", &victimId,
+				"ocap_id", &victimID,
 			).Error
 			if err != nil && err != gorm.ErrRecordNotFound {
 				return err
 			} else if err == nil {
 				// if soldier ocap_id found, use it
-				jsonEvent[2] = victimId
+				jsonEvent[2] = victimID
 			} else {
 				// get vehicle ocap_id
 				err = DB.Model(&defs.Vehicle{}).Where("id = ?", hitEvent.VictimIDVehicle).Pluck(
-					"ocap_id", &victimId,
+					"ocap_id", &victimID,
 				).Error
 				if err != nil && err != gorm.ErrRecordNotFound {
 					return err
 				} else if err == nil {
 					// if vehicle ocap_id found, use it
-					jsonEvent[2] = victimId
+					jsonEvent[2] = victimID
 				} else {
 					// if neither found, skip this event
 					continue
@@ -3625,10 +3667,10 @@ func getOcapRecording(missionIds []string) (err error) {
 
 			// causedby info
 			causedBy := make([]interface{}, 2)
-			causedById := uint(0)
+			causedByID := uint(0)
 			// get soldier ocap_id
 			err = DB.Model(&defs.Soldier{}).Where("id = ?", hitEvent.ShooterIDSoldier).Pluck(
-				"ocap_id", &causedById,
+				"ocap_id", &causedByID,
 			).Error
 			if err != nil && err != gorm.ErrRecordNotFound {
 				return err
@@ -3637,7 +3679,7 @@ func getOcapRecording(missionIds []string) (err error) {
 			} else {
 				// get vehicle ocap_id
 				err = DB.Model(&defs.Vehicle{}).Where("id = ?", hitEvent.ShooterIDVehicle).Pluck(
-					"ocap_id", &causedById,
+					"ocap_id", &causedByID,
 				).Error
 				if err != nil && err != gorm.ErrRecordNotFound {
 					return err
@@ -3650,7 +3692,7 @@ func getOcapRecording(missionIds []string) (err error) {
 			}
 
 			causedByText := hitEvent.EventText
-			causedBy[0] = causedById
+			causedBy[0] = causedByID
 			causedBy[1] = causedByText
 			jsonEvent[3] = causedBy
 
@@ -3666,27 +3708,27 @@ func getOcapRecording(missionIds []string) (err error) {
 			jsonEvent[0] = killEvent.CaptureFrame
 			jsonEvent[1] = "killed"
 			// victimIDVehicle or victimIDSoldier, whichever is not empty
-			victimId := uint(0)
+			victimID := uint(0)
 
 			// get soldier ocap_id
 			err = DB.Model(&defs.Soldier{}).Where("id = ?", killEvent.VictimIDSoldier).Pluck(
-				"ocap_id", &victimId,
+				"ocap_id", &victimID,
 			).Error
 			if err != nil && err != gorm.ErrRecordNotFound {
 				return err
 			} else if err == nil {
 				// if soldier ocap_id found, use it
-				jsonEvent[2] = victimId
+				jsonEvent[2] = victimID
 			} else {
 				// get vehicle ocap_id
 				err = DB.Model(&defs.Vehicle{}).Where("id = ?", killEvent.VictimIDVehicle).Pluck(
-					"ocap_id", &victimId,
+					"ocap_id", &victimID,
 				).Error
 				if err != nil && err != gorm.ErrRecordNotFound {
 					return err
 				} else if err == nil {
 					// if vehicle ocap_id found, use it
-					jsonEvent[2] = victimId
+					jsonEvent[2] = victimID
 				} else {
 					// if neither found, skip this event
 					continue
@@ -3695,10 +3737,10 @@ func getOcapRecording(missionIds []string) (err error) {
 
 			// causedby info
 			causedBy := make([]interface{}, 2)
-			var causedById uint16
+			var causedByID uint16
 			// get soldier ocap_id
 			err = DB.Model(&defs.Soldier{}).Where("id = ?", killEvent.KillerIDSoldier).Pluck(
-				"ocap_id", &causedById,
+				"ocap_id", &causedByID,
 			).Error
 			if err != nil && err != gorm.ErrRecordNotFound {
 				return err
@@ -3707,7 +3749,7 @@ func getOcapRecording(missionIds []string) (err error) {
 			} else {
 				// get vehicle ocap_id
 				err = DB.Model(&defs.Vehicle{}).Where("id = ?", killEvent.KillerIDVehicle).Pluck(
-					"ocap_id", &causedById,
+					"ocap_id", &causedByID,
 				).Error
 				if err != nil && err != gorm.ErrRecordNotFound {
 					return err
@@ -3720,7 +3762,7 @@ func getOcapRecording(missionIds []string) (err error) {
 			}
 
 			causedByText := killEvent.EventText
-			causedBy[0] = causedById
+			causedBy[0] = causedByID
 			causedBy[1] = causedByText
 			jsonEvent[3] = causedBy
 
@@ -3743,7 +3785,7 @@ func getOcapRecording(missionIds []string) (err error) {
 		}
 
 		// write to gzipped json file
-		filename := fmt.Sprintf("mission_%s_%s.json.gz", missionId, ocapMission["missionName"])
+		filename := fmt.Sprintf("mission_%s_%s.json.gz", missionID, ocapMission["missionName"])
 		filename = strings.ReplaceAll(filename, " ", "_")
 		gzipFile, err := os.Create(filename)
 		defer func() {
@@ -3768,7 +3810,7 @@ func getOcapRecording(missionIds []string) (err error) {
 			return err
 		}
 
-		fmt.Printf("Wrote %d bytes for missionId %s in %s\n", bytes, missionId, time.Since(txStart))
+		fmt.Printf("Wrote %d bytes for missionId %s in %s\n", bytes, missionID, time.Since(txStart))
 
 		// add sqlite query to add to operations table
 		queries = append(queries, fmt.Sprintf(
@@ -3800,13 +3842,13 @@ VALUES
 	return nil
 }
 
-func reduceMission(missionIds []string) (err error) {
-	fmt.Println("Reducing mission IDs: ", missionIds)
+func reduceMission(missionIDs []string) (err error) {
+	fmt.Println("Reducing mission IDs: ", missionIDs)
 
-	for _, missionId := range missionIds {
+	for _, missionID := range missionIDs {
 
 		// get missionIdInt
-		missionIdInt, err := strconv.Atoi(missionId)
+		missionIDInt, err := strconv.Atoi(missionID)
 		if err != nil {
 			return err
 		}
@@ -3814,7 +3856,7 @@ func reduceMission(missionIds []string) (err error) {
 		// get mission data
 		txStart := time.Now()
 		var mission defs.Mission
-		err = DB.Model(&defs.Mission{}).Where("id = ?", missionIdInt).First(&mission).Error
+		err = DB.Model(&defs.Mission{}).Where("id = ?", missionIDInt).First(&mission).Error
 		if err != nil {
 			return fmt.Errorf("error getting mission: %w", err)
 		}
@@ -3833,7 +3875,7 @@ func reduceMission(missionIds []string) (err error) {
 		}
 
 		if len(soldierStatesToDelete) == 0 {
-			fmt.Println("No soldier states to delete for missionId ", missionId, ", checked in ", time.Since(txStart))
+			fmt.Println("No soldier states to delete for missionId ", missionID, ", checked in ", time.Since(txStart))
 			continue
 		}
 
@@ -3842,7 +3884,7 @@ func reduceMission(missionIds []string) (err error) {
 			return fmt.Errorf("error deleting soldier states: %w", err)
 		}
 
-		fmt.Println("Deleted ", len(soldierStatesToDelete), " soldier states from missionId ", missionId, " in ", time.Since(txStart))
+		fmt.Println("Deleted ", len(soldierStatesToDelete), " soldier states from missionId ", missionID, " in ", time.Since(txStart))
 	}
 
 	fmt.Println("")
@@ -3967,7 +4009,7 @@ func main() {
 	}
 	fmt.Println("DB connect/migrate complete.")
 
-	fmt.Println("Connecting to Influx...")
+	fmt.Println("Initializing InfluxDB.")
 	_, err = connectToInflux()
 	if err != nil {
 		panic(err)
@@ -3978,7 +4020,7 @@ func main() {
 	if len(args) > 0 {
 		if strings.ToLower(args[0]) == "demo" {
 			fmt.Println("Populating demo data...")
-			TEST_DATA = true
+			IsDemoData = true
 			demoStart := time.Now()
 			populateDemoData()
 			fmt.Printf("Demo data populated in %s\n", time.Since(demoStart))
