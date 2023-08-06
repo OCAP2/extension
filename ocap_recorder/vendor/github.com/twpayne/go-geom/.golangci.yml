@@ -1,0 +1,112 @@
+linters:
+  enable:
+  - asciicheck
+  - bodyclose
+  - depguard
+  - dogsled
+  - dupl
+  - durationcheck
+  - errcheck
+  - errorlint
+  - exportloopref
+  - forbidigo
+  - forcetypeassert
+  - gci
+  - gochecknoinits
+  - gocritic
+  - godot
+  - goerr113
+  - gofmt
+  - gofumpt
+  - goimports
+  - gomoddirectives
+  - gomodguard
+  - goprintffuncname
+  - gosec
+  - gosimple
+  - govet
+  - importas
+  - ineffassign
+  - makezero
+  - misspell
+  - nakedret
+  - nilerr
+  - noctx
+  - nolintlint
+  - prealloc
+  - predeclared
+  - promlinter
+  - revive
+  - staticcheck
+  - stylecheck
+  - tagliatelle
+  - thelper
+  - tparallel
+  - typecheck
+  - unconvert
+  - unparam
+  - unused
+  - whitespace
+  disable:
+  - cyclop
+  - exhaustive
+  - exhaustivestruct
+  - funlen
+  - gochecknoglobals
+  - gocognit
+  - goconst
+  - gocyclo
+  - godox
+  - goheader
+  - gomnd
+  - lll
+  - nestif
+  - nlreturn
+  - paralleltest
+  - rowserrcheck # https://github.com/golangci/golangci-lint/issues/2649
+  - sqlclosecheck # https://github.com/golangci/golangci-lint/issues/2649
+  - testpackage
+  - wastedassign # https://github.com/golangci/golangci-lint/issues/2649
+  - wrapcheck
+  - wsl
+
+linters-settings:
+  gci:
+    sections:
+    - standard
+    - default
+    - prefix(github.com/twpayne/go-geom)
+  goimports:
+    local-prefixes: github.com/twpayne/go-geom
+
+issues:
+  exclude-rules:
+  - linters:
+    - dupl
+    - scopelint
+    path: "_test\\.go"
+  - linters:
+    - godot
+    path: "^bigxy/"
+  - linters:
+    - gocritic
+    path: "_example_test\\.go$"
+  - linters:
+    - godot
+    path: "^sorting/"
+  - linters:
+    - godot
+    path: "^transform/"
+  - linters:
+    - gocritic
+    - godot
+    path: "^xy/"
+  - linters:
+    - godot
+    path: "^xyz/"
+  - linters:
+    - goerr113
+    text: "do not define dynamic errors, use wrapped static errors instead"
+  - linters:
+    - forbidigo
+    path: "^internal/cmd/"

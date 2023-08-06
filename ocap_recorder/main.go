@@ -1248,7 +1248,7 @@ func logNewMission(data []string) (err error) {
 	).Send()
 
 	// callback to addon to begin sending data
-	writeToArma(`:MISSION:OK:`, "0", "OK")
+	writeToArma(`:MISSION:OK:`, "OK")
 	return nil
 }
 
@@ -2780,10 +2780,11 @@ func goRVExtensionArgs(output *C.char, outputsize C.size_t, input *C.char, argv 
 				functionName := ":INIT:DB:"
 				var err error
 				DB, err = getDB()
-				if err != nil {
+				if err != nil || DB == nil {
+					// if we couldn't connect to the database, send a callback to the addon to let it know
 					writeLog(functionName, fmt.Sprintf(`Error connecting to database: %v`, err), "ERROR")
-				}
-				if DB != nil {
+					writeToArma(":DB:ERROR:", err.Error())
+				} else {
 					err = setupDB(DB)
 					if err != nil {
 						writeLog(functionName, fmt.Sprintf(`Error setting up database: %v`, err), "ERROR")
@@ -2804,11 +2805,9 @@ func goRVExtensionArgs(output *C.char, outputsize C.size_t, input *C.char, argv 
 						writeToArma(":DB:OK:", "Unknown")
 					}
 					// send extension version
-					writeToArma(":EXTENSION:VERSION:", CurrentExtensionVersion)
-				} else {
-					// if we couldn't connect to the database, send a callback to the addon to let it know
-					writeToArma(":DB:ERROR:", "DB error")
+					writeToArma(":VERSION:", CurrentExtensionVersion)
 				}
+
 			}()
 			response = "DB init started"
 		}
