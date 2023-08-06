@@ -9,6 +9,7 @@ require (
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/lib/pq v1.10.9 // indirect
 	github.com/mattn/go-isatty v0.0.17 // indirect
+	github.com/rs/zerolog v1.30.0 // indirect
 	github.com/spf13/viper v1.13.0
 	github.com/stretchr/testify v1.8.3 // indirect
 	github.com/twpayne/go-geom v1.5.0

@@ -1,5 +1,5 @@
 {
-  "debug": true,
+  "logLevel": "info",
   "logsDir": "./OCAPLOG",
   "defaultTag": "TvT",
   "api": {

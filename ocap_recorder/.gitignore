@@ -1,0 +1,9 @@
+ocaplog
+ocap_recorder_x64.dll
+ocap_recorder_x64.h
+ocap_recorder.dll
+ocap_recorder.h
+status.txt
+
+@ocap
+ocap_recorder.cfg.json

@@ -21,9 +21,8 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
-	"path"
+	"path/filepath"
 	"reflect"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -39,8 +38,8 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/glebarez/sqlite"
+	"github.com/rs/zerolog"
 	"github.com/twpayne/go-geom"
-	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -48,22 +47,29 @@ import (
 
 // module defs
 var (
-	CurrentExtensionNameVersion string = "0.0.1"
-	extensionCallbackFnc        C.extensionCallback
+	CurrentExtensionVersion string = "0.0.1"
+	extensionCallbackFnc    C.extensionCallback
 
-	addon         string = "ocap"
+	Addon         string = "ocap"
 	ExtensionName string = "ocap_recorder"
 )
 
 // file paths
 var (
+	// AddonFolder is the path to the addon folder. This is currently statically set to @ocap as I've not found a way to locate it dynamically.
+	// TODO: Locate module path in C and pass it to Go
 	AddonFolder string = fmt.Sprintf(
 		"%s\\@%s",
 		getDir(),
-		addon,
+		Addon,
 	)
-	PrimaryLogFIle string = fmt.Sprintf(
+	PrimaryLogFile string = fmt.Sprintf(
 		"%s\\%s.log",
+		AddonFolder,
+		ExtensionName,
+	)
+	PrimaryLogJSONFile string = fmt.Sprintf(
+		"%s\\%s.jsonl",
 		AddonFolder,
 		ExtensionName,
 	)
@@ -73,7 +79,7 @@ var (
 		ExtensionName,
 	)
 	// InfluxBackupFilePath is the path to the gzip where influx lineprotocol is stored if InfluxDB is not available
-	InfluxBackupFilePath string = AddonFolder + "\\local_backup.log.gzip"
+	InfluxBackupFilePath string = AddonFolder + "\\influx_backup.log.gzip"
 
 	// SqliteDBFilePath refers to the sqlite database file
 	SqliteDBFilePath string = AddonFolder + "\\ocap_recorder.db"
@@ -81,11 +87,12 @@ var (
 
 // global variables
 var (
-	// ShouldSaveLocal indicates whether we're saving to Postgres or local SQLite
-	ShouldSaveLocal bool = false
 
 	// DB is the GORM DB interface
 	DB *gorm.DB
+
+	// ShouldSaveLocal indicates whether we're saving to Postgres or local SQLite
+	ShouldSaveLocal bool = false
 
 	// IsDatabaseValid indicates whether or not any DB connection could be established
 	IsDatabaseValid bool = false
@@ -143,6 +150,7 @@ var (
 	InfluxBucketNames = []string{
 		"mission_data",
 		"ocap_performance",
+		"ocap_logs",
 		"player_performance",
 		"server_performance",
 		"soldier_ammo",
@@ -150,40 +158,41 @@ var (
 	InfluxWriters = make(map[string]influxdb2_api.WriteAPI)
 )
 
-// configure log output
+// init is run automatically when the module is loaded
 func init() {
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	var err error
 
 	// check if parent folder exists
 	// if it doesn't, create it
 	if _, err := os.Stat(AddonFolder); os.IsNotExist(err) {
 		os.Mkdir(AddonFolder, 0755)
 	}
-	// check if PrimaryLogFIle exists
-	// if it does, move it to PrimaryLogFIle.old
-	// if it doesn't, create it
-	if _, err := os.Stat(PrimaryLogFIle); err == nil {
-		os.Rename(PrimaryLogFIle, PrimaryLogFIle+".old")
-	}
-	f, err := os.OpenFile(PrimaryLogFIle, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+
+	err = loadConfig()
+	setupLogging()
 	if err != nil {
-		log.Fatalf("error opening file: %v", err)
+		defs.Logger.Warn().Err(err).Msg("Failed to load config, using default values!")
 	}
 
-	log.SetOutput(f)
-
-	loadConfig()
-
+	// log frontend status
+	checkServerStatus()
 }
 
-func setLogFile() (err error) {
-	PrimaryLogFIle = fmt.Sprintf(
+func setupLogging() (err error) {
+	PrimaryLogFile = fmt.Sprintf(
 		`%s\%s.%s.log`,
 		viper.GetString("logsDir"),
 		ExtensionName,
-		time.Now().Format("20060102_150405"),
+		SessionStartTime.Format("20060102_150405"),
 	)
-	log.Println("Log location:", PrimaryLogFIle)
+	PrimaryLogJSONFile = fmt.Sprintf(
+		`%s\%s.%s.jsonl`,
+		viper.GetString("logsDir"),
+		ExtensionName,
+		SessionStartTime.Format("20060102_150405"),
+	)
+	log.Println("Log location:", PrimaryLogFile)
+	log.Println("JSON log location:", PrimaryLogJSONFile)
 	SqliteDBFilePath = fmt.Sprintf(`%s\%s_%s.db`, AddonFolder, ExtensionName, SessionStartTime.Format("20060102_150405"))
 
 	// resolve path set in config
@@ -191,19 +200,145 @@ func setLogFile() (err error) {
 	if _, err := os.Stat(viper.GetString("logsDir")); os.IsNotExist(err) {
 		os.Mkdir(viper.GetString("logsDir"), 0755)
 	}
-	// log to file
-	f, err := os.OpenFile(PrimaryLogFIle, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
-	if err != nil {
-		return fmt.Errorf("error opening file: %v", err)
+
+	// get log level
+	var logLevelActual zerolog.Level
+	switch strings.ToUpper(viper.GetString("logLevel")) {
+	case "DEBUG":
+		logLevelActual = zerolog.DebugLevel
+	case "INFO":
+		logLevelActual = zerolog.InfoLevel
+	case "WARN":
+		logLevelActual = zerolog.WarnLevel
+	case "ERROR":
+		logLevelActual = zerolog.ErrorLevel
+	case "FATAL":
+		logLevelActual = zerolog.FatalLevel
 	}
-	log.SetOutput(f)
+
+	// remove old logs (older than 7 days)
+	removeOldLogs(viper.GetString("logsDir"), 7)
+
+	// check if PrimaryLogFile exists
+	// if it does, move it to PrimaryLogFile.old
+	// if it doesn't, create it
+	if _, err := os.Stat(PrimaryLogFile); err == nil {
+		os.Rename(PrimaryLogFile, PrimaryLogFile+".old")
+	}
+	f, err := os.OpenFile(PrimaryLogFile, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		log.Fatalf("error opening log file: %v", err)
+	}
+
+	// check if PrimaryLogJSONFile exists
+	// if it does, move it to PrimaryLogJSONFile.old
+	// if it doesn't, create it
+	if _, err := os.Stat(PrimaryLogJSONFile); err == nil {
+		os.Rename(PrimaryLogJSONFile, PrimaryLogJSONFile+".old")
+	}
+
+	fJSON, err := os.OpenFile(PrimaryLogJSONFile, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		log.Fatalf("error opening JSON log file: %v", err)
+	}
+
+	// set up logging
+	zerolog.SetGlobalLevel(logLevelActual)
+	zerolog.TimestampFunc = func() time.Time {
+		return time.Now().UTC()
+	}
+
+	defs.Logger = zerolog.New(
+		zerolog.MultiLevelWriter(
+			// write console format with colors to console
+			zerolog.ConsoleWriter{
+				Out:        os.Stderr,
+				TimeFormat: time.RFC3339,
+			},
+			// write console format without colors to file
+			zerolog.ConsoleWriter{
+				Out:        f,
+				TimeFormat: time.RFC3339,
+				NoColor:    true,
+			},
+		),
+	).With().Timestamp().
+		Logger().Hook(
+		zerolog.HookFunc(
+			func(e *zerolog.Event, level zerolog.Level, msg string) {
+				e.Str("mission", CurrentMission.MissionName)
+			}))
+
+	// send the same logs to defs.JSONLogger
+
+	// log to JSON file
+	defs.JSONLogger = zerolog.New(fJSON).With().Stack().Caller().Timestamp().
+		Str("version", CurrentExtensionVersion).
+		Str("extension", ExtensionName).
+		Int("pid", os.Getpid()).
+		Logger().
+		Hook(zerolog.HookFunc(
+			func(e *zerolog.Event, level zerolog.Level, msg string) {
+				// add runtime info
+				e.Bool("usingLocalDB", ShouldSaveLocal).
+					Str("currentMission", CurrentMission.MissionName).
+					Uint("currentMissionID", CurrentMission.ID).
+					Bool("statusMonitorActive", IsStatusProcessRunning).
+					Str("dbHost", viper.GetString("db.host")).
+					Str("influxHost", viper.GetString("influx.host"))
+
+				// send non-debug data to influxdb
+				if !IsInfluxValid || level == zerolog.DebugLevel {
+					return
+				}
+				p := influxdb2.NewPoint(
+					level.String(),
+					map[string]string{
+						"version":    CurrentExtensionVersion,
+						"extension":  ExtensionName,
+						"pid":        fmt.Sprint(os.Getpid()),
+						"dbHost":     viper.GetString("db.host"),
+						"influxHost": viper.GetString("influx.host"),
+					},
+					map[string]interface{}{
+						"message": msg,
+						"mission": CurrentMission.MissionName,
+					},
+					time.Now().UTC(),
+				)
+				writeInfluxPoint(
+					context.Background(),
+					"ocap_logs",
+					p,
+				)
+			}))
 
 	return nil
 }
 
+// removeOldLogs will remove all .log and .jsonl files older than daysDelta days
+func removeOldLogs(path string, daysDelta int) {
+	files, err := ioutil.ReadDir(path)
+	if err != nil {
+		defs.Logger.Warn().Err(err).Msg("Failed to read logs dir")
+		return
+	}
+
+	for _, f := range files {
+		if f.IsDir() {
+			continue
+		}
+		if filepath.Ext(f.Name()) == ".log" || filepath.Ext(f.Name()) == ".jsonl" {
+			if time.Since(f.ModTime()).Hours() > float64(daysDelta*24) {
+				os.Remove(path + "\\" + f.Name())
+			}
+		}
+	}
+}
+
 func version() {
 	functionName := "version"
-	writeLog(functionName, fmt.Sprintf(`ocap_recorder version: %s`, CurrentExtensionNameVersion), "INFO")
+	writeLog(functionName, fmt.Sprintf(`ocap_recorder version: %s`, CurrentExtensionVersion), "INFO")
 }
 
 func getDir() string {
@@ -215,12 +350,11 @@ func getDir() string {
 	return dir
 }
 
-func loadConfig() {
+func loadConfig() (err error) {
 	// load config from file as JSON
-	functionName := "loadConfig"
 
 	// set default values
-	viper.SetDefault("debug", false)
+	viper.SetDefault("logLevel", "info")
 	viper.SetDefault("defaultTag", "Op")
 	viper.SetDefault("logsDir", "./ocaplogs")
 
@@ -243,29 +377,24 @@ func loadConfig() {
 	viper.SetConfigName("ocap_recorder.cfg.json")
 	viper.AddConfigPath(AddonFolder)
 	viper.SetConfigType("json")
-	err := viper.ReadInConfig()
+	err = viper.ReadInConfig()
 	if err != nil {
-		writeLog(functionName, fmt.Sprintf(`error reading config file: %v`, err), "ERROR")
-		return
+		return fmt.Errorf("error reading config file: %v", err)
 	}
 
-	// log frontend status
-	checkServerStatus()
-
-	writeLog(functionName, `Config loaded`, "INFO")
+	return nil
 }
 
 func checkServerStatus() {
-	functionName := "checkServerStatus"
 	var err error
 
 	// check if server is running by making a healthcheck API request
 	// if server is not running, log error and exit
 	_, err = http.Get(viper.GetString("api.serverUrl") + "/healthcheck")
 	if err != nil {
-		writeLog(functionName, `OCAP Frontend is offline`, "WARN")
+		defs.Logger.Info().Msg("OCAP Frontend is offline")
 	} else {
-		writeLog(functionName, `OCAP Frontend is online`, "INFO")
+		defs.Logger.Info().Msg("OCAP Frontend is online")
 	}
 }
 
@@ -330,12 +459,6 @@ func getProgramStatus(
 		ChatEvents:      uint16(chatEventsToWrite.Len()),
 		RadioEvents:     uint16(radioEventsToWrite.Len()),
 		ServerFpsEvents: uint16(fpsEventsToWrite.Len()),
-	}
-
-	if CurrentMission == nil {
-		CurrentMission = &defs.Mission{
-			MissionName: "No mission loaded",
-		}
 	}
 
 	perf := defs.OcapPerformance{
@@ -424,13 +547,7 @@ func connectToInflux() (influxdb2.Client, error) {
 		}
 
 		// ensure buckets exist with 90 day retention
-		for _, bucket := range []string{
-			"mission_data",
-			"ocap_performance",
-			"player_performance",
-			"server_performance",
-			"soldier_ammo",
-		} {
+		for _, bucket := range InfluxBucketNames {
 			_, err = InfluxClient.BucketsAPI().
 				FindBucketByName(ctx, bucket)
 			if err != nil {
@@ -461,14 +578,24 @@ func connectToInflux() (influxdb2.Client, error) {
 func createInfluxWriters() {
 	// create influx writers
 	for _, bucket := range InfluxBucketNames {
-		InfluxWriters[bucket] = InfluxClient.WriteAPI(viper.GetString("influx.org"), bucket)
+		defs.Logger.Trace().Msgf("Creating InfluxDB writer for bucket '%s'", bucket)
+		defs.JSONLogger.Trace().Msgf(`Creating InfluxDB writer for bucket '%s'`, bucket)
+		InfluxWriters[bucket] = InfluxClient.WriteAPI(
+			viper.GetString("influx.org"),
+			bucket,
+		)
 		errorsCh := InfluxWriters[bucket].Errors()
-		go func() {
+		go func(bucketName string, errorsCh <-chan error) {
 			for writeErr := range errorsCh {
-				writeLog(bucket, fmt.Sprintf(`Error sending data to InfluxDB: %s`, writeErr.Error()), "ERROR")
+				writeLog(bucketName, fmt.Sprintf(`Error sending data to InfluxDB: %s`, writeErr.Error()), "ERROR")
 			}
-		}()
+		}(bucket, errorsCh)
+		defs.Logger.Trace().Msgf("InfluxDB writer for bucket '%s' created", bucket)
+		defs.JSONLogger.Trace().Msgf(`InfluxDB writer for bucket '%s' created`, bucket)
 	}
+
+	defs.Logger.Debug().Msg("InfluxDB writers initialized")
+	defs.JSONLogger.Debug().Msg("InfluxDB writers initialized")
 }
 
 func writeInfluxPoint(
@@ -478,18 +605,25 @@ func writeInfluxPoint(
 ) error {
 
 	if IsInfluxValid {
+		defs.Logger.Trace().Msgf("Writing point to InfluxDB bucket '%s'", bucket)
+		defs.JSONLogger.Trace().Msgf(`Writing point to InfluxDB bucket '%s'`, bucket)
 		if _, ok := InfluxWriters[bucket]; !ok {
+			defs.Logger.Trace().Msgf("InfluxDB bucket '%s' not registered, skipping", bucket)
 			return fmt.Errorf("influxDB bucket '%s' not registered", bucket)
 		}
 
 		// write to influx
 		InfluxWriters[bucket].WritePoint(point)
+		defs.Logger.Trace().Msgf("Point written to InfluxDB bucket '%s'", bucket)
+		defs.JSONLogger.Trace().Msgf(`Point written to InfluxDB bucket '%s'`, bucket)
 	} else {
 		if InfluxBackupWriter == nil {
 			return fmt.Errorf("influxDB client not initialized and backup writer not available")
 		}
 
 		// write to backup file
+		defs.Logger.Trace().Msgf("Writing point to InfluxDB backup file")
+		defs.JSONLogger.Trace().Msgf(`Writing point to InfluxDB backup file`)
 		lineProtocol := influxdb2_write.PointToLineProtocol(
 			point, time.Duration(1*time.Nanosecond),
 		)
@@ -497,6 +631,8 @@ func writeInfluxPoint(
 		if err != nil {
 			return fmt.Errorf("error writing to InfluxDB backup file: %s", err)
 		}
+		defs.Logger.Trace().Msgf("Point written to InfluxDB backup file")
+		defs.JSONLogger.Trace().Msgf(`Point written to InfluxDB backup file`)
 	}
 
 	return nil
@@ -506,63 +642,89 @@ func writeInfluxPoint(
 // DATABASE OPS //
 ///////////////////////
 
-func getLocalDB() (err error) {
-	functionName := "getDB"
-	// connect to database (SQLite)
-	DB, err = gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{
-		PrepareStmt:            true,
-		SkipDefaultTransaction: true,
-		CreateBatchSize:        2000,
-		Logger:                 logger.Default.LogMode(logger.Silent),
-	})
-	if err != nil {
-		IsDatabaseValid = false
-		return err
+func getSqliteDB(path string) (db *gorm.DB, err error) {
+	functionName := "getSqliteDB"
+
+	// if path is an empty string, use a memory db
+	// otherwise, use the path provided (like in retrieving backups)
+	if path != "" {
+		// connect to database (SQLite)
+		db, err = gorm.Open(sqlite.Open(path), &gorm.Config{
+			PrepareStmt:            true,
+			SkipDefaultTransaction: true,
+			CreateBatchSize:        2000,
+			Logger:                 logger.Default.LogMode(logger.Silent),
+		})
+		if err != nil {
+			IsDatabaseValid = false
+			return nil, err
+		}
+		writeLog(functionName, fmt.Sprintf("Using local SQlite DB at '%s'", path), "INFO")
 	} else {
-		writeLog(functionName, "Using local SQlite DB", "INFO")
-
-		// set PRAGMAS
-		err = DB.Exec("PRAGMA user_version = 1;").Error
+		// connect to database (SQLite)
+		db, err = gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{
+			PrepareStmt:            true,
+			SkipDefaultTransaction: true,
+			CreateBatchSize:        2000,
+			Logger:                 logger.Default.LogMode(logger.Silent),
+		})
 		if err != nil {
-			writeLog(functionName, "Error setting user_version PRAGMA", "ERROR")
-			return err
+			IsDatabaseValid = false
+			return nil, err
 		}
-		err = DB.Exec("PRAGMA journal_mode = MEMORY;").Error
-		if err != nil {
-			writeLog(functionName, "Error setting journal_mode PRAGMA", "ERROR")
-			return err
-		}
-		err = DB.Exec("PRAGMA synchronous = OFF;").Error
-		if err != nil {
-			writeLog(functionName, "Error setting synchronous PRAGMA", "ERROR")
-			return err
-		}
-		err = DB.Exec("PRAGMA cache_size = -32000;").Error
-		if err != nil {
-			writeLog(functionName, "Error setting cache_size PRAGMA", "ERROR")
-			return err
-		}
-		err = DB.Exec("PRAGMA temp_store = MEMORY;").Error
-		if err != nil {
-			writeLog(functionName, "Error setting temp_store PRAGMA", "ERROR")
-			return err
-		}
-
-		err = DB.Exec("PRAGMA page_size = 32768;").Error
-		if err != nil {
-			writeLog(functionName, "Error setting page_size PRAGMA", "ERROR")
-			return err
-		}
-
-		err = DB.Exec("PRAGMA mmap_size = 30000000000;").Error
-		if err != nil {
-			writeLog(functionName, "Error setting mmap_size PRAGMA", "ERROR")
-			return err
-		}
-
-		IsDatabaseValid = false
-		return nil
+		writeLog(functionName, "Using local SQlite DB in memory with periodic disk dump", "INFO")
 	}
+
+	// set PRAGMAS
+	err = db.Exec("PRAGMA user_version = 1;").Error
+	if err != nil {
+		return nil, fmt.Errorf("error setting user_version PRAGMA: %s", err)
+	}
+	err = db.Exec("PRAGMA journal_mode = MEMORY;").Error
+	if err != nil {
+		return nil, fmt.Errorf("error setting journal_mode PRAGMA: %s", err)
+	}
+	err = db.Exec("PRAGMA synchronous = OFF;").Error
+	if err != nil {
+		return nil, fmt.Errorf("error setting synchronous PRAGMA: %s", err)
+	}
+	err = db.Exec("PRAGMA cache_size = -32000;").Error
+	if err != nil {
+		return nil, fmt.Errorf("error setting cache_size PRAGMA: %s", err)
+	}
+	err = db.Exec("PRAGMA temp_store = MEMORY;").Error
+	if err != nil {
+		return nil, fmt.Errorf("error setting temp_store PRAGMA: %s", err)
+	}
+
+	err = db.Exec("PRAGMA page_size = 32768;").Error
+	if err != nil {
+		return nil, fmt.Errorf("error setting page_size PRAGMA: %s", err)
+	}
+
+	err = db.Exec("PRAGMA mmap_size = 30000000000;").Error
+	if err != nil {
+		return nil, fmt.Errorf("error setting mmap_size PRAGMA: %s", err)
+	}
+
+	return db, nil
+}
+
+func getBackupDBPaths() (dbPaths []string, err error) {
+	// search addon folder for .db files
+	path := AddonFolder
+	files, err := ioutil.ReadDir(path)
+	if err != nil {
+		return nil, err
+	}
+	// filter out non .db files
+	for _, file := range files {
+		if strings.HasSuffix(file.Name(), ".db") {
+			// return path of file
+			dbPaths = append(dbPaths, filepath.Join(path, file.Name()))
+		}
+	}
+	return dbPaths, nil
 }
 
 func dumpMemoryDBToDisk() (err error) {
@@ -587,53 +749,24 @@ func dumpMemoryDBToDisk() (err error) {
 		return err
 	}
 	writeLog(functionName, fmt.Sprintf(`Dumped memory DB to disk in %s`, time.Since(start)), "INFO")
+	defs.Logger.Debug().
+		Dur("duration", time.Since(start)).Msg("Dumped memory DB to disk")
+	defs.JSONLogger.Debug().
+		Dur("duration", time.Since(start)).Msg("Dumped memory DB to disk")
 	return nil
 }
 
-// connectMySQL connect to mysql database
-func connectMySQL() (err error) {
-	// connect to database (MySQL/MariaDB)
-	dsn := fmt.Sprintf(`%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True`,
-		viper.GetString("db.user"),
-		viper.GetString("db.password"),
-		viper.GetString("db.host"),
-		viper.GetString("db.port"),
-		viper.GetString("db.database"),
-	)
-
-	// wrap with gorm
-	DB, err = gorm.Open(mysql.Open(dsn), &gorm.Config{
-		PrepareStmt:            true,
-		SkipDefaultTransaction: true,
-		CreateBatchSize:        2000,
-		Logger:                 logger.Default.LogMode(logger.Silent),
-	})
-
-	if err != nil {
-		writeLog("connectMySql", fmt.Sprintf(`Failed to connect to MySQL/MariaDB. Err: %s`, err), "ERROR")
-		IsDatabaseValid = false
-		return
-	} else {
-		writeLog("connectMySql", "Connected to MySQL/MariaDB", "INFO")
-		IsDatabaseValid = true
-		return
-	}
-}
-
-// getDB connects to the MySql/MariaDB database, and if it fails, it will use a local SQlite DB
-func getDB() (err error) {
-	functionName := ":INIT:DB:"
-
+func getPostgresDB() (db *gorm.DB, err error) {
 	// connect to database (Postgres) using gorm
 	dsn := fmt.Sprintf(`host=%s port=%s user=%s password=%s dbname=%s sslmode=disable`,
 		viper.GetString("db.host"),
 		viper.GetString("db.port"),
-		viper.GetString("db.user"),
+		viper.GetString("db.username"),
 		viper.GetString("db.password"),
 		viper.GetString("db.database"),
 	)
 
-	DB, err = gorm.Open(postgres.New(postgres.Config{
+	db, err = gorm.Open(postgres.New(postgres.Config{
 		DSN:                  dsn,
 		PreferSimpleProtocol: true, // disables implicit prepared statement usage
 	}), &gorm.Config{
@@ -642,65 +775,75 @@ func getDB() (err error) {
 		CreateBatchSize:        10000,
 		Logger:                 logger.Default.LogMode(logger.Silent),
 	})
-	configValid := err == nil
-	if !configValid {
-		writeLog(functionName, fmt.Sprintf(`Failed to set up Postgres. Err: %s`, err), "ERROR")
-		ShouldSaveLocal = true
-		getLocalDB()
-	}
-
-	// test connection
-	sqlDB, err = DB.DB()
 	if err != nil {
-		writeLog(functionName, fmt.Sprintf(`Error getting sql database, trying ping. Err: %s`, err), "ERROR")
+		return nil, err
+	}
+	return db, nil
+}
+
+// getDB connects to the Postgres database, and if it fails, it will use a local SQlite DB
+func getDB() (db *gorm.DB, err error) {
+	functionName := ":INIT:DB:"
+
+	db, err = getPostgresDB()
+	if err != nil {
+		defs.Logger.Error().Err(err).Msg("Failed to connect to Postgres DB, trying SQLite")
+		defs.JSONLogger.Error().Err(err).Msg("Failed to connect to Postgres DB, trying SQLite")
+		ShouldSaveLocal = true
+		db, err = getSqliteDB("")
+		if err != nil || db == nil {
+			IsDatabaseValid = false
+			return nil, fmt.Errorf("failed to get local SQLite DB: %s", err)
+		}
+		IsDatabaseValid = true
+	}
+	// test connection
+	sqlDB, err = db.DB()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create database config: %s", err)
 	}
 	err = sqlDB.Ping()
 	if err != nil {
-		writeLog(functionName, fmt.Sprintf(`Failed to connect to SQL. Err: %s`, err), "ERROR")
+		writeLog(functionName, fmt.Sprintf(`Failed to connect to underlying SQL interface. Err: %s`, err), "ERROR")
 		ShouldSaveLocal = true
-		err = getLocalDB()
-		if err != nil {
-			writeLog(functionName, fmt.Sprintf(`Failed to connect to SQL. Err: %s`, err), "ERROR")
+		db, err = getSqliteDB("")
+		if err != nil || db == nil {
 			IsDatabaseValid = false
+			return nil, fmt.Errorf("failed to get local SQLite DB: %s", err)
 		} else {
 			IsDatabaseValid = true
 		}
 	} else {
 		writeLog(functionName, "Connected to database", "INFO")
-		ShouldSaveLocal = false
 		IsDatabaseValid = true
 	}
 
 	if !IsDatabaseValid {
-		writeLog(functionName, "DB not valid. Not saving!", "ERROR")
-		return fmt.Errorf("db not valid. not saving")
+		return nil, fmt.Errorf("db not valid. not saving")
 	}
 
-	if err := sqlDB.Ping(); !ShouldSaveLocal && err != nil {
-		// Ensure PostGIS ExtensionName is installed
-		err = DB.Exec(`
-		CREATE ExtensionName IF NOT EXISTS postgis;
-		`).Error
-		if err != nil {
-			writeLog(functionName, fmt.Sprintf(`Failed to create PostGIS ExtensionName. Err: %s`, err), "ERROR")
-			IsDatabaseValid = false
-			return err
-		}
-		writeLog(functionName, "PostGIS ExtensionName created", "INFO")
-
+	if !ShouldSaveLocal {
+		sqlDB.SetMaxOpenConns(10)
 	}
+
+	return db, nil
+}
+
+// setupDB will migrate tables and create default group settings if they don't exist
+func setupDB(db *gorm.DB) (err error) {
+	functionName := "setupDB"
 
 	// Check if OcapInfo table exists
-	if !DB.Migrator().HasTable(&defs.OcapInfo{}) {
+	if !db.Migrator().HasTable(&defs.OcapInfo{}) {
 		// Create the table
-		err = DB.AutoMigrate(&defs.OcapInfo{})
+		err = db.AutoMigrate(&defs.OcapInfo{})
 		if err != nil {
 			writeLog(functionName, fmt.Sprintf(`Failed to create ocap_info table. Err: %s`, err), "ERROR")
 			IsDatabaseValid = false
 			return err
 		}
 		// Create the default settings
-		err = DB.Create(&defs.OcapInfo{
+		err = db.Create(&defs.OcapInfo{
 			GroupName:        "OCAP",
 			GroupDescription: "OCAP",
 			GroupLogo:        "https://i.imgur.com/0Q4z0ZP.png",
@@ -708,9 +851,8 @@ func getDB() (err error) {
 		}).Error
 
 		if err != nil {
-			writeLog(functionName, fmt.Sprintf(`Failed to create ocap_info entry. Err: %s`, err), "ERROR")
 			IsDatabaseValid = false
-			return err
+			return fmt.Errorf("failed to create ocap_info entry: %s", err)
 		}
 	}
 
@@ -718,81 +860,76 @@ func getDB() (err error) {
 	// Migrate the schema
 	/////////////////////////////
 
-	toMigrate := make([]interface{}, 0)
-	// system models
-	toMigrate = append(toMigrate, &defs.OcapInfo{})
-	// aar models
-	toMigrate = append(toMigrate, &defs.AfterActionReview{})
-	toMigrate = append(toMigrate, &defs.World{})
-	toMigrate = append(toMigrate, &defs.Mission{})
-	toMigrate = append(toMigrate, &defs.Soldier{})
-	toMigrate = append(toMigrate, &defs.SoldierState{})
-	toMigrate = append(toMigrate, &defs.Vehicle{})
-	toMigrate = append(toMigrate, &defs.VehicleState{})
-	toMigrate = append(toMigrate, &defs.FiredEvent{})
-	toMigrate = append(toMigrate, &defs.GeneralEvent{})
-	toMigrate = append(toMigrate, &defs.HitEvent{})
-	toMigrate = append(toMigrate, &defs.KillEvent{})
-	toMigrate = append(toMigrate, &defs.DeathEvent{})
-	toMigrate = append(toMigrate, &defs.UnconsciousEvent{})
-	toMigrate = append(toMigrate, &defs.ChatEvent{})
-	toMigrate = append(toMigrate, &defs.RadioEvent{})
-	toMigrate = append(toMigrate, &defs.ServerFpsEvent{})
-	toMigrate = append(toMigrate, &defs.OcapPerformance{})
-
-	err = DB.AutoMigrate(toMigrate...)
-	if err != nil {
-		writeLog(functionName, fmt.Sprintf(`Failed to migrate DB schema. Err: %s`, err), "ERROR")
-		IsDatabaseValid = false
-		return err
-	}
-
-	if !ShouldSaveLocal {
-		// if running TimescaleDB (Postgres), configure
-		sqlDB, err = DB.DB()
+	// Ensure PostGIS Extension is installed
+	if db.Dialector.Name() == "postgres" {
+		err = DB.Exec(`
+		CREATE Extension IF NOT EXISTS postgis;
+		`).Error
 		if err != nil {
-			writeLog(functionName, fmt.Sprintf(`Failed to get DB.DB(). Err: %s`, err), "ERROR")
 			IsDatabaseValid = false
-			return err
+			return fmt.Errorf("failed to create PostGIS Extension: %s", err)
 		}
-
-		sqlDB.SetMaxOpenConns(30)
+		writeLog(functionName, "PostGIS Extension created", "INFO")
 	}
 
+	for _, model := range defs.DatabaseModels {
+		err = db.AutoMigrate(&model)
+		if err != nil {
+			IsDatabaseValid = false
+			return fmt.Errorf("failed to migrate schema: %s", err)
+		}
+	}
+
+	defs.Logger.Info().Msg("Database setup complete")
+	return nil
+}
+
+func startGoroutines() (err error) {
+
+	functionName := "startGoroutines"
+
+	defs.Logger.Trace().Msg("Starting async processors")
 	startAsyncProcessors()
+	defs.Logger.Trace().Msg("Starting DB writers")
 	startDBWriters()
 
+	if !IsStatusProcessRunning {
+		defs.Logger.Trace().Msg("Status process not runnning, starting it")
+		// start status monitor
+		startStatusMonitor()
+	}
+
 	// goroutine to, every x seconds, pause insert execution and dump memory sqlite db to disk
-	go func() {
-		for {
-			if !IsDatabaseValid || !ShouldSaveLocal {
-				return
+	if ShouldSaveLocal {
+		go func() {
+			defs.Logger.Debug().
+				Str("function", functionName).
+				Bool("IsDatabaseValid", IsDatabaseValid).
+				Bool("ShouldSaveLocal", ShouldSaveLocal).
+				Msg("Starting DB dump goroutine")
+
+			for {
+
+				time.Sleep(3 * time.Minute)
+
+				// pause insert execution
+				DBInsertsPaused = true
+
+				// dump memory sqlite db to disk
+				writeLog(functionName, "Dumping in-memory SQLite DB to disk", "DEBUG")
+				err = dumpMemoryDBToDisk()
+				if err != nil {
+					writeLog(functionName, fmt.Sprintf(`Error dumping memory db to disk: %v`, err), "ERROR")
+				}
+
+				// resume insert execution
+				DBInsertsPaused = false
 			}
-
-			time.Sleep(3 * time.Minute)
-
-			// pause insert execution
-			DBInsertsPaused = true
-
-			// dump memory sqlite db to disk
-			err = dumpMemoryDBToDisk()
-			if err != nil {
-				writeLog(functionName, fmt.Sprintf(`Error dumping memory db to disk: %v`, err), "ERROR")
-			}
-
-			// resume insert execution
-			DBInsertsPaused = false
-		}
-	}()
+		}()
+	}
 
 	// log post goroutine creation
 	writeLog(functionName, "Goroutines started successfully", "INFO")
-
-	// only if everything worked should we send a callback letting the addon know we're ready
-	if IsDatabaseValid {
-		writeLog(":DB:OK:", "DB ready", "INFO")
-	}
-
 	return nil
 }
 
@@ -894,7 +1031,7 @@ func startStatusMonitor() {
 			// }
 
 			// write to influxDB
-			if viper.GetBool("influxdb.enabled") {
+			if viper.GetBool("influx.enabled") {
 
 				// write buffer lengths
 				p := influxdb2.NewPointWithMeasurement(
@@ -973,16 +1110,18 @@ func startStatusMonitor() {
 /////////////////////////////////////
 
 // CurrentWorld is the world that is currently being played
-var CurrentWorld *defs.World
+var CurrentWorld *defs.World = &defs.World{
+	WorldName: "No world loaded",
+}
 
 // CurrentMission is the mission that is currently being played
-var CurrentMission *defs.Mission
+var CurrentMission *defs.Mission = &defs.Mission{
+	MissionName: "No mission loaded",
+}
 
 // logNewMission logs a new mission to the database and associates the world it's played on
 func logNewMission(data []string) (err error) {
 	functionName := ":NEW:MISSION:"
-
-	setLogFile()
 
 	// fix received data
 	for i, v := range data {
@@ -997,8 +1136,6 @@ func logNewMission(data []string) (err error) {
 		writeLog(functionName, fmt.Sprintf(`Error unmarshalling world data: %v`, err), "ERROR")
 		return err
 	}
-
-	writeLog(functionName, fmt.Sprintf(`World data: %v`, world), "DEBUG")
 
 	// preprocess the world 'location' to geopoint
 	worldLocation, err := defs.GPSFromCoords(
@@ -1020,38 +1157,36 @@ func logNewMission(data []string) (err error) {
 		return err
 	}
 
-	writeLog(functionName, fmt.Sprintf(`Mission data: %v`, missionTemp), "DEBUG")
-
 	// add addons
 	addons := []defs.Addon{}
 	for _, addon := range missionTemp["addons"].([]interface{}) {
-		thisaddon := defs.Addon{
+		thisAddon := defs.Addon{
 			Name: addon.([]interface{})[0].(string),
 		}
 		// if addon[1] workshopId is int, convert to string
 		if reflect.TypeOf(addon.([]interface{})[1]).Kind() == reflect.Float64 {
-			thisaddon.WorkshopID = strconv.Itoa(int(addon.([]interface{})[1].(float64)))
+			thisAddon.WorkshopID = strconv.Itoa(int(addon.([]interface{})[1].(float64)))
 		} else {
-			thisaddon.WorkshopID = addon.([]interface{})[1].(string)
+			thisAddon.WorkshopID = addon.([]interface{})[1].(string)
 		}
 
 		// if addon doesn't exist, insert it
-		err = DB.Where("name = ?", thisaddon.Name).First(&thisaddon).Error
+		err = DB.Where("name = ?", thisAddon.Name).First(&thisAddon).Error
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			writeLog(functionName, fmt.Sprintf(`Error checking if addon exists: %v`, err), "ERROR")
 			return err
 		}
-		if thisaddon.ID == 0 {
+		if thisAddon.ID == 0 {
 			// addon does not exist, create it
-			if err = DB.Create(&thisaddon).Error; err != nil {
+			if err = DB.Create(&thisAddon).Error; err != nil {
 				writeLog(functionName, fmt.Sprintf(`Error creating addon: %v`, err), "ERROR")
 				return err
 			}
-			addons = append(addons, thisaddon)
+			addons = append(addons, thisAddon)
 
 		} else {
 			// addon exists, append it
-			addons = append(addons, thisaddon)
+			addons = append(addons, thisAddon)
 		}
 	}
 	mission.Addons = addons
@@ -1067,8 +1202,6 @@ func logNewMission(data []string) (err error) {
 	mission.OnLoadName = missionTemp["onLoadName"].(string)
 	mission.Author = missionTemp["author"].(string)
 	mission.Tag = missionTemp["tag"].(string)
-
-	writeLog(functionName, fmt.Sprintf(`Mission: %v`, mission), "DEBUG")
 
 	// check if world exists
 	err = DB.Where("world_name = ?", world.WorldName).First(&world).Error
@@ -1092,19 +1225,30 @@ func logNewMission(data []string) (err error) {
 		return err
 	}
 
-	// write to log
-	writeLog(functionName, fmt.Sprintf(`New mission logged: %s`, mission.MissionName), "INFO")
-
 	// set current world and mission
 	CurrentWorld = &world
 	CurrentMission = &mission
 
-	if !IsStatusProcessRunning {
-		// start status monitor
-		startStatusMonitor()
-	}
+	// write to log
+	writeLog(functionName, `New mission logged`, "INFO")
 
-	writeLog(`:MISSION:OK:`, `[0, "OK"]`, "INFO")
+	defs.Logger.Debug().Dict("worldData", zerolog.Dict().
+		Str("worldName", world.WorldName).
+		Str("displayName", world.DisplayName),
+	).Send()
+	defs.Logger.Debug().Dict(
+		"missionData", zerolog.Dict().
+			Str("missionName", mission.MissionName).
+			Str("briefingName", mission.BriefingName).
+			Str("serverName", mission.ServerName).
+			Str("serverProfile", mission.ServerProfile).
+			Str("onLoadName", mission.OnLoadName).
+			Str("author", mission.Author).
+			Str("tag", mission.Tag),
+	).Send()
+
+	// callback to addon to begin sending data
+	writeToArma(`:MISSION:OK:`, "0", "OK")
 	return nil
 }
 
@@ -1196,14 +1340,14 @@ func logSoldierState(data []string) (soldierState defs.SoldierState, err error) 
 	}
 
 	// try and find soldier in DB to associate
-	soldier := defs.Soldier{}
+	var soldierID uint
 	err = DB.Model(&defs.Soldier{}).Order(
 		"join_time DESC",
 	).Where(
 		&defs.Soldier{
 			OcapID:    uint16(ocapID),
 			MissionID: CurrentMission.ID,
-		}).First(&soldier).Error
+		}).Limit(1).Pluck("id", &soldierID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound && capframe < 10 {
 			return defs.SoldierState{}, errTooEarlyForStateAssociation
@@ -1211,7 +1355,7 @@ func logSoldierState(data []string) (soldierState defs.SoldierState, err error) 
 		json, _ := json.Marshal(data)
 		return soldierState, fmt.Errorf("error finding soldier in DB:\n%s\n%v\nMissionID: %d", json, err, CurrentMission.ID)
 	}
-	soldierState.Soldier = soldier
+	soldierState.SoldierID = soldierID
 
 	// timestamp will always be appended as the last element of data, in unixnano format as a string
 	timestampStr := data[len(data)-1]
@@ -1367,14 +1511,14 @@ func logVehicleState(data []string) (vehicleState defs.VehicleState, err error) 
 	}
 
 	// try and find vehicle in DB to associate
-	vehicle := defs.Vehicle{}
+	var vehicleID uint
 	err = DB.Model(&defs.Vehicle{}).Order(
 		"join_time DESC",
 	).Where(
 		&defs.Vehicle{
 			OcapID:    uint16(ocapID),
 			MissionID: CurrentMission.ID,
-		}).First(&vehicle).Error
+		}).Limit(1).Pluck("id", &vehicleID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound && capframe < 10 {
 			return defs.VehicleState{}, errTooEarlyForStateAssociation
@@ -1383,7 +1527,7 @@ func logVehicleState(data []string) (vehicleState defs.VehicleState, err error) 
 		writeLog(functionName, fmt.Sprintf("Error finding vehicle in DB:\n%s\n%v", json, err), "ERROR")
 		return vehicleState, err
 	}
-	vehicleState.Vehicle = vehicle
+	vehicleState.VehicleID = vehicleID
 
 	// timestamp will always be appended as the last element of data, in unixnano format as a string
 	timestampStr := data[len(data)-1]
@@ -2598,13 +2742,13 @@ func startDBWriters() {
 // EXPORTED FUNCTIONS //
 ///////////////////////
 
-func runextensionCallback(name *C.char, function *C.char, data *C.char) C.int {
+func runExtensionCallback(name *C.char, function *C.char, data *C.char) C.int {
 	return C.runExtensionCallback(extensionCallbackFnc, name, function, data)
 }
 
 //export goRVExtensionVersion
 func goRVExtensionVersion(output *C.char, outputsize C.size_t) {
-	result := C.CString(CurrentExtensionNameVersion)
+	result := C.CString(CurrentExtensionVersion)
 	defer C.free(unsafe.Pointer(result))
 	var size = C.strlen(result) + 1
 	if size > outputsize {
@@ -2622,16 +2766,53 @@ func goRVExtensionArgs(output *C.char, outputsize C.size_t, input *C.char, argv 
 		argv = (**C.char)(unsafe.Pointer(uintptr(unsafe.Pointer(argv)) + offset))
 	}
 
-	// temp := fmt.Sprintf("Function: %s nb params: %d params: %s!", C.GoString(input), argc, out)
-	temp := fmt.Sprintf(`["Function: %s", "nb params: %d"]`, C.GoString(input), argc)
+	// response := fmt.Sprintf("Function: %s nb params: %d params: %s!", C.GoString(input), argc, out)
+	response := fmt.Sprintf(`["Function: %s", "nb params: %d"]`, C.GoString(input), argc)
 
 	timestamp := time.Now()
 
 	switch C.GoString(input) {
 	case ":INIT:DB:":
-		loadConfig()
-		go getDB()
-		go connectToInflux()
+		{
+			defs.Logger.Trace().Msg("Received :INIT:DB: call")
+			loadConfig()
+			go func() {
+				functionName := ":INIT:DB:"
+				var err error
+				DB, err = getDB()
+				if err != nil {
+					writeLog(functionName, fmt.Sprintf(`Error connecting to database: %v`, err), "ERROR")
+				}
+				if DB != nil {
+					err = setupDB(DB)
+					if err != nil {
+						writeLog(functionName, fmt.Sprintf(`Error setting up database: %v`, err), "ERROR")
+					}
+					startGoroutines()
+					InfluxClient, err = connectToInflux()
+					if err != nil {
+						writeLog(functionName, fmt.Sprintf(`Error connecting to InfluxDB: %v`, err), "ERROR")
+					}
+					// only if everything worked should we send a callback letting the addon know we're ready to receive the mission data
+					if DB.Dialector.Name() == "sqlite3" {
+						writeToArma(":DB:OK:", "SQLITE")
+					} else if DB.Dialector.Name() == "postgres" {
+						writeToArma(":DB:OK:", "POSTGRESQL")
+					} else if DB.Dialector.Name() == "mysql" {
+						writeToArma(":DB:OK:", "MYSQL")
+					} else {
+						writeToArma(":DB:OK:", "Unknown")
+					}
+					// send extension version
+					writeToArma(":EXTENSION:VERSION:", CurrentExtensionVersion)
+				} else {
+					// if we couldn't connect to the database, send a callback to the addon to let it know
+					writeToArma(":DB:ERROR:", "DB error")
+				}
+			}()
+			response = "DB init started"
+		}
+
 	case ":NEW:MISSION:":
 		go logNewMission(out)
 	case ":NEW:SOLDIER:":
@@ -2690,17 +2871,29 @@ func goRVExtensionArgs(output *C.char, outputsize C.size_t, input *C.char, argv 
 			newFpsEventChan <- data
 		}(out, fmt.Sprintf("%d", timestamp.UnixNano()))
 	default:
-		temp = fmt.Sprintf(`["%s"]`, "Unknown Function")
+		response = fmt.Sprintf(`%s`, "Unknown Function")
 	}
 
-	// Return a result to Arma
-	result := C.CString(temp)
+	// reply to the Arma call
+	replyToSyncArmaCall(response, output, outputsize, input, argv, argc)
+}
+
+// replyToSyncArmaCall will respond to a synchronous extension call from Arma
+func replyToSyncArmaCall(
+	response string,
+	output *C.char,
+	outputsize C.size_t,
+	input *C.char,
+	argv **C.char,
+	argc C.int,
+) {
+	// Reply to a synchronous call from Arma with a string response
+	result := C.CString(response)
 	defer C.free(unsafe.Pointer(result))
 	var size = C.strlen(result) + 1
 	if size > outputsize {
 		size = outputsize
 	}
-
 	C.memmove(unsafe.Pointer(output), unsafe.Pointer(result), size)
 }
 
@@ -2714,7 +2907,7 @@ func callBackExample() {
 		time.Sleep(2 * time.Second)
 		param := C.CString(fmt.Sprintf("Loop: %d", i))
 		defer C.free(unsafe.Pointer(param))
-		runextensionCallback(name, function, param)
+		runExtensionCallback(name, function, param)
 	}
 }
 
@@ -2734,34 +2927,73 @@ func fixEscapeQuotes(s string) string {
 	return strings.Replace(s, `""`, `"`, -1)
 }
 
-func writeLog(functionName string, data string, level string) {
-	// get calling function & line
-	_, file, line, _ := runtime.Caller(1)
+// writeToArma takes a function name designation and a series of arguments that it will parse into an array and send to Arma
+func writeToArma(functionName string, data ...string) {
 
-	if viper.GetBool("debug") && level == "DEBUG" {
-		log.Printf(`%s:%d %s [%s] %s`, path.Base(file), line, functionName, level, data)
-	} else if level != "DEBUG" {
-		log.Printf(`%s:%d %s [%s] %s`, path.Base(file), line, functionName, level, data)
-	}
-
-	if extensionCallbackFnc != nil {
+	// preprocess data with escape characters
+	for i, v := range data {
 		// replace double quotes with 2 double quotes
-		escapedData := strings.Replace(data, `"`, `""`, -1)
+		escapedData := strings.Replace(v, `"`, `""`, -1)
 		// do the same for single quotes
-		escapedData = strings.Replace(escapedData, `'`, `'`, -1)
+		escapedData = strings.Replace(escapedData, `'`, `''`, -1)
 		// replace brackets w parentheses
 		escapedData = strings.Replace(escapedData, `[`, `(`, -1)
 		escapedData = strings.Replace(escapedData, `]`, `)`, -1)
-		a3Message := fmt.Sprintf(`["%s", "%s"]`, escapedData, level)
 
+		data[i] = fmt.Sprintf(`"%s"`, escapedData)
+	}
+	// format the data into a string
+	a3Message := fmt.Sprintf(`[%s]`, strings.Join(data, ","))
+
+	// check if the callback function is set
+	if extensionCallbackFnc != nil {
 		statusName := C.CString(ExtensionName)
 		defer C.free(unsafe.Pointer(statusName))
 		statusFunction := C.CString(functionName)
 		defer C.free(unsafe.Pointer(statusFunction))
 		statusParam := C.CString(a3Message)
 		defer C.free(unsafe.Pointer(statusParam))
-		runextensionCallback(statusName, statusFunction, statusParam)
+		// call the callback function
+		runExtensionCallback(statusName, statusFunction, statusParam)
+	} else {
+		// warn
+		defs.Logger.Warn().
+			Str("intendedFunction", functionName).
+			Str("intendedMessage", a3Message).
+			Msg("Extension callback function not set, could not write to Arma")
 	}
+}
+
+func writeLog(
+	functionName string,
+	data string,
+	level string,
+) {
+	// get calling function & line
+	// _, file, line, _ := runtime.Caller(1)
+
+	var logLevelActual zerolog.Level
+	switch level {
+	case "DEBUG":
+		logLevelActual = zerolog.DebugLevel
+	case "INFO":
+		logLevelActual = zerolog.InfoLevel
+	case "WARN":
+		logLevelActual = zerolog.WarnLevel
+	case "ERROR":
+		logLevelActual = zerolog.ErrorLevel
+	case "FATAL":
+		logLevelActual = zerolog.FatalLevel
+	}
+
+	// debug limits configured in global defs based on config
+	defs.Logger.WithLevel(logLevelActual).
+		Str("function", functionName).
+		Msg(data)
+
+	defs.JSONLogger.WithLevel(logLevelActual).
+		Str("function", functionName).
+		Msg(data)
 }
 
 //export goRVExtension
@@ -2773,7 +3005,7 @@ func goRVExtension(output *C.char, outputsize C.size_t, input *C.char) {
 
 	switch C.GoString(input) {
 	case "version":
-		temp = CurrentExtensionNameVersion
+		temp = CurrentExtensionVersion
 	case "getDir":
 		temp = getDir()
 
@@ -2795,6 +3027,83 @@ func goRVExtension(output *C.char, outputsize C.size_t, input *C.char) {
 //export goRVExtensionRegisterCallback
 func goRVExtensionRegisterCallback(fnc C.extensionCallback) {
 	extensionCallbackFnc = fnc
+}
+
+//////////////////////////////////////////////////////////////
+// Direct (exe) functions
+//////////////////////////////////////////////////////////////
+
+// get all the table models and data from any sqlite databases in SqlitePath
+// then insert into Postgres
+func migrateBackupsSqlite() (err error) {
+
+	sqlitePaths, err := getBackupDBPaths()
+	if err != nil {
+		return fmt.Errorf("error getting backup database paths: %v", err)
+	}
+	postgresDB, err := getPostgresDB()
+	if err != nil {
+		return fmt.Errorf("error getting postgres database: %v", err)
+	}
+
+	successfulMigrations := make([]string, 0)
+
+	for _, sqlitePath := range sqlitePaths {
+		sqliteDB, err := getSqliteDB(sqlitePath)
+		if err != nil {
+			return fmt.Errorf("error getting sqlite database: %v", err)
+		}
+
+		for _, modelName := range defs.DatabaseModelNames {
+			// get the model
+			// model := defs.DatabaseModels[i]
+			defs.Logger.Info().Msgf("Migrating %s", modelName)
+			defs.JSONLogger.Info().Msgf("Migrating %s", modelName)
+
+			var data []interface{}
+			sqliteDB.Table(modelName).Find(&data)
+			defs.Logger.Info().Msgf("Found %d %s", len(data), modelName)
+			defs.JSONLogger.Info().Msgf("Found %d %s", len(data), modelName)
+
+			if len(data) == 0 {
+				continue
+			}
+
+			err = postgresDB.Table(modelName).Create(&data).Error
+			if err != nil {
+				defs.Logger.Error().Err(err).
+					Str("database", sqlitePath).
+					Msgf("Error migrating %s", modelName)
+				defs.JSONLogger.Error().Err(err).
+					Str("database", sqlitePath).
+					Msgf("Error migrating %s", modelName)
+				continue
+			}
+		}
+
+		// if we get here, we've successfully migrated this backup
+		// remove connections to the databases
+		sqlConnection, err := sqliteDB.DB()
+		if err != nil {
+			defs.Logger.Error().Msgf("Error getting sqlite connection: %v", err)
+			defs.JSONLogger.Error().Msgf("Error getting sqlite connection: %v", err)
+			continue
+		}
+		sqlConnection.Close()
+		successfulMigrations = append(successfulMigrations, sqlitePath)
+	}
+
+	// if we get here, we've successfully migrated all backups
+	successArr := zerolog.Arr()
+	for _, successfulMigration := range successfulMigrations {
+		successArr.Str(successfulMigration)
+	}
+	defs.Logger.Info().Array(
+		"successfulMigrations",
+		successArr,
+	).Msgf("Successfully migrated %d backups, it's recommended to delete these to avoid future data duplication", len(successfulMigrations))
+
+	return nil
 }
 
 func populateDemoData() {
@@ -2940,8 +3249,8 @@ func populateDemoData() {
 			"Desert2",
 		}
 
-		demoaddons [][]interface{} = [][]interface{}{
-			{"Community Base addons v3.15.1", 0},
+		demoAddons [][]interface{} = [][]interface{}{
+			{"Community Base Addons v3.15.1", 0},
 			{"Arma 3 Contact", 0},
 			{"Arma 3 Creator DLC: Global Mobilization - Cold War Germany", 0},
 			{"Arma 3 Tanks", 0},
@@ -3006,22 +3315,22 @@ func populateDemoData() {
 		// ["worldName", toLower worldName],
 		// ["tag", EGVAR(settings,saveTag)]
 		missionData := map[string]interface{}{
-			"missionName":                      fmt.Sprintf("Demo Mission %d", i),
-			"briefingName":                     fmt.Sprintf("Demo Briefing %d", i),
-			"missionNameSource":                fmt.Sprintf("Demo Mission %d", i),
-			"onLoadName":                       "TestLoadName",
-			"author":                           "Demo Author",
-			"serverName":                       "Demo Server",
-			"serverProfile":                    "Demo Profile",
-			"missionStart":                     nil, // random time
-			"worldName":                        fmt.Sprintf("demo_world_%d", i),
-			"tag":                              "Demo Tag",
-			"captureDelay":                     1.0,
-			"addonVersion":                     "1.0",
-			"ExtensionNameVersion":             "1.0",
-			"ExtensionNameBuild":               "1.0",
-			"ocapRecorderExtensionNameVersion": "1.0",
-			"addons":                           demoaddons,
+			"missionName":                  fmt.Sprintf("Demo Mission %d", i),
+			"briefingName":                 fmt.Sprintf("Demo Briefing %d", i),
+			"missionNameSource":            fmt.Sprintf("Demo Mission %d", i),
+			"onLoadName":                   "TestLoadName",
+			"author":                       "Demo Author",
+			"serverName":                   "Demo Server",
+			"serverProfile":                "Demo Profile",
+			"missionStart":                 nil, // random time
+			"worldName":                    fmt.Sprintf("demo_world_%d", i),
+			"tag":                          "Demo Tag",
+			"captureDelay":                 1.0,
+			"addonVersion":                 "1.0",
+			"extensionVersion":             "1.0",
+			"extensionBuild":               "1.0",
+			"ocapRecorderExtensionVersion": "1.0",
+			"addons":                       demoAddons,
 		}
 		missionDataJSON, err := json.Marshal(missionData)
 		if err != nil {
@@ -3314,9 +3623,9 @@ func getOcapRecording(missionIDs []string) (err error) {
 
 		// preprocess mission data into an object
 		ocapMission["addonVersion"] = mission.AddonVersion
-		ocapMission["ExtensionNameVersion"] = mission.ExtensionVersion
-		ocapMission["ExtensionNameBuild"] = mission.ExtensionBuild
-		ocapMission["ocapRecorderExtensionNameVersion"] = mission.OcapRecorderExtensionVersion
+		ocapMission["extensionVersion"] = mission.ExtensionVersion
+		ocapMission["extensionBuild"] = mission.ExtensionBuild
+		ocapMission["ocapRecorderExtensionVersion"] = mission.OcapRecorderExtensionVersion
 
 		ocapMission["missionAuthor"] = mission.Author
 		ocapMission["missionName"] = mission.OnLoadName
@@ -3918,7 +4227,7 @@ func reduceMission(missionIDs []string) (err error) {
 
 func testQuery() (err error) {
 	query := `
-select 
+select
     s.ocap_id,
     ss.capture_frame,
     json_agg(ss.*) as states,
@@ -4002,14 +4311,19 @@ order by s.ocap_id,
 }
 
 func main() {
-	fmt.Println("Running DB connect/migrate to build schema...")
-	err := getDB()
+	var err error
+	defs.Logger.Info().Msg("Starting up...")
+	// connect to DB
+	defs.Logger.Info().Msg("Connecting to DB...")
+	DB, err = getDB()
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println("DB connect/migrate complete.")
+	setupDB(DB)
+	startGoroutines()
+	defs.Logger.Info().Msg("DB connect/migrate complete.")
 
-	fmt.Println("Initializing InfluxDB.")
+	defs.Logger.Info().Msg("Connecting to InfluxDB...")
 	_, err = connectToInflux()
 	if err != nil {
 		panic(err)
@@ -4019,13 +4333,13 @@ func main() {
 	args := os.Args[1:]
 	if len(args) > 0 {
 		if strings.ToLower(args[0]) == "demo" {
-			fmt.Println("Populating demo data...")
+			defs.Logger.Info().Msg("Populating demo data...")
 			IsDemoData = true
 			demoStart := time.Now()
 			populateDemoData()
-			fmt.Printf("Demo data populated in %s\n", time.Since(demoStart))
+			defs.Logger.Info().Dur("duration", time.Since(demoStart)).Msg("Demo data populated.")
 			// wait input
-			fmt.Println("Demo data populated. Press enter to exit.")
+			fmt.Println("Press enter to exit.")
 		}
 		if strings.ToLower(args[0]) == "getjson" {
 			missionIds := args[1:]
@@ -4050,6 +4364,13 @@ func main() {
 			}
 		}
 
+		if strings.ToLower(args[0]) == "migratebackups" {
+			err = migrateBackupsSqlite()
+			if err != nil {
+				panic(err)
+			}
+			defs.Logger.Info().Msg("Finished migrating backups.")
+		}
 		if strings.ToLower(args[0]) == "testquery" {
 			err = testQuery()
 			if err != nil {

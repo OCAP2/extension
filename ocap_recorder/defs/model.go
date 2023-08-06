@@ -12,6 +12,50 @@ import (
 // DATABASE STRUCTURES //
 ////////////////////////
 
+// DatabaseModels is a list of all the structs exported here which represent tables in the database schema
+var DatabaseModels = []interface{}{
+	&OcapInfo{},
+	&AfterActionReview{},
+	&World{},
+	&Mission{},
+	&Soldier{},
+	&SoldierState{},
+	&Vehicle{},
+	&VehicleState{},
+	&FiredEvent{},
+	&GeneralEvent{},
+	&HitEvent{},
+	&KillEvent{},
+	&DeathEvent{},
+	&UnconsciousEvent{},
+	&ChatEvent{},
+	&RadioEvent{},
+	&ServerFpsEvent{},
+	&OcapPerformance{},
+}
+
+// DatabaseModelNames is a list of all the names of the structs exported here which represent tables in the database schema
+var DatabaseModelNames = []string{
+	"ocap_infos",
+	"after_action_reviews",
+	"worlds",
+	"missions",
+	"soldiers",
+	"soldier_states",
+	"vehicles",
+	"vehicle_states",
+	"fired_events",
+	"general_events",
+	"hit_events",
+	"kill_events",
+	"death_events",
+	"unconscious_events",
+	"chat_events",
+	"radio_events",
+	"server_fps_events",
+	"ocap_performances",
+}
+
 ////////////////////////
 // SYSTEM MODELS
 ////////////////////////
