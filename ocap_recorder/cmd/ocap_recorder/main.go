@@ -134,19 +134,6 @@ var (
 
 // channels
 var (
-	// channels for receiving new data and filing to DB
-	newSoldierChan      chan []string = make(chan []string, 1000)
-	newVehicleChan      chan []string = make(chan []string, 1000)
-	newSoldierStateChan chan []string = make(chan []string, 10000)
-	newVehicleStateChan chan []string = make(chan []string, 10000)
-	newFiredEventChan   chan []string = make(chan []string, 10000)
-	newGeneralEventChan chan []string = make(chan []string, 1000)
-	newHitEventChan     chan []string = make(chan []string, 2000)
-	newKillEventChan    chan []string = make(chan []string, 2000)
-	newChatEventChan    chan []string = make(chan []string, 1000)
-	newRadioEventChan   chan []string = make(chan []string, 1000)
-	newFpsEventChan     chan []string = make(chan []string, 1000)
-
 	// caches of processed models pending DB write
 	soldiersToWrite      = defs.SoldiersQueue{}
 	soldierStatesToWrite = defs.SoldierStatesQueue{}
@@ -159,9 +146,6 @@ var (
 	chatEventsToWrite    = defs.ChatEventsQueue{}
 	radioEventsToWrite   = defs.RadioEventsQueue{}
 	fpsEventsToWrite     = defs.FpsEventsQueue{}
-
-	// a3ErrorChan is used to send errors from the a3interface package to the main thread
-	a3ErrorChan chan error = make(chan error, 10)
 
 	InfluxBucketNames = []string{
 		"mission_data",
@@ -467,141 +451,104 @@ func removeOldLogs(path string, daysDelta int) {
 	}
 }
 
+// //////////////////////
+// A3Interface Section //
+// //////////////////////
+// A3Interface is the interface for interacting with Arma 3
+// These variables are used to communicate with it
+var (
+	// RVExtArgsDataChannels is a map of channels for receiving data from RVExtensionArgs
+	RVExtArgsDataChannels = map[string]chan []string{
+		// channels for receiving new data and filing to DB
+		":INIT:DB:":           make(chan []string, 1),
+		":NEW:SOLDIER:":       make(chan []string, 1000),
+		":NEW:VEHICLE:":       make(chan []string, 1000),
+		":NEW:SOLDIER:STATE:": make(chan []string, 10000),
+		":NEW:VEHICLE:STATE:": make(chan []string, 10000),
+		":FIRED:":             make(chan []string, 10000),
+		":EVENT:":             make(chan []string, 1000),
+		":HIT:":               make(chan []string, 2000),
+		":KILL:":              make(chan []string, 2000),
+		":CHAT:":              make(chan []string, 1000),
+		":RADIO:":             make(chan []string, 1000),
+		":FPS:":               make(chan []string, 1000),
+		":DEATH:":             make(chan []string, 1000),
+		":UNCONSCIOUS:":       make(chan []string, 1000),
+	}
+	// RVExtDataChannels is a map of channels for receiving data from RVExtension
+	RVExtDataChannels = map[string]chan string{
+		":VERSION":        make(chan string, 1),
+		":GETARMADIR:":    make(chan string, 1),
+		":GETMODULEPATH:": make(chan string, 1),
+	}
+
+	// a3ErrorChan is used to send errors from the a3interface package to the main thread
+	a3ErrorChan = make(chan []string, 50)
+)
+
+func extInitDB(args []string) (err error) {
+	defs.Logger.Trace().Msg("Received :INIT:DB: call")
+	loadConfig()
+	functionName := ":INIT:DB:"
+	DB, err = getDB()
+	if err != nil || DB == nil {
+		// if we couldn't connect to the database, send a callback to the addon to let it know
+		writeLog(functionName, fmt.Sprintf(`Error connecting to database: %v`, err), "ERROR")
+		a3interface.WriteArmaCallback(":DB:ERROR:", err.Error())
+	} else {
+		err = setupDB(DB)
+		if err != nil {
+			writeLog(functionName, fmt.Sprintf(`Error setting up database: %v`, err), "ERROR")
+		}
+		startGoroutines()
+		InfluxClient, err = connectToInflux()
+		if err != nil {
+			writeLog(functionName, fmt.Sprintf(`Error connecting to InfluxDB: %v`, err), "ERROR")
+		}
+		// only if everything worked should we send a callback letting the addon know we're ready to receive the mission data
+		if DB.Dialector.Name() == "sqlite3" {
+			a3interface.WriteArmaCallback(":DB:OK:", "SQLITE")
+		} else if DB.Dialector.Name() == "postgres" {
+			a3interface.WriteArmaCallback(":DB:OK:", "POSTGRESQL")
+		} else if DB.Dialector.Name() == "mysql" {
+			a3interface.WriteArmaCallback(":DB:OK:", "MYSQL")
+		} else {
+			a3interface.WriteArmaCallback(":DB:OK:", "Unknown")
+		}
+		// send extension version
+		a3interface.WriteArmaCallback(":VERSION:", CurrentExtensionVersion)
+	}
+	return nil
+}
+
 func setupA3Interface() (err error) {
 
 	a3interface.SetVersion(CurrentExtensionVersion)
+	a3interface.RegisterErrorChan(a3ErrorChan)
 
-	// start callExtension handler
-	a3interface.OnCallExtension(
-		func(command string) (response string, err error) {
-			switch command {
-			case "version":
-				response = CurrentExtensionVersion
-			case "getArmaDir":
-				response = ArmaDir
-			case "getModulePath":
-				response = ModulePath
-			default:
-				response = fmt.Sprintf(`["%s"]`, "Unknown Function")
+	// register channels
+	a3interface.RegisterRvExtensionChannels(RVExtDataChannels)
+	a3interface.RegisterRvExtensionArgsChannels(RVExtArgsDataChannels)
+
+	// in our case, add listeners for things not already handled by startAsyncProcessors
+	go func() {
+		for {
+			select {
+			case errData := <-a3ErrorChan:
+				defs.Logger.Error().Str("error", errData[1]).Msg("Error in A3Interface")
+			case data := <-RVExtArgsDataChannels[":INIT:DB:"]:
+				extInitDB(data)
+
+				// RVExtDataChannels
+			case _ = <-RVExtDataChannels[":VERSION"]:
+				a3interface.WriteArmaCallback(":VERSION:", CurrentExtensionVersion)
+			case _ = <-RVExtDataChannels[":GETARMADIR:"]:
+				a3interface.WriteArmaCallback(":ARMADIR:", ArmaDir)
+			case _ = <-RVExtDataChannels[":GETMODULEPATH:"]:
+				a3interface.WriteArmaCallback(":MODULEPATH:", ModulePath)
 			}
-			return response, nil
-		})
-	// end callExtension handler
-
-	// response to callExtension ["command", ["data"...]]
-	a3interface.OnCallExtensionArgs(
-		func(command string, data []string) (response string, err error) {
-			timestamp := time.Now()
-			switch command {
-			case ":INIT:DB:":
-				{
-					defs.Logger.Trace().Msg("Received :INIT:DB: call")
-					loadConfig()
-					go func() {
-						functionName := ":INIT:DB:"
-						var err error
-						DB, err = getDB()
-						if err != nil || DB == nil {
-							// if we couldn't connect to the database, send a callback to the addon to let it know
-							writeLog(functionName, fmt.Sprintf(`Error connecting to database: %v`, err), "ERROR")
-							a3interface.WriteArmaCallback(":DB:ERROR:", err.Error())
-						} else {
-							err = setupDB(DB)
-							if err != nil {
-								writeLog(functionName, fmt.Sprintf(`Error setting up database: %v`, err), "ERROR")
-							}
-							startGoroutines()
-							InfluxClient, err = connectToInflux()
-							if err != nil {
-								writeLog(functionName, fmt.Sprintf(`Error connecting to InfluxDB: %v`, err), "ERROR")
-							}
-							// only if everything worked should we send a callback letting the addon know we're ready to receive the mission data
-							if DB.Dialector.Name() == "sqlite3" {
-								a3interface.WriteArmaCallback(":DB:OK:", "SQLITE")
-							} else if DB.Dialector.Name() == "postgres" {
-								a3interface.WriteArmaCallback(":DB:OK:", "POSTGRESQL")
-							} else if DB.Dialector.Name() == "mysql" {
-								a3interface.WriteArmaCallback(":DB:OK:", "MYSQL")
-							} else {
-								a3interface.WriteArmaCallback(":DB:OK:", "Unknown")
-							}
-							// send extension version
-							a3interface.WriteArmaCallback(":VERSION:", CurrentExtensionVersion)
-						}
-
-					}()
-					response = "DB init started"
-				}
-			case ":NEW:MISSION:":
-				go logNewMission(data)
-			case ":NEW:SOLDIER:":
-				go func(data []string, timestamp string) {
-					data = append(data, timestamp)
-					newSoldierChan <- data
-				}(data, fmt.Sprintf("%d", timestamp.UnixNano()))
-			case ":NEW:SOLDIER:STATE:":
-				go func(data []string, timestamp string) {
-					data = append(data, timestamp)
-					newSoldierStateChan <- data
-				}(data, fmt.Sprintf("%d", timestamp.UnixNano()))
-			case ":NEW:VEHICLE:":
-				go func(data []string, timestamp string) {
-					data = append(data, timestamp)
-					newVehicleChan <- data
-				}(data, fmt.Sprintf("%d", timestamp.UnixNano()))
-			case ":NEW:VEHICLE:STATE:":
-				go func(data []string, timestamp string) {
-					data = append(data, timestamp)
-					newVehicleStateChan <- data
-				}(data, fmt.Sprintf("%d", timestamp.UnixNano()))
-			case ":FIRED:":
-				go func(data []string, timestamp string) {
-					data = append(data, timestamp)
-					newFiredEventChan <- data
-				}(data, fmt.Sprintf("%d", timestamp.UnixNano()))
-			case ":EVENT:":
-				go func(data []string, timestamp string) {
-					data = append(data, timestamp)
-					newGeneralEventChan <- data
-				}(data, fmt.Sprintf("%d", timestamp.UnixNano()))
-			case ":HIT:":
-				go func(data []string, timestamp string) {
-					data = append(data, timestamp)
-					newHitEventChan <- data
-				}(data, fmt.Sprintf("%d", timestamp.UnixNano()))
-			case ":KILL:":
-				go func(data []string, timestamp string) {
-					data = append(data, timestamp)
-					newKillEventChan <- data
-				}(data, fmt.Sprintf("%d", timestamp.UnixNano()))
-			case ":CHAT:":
-				go func(data []string, timestamp string) {
-					data = append(data, timestamp)
-					newChatEventChan <- data
-				}(data, fmt.Sprintf("%d", timestamp.UnixNano()))
-			case ":RADIO:":
-				go func(data []string, timestamp string) {
-					data = append(data, timestamp)
-					newRadioEventChan <- data
-				}(data, fmt.Sprintf("%d", timestamp.UnixNano()))
-			case ":FPS:":
-				go func(data []string, timestamp string) {
-					data = append(data, timestamp)
-					newFpsEventChan <- data
-				}(data, fmt.Sprintf("%d", timestamp.UnixNano()))
-			default:
-				response = fmt.Sprintf(`%s`, "Unknown Function")
-			}
-			return response, nil
-		})
-	// end callExtensionArgs handler
-
-	// set up error channel
-	a3interface.OnError(func(command string, err error) {
-		defs.Logger.Error().
-			Str("command", command).
-			Msgf("Error interacting with Arma: %s", err)
-	})
+		}
+	}()
 
 	return nil
 }
@@ -669,11 +616,11 @@ func getProgramStatus(
 	// returns a slice of strings containing the current program status
 	// rawBuffers: include raw buffers in output
 	rawBuffersStr := fmt.Sprintf("TO PROCESS: Soldiers: %d | Vehicles: %d | SoldierStates: %d | VehicleStates: %d | FiredEvents: %d",
-		len(newSoldierChan),
-		len(newVehicleChan),
-		len(newSoldierStateChan),
-		len(newVehicleStateChan),
-		len(newFiredEventChan),
+		len(RVExtArgsDataChannels[":NEW:SOLDIER:"]),
+		len(RVExtArgsDataChannels[":NEW:VEHICLE:"]),
+		len(RVExtArgsDataChannels[":NEW:SOLDIER:STATE:"]),
+		len(RVExtArgsDataChannels[":NEW:VEHICLE:STATE:"]),
+		len(RVExtArgsDataChannels[":FIRED:"]),
 	)
 	// writeQueues: include write queues in output
 	writeQueuesStr := fmt.Sprintf("AWAITING WRITE: Soldiers: %d | Vehicles: %d | SoldierStates: %d | VehicleStates: %d | FiredEvents: %d",
@@ -697,17 +644,17 @@ func getProgramStatus(
 	}
 
 	buffersObj := defs.BufferLengths{
-		Soldiers:        uint16(len(newSoldierChan)),
-		Vehicles:        uint16(len(newVehicleChan)),
-		SoldierStates:   uint16(len(newSoldierStateChan)),
-		VehicleStates:   uint16(len(newVehicleStateChan)),
-		FiredEvents:     uint16(len(newFiredEventChan)),
-		GeneralEvents:   uint16(len(newGeneralEventChan)),
-		HitEvents:       uint16(len(newHitEventChan)),
-		KillEvents:      uint16(len(newKillEventChan)),
-		ChatEvents:      uint16(len(newChatEventChan)),
-		RadioEvents:     uint16(len(newRadioEventChan)),
-		ServerFpsEvents: uint16(len(newFpsEventChan)),
+		Soldiers:        uint16(len(RVExtArgsDataChannels[":NEW:SOLDIER:"])),
+		Vehicles:        uint16(len(RVExtArgsDataChannels[":NEW:VEHICLE:"])),
+		SoldierStates:   uint16(len(RVExtArgsDataChannels[":NEW:SOLDIER:STATE:"])),
+		VehicleStates:   uint16(len(RVExtArgsDataChannels[":NEW:VEHICLE:STATE:"])),
+		FiredEvents:     uint16(len(RVExtArgsDataChannels[":FIRED:"])),
+		GeneralEvents:   uint16(len(RVExtArgsDataChannels[":EVENT:"])),
+		HitEvents:       uint16(len(RVExtArgsDataChannels[":HIT:"])),
+		KillEvents:      uint16(len(RVExtArgsDataChannels[":KILL:"])),
+		ChatEvents:      uint16(len(RVExtArgsDataChannels[":CHAT:"])),
+		RadioEvents:     uint16(len(RVExtArgsDataChannels[":RADIO:"])),
+		ServerFpsEvents: uint16(len(RVExtArgsDataChannels[":FPS:"])),
 	}
 
 	writeQueuesObj := defs.WriteQueueLengths{
@@ -2607,7 +2554,7 @@ func startAsyncProcessors() {
 
 	go func() {
 		// process channel data
-		for v := range newSoldierChan {
+		for v := range RVExtArgsDataChannels[":NEW:SOLDIER:"] {
 			if !IsDatabaseValid {
 				return
 			}
@@ -2623,7 +2570,7 @@ func startAsyncProcessors() {
 
 	go func() {
 		// process channel data
-		for v := range newVehicleChan {
+		for v := range RVExtArgsDataChannels[":NEW:VEHICLE:"] {
 			if !IsDatabaseValid {
 				return
 			}
@@ -2639,7 +2586,7 @@ func startAsyncProcessors() {
 
 	go func() {
 		// process channel data
-		for v := range newSoldierStateChan {
+		for v := range RVExtArgsDataChannels[":NEW:SOLDIER:STATE:"] {
 			if !IsDatabaseValid {
 				return
 			}
@@ -2659,7 +2606,7 @@ func startAsyncProcessors() {
 
 	go func() {
 		// process channel data
-		for v := range newVehicleStateChan {
+		for v := range RVExtArgsDataChannels[":NEW:VEHICLE:STATE:"] {
 			if !IsDatabaseValid {
 				return
 			}
@@ -2681,7 +2628,7 @@ func startAsyncProcessors() {
 
 	go func() {
 		// process channel data
-		for v := range newFiredEventChan {
+		for v := range RVExtArgsDataChannels[":FIRED:"] {
 			if !IsDatabaseValid {
 				return
 			}
@@ -2701,7 +2648,7 @@ func startAsyncProcessors() {
 
 	go func() {
 		// process channel data
-		for v := range newGeneralEventChan {
+		for v := range RVExtArgsDataChannels[":EVENT:"] {
 			if !IsDatabaseValid {
 				return
 			}
@@ -2717,7 +2664,7 @@ func startAsyncProcessors() {
 
 	go func() {
 		// process channel data
-		for v := range newHitEventChan {
+		for v := range RVExtArgsDataChannels[":HIT:"] {
 			if !IsDatabaseValid {
 				return
 			}
@@ -2737,7 +2684,7 @@ func startAsyncProcessors() {
 
 	go func() {
 		// process channel data
-		for v := range newKillEventChan {
+		for v := range RVExtArgsDataChannels[":KILL:"] {
 			if !IsDatabaseValid {
 				return
 			}
@@ -2758,7 +2705,7 @@ func startAsyncProcessors() {
 	// chat events
 	go func() {
 		// process channel data
-		for v := range newChatEventChan {
+		for v := range RVExtArgsDataChannels[":CHAT:"] {
 			if !IsDatabaseValid {
 				return
 			}
@@ -2779,7 +2726,7 @@ func startAsyncProcessors() {
 	// radio events
 	go func() {
 		// process channel data
-		for v := range newRadioEventChan {
+		for v := range RVExtArgsDataChannels[":RADIO:"] {
 			if !IsDatabaseValid {
 				return
 			}
@@ -2800,7 +2747,7 @@ func startAsyncProcessors() {
 	// fps events
 	go func() {
 		// process channel data
-		for v := range newFpsEventChan {
+		for v := range RVExtArgsDataChannels[":FPS:"] {
 			if !IsDatabaseValid {
 				return
 			}
@@ -3411,7 +3358,7 @@ func populateDemoData() {
 
 				// add timestamp to end of array
 				soldier = append(soldier, fmt.Sprintf("%d", time.Now().UnixNano()))
-				newSoldierChan <- soldier
+				RVExtArgsDataChannels[":NEW:SOLDIER:"] <- soldier
 
 				// sleep to ensure soldier is written
 				time.Sleep(3000 * time.Millisecond)
@@ -3485,7 +3432,7 @@ func populateDemoData() {
 
 					// add timestamp to end of array
 					soldierState = append(soldierState, fmt.Sprintf("%d", time.Now().UnixNano()))
-					newSoldierStateChan <- soldierState
+					RVExtArgsDataChannels[":NEW:SOLDIER:STATE:"] <- soldierState
 				}
 				waitGroup.Done()
 			}(idCounter)
@@ -3522,7 +3469,7 @@ func populateDemoData() {
 
 				// add timestamp to end of array
 				vehicle = append(vehicle, fmt.Sprintf("%d", time.Now().UnixNano()))
-				newVehicleChan <- vehicle
+				RVExtArgsDataChannels[":NEW:VEHICLE:"] <- vehicle
 
 				// sleep to ensure vehicle is written
 				time.Sleep(3000 * time.Millisecond)
@@ -3558,7 +3505,7 @@ func populateDemoData() {
 
 					// add timestamp to end of array
 					vehicleState = append(vehicleState, fmt.Sprintf("%d", time.Now().UnixNano()))
-					newVehicleStateChan <- vehicleState
+					RVExtArgsDataChannels[":NEW:VEHICLE:STATE:"] <- vehicleState
 				}
 				waitGroup.Done()
 			}(idCounter)
@@ -3607,15 +3554,15 @@ func populateDemoData() {
 
 				// add timestamp to end of array
 				firedEvent = append(firedEvent, fmt.Sprintf("%d", time.Now().UnixNano()))
-				newFiredEventChan <- firedEvent
+				RVExtArgsDataChannels[":FIRED:"] <- firedEvent
 				wg2.Done()
 			}()
 		}
 		wg2.Wait()
 	}
 
-	// pause until newFiredEventChan is empty
-	for len(newFiredEventChan) > 0 {
+	// pause until RVExtArgsDataChannels[":FIRED:"] is empty
+	for len(RVExtArgsDataChannels[":FIRED:"]) > 0 {
 		time.Sleep(1000 * time.Millisecond)
 	}
 

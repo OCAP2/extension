@@ -20,10 +20,13 @@ $ENV:CGO_ENABLED = 1
 $ENV:GOOS = "windows"
 go build -o dist/ocap_recorder_x64.dll -buildmode=c-shared ./cmd/ocap_recorder
 go build -o dist/ocap_recorder_x64.exe -buildmode=exe ./cmd/ocap_recorder
-
-# You can view exports of the created dll using dumpbin, which is included with Visual Studio installations
-"C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Tools\MSVC\14.29.30037\bin\Hostx86\x86\dumpbin.exe" /exports ocap_recorder_x64.dll
 ```
+
+You can view exports of the created dll using dumpbin, which is included with Visual Studio installations. Run in cmd
+  
+  ```cmd
+  "C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Tools\MSVC\14.29.30037\bin\Hostx86\x86\dumpbin.exe" /exports ocap_recorder_x64.dll
+  ```
 
 ## Building using Docker
 

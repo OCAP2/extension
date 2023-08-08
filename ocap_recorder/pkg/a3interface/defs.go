@@ -13,18 +13,14 @@ type configStruct struct {
 	// rvExtensionVersion is the value that will be returned when the extension is first called by Arma. This is a string value and is logged by the game engine to the RPT file
 	rvExtensionVersion string
 
-	// rvExtensionFunc is the callback function that will be run when an SQF command is sent in the form "x" callExtension "command". The return values should consist of a string to send back to Arma and an error value. If the error value is not nil, the error will be sent to the main program via the ErrChan channel and returned to Arma as the response
-	rvExtensionFunc func(command string) (response string, err error)
+	// rvExtensionFuncChannels stores a map of channels named by the commands provided with the SQF 'x' callExtension "command" format. The actual command name is checked against both a '|' delimited substring and the full command, then sent to the channel as a string if found.
+	rvExtensionChannels map[string]chan string
 
-	// rvExtensionArgsFunc is the callback function that will be run when an SQF command is sent in the form "x" callExtension ["command", ["data"]]. The return values should consist of a string to send back to Arma and an error value. If the error value is not nil, the error will be sent to the main program via the ErrChan channel and returned to Arma as the response
-	rvExtensionArgsFunc func(
-		command string, data []string,
-	) (
-		response string, err error,
-	)
+	// rvExtensionArgsFuncs stores a map of channels named by the commands provided with the SQF 'x' callExtension ["command", ["data"]] format. The data array is sent to the channel as a slice of strings.
+	rvExtensionArgsChannels map[string]chan []string
 
-	// errFunc is the callback function that will be run when an error occurs in the extension. If this isn't defined, errors will still be sent back to Arma as the response to callExtension.
-	errFunc func(command string, err error)
+	// errChan is the channel that errors will be sent to. the string slice will contain the command that caused the error and the error itself
+	errChan chan []string
 }
 
 // SetVersion sets the version string that will be returned when the extension is first called by Arma. This is a string value and is logged by the game engine to the RPT file
@@ -32,21 +28,48 @@ func SetVersion(version string) {
 	Config.rvExtensionVersion = version
 }
 
-// OnCallExtension sets the callback function that will be run when an SQF command is sent in the form "x" callExtension "command"
-func OnCallExtension(callback func(command string) (response string, err error)) {
-	Config.rvExtensionFunc = callback
+// RegisterRvExtensionChannel triggered when SQF calls "x" callExtension "command", this will send the full command to the designated channel. The command is sent to the channel as a string.
+func RegisterRvExtensionChannel(
+	command string,
+	channel chan string,
+) {
+	Config.rvExtensionChannels[command] = channel
 }
 
-// OnCallExtensionArgs sets the callback function that will be run when an SQF command is sent in the form "x" callExtension ["command", ["data"]]
-func OnCallExtensionArgs(
-	callback func(command string, data []string) (response string, err error),
+// RegisterRvExtensionChannels triggered when SQF calls "x" callExtension "command", this will send the full command to the designated channel. The command is sent to the channel as a string.
+func RegisterRvExtensionChannels(
+	channels map[string]chan string,
 ) {
-	Config.rvExtensionArgsFunc = callback
+	// merge the new channels into the existing ones
+	for k, v := range channels {
+		Config.rvExtensionChannels[k] = v
+	}
 }
 
-// OnError sets the callback function that will be run when an error occurs in the extension. This defaults to the native logger. Even if this isn't defined, errors will still be sent back to Arma as the response to callExtension.
-func OnError(
-	callback func(command string, err error),
+// RegisterRvExtensionArgsChannel triggered when SQF calls "x" callExtension ["command", ["data"]], this will send the data array to the designated channel based on the command. The data array is sent to the channel as a slice of strings and a timestamp at receipt is appended to the end of the slice (data[len(data)-1])
+func RegisterRvExtensionArgsChannel(
+	command string,
+	channel chan []string,
 ) {
-	Config.errFunc = callback
+	Config.rvExtensionArgsChannels[command] = channel
 }
+
+// RegisterRvExtensionArgsChannels a map[string]chan []string, triggered when SQF calls "x" callExtension ["command", ["data"]], this will send the data array to the designated channel based on the command. The data array is sent to the channel as a slice of strings and a timestamp at receipt is appended to the end of the slice (data[len(data)-1])
+func RegisterRvExtensionArgsChannels(
+	channels map[string]chan []string,
+) {
+	// merge the new channels into the existing ones
+	for k, v := range channels {
+		Config.rvExtensionArgsChannels[k] = v
+	}
+}
+
+// RegisterErrorChan triggered when an error occurs in the extension, this will send the error to the designated channel
+func RegisterErrorChan(
+	channel chan []string,
+) {
+	Config.errChan = channel
+}
+
+// TODO: add a way to unregister channels
+// TODO: add a way to register a sync response for limited data, as subfunctions across channels cannot trigger
