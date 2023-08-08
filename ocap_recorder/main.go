@@ -4,7 +4,6 @@ package main
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include "extensionCallback.h"
 */
 import "C" // This is required to import the C code
 
@@ -19,6 +18,7 @@ import (
 	"log"
 	"math"
 	"math/rand"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -37,6 +37,7 @@ import (
 	"github.com/influxdata/influxdb-client-go/v2/domain"
 	"github.com/spf13/viper"
 
+	"github.com/Graylog2/go-gelf/gelf"
 	"github.com/glebarez/sqlite"
 	"github.com/rs/zerolog"
 	"github.com/twpayne/go-geom"
@@ -48,7 +49,6 @@ import (
 // module defs
 var (
 	CurrentExtensionVersion string = "0.0.1"
-	extensionCallbackFnc    C.extensionCallback
 
 	Addon         string = "ocap"
 	ExtensionName string = "ocap_recorder"
@@ -56,13 +56,15 @@ var (
 
 // file paths
 var (
-	// AddonFolder is the path to the addon folder. This is currently statically set to @ocap as I've not found a way to locate it dynamically.
-	// TODO: Locate module path in C and pass it to Go
+	// AddonFolder is the path to the addon folder. It's coded here to be @ocap, but if the module path is located and isn't the A3 root, we'll use that instead. This allows someone to load the addon from elsewhere on their PC, or use a custom folder name. This is checked in init().
 	AddonFolder string = fmt.Sprintf(
 		"%s\\@%s",
-		getDir(),
+		getArmaDir(),
 		Addon,
 	)
+	// ModuleFolder is where this dll is located
+	ModuleFolder string = filepath.Dir(getModulePath())
+
 	PrimaryLogFile string = fmt.Sprintf(
 		"%s\\%s.log",
 		AddonFolder,
@@ -107,6 +109,14 @@ var (
 	InfluxClient influxdb2.Client
 	// InfluxBackupWriter is the gzip writer Influx will use
 	InfluxBackupWriter *gzip.Writer
+
+	// LogIoConn is the connection to the log.io service
+	LogIoConn net.Conn
+	// NullByte is a byte slice containing a single null byte
+	NullByte byte = 0x00
+
+	// GraylogWriter is the GELF writer
+	GraylogWriter *gelf.Writer
 
 	// testing
 	IsDemoData bool = false
@@ -162,6 +172,11 @@ var (
 func init() {
 	var err error
 
+	// if the module dir is not the a3 root, we want to assume the addon folder has been renamed and adjust it accordingly
+	if ModuleFolder != getArmaDir() {
+		AddonFolder = ModuleFolder
+	}
+
 	// check if parent folder exists
 	// if it doesn't, create it
 	if _, err := os.Stat(AddonFolder); os.IsNotExist(err) {
@@ -212,8 +227,10 @@ func setupLogging() (err error) {
 		logLevelActual = zerolog.WarnLevel
 	case "ERROR":
 		logLevelActual = zerolog.ErrorLevel
-	case "FATAL":
-		logLevelActual = zerolog.FatalLevel
+	case "TRACE":
+		logLevelActual = zerolog.TraceLevel
+	default:
+		logLevelActual = zerolog.InfoLevel
 	}
 
 	// remove old logs (older than 7 days)
@@ -248,26 +265,68 @@ func setupLogging() (err error) {
 		return time.Now().UTC()
 	}
 
-	defs.Logger = zerolog.New(
-		zerolog.MultiLevelWriter(
-			// write console format with colors to console
-			zerolog.ConsoleWriter{
-				Out:        os.Stderr,
-				TimeFormat: time.RFC3339,
-			},
-			// write console format without colors to file
-			zerolog.ConsoleWriter{
-				Out:        f,
-				TimeFormat: time.RFC3339,
-				NoColor:    true,
-			},
-		),
-	).With().Timestamp().
-		Logger().Hook(
-		zerolog.HookFunc(
-			func(e *zerolog.Event, level zerolog.Level, msg string) {
-				e.Str("mission", CurrentMission.MissionName)
-			}))
+	// set up graylog writer
+	GraylogWriter, err = gelf.NewWriter(viper.GetString("graylog.address"))
+	if err != nil {
+		log.Println("Failed to connect to Graylog:", err)
+	}
+	GraylogWriter.CompressionType = gelf.CompressGzip
+
+	// set up multi-level writer
+	mlw := zerolog.MultiLevelWriter(
+		// write console format with colors to console
+		zerolog.ConsoleWriter{
+			Out:        os.Stderr,
+			TimeFormat: time.RFC3339,
+		},
+		// write console format without colors to file
+		zerolog.ConsoleWriter{
+			Out:        f,
+			TimeFormat: time.RFC3339,
+			NoColor:    true,
+		},
+	)
+
+	defs.Logger = zerolog.New(mlw).With().Timestamp().Logger().
+		Level(zerolog.DebugLevel).
+		Hook(
+			zerolog.HookFunc(
+				func(e *zerolog.Event, level zerolog.Level, msg string) {
+					// add current mission
+					e.Str("mission", CurrentMission.MissionName)
+
+					// if LogIoConn is valid, send logs to log.io
+					if LogIoConn != nil {
+						writeToLogIo(level, msg)
+					}
+				}))
+
+	// try to get a connection to log.io for streaming logs
+	// if it fails, log the error and continue
+
+	LogIoConn, err = net.DialTimeout(
+		"tcp",
+		viper.GetString("logio.host")+":"+viper.GetString("logio.port"),
+		1*time.Second,
+	)
+	if err != nil {
+		defs.Logger.Error().Err(err).Msg("Failed to connect to log.io")
+	}
+	if LogIoConn == nil {
+		defs.Logger.Error().Msg("Log.io connection is nil")
+	} else {
+		defs.Logger.Info().Msg("Connected to log.io")
+		// register input
+		data := make([]byte, 0)
+		data = append(data, []byte(`+input|ocap2|ocap_recorder`)...)
+		data = append(data, NullByte)
+		_, err = LogIoConn.Write(data)
+		if err != nil {
+			defs.Logger.Error().Err(err).Msg("Failed to register input to log.io")
+		}
+		// send entry log
+		writeToLogIo(zerolog.InfoLevel, "Connected to log.io")
+	}
 
 	// send the same logs to defs.JSONLogger
 
@@ -316,9 +375,31 @@ func setupLogging() (err error) {
 	return nil
 }
 
+func writeToLogIo(level zerolog.Level, msg string) {
+	if LogIoConn == nil {
+		return
+	}
+	data := make([]byte, 0)
+	message := fmt.Sprintf(
+		`%s %s %s`,
+		time.Now().UTC().Format(time.RFC3339),
+		level.String(),
+		msg,
+	)
+	data = append(data, []byte(
+		"+msg|ocap2|ocap_recorder|"+message,
+	)...)
+	data = append(data, NullByte)
+
+	_, err := LogIoConn.Write(data)
+	if err != nil {
+		defs.Logger.Debug().Err(err).Msg("Failed to send log to log.io")
+	}
+}
+
 // removeOldLogs will remove all .log and .jsonl files older than daysDelta days
 func removeOldLogs(path string, daysDelta int) {
-	files, err := ioutil.ReadDir(path)
+	files, err := os.ReadDir(path)
 	if err != nil {
 		defs.Logger.Warn().Err(err).Msg("Failed to read logs dir")
 		return
@@ -328,8 +409,15 @@ func removeOldLogs(path string, daysDelta int) {
 		if f.IsDir() {
 			continue
 		}
+		// get file info
+		r, err := f.Info()
+		if err != nil {
+			defs.Logger.Warn().Err(err).Msg("Failed to get file info")
+			continue
+		}
+		// check if file is a log file and if it's older than daysDelta days
 		if filepath.Ext(f.Name()) == ".log" || filepath.Ext(f.Name()) == ".jsonl" {
-			if time.Since(f.ModTime()).Hours() > float64(daysDelta*24) {
+			if time.Since(r.ModTime()).Hours() > float64(daysDelta*24) {
 				os.Remove(path + "\\" + f.Name())
 			}
 		}
@@ -341,10 +429,10 @@ func version() {
 	writeLog(functionName, fmt.Sprintf(`ocap_recorder version: %s`, CurrentExtensionVersion), "INFO")
 }
 
-func getDir() string {
+func getArmaDir() string {
 	dir, err := os.Getwd()
 	if err != nil {
-		writeLog("getDir", fmt.Sprintf(`error getting working directory: %v`, err), "ERROR")
+		writeLog("getArmaDir", fmt.Sprintf(`error getting working directory: %v`, err), "ERROR")
 		return ""
 	}
 	return dir
@@ -367,12 +455,19 @@ func loadConfig() (err error) {
 	viper.SetDefault("db.password", "postgres")
 	viper.SetDefault("db.database", "ocap")
 
-	viper.SetDefault("influx.enabled", false)
+	viper.SetDefault("influx.enabled", true)
 	viper.SetDefault("influx.host", "localhost")
 	viper.SetDefault("influx.port", "8086")
 	viper.SetDefault("influx.protocol", "http")
 	viper.SetDefault("influx.token", "supersecrettoken")
 	viper.SetDefault("influx.org", "ocap-metrics")
+
+	viper.SetDefault("graylog.enabled", true)
+	viper.SetDefault("graylog.address", "localhost:12201")
+
+	viper.SetDefault("logio.enabled", true)
+	viper.SetDefault("logio.host", "localhost")
+	viper.SetDefault("logio.port", "28777")
 
 	viper.SetConfigName("ocap_recorder.cfg.json")
 	viper.AddConfigPath(AddonFolder)
@@ -553,9 +648,10 @@ func connectToInflux() (influxdb2.Client, error) {
 			if err != nil {
 				writeLog("connectToInflux", fmt.Sprintf(`Bucket not found, creating: %s`, bucket), "INFO")
 
+				rule := domain.RetentionRuleTypeExpire
 				_, err = InfluxClient.BucketsAPI().
 					CreateBucketWithName(ctx, influxOrg, bucket, domain.RetentionRule{
-						Type:         domain.RetentionRuleTypeExpire,
+						Type:         &rule,
 						EverySeconds: 60 * 60 * 24 * 90, // 90 days
 					})
 				if err != nil {
@@ -2738,27 +2834,18 @@ func startDBWriters() {
 	}()
 }
 
-///////////////////////
+// /////////////////////
 // EXPORTED FUNCTIONS //
-///////////////////////
+// /////////////////////
 
-func runExtensionCallback(name *C.char, function *C.char, data *C.char) C.int {
-	return C.runExtensionCallback(extensionCallbackFnc, name, function, data)
+//export RVExtensionVersion
+func RVExtensionVersion(output *C.char, outputsize C.size_t) {
+	result := CurrentExtensionVersion
+	replyToSyncArmaCall(result, output, outputsize)
 }
 
-//export goRVExtensionVersion
-func goRVExtensionVersion(output *C.char, outputsize C.size_t) {
-	result := C.CString(CurrentExtensionVersion)
-	defer C.free(unsafe.Pointer(result))
-	var size = C.strlen(result) + 1
-	if size > outputsize {
-		size = outputsize
-	}
-	C.memmove(unsafe.Pointer(output), unsafe.Pointer(result), size)
-}
-
-//export goRVExtensionArgs
-func goRVExtensionArgs(output *C.char, outputsize C.size_t, input *C.char, argv **C.char, argc C.int) {
+//export RVExtensionArgs
+func RVExtensionArgs(output *C.char, outputsize C.size_t, input *C.char, argv **C.char, argc C.int) {
 	var offset = unsafe.Sizeof(uintptr(0))
 	var out []string
 	for index := C.int(0); index < argc; index++ {
@@ -2874,7 +2961,7 @@ func goRVExtensionArgs(output *C.char, outputsize C.size_t, input *C.char, argv 
 	}
 
 	// reply to the Arma call
-	replyToSyncArmaCall(response, output, outputsize, input, argv, argc)
+	replyToSyncArmaCall(response, output, outputsize)
 }
 
 // replyToSyncArmaCall will respond to a synchronous extension call from Arma
@@ -2882,9 +2969,6 @@ func replyToSyncArmaCall(
 	response string,
 	output *C.char,
 	outputsize C.size_t,
-	input *C.char,
-	argv **C.char,
-	argc C.int,
 ) {
 	// Reply to a synchronous call from Arma with a string response
 	result := C.CString(response)
@@ -2894,20 +2978,6 @@ func replyToSyncArmaCall(
 		size = outputsize
 	}
 	C.memmove(unsafe.Pointer(output), unsafe.Pointer(result), size)
-}
-
-func callBackExample() {
-	name := C.CString("arma")
-	defer C.free(unsafe.Pointer(name))
-	function := C.CString("funcToExecute")
-	defer C.free(unsafe.Pointer(function))
-	// Make a callback to Arma
-	for i := 0; i < 3; i++ {
-		time.Sleep(2 * time.Second)
-		param := C.CString(fmt.Sprintf("Loop: %d", i))
-		defer C.free(unsafe.Pointer(param))
-		runExtensionCallback(name, function, param)
-	}
 }
 
 func getTimestamp() string {
@@ -2995,37 +3065,24 @@ func writeLog(
 		Msg(data)
 }
 
-//export goRVExtension
-func goRVExtension(output *C.char, outputsize C.size_t, input *C.char) {
+//export RVExtension
+func RVExtension(output *C.char, outputsize C.size_t, input *C.char) {
 
-	var temp string
-
-	// logLine("goRVExtension", fmt.Sprintf(`["Input: %s",  "DEBUG"]`, C.GoString(input)), true)
+	var response string
 
 	switch C.GoString(input) {
 	case "version":
-		temp = CurrentExtensionVersion
-	case "getDir":
-		temp = getDir()
+		response = CurrentExtensionVersion
+	case "getArmaDir":
+		response = getArmaDir()
+	case "getModulePath":
+		response = getModulePath()
 
 	default:
-		temp = fmt.Sprintf(`["%s"]`, "Unknown Function")
+		response = fmt.Sprintf(`["%s"]`, "Unknown Function")
 	}
 
-	result := C.CString(temp)
-	defer C.free(unsafe.Pointer(result))
-	var size = C.strlen(result) + 1
-	if size > outputsize {
-		size = outputsize
-	}
-
-	C.memmove(unsafe.Pointer(output), unsafe.Pointer(result), size)
-	// return
-}
-
-//export goRVExtensionRegisterCallback
-func goRVExtensionRegisterCallback(fnc C.extensionCallback) {
-	extensionCallbackFnc = fnc
+	replyToSyncArmaCall(response, output, outputsize)
 }
 
 //////////////////////////////////////////////////////////////
