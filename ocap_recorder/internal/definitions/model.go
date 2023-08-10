@@ -26,11 +26,11 @@ var DatabaseModels = []interface{}{
 	&GeneralEvent{},
 	&HitEvent{},
 	&KillEvent{},
-	&DeathEvent{},
-	&UnconsciousEvent{},
 	&ChatEvent{},
 	&RadioEvent{},
 	&ServerFpsEvent{},
+	&Ace3DeathEvent{},
+	&Ace3UnconsciousEvent{},
 	&OcapPerformance{},
 }
 
@@ -48,11 +48,11 @@ var DatabaseModelNames = []string{
 	"general_events",
 	"hit_events",
 	"kill_events",
-	"death_events",
-	"unconscious_events",
 	"chat_events",
 	"radio_events",
 	"server_fps_events",
+	"ace3_death_events",
+	"ace3_unconscious_events",
 	"ocap_performances",
 }
 
@@ -372,7 +372,7 @@ type KillEvent struct {
 }
 
 // for medical mods, capture death events (ACE3)
-type DeathEvent struct {
+type Ace3DeathEvent struct {
 	ID           uint      `json:"id" gorm:"primarykey;autoIncrement;"`
 	Time         time.Time `json:"time" gorm:"type:timestamptz;"`
 	MissionID    uint      `json:"missionId" gorm:"index:idx_deathevent_mission_id"`
@@ -385,7 +385,7 @@ type DeathEvent struct {
 }
 
 // for medical mods, capture unconscious events (ACE3)
-type UnconsciousEvent struct {
+type Ace3UnconsciousEvent struct {
 	ID           uint      `json:"id" gorm:"primarykey;autoIncrement;"`
 	Time         time.Time `json:"time" gorm:"type:timestamptz;"`
 	MissionID    uint      `json:"missionId" gorm:"index:idx_unconsciousevent_mission_id"`

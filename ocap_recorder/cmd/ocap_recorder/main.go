@@ -126,17 +126,19 @@ var (
 // channels
 var (
 	// caches of processed models pending DB write
-	soldiersToWrite      = defs.SoldiersQueue{}
-	soldierStatesToWrite = defs.SoldierStatesQueue{}
-	vehiclesToWrite      = defs.VehiclesQueue{}
-	vehicleStatesToWrite = defs.VehicleStatesQueue{}
-	firedEventsToWrite   = defs.FiredEventsQueue{}
-	generalEventsToWrite = defs.GeneralEventsQueue{}
-	hitEventsToWrite     = defs.HitEventsQueue{}
-	killEventsToWrite    = defs.KillEventsQueue{}
-	chatEventsToWrite    = defs.ChatEventsQueue{}
-	radioEventsToWrite   = defs.RadioEventsQueue{}
-	fpsEventsToWrite     = defs.FpsEventsQueue{}
+	soldiersToWrite              = defs.SoldiersQueue{}
+	soldierStatesToWrite         = defs.SoldierStatesQueue{}
+	vehiclesToWrite              = defs.VehiclesQueue{}
+	vehicleStatesToWrite         = defs.VehicleStatesQueue{}
+	firedEventsToWrite           = defs.FiredEventsQueue{}
+	generalEventsToWrite         = defs.GeneralEventsQueue{}
+	hitEventsToWrite             = defs.HitEventsQueue{}
+	killEventsToWrite            = defs.KillEventsQueue{}
+	chatEventsToWrite            = defs.ChatEventsQueue{}
+	radioEventsToWrite           = defs.RadioEventsQueue{}
+	fpsEventsToWrite             = defs.FpsEventsQueue{}
+	ace3DeathEventsToWrite       = defs.Ace3DeathEventsQueue{}
+	ace3UnconsciousEventsToWrite = defs.Ace3UnconsciousEventsQueue{}
 
 	InfluxBucketNames = []string{
 		"mission_data",
@@ -373,8 +375,8 @@ var (
 		":CHAT:":              make(chan []string, 1000),
 		":RADIO:":             make(chan []string, 1000),
 		":FPS:":               make(chan []string, 1000),
-		":DEATH:":             make(chan []string, 1000),
-		":UNCONSCIOUS:":       make(chan []string, 1000),
+		":ACE3:DEATH:":        make(chan []string, 1000),
+		":ACE3:UNCONSCIOUS:":  make(chan []string, 1000),
 	}
 	// RVExtDataChannels is a map of channels for receiving data from RVExtension
 	RVExtDataChannels = map[string]chan string{
@@ -1377,10 +1379,6 @@ func logNewMission(data []string) (err error) {
 // logNewSoldier logs a new soldier to the database
 func logNewSoldier(data []string) (soldier defs.Soldier, err error) {
 	functionName := ":NEW:SOLDIER:"
-	// check if DB is valid
-	if !IsDatabaseValid {
-		return
-	}
 
 	// fix received data
 	for i, v := range data {
@@ -1434,10 +1432,6 @@ func logNewSoldier(data []string) (soldier defs.Soldier, err error) {
 // logSoldierState logs a SoldierState state to the database
 func logSoldierState(data []string) (soldierState defs.SoldierState, err error) {
 	functionName := ":NEW:SOLDIER:STATE:"
-	// check if DB is valid
-	if !IsDatabaseValid {
-		return soldierState, nil
-	}
 
 	// fix received data
 	for i, v := range data {
@@ -1556,10 +1550,6 @@ func logSoldierState(data []string) (soldierState defs.SoldierState, err error) 
 // log a new vehicle
 func logNewVehicle(data []string) (vehicle defs.Vehicle, err error) {
 	functionName := ":NEW:VEHICLE:"
-	// check if DB is valid
-	if !IsDatabaseValid {
-		return vehicle, nil
-	}
 
 	// fix received data
 	for i, v := range data {
@@ -1602,10 +1592,6 @@ func logNewVehicle(data []string) (vehicle defs.Vehicle, err error) {
 
 func logVehicleState(data []string) (vehicleState defs.VehicleState, err error) {
 	functionName := ":NEW:VEHICLE:STATE:"
-	// check if DB is valid
-	if !IsDatabaseValid {
-		return vehicleState, nil
-	}
 
 	// fix received data
 	for i, v := range data {
@@ -1720,10 +1706,6 @@ func logVehicleState(data []string) (vehicleState defs.VehicleState, err error) 
 // FIRED EVENTS
 func logFiredEvent(data []string) (firedEvent defs.FiredEvent, err error) {
 	functionName := ":FIRED:"
-	// check if DB is valid
-	if !IsDatabaseValid {
-		return firedEvent, nil
-	}
 
 	// fix received data
 	for i, v := range data {
@@ -1826,11 +1808,6 @@ func logGeneralEvent(data []string) (thisEvent defs.GeneralEvent, err error) {
 
 	functionName := ":EVENT:"
 
-	// check if DB is valid
-	if !IsDatabaseValid {
-		return thisEvent, nil
-	}
-
 	// fix received data
 	for i, v := range data {
 		data[i] = fixEscapeQuotes(trimQuotes(v))
@@ -1878,10 +1855,6 @@ func logGeneralEvent(data []string) (thisEvent defs.GeneralEvent, err error) {
 }
 
 func logHitEvent(data []string) (hitEvent defs.HitEvent, err error) {
-	// check if DB is valid
-	if !IsDatabaseValid {
-		return hitEvent, nil
-	}
 
 	// fix received data
 	for i, v := range data {
@@ -1998,10 +1971,6 @@ func logHitEvent(data []string) (hitEvent defs.HitEvent, err error) {
 }
 
 func logKillEvent(data []string) (killEvent defs.KillEvent, err error) {
-	// check if DB is valid
-	if !IsDatabaseValid {
-		return killEvent, nil
-	}
 
 	// fix received data
 	for i, v := range data {
@@ -2118,123 +2087,7 @@ func logKillEvent(data []string) (killEvent defs.KillEvent, err error) {
 	return killEvent, nil
 }
 
-func logDeathEvent(data []string) (deathEvent defs.DeathEvent, err error) {
-	// check if DB is valid
-	if !IsDatabaseValid {
-		return deathEvent, nil
-	}
-
-	// fix received data
-	for i, v := range data {
-		data[i] = fixEscapeQuotes(trimQuotes(v))
-	}
-
-	// get frame
-	frameStr := data[0]
-	capframe, err := strconv.ParseInt(frameStr, 10, 64)
-	if err != nil {
-		return deathEvent, fmt.Errorf(`error converting capture frame to int: %s`, err)
-	}
-
-	// timestamp will always be appended as the last element of data, in unixnano format as a string
-	timestampStr := data[len(data)-1]
-	timestampInt, err := strconv.ParseInt(timestampStr, 10, 64)
-	if err != nil {
-		return deathEvent, fmt.Errorf(`error converting timestamp to int: %v`, err)
-	}
-	deathEvent.Time = time.Unix(0, timestampInt)
-
-	deathEvent.CaptureFrame = uint(capframe)
-	deathEvent.Mission = *CurrentMission
-
-	// parse data in array
-	victimOcapID, err := strconv.ParseUint(data[1], 10, 64)
-	if err != nil {
-		return deathEvent, fmt.Errorf(`error converting victim ocap id to uint: %v`, err)
-	}
-
-	// try and find victim in DB to associate
-	// first, look in soldiers
-	victimSoldier := defs.Soldier{}
-	err = DB.Model(&defs.Soldier{}).Where(
-		&defs.Soldier{
-			OcapID:    uint16(victimOcapID),
-			MissionID: CurrentMission.ID,
-		}).First(&victimSoldier).Error
-	if err != nil && err != gorm.ErrRecordNotFound {
-		return deathEvent, fmt.Errorf(`error finding victim in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, victimOcapID, err)
-	} else if err == gorm.ErrRecordNotFound {
-		if capframe < 10 {
-			return defs.DeathEvent{}, errTooEarlyForStateAssociation
-		}
-		return deathEvent, fmt.Errorf(`victim ocap id not found in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, victimOcapID, err)
-	}
-	deathEvent.Soldier = victimSoldier
-
-	deathEvent.Reason = data[2]
-
-	return deathEvent, nil
-}
-
-func logUnconsciousEvent(data []string) (unconsciousEvent defs.UnconsciousEvent, err error) {
-	// check if DB is valid
-	if !IsDatabaseValid {
-		return unconsciousEvent, nil
-	}
-
-	// fix received data
-	for i, v := range data {
-		data[i] = fixEscapeQuotes(trimQuotes(v))
-	}
-
-	// get frame
-	frameStr := data[0]
-	capframe, err := strconv.ParseInt(frameStr, 10, 64)
-	if err != nil {
-		return unconsciousEvent, fmt.Errorf(`error converting capture frame to int: %s`, err)
-	}
-
-	unconsciousEvent.CaptureFrame = uint(capframe)
-	unconsciousEvent.Mission = *CurrentMission
-
-	// parse data in array
-	ocapID, err := strconv.ParseUint(data[1], 10, 64)
-	if err != nil {
-		return unconsciousEvent, fmt.Errorf(`error converting ocap id to uint: %v`, err)
-	}
-
-	// try and find soldier in DB to associate
-	soldier := defs.Soldier{}
-	err = DB.Model(&defs.Soldier{}).Where(
-		&defs.Soldier{
-			OcapID:    uint16(ocapID),
-			MissionID: CurrentMission.ID,
-		}).First(&soldier).Error
-	if err != nil && err != gorm.ErrRecordNotFound {
-		return unconsciousEvent, fmt.Errorf(`error finding soldier in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, ocapID, err)
-	} else if err == gorm.ErrRecordNotFound {
-		if capframe < 10 {
-			return defs.UnconsciousEvent{}, errTooEarlyForStateAssociation
-		}
-		return unconsciousEvent, fmt.Errorf(`ocap id not found in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, ocapID, err)
-	}
-
-	unconsciousEvent.Soldier = soldier
-
-	isAwake, err := strconv.ParseBool(data[2])
-	if err != nil {
-		return unconsciousEvent, fmt.Errorf(`error converting isAwake to bool: %v`, err)
-	}
-	unconsciousEvent.IsAwake = isAwake
-
-	return unconsciousEvent, nil
-}
-
 func logChatEvent(data []string) (chatEvent defs.ChatEvent, err error) {
-	// check if DB is valid
-	if !IsDatabaseValid {
-		return chatEvent, nil
-	}
 
 	// fix received data
 	for i, v := range data {
@@ -2321,10 +2174,6 @@ func logChatEvent(data []string) (chatEvent defs.ChatEvent, err error) {
 
 // radio events
 func logRadioEvent(data []string) (radioEvent defs.RadioEvent, err error) {
-	// check if DB is valid
-	if !IsDatabaseValid {
-		return radioEvent, nil
-	}
 
 	// fix received data
 	for i, v := range data {
@@ -2408,10 +2257,6 @@ func logRadioEvent(data []string) (radioEvent defs.RadioEvent, err error) {
 }
 
 func logFpsEvent(data []string) (fpsEvent defs.ServerFpsEvent, err error) {
-	// check if DB is valid
-	if !IsDatabaseValid {
-		return fpsEvent, nil
-	}
 
 	// fix received data
 	for i, v := range data {
@@ -2452,6 +2297,109 @@ func logFpsEvent(data []string) (fpsEvent defs.ServerFpsEvent, err error) {
 	return fpsEvent, nil
 }
 
+func logAce3DeathEvent(data []string) (deathEvent defs.Ace3DeathEvent, err error) {
+
+	// fix received data
+	for i, v := range data {
+		data[i] = fixEscapeQuotes(trimQuotes(v))
+	}
+
+	// get frame
+	frameStr := data[0]
+	capframe, err := strconv.ParseInt(frameStr, 10, 64)
+	if err != nil {
+		return deathEvent, fmt.Errorf(`error converting capture frame to int: %s`, err)
+	}
+
+	// timestamp will always be appended as the last element of data, in unixnano format as a string
+	timestampStr := data[len(data)-1]
+	timestampInt, err := strconv.ParseInt(timestampStr, 10, 64)
+	if err != nil {
+		return deathEvent, fmt.Errorf(`error converting timestamp to int: %v`, err)
+	}
+	deathEvent.Time = time.Unix(0, timestampInt)
+
+	deathEvent.CaptureFrame = uint(capframe)
+	deathEvent.Mission = *CurrentMission
+
+	// parse data in array
+	victimOcapID, err := strconv.ParseUint(data[1], 10, 64)
+	if err != nil {
+		return deathEvent, fmt.Errorf(`error converting victim ocap id to uint: %v`, err)
+	}
+
+	// try and find victim in DB to associate
+	// first, look in soldiers
+	victimSoldier := defs.Soldier{}
+	err = DB.Model(&defs.Soldier{}).Where(
+		&defs.Soldier{
+			OcapID:    uint16(victimOcapID),
+			MissionID: CurrentMission.ID,
+		}).First(&victimSoldier).Error
+	if err != nil && err != gorm.ErrRecordNotFound {
+		return deathEvent, fmt.Errorf(`error finding victim in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, victimOcapID, err)
+	} else if err == gorm.ErrRecordNotFound {
+		if capframe < 10 {
+			return defs.Ace3DeathEvent{}, errTooEarlyForStateAssociation
+		}
+		return deathEvent, fmt.Errorf(`victim ocap id not found in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, victimOcapID, err)
+	}
+	deathEvent.Soldier = victimSoldier
+
+	deathEvent.Reason = data[2]
+
+	return deathEvent, nil
+}
+
+func logAce3UnconsciousEvent(data []string) (unconsciousEvent defs.Ace3UnconsciousEvent, err error) {
+	// fix received data
+	for i, v := range data {
+		data[i] = fixEscapeQuotes(trimQuotes(v))
+	}
+
+	// get frame
+	frameStr := data[0]
+	capframe, err := strconv.ParseInt(frameStr, 10, 64)
+	if err != nil {
+		return unconsciousEvent, fmt.Errorf(`error converting capture frame to int: %s`, err)
+	}
+
+	unconsciousEvent.CaptureFrame = uint(capframe)
+	unconsciousEvent.Mission = *CurrentMission
+
+	// parse data in array
+	ocapID, err := strconv.ParseUint(data[1], 10, 64)
+	if err != nil {
+		return unconsciousEvent, fmt.Errorf(`error converting ocap id to uint: %v`, err)
+	}
+
+	// try and find soldier in DB to associate
+	soldier := defs.Soldier{}
+	err = DB.Model(&defs.Soldier{}).Where(
+		&defs.Soldier{
+			OcapID:    uint16(ocapID),
+			MissionID: CurrentMission.ID,
+		}).First(&soldier).Error
+	if err != nil && err != gorm.ErrRecordNotFound {
+		return unconsciousEvent, fmt.Errorf(`error finding soldier in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, ocapID, err)
+	} else if err == gorm.ErrRecordNotFound {
+		if capframe < 10 {
+			return defs.Ace3UnconsciousEvent{}, errTooEarlyForStateAssociation
+		}
+		return unconsciousEvent, fmt.Errorf(`ocap id not found in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, ocapID, err)
+	}
+
+	unconsciousEvent.Soldier = soldier
+
+	isAwake, err := strconv.ParseBool(data[2])
+	if err != nil {
+		return unconsciousEvent, fmt.Errorf(`error converting isAwake to bool: %v`, err)
+	}
+	unconsciousEvent.IsAwake = isAwake
+
+	return unconsciousEvent, nil
+}
+
 ///////////////////////
 // GOROUTINES //
 ///////////////////////
@@ -2460,12 +2408,11 @@ func startAsyncProcessors() {
 	functionName := ":DATA:PROCESSOR:"
 
 	// these goroutines will receive data from buffered channels & process them into defined models, then push them into queues for writing
-
 	go func() {
 		// process channel data
 		for v := range RVExtArgsDataChannels[":NEW:SOLDIER:"] {
 			if !IsDatabaseValid {
-				return
+				continue
 			}
 
 			obj, err := logNewSoldier(v)
@@ -2481,13 +2428,14 @@ func startAsyncProcessors() {
 		// process channel data
 		for v := range RVExtArgsDataChannels[":NEW:VEHICLE:"] {
 			if !IsDatabaseValid {
-				return
+				continue
 			}
 
 			obj, err := logNewVehicle(v)
 			if err == nil {
 				vehiclesToWrite.Push([]defs.Vehicle{obj})
 			} else {
+
 				writeLog(functionName, fmt.Sprintf(`Failed to log new vehicle. Err: %s`, err), "ERROR")
 			}
 		}
@@ -2497,7 +2445,7 @@ func startAsyncProcessors() {
 		// process channel data
 		for v := range RVExtArgsDataChannels[":NEW:SOLDIER:STATE:"] {
 			if !IsDatabaseValid {
-				return
+				continue
 			}
 
 			obj, err := logSoldierState(v)
@@ -2517,7 +2465,7 @@ func startAsyncProcessors() {
 		// process channel data
 		for v := range RVExtArgsDataChannels[":NEW:VEHICLE:STATE:"] {
 			if !IsDatabaseValid {
-				return
+				continue
 			}
 
 			obj, err := logVehicleState(v)
@@ -2539,7 +2487,7 @@ func startAsyncProcessors() {
 		// process channel data
 		for v := range RVExtArgsDataChannels[":FIRED:"] {
 			if !IsDatabaseValid {
-				return
+				continue
 			}
 
 			obj, err := logFiredEvent(v)
@@ -2559,7 +2507,7 @@ func startAsyncProcessors() {
 		// process channel data
 		for v := range RVExtArgsDataChannels[":EVENT:"] {
 			if !IsDatabaseValid {
-				return
+				continue
 			}
 
 			obj, err := logGeneralEvent(v)
@@ -2575,7 +2523,7 @@ func startAsyncProcessors() {
 		// process channel data
 		for v := range RVExtArgsDataChannels[":HIT:"] {
 			if !IsDatabaseValid {
-				return
+				continue
 			}
 
 			obj, err := logHitEvent(v)
@@ -2595,7 +2543,7 @@ func startAsyncProcessors() {
 		// process channel data
 		for v := range RVExtArgsDataChannels[":KILL:"] {
 			if !IsDatabaseValid {
-				return
+				continue
 			}
 
 			obj, err := logKillEvent(v)
@@ -2616,7 +2564,7 @@ func startAsyncProcessors() {
 		// process channel data
 		for v := range RVExtArgsDataChannels[":CHAT:"] {
 			if !IsDatabaseValid {
-				return
+				continue
 			}
 
 			obj, err := logChatEvent(v)
@@ -2637,7 +2585,7 @@ func startAsyncProcessors() {
 		// process channel data
 		for v := range RVExtArgsDataChannels[":RADIO:"] {
 			if !IsDatabaseValid {
-				return
+				continue
 			}
 
 			obj, err := logRadioEvent(v)
@@ -2658,14 +2606,56 @@ func startAsyncProcessors() {
 		// process channel data
 		for v := range RVExtArgsDataChannels[":FPS:"] {
 			if !IsDatabaseValid {
-				return
+				continue
 			}
 
 			obj, err := logFpsEvent(v)
 			if err == nil {
 				fpsEventsToWrite.Push([]defs.ServerFpsEvent{obj})
 			} else {
+				// if its within the first 10 frames, we don't want to log the error (because it's likely the unit itself isn't inserted yet)
+				if err == errTooEarlyForStateAssociation {
+					continue
+				}
 				writeLog(functionName, fmt.Sprintf(`Failed to log fps event. Err: %s`, err), "ERROR")
+			}
+		}
+	}()
+
+	// ace3 death events
+	go func() {
+		// process channel data
+		for v := range RVExtArgsDataChannels[":ACE3:DEATH:"] {
+			if !IsDatabaseValid {
+				continue
+			}
+
+			obj, err := logAce3DeathEvent(v)
+			if err == nil {
+				ace3DeathEventsToWrite.Push([]defs.Ace3DeathEvent{obj})
+			} else {
+				// if its within the first 10 frames, we don't want to log the error (because it's likely the unit itself isn't inserted yet)
+				if err == errTooEarlyForStateAssociation {
+					continue
+				}
+				writeLog(functionName, fmt.Sprintf(`Failed to log ace3 death event. Err: %s`, err), "ERROR")
+			}
+		}
+	}()
+
+	// ace3 unconscious events
+	go func() {
+		// process channel data
+		for v := range RVExtArgsDataChannels[":ACE3:UNCONSCIOUS:"] {
+			if !IsDatabaseValid {
+				continue
+			}
+
+			obj, err := logAce3UnconsciousEvent(v)
+			if err == nil {
+				ace3UnconsciousEventsToWrite.Push([]defs.Ace3UnconsciousEvent{obj})
+			} else {
+				writeLog(functionName, fmt.Sprintf(`Failed to log ace3 unconscious event. Err: %s`, err), "ERROR")
 			}
 		}
 	}()
@@ -2679,7 +2669,8 @@ func startDBWriters() {
 	go func() {
 		for {
 			if !IsDatabaseValid {
-				return
+				time.Sleep(1 * time.Second)
+				continue
 			}
 
 			if DBInsertsPaused {
@@ -2849,10 +2840,38 @@ func startDBWriters() {
 				fpsEventsToWrite.Clear()
 			}
 
+			// write ace3 death events
+			if !ace3DeathEventsToWrite.Empty() {
+				tx := DB.Begin()
+				ace3DeathEventsToWrite.Lock()
+				err := tx.Create(&ace3DeathEventsToWrite.Queue).Error
+				ace3DeathEventsToWrite.Unlock()
+				tx.Commit()
+				if err != nil {
+					writeLog(functionName, fmt.Sprintf(`Error creating ace3 death events: %v`, err), "ERROR")
+					tx.Rollback()
+				}
+				ace3DeathEventsToWrite.Clear()
+			}
+
+			// write ace3 unconscious events
+			if !ace3UnconsciousEventsToWrite.Empty() {
+				tx := DB.Begin()
+				ace3UnconsciousEventsToWrite.Lock()
+				err := tx.Create(&ace3UnconsciousEventsToWrite.Queue).Error
+				ace3UnconsciousEventsToWrite.Unlock()
+				tx.Commit()
+				if err != nil {
+					writeLog(functionName, fmt.Sprintf(`Error creating ace3 unconscious events: %v`, err), "ERROR")
+					tx.Rollback()
+				}
+				ace3UnconsciousEventsToWrite.Clear()
+			}
+
 			LastDBWriteDuration = time.Since(writeStart)
 
 			// sleep
-			time.Sleep(750 * time.Millisecond)
+			time.Sleep(750*time.Millisecond + time.Duration(rand.Intn(500))*time.Millisecond)
 
 		}
 	}()

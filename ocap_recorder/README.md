@@ -22,6 +22,9 @@ docker run --rm -it -v ${PWD}:/go/work -w /go/work x1unix/go-mingw:1.20 go build
 
 # Compile x86 Windows DLL
 docker run --rm -it -v ${PWD}:/go/work -w /go/work -e GOARCH=386 x1unix/go-mingw:1.20 go build -o dist/ocap_recorder.dll -buildmode=c-shared ./cmd/ocap_recorder
+
+# Compile x64 Windows EXE
+docker run --rm -it -v ${PWD}:/go/work -w /go/work x1unix/go-mingw:1.20 go build -o dist/ocap_recorder_x64.exe ./cmd/ocap_recorder
 ```
 
 ### COMPILING FOR LINUX

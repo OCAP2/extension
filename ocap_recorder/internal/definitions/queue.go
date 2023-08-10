@@ -52,6 +52,18 @@ func (q *ArraysQueue) GetAndEmpty() [][]string {
 	return q.queue
 }
 
+// create interface for managing queues
+type Queue interface {
+	Lock() bool
+	Unlock()
+	Empty() bool
+	Push(interface{})
+	Pop() interface{}
+	Len() int
+	Clear() int
+	GetAndEmpty() interface{}
+}
+
 type SoldiersQueue struct {
 	mu    sync.Mutex // protects q
 	Queue []Soldier
@@ -664,6 +676,119 @@ func (q *FpsEventsQueue) Clear() int {
 }
 
 func (q *FpsEventsQueue) GetAndEmpty() []ServerFpsEvent {
+	defer q.Clear()
+	return q.Queue
+}
+
+type Ace3DeathEventsQueue struct {
+	mu    sync.Mutex // protects q
+	Queue []Ace3DeathEvent
+}
+
+// lock, unlock, empty, push, pop, len, clear, getandempty
+func (q *Ace3DeathEventsQueue) Lock() bool {
+	q.mu.Lock()
+	return true
+}
+
+func (q *Ace3DeathEventsQueue) Unlock() {
+	q.mu.Unlock()
+}
+
+func (q *Ace3DeathEventsQueue) Empty() bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.Queue) == 0
+}
+
+func (q *Ace3DeathEventsQueue) Push(n []Ace3DeathEvent) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.Queue = append(q.Queue, n...)
+}
+
+func (q *Ace3DeathEventsQueue) Pop() Ace3DeathEvent {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if len(q.Queue) == 0 {
+		return Ace3DeathEvent{}
+	}
+	n := q.Queue[0]
+	q.Queue = q.Queue[1:]
+	return n
+}
+
+func (q *Ace3DeathEventsQueue) Len() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.Queue)
+}
+
+func (q *Ace3DeathEventsQueue) Clear() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.Queue = []Ace3DeathEvent{}
+	return len(q.Queue)
+}
+
+func (q *Ace3DeathEventsQueue) GetAndEmpty() []Ace3DeathEvent {
+	defer q.Clear()
+	return q.Queue
+}
+
+type Ace3UnconsciousEventsQueue struct {
+	mu    sync.Mutex // protects q
+	Queue []Ace3UnconsciousEvent
+}
+
+// lock, unlock, empty, push, pop, len, clear, getandempty
+
+func (q *Ace3UnconsciousEventsQueue) Lock() bool {
+	q.mu.Lock()
+	return true
+}
+
+func (q *Ace3UnconsciousEventsQueue) Unlock() {
+	q.mu.Unlock()
+}
+
+func (q *Ace3UnconsciousEventsQueue) Empty() bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.Queue) == 0
+}
+
+func (q *Ace3UnconsciousEventsQueue) Push(n []Ace3UnconsciousEvent) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.Queue = append(q.Queue, n...)
+}
+
+func (q *Ace3UnconsciousEventsQueue) Pop() Ace3UnconsciousEvent {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if len(q.Queue) == 0 {
+		return Ace3UnconsciousEvent{}
+	}
+	n := q.Queue[0]
+	q.Queue = q.Queue[1:]
+	return n
+}
+
+func (q *Ace3UnconsciousEventsQueue) Len() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.Queue)
+}
+
+func (q *Ace3UnconsciousEventsQueue) Clear() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.Queue = []Ace3UnconsciousEvent{}
+	return len(q.Queue)
+}
+
+func (q *Ace3UnconsciousEventsQueue) GetAndEmpty() []Ace3UnconsciousEvent {
 	defer q.Clear()
 	return q.Queue
 }
