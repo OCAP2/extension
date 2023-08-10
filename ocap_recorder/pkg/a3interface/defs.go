@@ -23,6 +23,13 @@ type configStruct struct {
 	errChan chan []string
 }
 
+// Init method initializes the config struct
+func (c *configStruct) Init() {
+	c.rvExtensionVersion = "No version set"
+	c.rvExtensionChannels = make(map[string]chan string)
+	c.rvExtensionArgsChannels = make(map[string]chan []string)
+}
+
 // SetVersion sets the version string that will be returned when the extension is first called by Arma. This is a string value and is logged by the game engine to the RPT file
 func SetVersion(version string) {
 	Config.rvExtensionVersion = version

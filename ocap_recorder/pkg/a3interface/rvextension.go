@@ -15,8 +15,10 @@ import (
 
 // Config defines how calls to this extension will be handled
 // it can be configured using method calls against it
-var Config configStruct = configStruct{
-	rvExtensionVersion: "No version set",
+var Config configStruct = configStruct{}
+
+func init() {
+	Config.Init()
 }
 
 // called by Arma to get the version of the extension
@@ -35,7 +37,7 @@ func RVExtension(output *C.char, outputsize C.size_t, input *C.char) {
 	var command string = C.GoString(input)
 	var commandSubstr string = strings.Split(command, "|")[0]
 	var desiredCommand string
-	var response string = fmt.Sprintf(`No responses configured!`)
+	var response string = "OK"
 
 	// send default reply immediately
 	replyToSyncArmaCall(response, output, outputsize)
@@ -46,7 +48,7 @@ func RVExtension(output *C.char, outputsize C.size_t, input *C.char) {
 		// then with the substring
 		if _, ok := Config.rvExtensionChannels[commandSubstr]; !ok {
 			// log an error if it isn't
-			writeErrChan(command, fmt.Errorf("No channel set for command: %s", command))
+			writeErrChan(command, fmt.Errorf("no channel set"))
 			return
 		}
 		desiredCommand = commandSubstr
@@ -56,8 +58,14 @@ func RVExtension(output *C.char, outputsize C.size_t, input *C.char) {
 
 	// get channel
 	channel := Config.rvExtensionChannels[desiredCommand]
+	if channel == nil {
+		writeErrChan(command, fmt.Errorf("channel not set"))
+		return
+	}
 	// send full command to channel
-	channel <- command
+	go func(channel chan string) {
+		channel <- command
+	}(channel)
 }
 
 // called by Arma when in the format of: "extensionName" callExtension ["command", ["data"]]
@@ -75,9 +83,11 @@ func RVExtensionArgs(output *C.char, outputsize C.size_t, input *C.char, argv **
 	// check if the callback channel is set for this command
 	if _, ok := Config.rvExtensionArgsChannels[command]; !ok {
 		// log an error if it isn't
-		writeErrChan(command, fmt.Errorf("No channel set for command: %s", command))
+		writeErrChan(command, fmt.Errorf("no channel set"))
 		return
 	}
+
+	channel := Config.rvExtensionArgsChannels[command]
 
 	// now, we'll process the data
 	// process the C vector into a Go slice
@@ -92,7 +102,9 @@ func RVExtensionArgs(output *C.char, outputsize C.size_t, input *C.char, argv **
 	data = append(data, fmt.Sprintf("%d", time.Now().UnixNano()))
 
 	// send the data to the channel
-	Config.rvExtensionArgsChannels[command] <- data
+	go func(channel chan []string) {
+		Config.rvExtensionArgsChannels[command] <- data
+	}(channel)
 }
 
 // replyToSyncArmaCall will respond to a synchronous extension call from Arma

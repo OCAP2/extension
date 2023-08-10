@@ -14,7 +14,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"math"
 	"math/rand"
 	"net"
@@ -68,26 +67,16 @@ var (
 	// ModuleFolder is the parent folder of ModulePath
 	ModuleFolder string = filepath.Dir(ModulePath)
 
-	PrimaryLogFile string = fmt.Sprintf(
-		"%s\\%s.log",
-		AddonFolder,
-		ExtensionName,
-	)
-	PrimaryLogJSONFile string = fmt.Sprintf(
-		"%s\\%s.jsonl",
-		AddonFolder,
-		ExtensionName,
-	)
-	ConfigurationFile string = fmt.Sprintf(
-		"%s\\%s.cfg.json",
-		AddonFolder,
-		ExtensionName,
-	)
+	InitLogFilePath string = AddonFolder + "\\init.log"
+	InitLogFile     *os.File
+	OcapLogFilePath string
+	OcapLogFile     *os.File
+
 	// InfluxBackupFilePath is the path to the gzip where influx lineprotocol is stored if InfluxDB is not available
-	InfluxBackupFilePath string = AddonFolder + "\\influx_backup.log.gzip"
+	InfluxBackupFilePath string
 
 	// SqliteDBFilePath refers to the sqlite database file
-	SqliteDBFilePath string = AddonFolder + "\\ocap_recorder.db"
+	SqliteDBFilePath string
 )
 
 // global variables
@@ -130,6 +119,8 @@ var (
 	SessionStartTime       time.Time = time.Now()
 	LastDBWriteDuration    time.Duration
 	IsStatusProcessRunning bool = false
+
+	addonVersion string = "unknown"
 )
 
 // channels
@@ -162,35 +153,10 @@ var (
 func init() {
 	var err error
 
-	// get Arma dir
 	ArmaDir, err = a3interface.GetArmaDir()
 	if err != nil {
 		panic(err)
 	}
-
-	// set other filepaths based on it
-	AddonFolder = fmt.Sprintf(
-		"%s\\@%s",
-		ArmaDir,
-		Addon,
-	)
-	PrimaryLogFile = fmt.Sprintf(
-		"%s\\%s.log",
-		AddonFolder,
-		ExtensionName,
-	)
-	PrimaryLogJSONFile = fmt.Sprintf(
-		"%s\\%s.jsonl",
-		AddonFolder,
-		ExtensionName,
-	)
-	ConfigurationFile = fmt.Sprintf(
-		"%s\\%s.cfg.json",
-		AddonFolder,
-		ExtensionName,
-	)
-	InfluxBackupFilePath = AddonFolder + "\\influx_backup.log.gzip"
-	SqliteDBFilePath = AddonFolder + "\\ocap_recorder.db"
 
 	// if the module dir is not the a3 root, we want to assume the addon folder has been renamed and adjust it accordingly
 	if ModuleFolder != ArmaDir {
@@ -203,45 +169,80 @@ func init() {
 		os.Mkdir(AddonFolder, 0755)
 	}
 
+	InitLogFile, err = os.Create(InitLogFilePath)
+	if err != nil {
+		defer defs.Logger.Warn().Err(err).Str("path", InitLogFilePath).
+			Msg("Failed to create/open log file!")
+	}
+	setupLogging(InitLogFile)
+
+	// load config
 	err = loadConfig()
-	setupLogging()
 	if err != nil {
-		defs.Logger.Warn().Err(err).Msg("Failed to load config, using default values!")
+		defs.Logger.Warn().Err(err).Msg("Failed to load config, using defaults!")
+	} else {
+		defs.Logger.Info().Msg("Loaded config")
 	}
-
-	// log frontend status
-	checkServerStatus()
-
-	// set up a3interfaces
-	defs.Logger.Info().Msg("Setting up a3interfaces...")
-	err = setupA3Interface()
-	if err != nil {
-		defs.Logger.Fatal().Err(err).Msg("Failed to set up a3interfaces!")
-	}
-}
-
-func setupLogging() (err error) {
-	PrimaryLogFile = fmt.Sprintf(
-		`%s\%s.%s.log`,
-		viper.GetString("logsDir"),
-		ExtensionName,
-		SessionStartTime.Format("20060102_150405"),
-	)
-	PrimaryLogJSONFile = fmt.Sprintf(
-		`%s\%s.%s.jsonl`,
-		viper.GetString("logsDir"),
-		ExtensionName,
-		SessionStartTime.Format("20060102_150405"),
-	)
-	log.Println("Log location:", PrimaryLogFile)
-	log.Println("JSON log location:", PrimaryLogJSONFile)
-	SqliteDBFilePath = fmt.Sprintf(`%s\%s_%s.db`, AddonFolder, ExtensionName, SessionStartTime.Format("20060102_150405"))
 
 	// resolve path set in config
 	// create logs dir if it doesn't exist
 	if _, err := os.Stat(viper.GetString("logsDir")); os.IsNotExist(err) {
 		os.Mkdir(viper.GetString("logsDir"), 0755)
 	}
+
+	OcapLogFilePath = fmt.Sprintf(
+		`%s\%s.%s.log`,
+		viper.GetString("logsDir"),
+		ExtensionName,
+		SessionStartTime.Format("20060102_150405"),
+	)
+
+	// check if OcapLogFilePath exists
+	// if it does, move it to OcapLogFilePath.old
+	// if it doesn't, create it
+	if _, err := os.Stat(OcapLogFilePath); err == nil {
+		os.Rename(OcapLogFilePath, OcapLogFilePath+".old")
+	}
+
+	OcapLogFile, err = os.OpenFile(OcapLogFilePath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		defs.Logger.Error().Err(err).Str("path", OcapLogFilePath).
+			Msg("Failed to create/open log file!")
+	}
+
+	defs.Logger.Info().Str("path", OcapLogFilePath).Msg("Begin logging in logs directory")
+
+	// set up logging
+	setupLogging(OcapLogFile)
+	defs.Logger.Info().Str("path", OcapLogFilePath).Msg("Logging to file")
+
+	SqliteDBFilePath = fmt.Sprintf(`%s\%s_%s.db`, AddonFolder, ExtensionName, SessionStartTime.Format("20060102_150405"))
+	InfluxBackupFilePath = AddonFolder + "\\influx_backup.log.gzip"
+	// set up a3interfaces
+	defs.Logger.Info().Msg("Setting up a3interface...")
+	err = setupA3Interface()
+	if err != nil {
+		defs.Logger.Fatal().Err(err).Msg("Failed to set up a3interfaces!")
+	} else {
+		defs.Logger.Info().Msg("Set up a3interfaces")
+	}
+
+	go func() {
+		startGoroutines()
+
+		// log frontend status
+		checkServerStatus()
+	}()
+}
+
+func initExtension() {
+	// send ready callback to Arma
+	a3interface.WriteArmaCallback(ExtensionName, ":EXT:READY:")
+	// send extension version
+	a3interface.WriteArmaCallback(ExtensionName, ":VERSION:", CurrentExtensionVersion)
+}
+
+func setupLogging(file *os.File) {
 
 	// get log level
 	var logLevelActual zerolog.Level
@@ -261,30 +262,7 @@ func setupLogging() (err error) {
 	}
 
 	// remove old logs (older than 7 days)
-	removeOldLogs(viper.GetString("logsDir"), 7)
-
-	// check if PrimaryLogFile exists
-	// if it does, move it to PrimaryLogFile.old
-	// if it doesn't, create it
-	if _, err := os.Stat(PrimaryLogFile); err == nil {
-		os.Rename(PrimaryLogFile, PrimaryLogFile+".old")
-	}
-	f, err := os.OpenFile(PrimaryLogFile, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
-	if err != nil {
-		log.Fatalf("error opening log file: %v", err)
-	}
-
-	// check if PrimaryLogJSONFile exists
-	// if it does, move it to PrimaryLogJSONFile.old
-	// if it doesn't, create it
-	if _, err := os.Stat(PrimaryLogJSONFile); err == nil {
-		os.Rename(PrimaryLogJSONFile, PrimaryLogJSONFile+".old")
-	}
-
-	fJSON, err := os.OpenFile(PrimaryLogJSONFile, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
-	if err != nil {
-		log.Fatalf("error opening JSON log file: %v", err)
-	}
+	// removeOldLogs(viper.GetString("logsDir"), 7)
 
 	// set up logging
 	zerolog.SetGlobalLevel(logLevelActual)
@@ -292,23 +270,16 @@ func setupLogging() (err error) {
 		return time.Now().UTC()
 	}
 
-	// set up graylog writer
-	GraylogWriter, err = gelf.NewWriter(viper.GetString("graylog.address"))
-	if err != nil {
-		log.Println("Failed to connect to Graylog:", err)
-	}
-	GraylogWriter.CompressionType = gelf.CompressGzip
-
 	// set up multi-level writer
 	mlw := zerolog.MultiLevelWriter(
 		// write console format with colors to console
-		zerolog.ConsoleWriter{
-			Out:        os.Stderr,
-			TimeFormat: time.RFC3339,
-		},
+		// zerolog.ConsoleWriter{
+		// 	Out:        os.Stdout,
+		// 	TimeFormat: time.RFC3339,
+		// },
 		// write console format without colors to file
 		zerolog.ConsoleWriter{
-			Out:        f,
+			Out:        file,
 			TimeFormat: time.RFC3339,
 			NoColor:    true,
 		},
@@ -320,86 +291,14 @@ func setupLogging() (err error) {
 			zerolog.HookFunc(
 				func(e *zerolog.Event, level zerolog.Level, msg string) {
 					// add current mission
-					e.Str("mission", CurrentMission.MissionName)
-
-					// if LogIoConn is valid, send logs to log.io
-					if LogIoConn != nil {
-						writeToLogIo(level, msg)
-					}
+					// add runtime info
+					e.Bool("usingLocalDB", ShouldSaveLocal).
+						Str("currentMission", CurrentMission.MissionName).
+						Uint("currentMissionID", CurrentMission.ID).
+						Bool("statusMonitorActive", IsStatusProcessRunning)
 				}))
 
-	// try to get a connection to log.io for streaming logs
-	// if it fails, log the error and continue
-
-	LogIoConn, err = net.DialTimeout(
-		"tcp",
-		viper.GetString("logio.host")+":"+viper.GetString("logio.port"),
-		1*time.Second,
-	)
-	if err != nil {
-		defs.Logger.Error().Err(err).Msg("Failed to connect to log.io")
-	}
-	if LogIoConn == nil {
-		defs.Logger.Error().Msg("Log.io connection is nil")
-	} else {
-		defs.Logger.Info().Msg("Connected to log.io")
-		// register input
-		data := make([]byte, 0)
-		data = append(data, []byte(`+input|ocap2|ocap_recorder`)...)
-		data = append(data, NullByte)
-		_, err = LogIoConn.Write(data)
-		if err != nil {
-			defs.Logger.Error().Err(err).Msg("Failed to register input to log.io")
-		}
-		// send entry log
-		writeToLogIo(zerolog.InfoLevel, "Connected to log.io")
-	}
-
-	// send the same logs to defs.JSONLogger
-
-	// log to JSON file
-	defs.JSONLogger = zerolog.New(fJSON).With().Stack().Caller().Timestamp().
-		Str("version", CurrentExtensionVersion).
-		Str("extension", ExtensionName).
-		Int("pid", os.Getpid()).
-		Logger().
-		Hook(zerolog.HookFunc(
-			func(e *zerolog.Event, level zerolog.Level, msg string) {
-				// add runtime info
-				e.Bool("usingLocalDB", ShouldSaveLocal).
-					Str("currentMission", CurrentMission.MissionName).
-					Uint("currentMissionID", CurrentMission.ID).
-					Bool("statusMonitorActive", IsStatusProcessRunning).
-					Str("dbHost", viper.GetString("db.host")).
-					Str("influxHost", viper.GetString("influx.host"))
-
-				// send non-debug data to influxdb
-				if !IsInfluxValid || level == zerolog.DebugLevel {
-					return
-				}
-				p := influxdb2.NewPoint(
-					level.String(),
-					map[string]string{
-						"version":    CurrentExtensionVersion,
-						"extension":  ExtensionName,
-						"pid":        fmt.Sprint(os.Getpid()),
-						"dbHost":     viper.GetString("db.host"),
-						"influxHost": viper.GetString("influx.host"),
-					},
-					map[string]interface{}{
-						"message": msg,
-						"mission": CurrentMission.MissionName,
-					},
-					time.Now().UTC(),
-				)
-				writeInfluxPoint(
-					context.Background(),
-					"ocap_logs",
-					p,
-				)
-			}))
-
-	return nil
+	defs.Logger.Info().Str("loglevel", defs.Logger.GetLevel().String()).Msg("Logging set up")
 }
 
 func writeToLogIo(level zerolog.Level, msg string) {
@@ -459,8 +358,10 @@ func removeOldLogs(path string, daysDelta int) {
 var (
 	// RVExtArgsDataChannels is a map of channels for receiving data from RVExtensionArgs
 	RVExtArgsDataChannels = map[string]chan []string{
+		// channels for receiving data from Arma
+		":ADDON:VERSION:": make(chan []string, 1),
+		":NEW:MISSION:":   make(chan []string, 1),
 		// channels for receiving new data and filing to DB
-		":INIT:DB:":           make(chan []string, 1),
 		":NEW:SOLDIER:":       make(chan []string, 1000),
 		":NEW:VEHICLE:":       make(chan []string, 1000),
 		":NEW:SOLDIER:STATE:": make(chan []string, 10000),
@@ -477,16 +378,19 @@ var (
 	}
 	// RVExtDataChannels is a map of channels for receiving data from RVExtension
 	RVExtDataChannels = map[string]chan string{
-		":VERSION":        make(chan string, 1),
-		":GETARMADIR:":    make(chan string, 1),
-		":GETMODULEPATH:": make(chan string, 1),
+		":VERSION:":        make(chan string, 1),
+		":INIT:":           make(chan string, 1),
+		":INIT:DB:":        make(chan string, 1),
+		":GETDIR:ARMA:":    make(chan string, 1),
+		":GETDIR:MODULE:":  make(chan string, 1),
+		":GETDIR:OCAPLOG:": make(chan string, 1),
 	}
 
 	// a3ErrorChan is used to send errors from the a3interface package to the main thread
 	a3ErrorChan = make(chan []string, 50)
 )
 
-func extInitDB(args []string) (err error) {
+func initDB() (err error) {
 	defs.Logger.Trace().Msg("Received :INIT:DB: call")
 	loadConfig()
 	functionName := ":INIT:DB:"
@@ -494,29 +398,18 @@ func extInitDB(args []string) (err error) {
 	if err != nil || DB == nil {
 		// if we couldn't connect to the database, send a callback to the addon to let it know
 		writeLog(functionName, fmt.Sprintf(`Error connecting to database: %v`, err), "ERROR")
-		a3interface.WriteArmaCallback(":DB:ERROR:", err.Error())
+		a3interface.WriteArmaCallback(ExtensionName, ":DB:ERROR:", err.Error())
 	} else {
 		err = setupDB(DB)
 		if err != nil {
 			writeLog(functionName, fmt.Sprintf(`Error setting up database: %v`, err), "ERROR")
 		}
-		startGoroutines()
 		InfluxClient, err = connectToInflux()
 		if err != nil {
 			writeLog(functionName, fmt.Sprintf(`Error connecting to InfluxDB: %v`, err), "ERROR")
 		}
 		// only if everything worked should we send a callback letting the addon know we're ready to receive the mission data
-		if DB.Dialector.Name() == "sqlite3" {
-			a3interface.WriteArmaCallback(":DB:OK:", "SQLITE")
-		} else if DB.Dialector.Name() == "postgres" {
-			a3interface.WriteArmaCallback(":DB:OK:", "POSTGRESQL")
-		} else if DB.Dialector.Name() == "mysql" {
-			a3interface.WriteArmaCallback(":DB:OK:", "MYSQL")
-		} else {
-			a3interface.WriteArmaCallback(":DB:OK:", "Unknown")
-		}
-		// send extension version
-		a3interface.WriteArmaCallback(":VERSION:", CurrentExtensionVersion)
+		a3interface.WriteArmaCallback(ExtensionName, ":DB:OK:", DB.Dialector.Name())
 	}
 	return nil
 }
@@ -535,17 +428,28 @@ func setupA3Interface() (err error) {
 		for {
 			select {
 			case errData := <-a3ErrorChan:
-				defs.Logger.Error().Str("error", errData[1]).Msg("Error in A3Interface")
-			case data := <-RVExtArgsDataChannels[":INIT:DB:"]:
-				extInitDB(data)
-
+				defs.Logger.Error().
+					Str("command", errData[0]).
+					Str("error", errData[1]).
+					Msg("Error in A3Interface")
 				// RVExtDataChannels
-			case _ = <-RVExtDataChannels[":VERSION"]:
-				a3interface.WriteArmaCallback(":VERSION:", CurrentExtensionVersion)
-			case _ = <-RVExtDataChannels[":GETARMADIR:"]:
-				a3interface.WriteArmaCallback(":ARMADIR:", ArmaDir)
-			case _ = <-RVExtDataChannels[":GETMODULEPATH:"]:
-				a3interface.WriteArmaCallback(":MODULEPATH:", ModulePath)
+			case <-RVExtDataChannels[":INIT:"]:
+				go initExtension()
+			case <-RVExtDataChannels[":INIT:DB:"]:
+				go initDB()
+			case <-RVExtDataChannels[":VERSION"]:
+				a3interface.WriteArmaCallback(ExtensionName, ":VERSION:", CurrentExtensionVersion)
+			case <-RVExtDataChannels[":GETDIR:ARMA:"]:
+				a3interface.WriteArmaCallback(ExtensionName, ":GETDIR:ARMA:", ArmaDir)
+			case <-RVExtDataChannels[":GETDIR:MODULE:"]:
+				a3interface.WriteArmaCallback(ExtensionName, ":GETDIR:MODULE:", ModulePath)
+			case <-RVExtDataChannels[":GETDIR:OCAPLOG:"]:
+				a3interface.WriteArmaCallback(ExtensionName, ":GETDIR:OCAPLOG:", OcapLogFilePath)
+				// RVExtArgsDataChannels
+			case data := <-RVExtArgsDataChannels[":ADDON:VERSION:"]:
+				addonVersion = data[0]
+			case data := <-RVExtArgsDataChannels[":NEW:MISSION:"]:
+				go logNewMission(data)
 			}
 		}
 	}()
@@ -977,6 +881,8 @@ func getPostgresDB() (db *gorm.DB, err error) {
 		viper.GetString("db.database"),
 	)
 
+	defs.Logger.Debug().Msgf("Connecting to Postgres DB at '%s'", dsn)
+
 	db, err = gorm.Open(postgres.New(postgres.Config{
 		DSN:                  dsn,
 		PreferSimpleProtocol: true, // disables implicit prepared statement usage
@@ -1219,7 +1125,7 @@ func startStatusMonitor() {
 		}()
 
 		// get status file writer with full control of file
-		statusFile, err := os.OpenFile(AddonFolder+"/status.txt", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+		statusFile, err := os.Create(AddonFolder + "/status.txt")
 		if err != nil {
 			writeLog(functionName, fmt.Sprintf(`Error opening status file: %v`, err), "ERROR")
 		}
@@ -1414,6 +1320,9 @@ func logNewMission(data []string) (err error) {
 	mission.Author = missionTemp["author"].(string)
 	mission.Tag = missionTemp["tag"].(string)
 
+	// received at extension init and saved to local memory
+	mission.AddonVersion = addonVersion
+
 	// check if world exists
 	err = DB.Where("world_name = ?", world.WorldName).First(&world).Error
 	if err != nil && err != gorm.ErrRecordNotFound {
@@ -1459,7 +1368,7 @@ func logNewMission(data []string) (err error) {
 	).Send()
 
 	// callback to addon to begin sending data
-	a3interface.WriteArmaCallback(`:MISSION:OK:`, "OK")
+	a3interface.WriteArmaCallback(ExtensionName, `:MISSION:OK:`, "OK")
 	return nil
 }
 

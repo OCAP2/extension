@@ -6,28 +6,6 @@ This is a Golang implementation of an Arma 3 extension that allows for recording
 
 It includes the ability to send its own performance metrics to InfluxDB for monitoring and alerting.
 
-## Building with Go
-
-You'll need to have Go v1.20.x installed and configured. You can find instructions on how to do that [here](https://golang.org/doc/install).
-
-You'll also need a gcc compiler installed. On Windows, you can use [MinGW](http://www.mingw.org/). On Linux, you can use the default gcc compiler.
-
-### COMPILING FOR WINDOWS x64 ON WINDOWS x64
-
-```ps1
-$ENV:GOARCH = "amd64"
-$ENV:CGO_ENABLED = 1
-$ENV:GOOS = "windows"
-go build -o dist/ocap_recorder_x64.dll -buildmode=c-shared ./cmd/ocap_recorder
-go build -o dist/ocap_recorder_x64.exe -buildmode=exe ./cmd/ocap_recorder
-```
-
-You can view exports of the created dll using dumpbin, which is included with Visual Studio installations. Run in cmd
-  
-  ```cmd
-  "C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Tools\MSVC\14.29.30037\bin\Hostx86\x86\dumpbin.exe" /exports ocap_recorder_x64.dll
-  ```
-
 ## Building using Docker
 
 You will need Docker Engine installed and running. This can be done on Windows or on Linux. However, you will need to use Linux containers if you're on Windows (specified in Docker Desktop settings).
