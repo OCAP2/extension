@@ -81,32 +81,38 @@ type OcapPerformance struct {
 
 // BufferLengths is the model for the buffer lengths
 type BufferLengths struct {
-	Soldiers        uint16 `json:"soldiers"`
-	Vehicles        uint16 `json:"vehicles"`
-	SoldierStates   uint16 `json:"soldierStates"`
-	VehicleStates   uint16 `json:"vehicleStates"`
-	GeneralEvents   uint16 `json:"generalEvents"`
-	HitEvents       uint16 `json:"hitEvents"`
-	KillEvents      uint16 `json:"killEvents"`
-	FiredEvents     uint16 `json:"firedEvents"`
-	ChatEvents      uint16 `json:"chatEvents"`
-	RadioEvents     uint16 `json:"radioEvents"`
-	ServerFpsEvents uint16 `json:"serverFpsEvents"`
+	Soldiers              uint16 `json:"soldiers"`
+	Vehicles              uint16 `json:"vehicles"`
+	SoldierStates         uint16 `json:"soldierStates"`
+	VehicleStates         uint16 `json:"vehicleStates"`
+	GeneralEvents         uint16 `json:"generalEvents"`
+	FiredEvents           uint16 `json:"firedEvents"`
+	FiredEventsNew        uint16 `json:"firedEventsNew"`
+	HitEvents             uint16 `json:"hitEvents"`
+	KillEvents            uint16 `json:"killEvents"`
+	ChatEvents            uint16 `json:"chatEvents"`
+	RadioEvents           uint16 `json:"radioEvents"`
+	ServerFpsEvents       uint16 `json:"serverFpsEvents"`
+	Ace3DeathEvents       uint16 `json:"ace3DeathEvents"`
+	Ace3UnconsciousEvents uint16 `json:"ace3UnconsciousEvents"`
 }
 
 // WriteQueueLengths is the model for the write queue lengths
 type WriteQueueLengths struct {
-	Soldiers        uint16 `json:"soldiers"`
-	Vehicles        uint16 `json:"vehicles"`
-	SoldierStates   uint16 `json:"soldierStates"`
-	VehicleStates   uint16 `json:"vehicleStates"`
-	GeneralEvents   uint16 `json:"generalEvents"`
-	HitEvents       uint16 `json:"hitEvents"`
-	KillEvents      uint16 `json:"killEvents"`
-	FiredEvents     uint16 `json:"firedEvents"`
-	ChatEvents      uint16 `json:"chatEvents"`
-	RadioEvents     uint16 `json:"radioEvents"`
-	ServerFpsEvents uint16 `json:"serverFpsEvents"`
+	Soldiers              uint16 `json:"soldiers"`
+	Vehicles              uint16 `json:"vehicles"`
+	SoldierStates         uint16 `json:"soldierStates"`
+	VehicleStates         uint16 `json:"vehicleStates"`
+	GeneralEvents         uint16 `json:"generalEvents"`
+	FiredEvents           uint16 `json:"firedEvents"`
+	FiredEventsNew        uint16 `json:"firedEventsNew"`
+	HitEvents             uint16 `json:"hitEvents"`
+	KillEvents            uint16 `json:"killEvents"`
+	ChatEvents            uint16 `json:"chatEvents"`
+	RadioEvents           uint16 `json:"radioEvents"`
+	ServerFpsEvents       uint16 `json:"serverFpsEvents"`
+	Ace3DeathEvents       uint16 `json:"ace3DeathEvents"`
+	Ace3UnconsciousEvents uint16 `json:"ace3UnconsciousEvents"`
 }
 
 ////////////////////////
@@ -179,6 +185,11 @@ type Mission struct {
 	ExtensionBuild               string    `json:"extensionBuild" gorm:"size:64;default:2.0.0"`
 	OcapRecorderExtensionVersion string    `json:"ocapRecorderExtensionVersion" gorm:"size:64;default:1.0.0"`
 	Tag                          string    `json:"tag" gorm:"size:127"`
+	PlayableSlotsWest            uint8     `json:"playableSlotsWest"`
+	PlayableSlotsEast            uint8     `json:"playableSlotsEast"`
+	PlayableSlotsIndependent     uint8     `json:"playableSlotsIndependent"`
+	PlayableSlotsCivilian        uint8     `json:"playableSlotsCivilian"`
+	PlayableSlotsLogic           uint8     `json:"playableSlotsLogic"`
 	Addons                       []Addon   `json:"-" gorm:"many2many:mission_addons;"`
 	Soldiers                     []Soldier `gorm:"foreignkey:MissionID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
 	Vehicles                     []Vehicle `gorm:"foreignkey:MissionID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
@@ -186,9 +197,12 @@ type Mission struct {
 	HitEvents                    []HitEvent
 	KillEvents                   []KillEvent
 	FiredEvents                  []FiredEvent
+	FiredEventsNew               []FiredEventNew
 	ChatEvents                   []ChatEvent
 	RadioEvents                  []RadioEvent
 	ServerFpsEvents              []ServerFpsEvent
+	Ace3DeathEvents              []Ace3DeathEvent
+	Ace3UnconsciousEvents        []Ace3UnconsciousEvent
 }
 
 // Addon is a mod or DLC
@@ -218,6 +232,7 @@ type Soldier struct {
 	DisplayName     string    `json:"displayName" gorm:"default:NULL;size:64"`
 	SoldierStates   []SoldierState
 	FiredEvents     []FiredEvent
+	FiredEventsNew  []FiredEventNew
 	ChatEvents      []ChatEvent
 	RadioEvents     []RadioEvent
 }
@@ -312,6 +327,23 @@ type FiredEvent struct {
 	StartElevationASL float32        `json:"startElev"`
 	EndPosition       GPSCoordinates `json:"endPos"`
 	EndElevationASL   float32        `json:"endElev"`
+}
+
+// FiredEventNew represents a weapon being fired and its lifetime
+type FiredEventNew struct {
+	ID           uint      `json:"id" gorm:"primarykey;autoIncrement;"`
+	Time         time.Time `json:"time" gorm:"type:timestamptz;"`
+	MissionID    uint      `json:"missionId" gorm:"index:idx_firedeventnew_mission_id"`
+	Mission      Mission   `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:MissionID;"`
+	SoldierID    uint      `json:"soldierId" gorm:"index:idx_firedeventnew_soldier_id"`
+	Soldier      Soldier   `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:SoldierID;"`
+	CaptureFrame uint      `json:"captureFrame" gorm:"index:idx_firedeventnew_capture_frame;"`
+
+	Weapon          string `json:"weapon" gorm:"size:64"`
+	WeaponDisplay   string `json:"weaponDisplay" gorm:"size:64"`
+	Magazine        string `json:"magazine" gorm:"size:64"`
+	MagazineDisplay string `json:"magazineDisplay" gorm:"size:64"`
+	FiringMode      string `json:"mode" gorm:"size:64"`
 }
 
 // GeneralEvent is a generic event that can be used to store any data

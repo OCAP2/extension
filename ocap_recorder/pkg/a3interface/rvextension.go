@@ -39,7 +39,13 @@ func RVExtension(output *C.char, outputsize C.size_t, input *C.char) {
 	var desiredCommand string
 	var response string = "OK"
 
-	// send default reply immediately
+	if command == ":TIMESTAMP:" {
+		response = getTimestamp()
+		replyToSyncArmaCall(response, output, outputsize)
+		return
+	}
+
+	// send default or timestamp reply immediately
 	replyToSyncArmaCall(response, output, outputsize)
 
 	// check if the callback channel is set for this command
@@ -130,4 +136,10 @@ func writeErrChan(command string, err error) {
 		return
 	}
 	Config.errChan <- []string{command, err.Error()}
+}
+
+func getTimestamp() string {
+	// get the current unix timestamp in nanoseconds
+	return fmt.Sprintf("%d", time.Now().UTC().UnixNano())
+	// return time.Now().Format("2006-01-02 15:04:05")
 }

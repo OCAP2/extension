@@ -62,12 +62,12 @@ var (
 	AddonFolder string
 
 	// ModulePath is the absolute path to this library file.
-	ModulePath string = assemblyfinder.GetModulePath()
+	ModulePath string
 
 	// ModuleFolder is the parent folder of ModulePath
-	ModuleFolder string = filepath.Dir(ModulePath)
+	ModuleFolder string
 
-	InitLogFilePath string = AddonFolder + "\\init.log"
+	InitLogFilePath string
 	InitLogFile     *os.File
 	OcapLogFilePath string
 	OcapLogFile     *os.File
@@ -143,10 +143,9 @@ var (
 	InfluxBucketNames = []string{
 		"mission_data",
 		"ocap_performance",
-		"ocap_logs",
 		"player_performance",
 		"server_performance",
-		"soldier_ammo",
+		"Telegraf",
 	}
 	InfluxWriters = make(map[string]influxdb2_api.WriteAPI)
 )
@@ -160,9 +159,14 @@ func init() {
 		panic(err)
 	}
 
+	ModulePath = assemblyfinder.GetModulePath()
+	ModuleFolder = filepath.Dir(ModulePath)
+
 	// if the module dir is not the a3 root, we want to assume the addon folder has been renamed and adjust it accordingly
-	if ModuleFolder != ArmaDir {
-		AddonFolder = ModuleFolder
+	AddonFolder = filepath.Dir(ModulePath)
+
+	if AddonFolder == ArmaDir {
+		AddonFolder = filepath.Join(ArmaDir, "@"+Addon)
 	}
 
 	// check if parent folder exists
@@ -170,6 +174,8 @@ func init() {
 	if _, err := os.Stat(AddonFolder); os.IsNotExist(err) {
 		os.Mkdir(AddonFolder, 0755)
 	}
+
+	InitLogFilePath = filepath.Join(AddonFolder, "init.log")
 
 	InitLogFile, err = os.Create(InitLogFilePath)
 	if err != nil {
@@ -275,10 +281,10 @@ func setupLogging(file *os.File) {
 	// set up multi-level writer
 	mlw := zerolog.MultiLevelWriter(
 		// write console format with colors to console
-		// zerolog.ConsoleWriter{
-		// 	Out:        os.Stdout,
-		// 	TimeFormat: time.RFC3339,
-		// },
+		zerolog.ConsoleWriter{
+			Out:        os.Stdout,
+			TimeFormat: time.RFC3339,
+		},
 		// write console format without colors to file
 		zerolog.ConsoleWriter{
 			Out:        file,
@@ -288,7 +294,7 @@ func setupLogging(file *os.File) {
 	)
 
 	defs.Logger = zerolog.New(mlw).With().Timestamp().Logger().
-		Level(zerolog.DebugLevel).
+		Level(logLevelActual).
 		Hook(
 			zerolog.HookFunc(
 				func(e *zerolog.Event, level zerolog.Level, msg string) {
@@ -368,8 +374,8 @@ var (
 		":NEW:VEHICLE:":       make(chan []string, 1000),
 		":NEW:SOLDIER:STATE:": make(chan []string, 10000),
 		":NEW:VEHICLE:STATE:": make(chan []string, 10000),
-		":FIRED:":             make(chan []string, 10000),
 		":EVENT:":             make(chan []string, 1000),
+		":FIRED:":             make(chan []string, 10000),
 		":HIT:":               make(chan []string, 2000),
 		":KILL:":              make(chan []string, 2000),
 		":CHAT:":              make(chan []string, 1000),
@@ -377,6 +383,8 @@ var (
 		":FPS:":               make(chan []string, 1000),
 		":ACE3:DEATH:":        make(chan []string, 1000),
 		":ACE3:UNCONSCIOUS:":  make(chan []string, 1000),
+		// metric channel
+		":METRIC:": make(chan []string, 1000),
 	}
 	// RVExtDataChannels is a map of channels for receiving data from RVExtension
 	RVExtDataChannels = map[string]chan string{
@@ -449,7 +457,7 @@ func setupA3Interface() (err error) {
 				a3interface.WriteArmaCallback(ExtensionName, ":GETDIR:OCAPLOG:", OcapLogFilePath)
 				// RVExtArgsDataChannels
 			case data := <-RVExtArgsDataChannels[":ADDON:VERSION:"]:
-				addonVersion = data[0]
+				addonVersion = fixEscapeQuotes(trimQuotes(data[0]))
 			case data := <-RVExtArgsDataChannels[":NEW:MISSION:"]:
 				go logNewMission(data)
 			}
@@ -519,62 +527,40 @@ func getProgramStatus(
 	writeQueues bool,
 	lastWrite bool,
 ) (output []string, model defs.OcapPerformance) {
-	// returns a slice of strings containing the current program status
-	// rawBuffers: include raw buffers in output
-	rawBuffersStr := fmt.Sprintf("TO PROCESS: Soldiers: %d | Vehicles: %d | SoldierStates: %d | VehicleStates: %d | FiredEvents: %d",
-		len(RVExtArgsDataChannels[":NEW:SOLDIER:"]),
-		len(RVExtArgsDataChannels[":NEW:VEHICLE:"]),
-		len(RVExtArgsDataChannels[":NEW:SOLDIER:STATE:"]),
-		len(RVExtArgsDataChannels[":NEW:VEHICLE:STATE:"]),
-		len(RVExtArgsDataChannels[":FIRED:"]),
-	)
-	// writeQueues: include write queues in output
-	writeQueuesStr := fmt.Sprintf("AWAITING WRITE: Soldiers: %d | Vehicles: %d | SoldierStates: %d | VehicleStates: %d | FiredEvents: %d",
-		soldiersToWrite.Len(),
-		vehiclesToWrite.Len(),
-		soldierStatesToWrite.Len(),
-		vehicleStatesToWrite.Len(),
-		firedEventsToWrite.Len(),
-	)
-	// lastWrite: include last write duration in output
-	lastWriteStr := fmt.Sprintf("LAST WRITE TOOK: %s", LastDBWriteDuration)
-
-	if rawBuffers {
-		output = append(output, rawBuffersStr)
-	}
-	if writeQueues {
-		output = append(output, writeQueuesStr)
-	}
-	if lastWrite {
-		output = append(output, lastWriteStr)
-	}
+	// returns a slice of strings indicating raw arrays pending processing as rawBuffers
+	// returns a slice of strings indicating pending data to write to DB as writeQueues
+	// returns a string indicating the last write duration in ms as lastWrite
 
 	buffersObj := defs.BufferLengths{
-		Soldiers:        uint16(len(RVExtArgsDataChannels[":NEW:SOLDIER:"])),
-		Vehicles:        uint16(len(RVExtArgsDataChannels[":NEW:VEHICLE:"])),
-		SoldierStates:   uint16(len(RVExtArgsDataChannels[":NEW:SOLDIER:STATE:"])),
-		VehicleStates:   uint16(len(RVExtArgsDataChannels[":NEW:VEHICLE:STATE:"])),
-		FiredEvents:     uint16(len(RVExtArgsDataChannels[":FIRED:"])),
-		GeneralEvents:   uint16(len(RVExtArgsDataChannels[":EVENT:"])),
-		HitEvents:       uint16(len(RVExtArgsDataChannels[":HIT:"])),
-		KillEvents:      uint16(len(RVExtArgsDataChannels[":KILL:"])),
-		ChatEvents:      uint16(len(RVExtArgsDataChannels[":CHAT:"])),
-		RadioEvents:     uint16(len(RVExtArgsDataChannels[":RADIO:"])),
-		ServerFpsEvents: uint16(len(RVExtArgsDataChannels[":FPS:"])),
+		Soldiers:              uint16(len(RVExtArgsDataChannels[":NEW:SOLDIER:"])),
+		Vehicles:              uint16(len(RVExtArgsDataChannels[":NEW:VEHICLE:"])),
+		SoldierStates:         uint16(len(RVExtArgsDataChannels[":NEW:SOLDIER:STATE:"])),
+		VehicleStates:         uint16(len(RVExtArgsDataChannels[":NEW:VEHICLE:STATE:"])),
+		FiredEvents:           uint16(len(RVExtArgsDataChannels[":FIRED:"])),
+		GeneralEvents:         uint16(len(RVExtArgsDataChannels[":EVENT:"])),
+		HitEvents:             uint16(len(RVExtArgsDataChannels[":HIT:"])),
+		KillEvents:            uint16(len(RVExtArgsDataChannels[":KILL:"])),
+		ChatEvents:            uint16(len(RVExtArgsDataChannels[":CHAT:"])),
+		RadioEvents:           uint16(len(RVExtArgsDataChannels[":RADIO:"])),
+		ServerFpsEvents:       uint16(len(RVExtArgsDataChannels[":FPS:"])),
+		Ace3DeathEvents:       uint16(len(RVExtArgsDataChannels[":ACE3:DEATH:"])),
+		Ace3UnconsciousEvents: uint16(len(RVExtArgsDataChannels[":ACE3:UNCONSCIOUS:"])),
 	}
 
 	writeQueuesObj := defs.WriteQueueLengths{
-		Soldiers:        uint16(soldiersToWrite.Len()),
-		Vehicles:        uint16(vehiclesToWrite.Len()),
-		SoldierStates:   uint16(soldierStatesToWrite.Len()),
-		VehicleStates:   uint16(vehicleStatesToWrite.Len()),
-		FiredEvents:     uint16(firedEventsToWrite.Len()),
-		GeneralEvents:   uint16(generalEventsToWrite.Len()),
-		HitEvents:       uint16(hitEventsToWrite.Len()),
-		KillEvents:      uint16(killEventsToWrite.Len()),
-		ChatEvents:      uint16(chatEventsToWrite.Len()),
-		RadioEvents:     uint16(radioEventsToWrite.Len()),
-		ServerFpsEvents: uint16(fpsEventsToWrite.Len()),
+		Soldiers:              uint16(soldiersToWrite.Len()),
+		Vehicles:              uint16(vehiclesToWrite.Len()),
+		SoldierStates:         uint16(soldierStatesToWrite.Len()),
+		VehicleStates:         uint16(vehicleStatesToWrite.Len()),
+		FiredEvents:           uint16(firedEventsToWrite.Len()),
+		GeneralEvents:         uint16(generalEventsToWrite.Len()),
+		HitEvents:             uint16(hitEventsToWrite.Len()),
+		KillEvents:            uint16(killEventsToWrite.Len()),
+		ChatEvents:            uint16(chatEventsToWrite.Len()),
+		RadioEvents:           uint16(radioEventsToWrite.Len()),
+		ServerFpsEvents:       uint16(fpsEventsToWrite.Len()),
+		Ace3DeathEvents:       uint16(ace3DeathEventsToWrite.Len()),
+		Ace3UnconsciousEvents: uint16(ace3UnconsciousEventsToWrite.Len()),
 	}
 
 	perf := defs.OcapPerformance{
@@ -584,6 +570,28 @@ func getProgramStatus(
 		WriteQueueLengths: writeQueuesObj,
 		// get float32 in ms
 		LastWriteDurationMs: float32(LastDBWriteDuration.Milliseconds()),
+	}
+
+	if rawBuffers {
+		rawBuffersStr, err := json.MarshalIndent(buffersObj, "", "  ")
+		if err != nil {
+			rawBuffersStr = []byte(fmt.Sprintf(`{"error": "%s"}`, err))
+		}
+		output = append(output, string(rawBuffersStr))
+	}
+	if writeQueues {
+		writeQueuesStr, err := json.MarshalIndent(writeQueuesObj, "", "  ")
+		if err != nil {
+			writeQueuesStr = []byte(fmt.Sprintf(`{"error": "%s"}`, err))
+		}
+		output = append(output, string(writeQueuesStr))
+	}
+	if lastWrite {
+		lastWriteStr, err := json.MarshalIndent(perf.LastWriteDurationMs, "", "  ")
+		if err != nil {
+			lastWriteStr = []byte(fmt.Sprintf(`{"error": "%s"}`, err))
+		}
+		output = append(output, string(lastWriteStr))
 	}
 
 	return output, perf
@@ -626,13 +634,11 @@ func connectToInflux() (influxdb2.Client, error) {
 			// create if not exists
 			file, err := os.OpenFile(InfluxBackupFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 			if err != nil {
-				writeLog("connectToInflux", fmt.Sprintf(`Error opening backup file: %s`, err), "ERROR")
-				return nil, err
+				return nil, fmt.Errorf("error creating backup file: %v", err)
 			}
 			InfluxBackupWriter = gzip.NewWriter(file)
 			if err != nil {
-				writeLog("connectToInflux", fmt.Sprintf(`Error creating gzip writer: %s`, err), "ERROR")
-				return nil, err
+				return nil, fmt.Errorf("error creating gzip writer: %v", err)
 			}
 		}
 	} else {
@@ -755,6 +761,75 @@ func writeInfluxPoint(
 	return nil
 }
 
+func processMetricData(data []string) (
+	bucket string,
+	point *influxdb2_write.Point,
+	err error,
+) {
+	functionName := ":METRIC:"
+
+	// fix received data
+	for i, v := range data {
+		data[i] = fixEscapeQuotes(trimQuotes(v))
+	}
+
+	// each metric will come through as a string array
+	// 0 = bucket name
+	// 1 = measurement name
+	// n with "tag" prefix = tag name
+	// n with "field" prefix = field
+	// tag and field values use "::" separator
+
+	// get bucket name
+	bucket = data[0]
+
+	// get measurement name
+	measurementName := data[1]
+
+	// create point
+	point = influxdb2_write.NewPointWithMeasurement(measurementName)
+
+	// add tags
+	for _, tag := range data[2:] {
+		if !strings.HasPrefix(tag, "tag::") {
+			continue
+		}
+		tagName := strings.Split(tag, "::")[1]
+		tagValue := strings.Split(tag, "::")[2]
+		point.AddTag(tagName, tagValue)
+	}
+
+	// add fields
+	for _, field := range data[2:] {
+		if !strings.HasPrefix(field, "field::") {
+			continue
+		}
+		fieldType := strings.Split(field, "::")[1]
+		fieldName := strings.Split(field, "::")[2]
+		fieldValue := strings.Split(field, "::")[3]
+		switch fieldType {
+		case "string":
+			point.AddField(fieldName, fieldValue)
+		case "int":
+			tagValueInt, err := strconv.Atoi(fieldValue)
+			if err != nil {
+				defs.Logger.Error().Err(err).Str("function", functionName).Msgf("Error converting tag value '%s' to int", fieldValue)
+				return "", nil, err
+			}
+			point.AddField(fieldName, tagValueInt)
+		case "float":
+			tagValueFloat, err := strconv.ParseFloat(fieldValue, 64)
+			if err != nil {
+				defs.Logger.Error().Err(err).Str("function", functionName).Msgf("Error converting tag value '%s' to float", fieldValue)
+				return "", nil, err
+			}
+			point.AddField(fieldName, tagValueFloat)
+		}
+	}
+
+	return bucket, point, nil
+}
+
 ///////////////////////
 // DATABASE OPS //
 ///////////////////////
@@ -836,7 +911,7 @@ func getBackupDBPaths() (dbPaths []string, err error) {
 	}
 	// filter out non .db files
 	for _, file := range files {
-		if file.IsDir() == false && strings.HasSuffix(file.Name(), ".db") {
+		if !file.IsDir() && strings.HasSuffix(file.Name(), ".db") {
 			// return path of file
 			dbPaths = append(dbPaths, filepath.Join(path, file.Name()))
 		}
@@ -1120,34 +1195,51 @@ func validateHypertables(tables map[string][]string) (err error) {
 // start a goroutine that will output channel lengths to status.txt and influxdb every X time
 func startStatusMonitor() {
 	go func() {
-		functionName := ":STATUS:MONITOR:"
 		IsStatusProcessRunning = true
 		defer func() {
 			IsStatusProcessRunning = false
 		}()
 
+		defs.Logger.Debug().
+			Str("function", "startStatusMonitor").
+			Msg("Starting status monitor goroutine")
+
 		// get status file writer with full control of file
+		defs.Logger.Trace().
+			Str("function", "startStatusMonitor").
+			Str("file", AddonFolder+"/status.txt")
+
 		statusFile, err := os.Create(AddonFolder + "/status.txt")
 		if err != nil {
-			writeLog(functionName, fmt.Sprintf(`Error opening status file: %v`, err), "ERROR")
+			defs.Logger.Error().Err(err).Msg("Error creating status file")
 		}
 		defer statusFile.Close()
 
 		for {
 			time.Sleep(1000 * time.Millisecond)
-			// clear the file contents and then write status
-			statusFile.Truncate(0)
-			statusFile.Seek(0, 0)
+
+			if CurrentMission.ID == 0 {
+				continue
+			}
+
 			statusStr, perfModel := getProgramStatus(true, true, true)
-			for _, line := range statusStr {
-				statusFile.WriteString(line + "\n")
+
+			if statusFile != nil {
+				// clear the file contents and then write status
+				statusFile.Truncate(0)
+				statusFile.Seek(0, 0)
+				for _, line := range statusStr {
+					statusFile.WriteString(line + "\n")
+				}
 			}
 
 			// ! write model to Postgres
-			// err = DB.Create(&perfModel).Error
-			// if err != nil {
-			// 	writeLog(functionName, fmt.Sprintf(`Error writing ocap perfromance to db: %v`, err), "ERROR")
-			// }
+			if IsDatabaseValid {
+				err = DB.Create(&perfModel).Error
+				if err != nil {
+					defs.Logger.Error().Err(err).Msg("Error writing perf model to Postgres")
+				}
+			}
 
 			// write to influxDB
 			if viper.GetBool("influx.enabled") {
@@ -1257,10 +1349,9 @@ func logNewMission(data []string) (err error) {
 	}
 
 	// preprocess the world 'location' to geopoint
-	worldLocation, err := defs.GPSFromCoords(
+	worldLocation, err := defs.Coords3857From4326(
 		float64(world.Longitude),
 		float64(world.Latitude),
-		4326,
 	)
 	if err != nil {
 		writeLog(functionName, fmt.Sprintf(`Error converting world location to geopoint: %v`, err), "ERROR")
@@ -1321,6 +1412,11 @@ func logNewMission(data []string) (err error) {
 	mission.OnLoadName = missionTemp["onLoadName"].(string)
 	mission.Author = missionTemp["author"].(string)
 	mission.Tag = missionTemp["tag"].(string)
+	mission.PlayableSlotsEast = uint8(missionTemp["playableSlotsEast"].(float64))
+	mission.PlayableSlotsWest = uint8(missionTemp["playableSlotsWest"].(float64))
+	mission.PlayableSlotsIndependent = uint8(missionTemp["playableSlotsIndependent"].(float64))
+	mission.PlayableSlotsCivilian = uint8(missionTemp["playableSlotsCivilian"].(float64))
+	mission.PlayableSlotsLogic = uint8(missionTemp["playableSlotsLogic"].(float64))
 
 	// received at extension init and saved to local memory
 	mission.AddonVersion = addonVersion
@@ -1484,7 +1580,7 @@ func logSoldierState(data []string) (soldierState defs.SoldierState, err error) 
 	pos := data[1]
 	pos = strings.TrimPrefix(pos, "[")
 	pos = strings.TrimSuffix(pos, "]")
-	point, elev, err := defs.GPSFromString(pos, 3857)
+	point, elev, err := defs.Coord3857FromString(pos)
 	if err != nil {
 		json, _ := json.Marshal(data)
 		writeLog(functionName, fmt.Sprintf("Error converting position to Point:\n%s\n%v", json, err), "ERROR")
@@ -1648,7 +1744,7 @@ func logVehicleState(data []string) (vehicleState defs.VehicleState, err error) 
 	pos := data[1]
 	pos = strings.TrimPrefix(pos, "[")
 	pos = strings.TrimSuffix(pos, "]")
-	point, elev, err := defs.GPSFromString(pos, 3857)
+	point, elev, err := defs.Coord3857FromString(pos)
 	if err != nil {
 		json, _ := json.Marshal(data)
 		writeLog(functionName, fmt.Sprintf("Error converting position to Point:\n%s\n%v", json, err), "ERROR")
@@ -1763,7 +1859,7 @@ func logFiredEvent(data []string) (firedEvent defs.FiredEvent, err error) {
 
 	// parse BULLET END POS from an arma string
 	endpos := data[2]
-	endpoint, endelev, err := defs.GPSFromString(endpos, 3857)
+	endpoint, endelev, err := defs.Coord3857FromString(endpos)
 	if err != nil {
 		json, _ := json.Marshal(data)
 		writeLog(functionName, fmt.Sprintf("Error converting position to Point:\n%s\n%v", json, err), "ERROR")
@@ -1774,7 +1870,7 @@ func logFiredEvent(data []string) (firedEvent defs.FiredEvent, err error) {
 
 	// parse BULLET START POS from an arma string
 	startpos := data[3]
-	startpoint, startelev, err := defs.GPSFromString(startpos, 3857)
+	startpoint, startelev, err := defs.Coord3857FromString(startpos)
 	if err != nil {
 		json, _ := json.Marshal(data)
 		writeLog(functionName, fmt.Sprintf("Error converting position to Point:\n%s\n%v", json, err), "ERROR")
@@ -2659,6 +2755,32 @@ func startAsyncProcessors() {
 			}
 		}
 	}()
+
+	// metric data
+	go func() {
+		var err error
+		for data := range RVExtArgsDataChannels[":METRIC:"] {
+
+			if InfluxClient == nil && InfluxBackupWriter == nil {
+				continue
+			}
+
+			// process data
+			var bucket string
+			var point *influxdb2_write.Point
+			bucket, point, err = processMetricData(data)
+			if err != nil {
+				defs.Logger.Error().Err(err).Msg("error processing metric data")
+				continue
+			}
+
+			err = writeInfluxPoint(context.Background(), bucket, point)
+			if err != nil {
+				defs.Logger.Error().Err(err).Msg("error writing influx point")
+				continue
+			}
+		}
+	}()
 }
 
 var errTooEarlyForStateAssociation error = fmt.Errorf(`too early for state association`)
@@ -2880,12 +3002,6 @@ func startDBWriters() {
 // /////////////////////
 // EXPORTED FUNCTIONS //
 // /////////////////////
-
-func getTimestamp() string {
-	// get the current unix timestamp in nanoseconds
-	// return time.Now().Local().Unix()
-	return time.Now().Format("2006-01-02 15:04:05")
-}
 
 func trimQuotes(s string) string {
 	// trim the start and end quotes from a string
@@ -4215,19 +4331,11 @@ func main() {
 	defs.Logger.Info().Msg("Starting up...")
 	// connect to DB
 	defs.Logger.Info().Msg("Connecting to DB...")
-	DB, err = getDB()
+	err = initDB()
 	if err != nil {
 		panic(err)
 	}
-	setupDB(DB)
-	startGoroutines()
 	defs.Logger.Info().Msg("DB connect/migrate complete.")
-
-	defs.Logger.Info().Msg("Connecting to InfluxDB...")
-	_, err = connectToInflux()
-	if err != nil {
-		panic(err)
-	}
 
 	// get arguments
 	args := os.Args[1:]

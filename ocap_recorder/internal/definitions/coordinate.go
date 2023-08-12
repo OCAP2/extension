@@ -2,6 +2,7 @@ package ocapdefs
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strconv"
@@ -9,12 +10,15 @@ import (
 
 	"github.com/twpayne/go-geom"
 	"github.com/twpayne/go-geom/encoding/ewkbhex"
+	"github.com/wroge/wgs84"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
 // GEO POINTS
 // https://pkg.go.dev/github.com/StampWallet/backend/internal/database
+
+// We will always store as 3857, including for world locations, because SQLite has no spatial awareness and we need to be able to interpret point data from strings during migrations using inherent Scan function.
 
 // GPSCoordinates is a 2d or 3d point in space
 type GPSCoordinates geom.Point
@@ -26,7 +30,31 @@ var ErrInvalidCoordinates = errors.New("invalid coordinates")
 func (g *GPSCoordinates) Scan(input interface{}) error {
 	gt, err := ewkbhex.Decode(input.(string))
 	if err != nil {
-		return err
+		// this will definitely error if using SQLite due to invalid byte read
+		// so if InvalidByteError, try to parse it as a string
+		if _, ok := err.(*hex.InvalidByteError); ok {
+			if strings.HasPrefix(input.(string), "POINT") {
+				// this is a point
+				start := strings.TrimPrefix(input.(string), "POINT(")
+				end := strings.TrimSuffix(start, ")")
+				coords := strings.Split(end, " ")
+				if len(coords) != 2 {
+					return ErrInvalidCoordinates
+				}
+				long, err := strconv.ParseFloat(coords[0], 64)
+				if err != nil {
+					return ErrInvalidCoordinates
+				}
+				lat, err := strconv.ParseFloat(coords[1], 64)
+				if err != nil {
+					return ErrInvalidCoordinates
+				}
+				*g = GPSCoordinates(*geom.NewPointFlat(geom.XY, []float64{long, lat}).SetSRID(3857))
+				return nil
+			}
+		} else {
+			return err
+		}
 	}
 	gp := gt.(*geom.Point)
 	gc := GPSCoordinates(*gp)
@@ -49,7 +77,7 @@ func (g GPSCoordinates) GormDataType() string {
 // GormValue gorm value
 func (g GPSCoordinates) GormValue(ctx context.Context, db *gorm.DB) clause.Expr {
 	b := geom.Point(g)
-	srid := b.SRID()
+	srid := 3857
 	var vars []interface{} = []interface{}{fmt.Sprintf(`SRID=%d;POINT(0 0)"`, srid)}
 	// if !b.Empty() {
 	if db.Dialector.Name() == "postgres" {
@@ -74,9 +102,8 @@ func (g GPSCoordinates) GormValue(ctx context.Context, db *gorm.DB) clause.Expr 
 }
 
 // GPSFromString parses a string in the format "long,lat" or "long,lat,elev" into a GPS point, and returns the type and elevation
-func GPSFromString(
+func Coord3857FromString(
 	coords string,
-	srid int,
 ) (
 	GPSCoordinates,
 	float64,
@@ -86,45 +113,43 @@ func GPSFromString(
 	if len(sp) != 2 && len(sp) != 3 {
 		return GPSCoordinates{}, 0, ErrInvalidCoordinates
 	}
-	long, err := strconv.ParseFloat(sp[0], 64)
+	x, err := strconv.ParseFloat(sp[0], 64)
 	if err != nil {
 		return GPSCoordinates{}, 0, ErrInvalidCoordinates
 	}
-	lat, err := strconv.ParseFloat(sp[1], 64)
+	y, err := strconv.ParseFloat(sp[1], 64)
 	if err != nil {
 		return GPSCoordinates{}, 0, ErrInvalidCoordinates
 	}
-	elev := 0.0
+	z := 0.0
 	if len(sp) == 3 {
-		elev, err = strconv.ParseFloat(sp[2], 64)
+		z, err = strconv.ParseFloat(sp[2], 64)
 		if err != nil {
 			return GPSCoordinates{}, 0, ErrInvalidCoordinates
 		}
 	}
-	if srid == 0 {
-		srid = 3857
-	}
 
-	geomPoint := GPSCoordinates(*geom.NewPointFlat(geom.XYZ, []float64{long, lat, elev}).SetSRID(srid))
+	geomPoint := GPSCoordinates(*geom.NewPointFlat(geom.XYZ, []float64{x, y, z}).SetSRID(3857))
 
-	return geomPoint, elev, nil
+	return geomPoint, z, nil
 }
 
 // GPSFromCoords creates a GPS point from a longitude and latitude
-func GPSFromCoords(
+func Coords3857From4326(
 	longitude float64,
 	latitude float64,
-	srid int,
 ) (
 	GPSCoordinates,
 	error,
 ) {
-	if srid == 0 {
-		srid = 3857
-	}
-	point, err := geom.NewPoint(geom.XYZ).SetCoords([]float64{longitude, latitude, 0})
+	var x, y float64
+	// if provided SRID was 4326, convert to 3857
+	epsg := wgs84.EPSG()
+	f := epsg.Transform(4326, 3857)
+	x, y, _ = f(longitude, latitude, 0)
+	point, err := geom.NewPoint(geom.XY).SetCoords([]float64{x, y})
 	if err != nil {
 		return GPSCoordinates{}, err
 	}
-	return GPSCoordinates(*point.SetSRID(srid)), nil
+	return GPSCoordinates(*point.SetSRID(3857)), nil
 }

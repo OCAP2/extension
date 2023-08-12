@@ -9,6 +9,7 @@ require (
 	github.com/rs/zerolog v1.30.0
 	github.com/spf13/viper v1.16.0
 	github.com/twpayne/go-geom v1.5.2
+	github.com/wroge/wgs84 v1.1.7
 	gorm.io/datatypes v1.2.0
 	gorm.io/driver/postgres v1.5.2
 	gorm.io/gorm v1.25.2
