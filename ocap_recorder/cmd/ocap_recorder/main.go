@@ -38,10 +38,11 @@ import (
 
 	"github.com/Graylog2/go-gelf/gelf"
 	"github.com/glebarez/sqlite"
+	geom "github.com/peterstace/simplefeatures/geom"
 	"github.com/rs/zerolog"
-	"github.com/twpayne/go-geom"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
 )
 
@@ -131,6 +132,7 @@ var (
 	vehiclesToWrite              = defs.VehiclesQueue{}
 	vehicleStatesToWrite         = defs.VehicleStatesQueue{}
 	firedEventsToWrite           = defs.FiredEventsQueue{}
+	projectileEventsToWrite      = defs.ProjectileEventsQueue{}
 	generalEventsToWrite         = defs.GeneralEventsQueue{}
 	hitEventsToWrite             = defs.HitEventsQueue{}
 	killEventsToWrite            = defs.KillEventsQueue{}
@@ -306,6 +308,11 @@ func setupLogging(file *os.File) {
 						Bool("statusMonitorActive", IsStatusProcessRunning)
 				}))
 
+	defs.DBStatusLogger = defs.Logger.With().
+		Str("component", "db_status").Logger().Sample(&zerolog.BasicSampler{
+		N: 50,
+	})
+
 	defs.Logger.Info().Str("loglevel", defs.Logger.GetLevel().String()).Msg("Logging set up")
 }
 
@@ -376,6 +383,7 @@ var (
 		":NEW:VEHICLE:STATE:": make(chan []string, 10000),
 		":EVENT:":             make(chan []string, 1000),
 		":FIRED:":             make(chan []string, 10000),
+		":PROJECTILE:":        make(chan []string, 5000),
 		":HIT:":               make(chan []string, 2000),
 		":KILL:":              make(chan []string, 2000),
 		":CHAT:":              make(chan []string, 1000),
@@ -621,9 +629,7 @@ func connectToInflux() (influxdb2.Client, error) {
 	)
 
 	// validate client connection health
-	pingCtxTimeout := time.Duration(2 * time.Second)
-	pingCtx, _ := context.WithTimeout(context.Background(), pingCtxTimeout)
-	running, err := InfluxClient.Ping(pingCtx)
+	running, err := InfluxClient.Ping(context.Background())
 
 	if err != nil || !running {
 		IsInfluxValid = false
@@ -994,11 +1000,11 @@ func getDB() (db *gorm.DB, err error) {
 	// test connection
 	sqlDB, err = db.DB()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create database config: %s", err)
+		return nil, fmt.Errorf("failed to access sql interface: %s", err)
 	}
 	err = sqlDB.Ping()
 	if err != nil {
-		writeLog(functionName, fmt.Sprintf(`Failed to connect to underlying SQL interface. Err: %s`, err), "ERROR")
+		writeLog(functionName, fmt.Sprintf(`Failed to validate connection. Err: %s`, err), "ERROR")
 		ShouldSaveLocal = true
 		db, err = getSqliteDB("")
 		if err != nil || db == nil {
@@ -1094,33 +1100,32 @@ func startGoroutines() (err error) {
 	}
 
 	// goroutine to, every x seconds, pause insert execution and dump memory sqlite db to disk
-	if ShouldSaveLocal {
-		go func() {
-			defs.Logger.Debug().
-				Str("function", functionName).
-				Bool("IsDatabaseValid", IsDatabaseValid).
-				Bool("ShouldSaveLocal", ShouldSaveLocal).
-				Msg("Starting DB dump goroutine")
+	go func() {
+		defs.Logger.Debug().
+			Str("function", functionName).
+			Msg("Starting DB dump goroutine")
 
-			for {
+		for {
 
-				time.Sleep(3 * time.Minute)
-
-				// pause insert execution
-				DBInsertsPaused = true
-
-				// dump memory sqlite db to disk
-				writeLog(functionName, "Dumping in-memory SQLite DB to disk", "DEBUG")
-				err = dumpMemoryDBToDisk()
-				if err != nil {
-					writeLog(functionName, fmt.Sprintf(`Error dumping memory db to disk: %v`, err), "ERROR")
-				}
-
-				// resume insert execution
-				DBInsertsPaused = false
+			time.Sleep(3 * time.Minute)
+			if !ShouldSaveLocal {
+				continue
 			}
-		}()
-	}
+
+			// pause insert execution
+			DBInsertsPaused = true
+
+			// dump memory sqlite db to disk
+			writeLog(functionName, "Dumping in-memory SQLite DB to disk", "DEBUG")
+			err = dumpMemoryDBToDisk()
+			if err != nil {
+				writeLog(functionName, fmt.Sprintf(`Error dumping memory db to disk: %v`, err), "ERROR")
+			}
+
+			// resume insert execution
+			DBInsertsPaused = false
+		}
+	}()
 
 	// log post goroutine creation
 	writeLog(functionName, "Goroutines started successfully", "INFO")
@@ -1889,6 +1894,86 @@ func logFiredEvent(data []string) (firedEvent defs.FiredEvent, err error) {
 	return firedEvent, nil
 }
 
+func logProjectileEvent(data []string) (projectileEvent defs.ProjectileEvent, err error) {
+	functionName := ":PROJECTILE:"
+
+	// fix received data
+	for i, v := range data {
+		data[i] = fixEscapeQuotes(trimQuotes(v))
+	}
+
+	projectileEvent.MissionID = CurrentMission.ID
+
+	// this event will be sent as JSON, so we need to unmarshal it
+
+	var rawJsonData map[string]interface{}
+	err = json.Unmarshal([]byte(data[0]), &rawJsonData)
+	if err != nil {
+		writeLog(functionName, fmt.Sprintf(`Error unmarshalling json data: %v`, err), "ERROR")
+		return projectileEvent, err
+	}
+
+	// get data from json - this is done bit by bit to avoid errors if the data is missing or mismatching type due to SQF vs Go
+
+	projectileEvent.Time = time.Unix(0, int64(rawJsonData["firedTime"].(float64)))
+	projectileEvent.CaptureFrame = uint(rawJsonData["firedFrame"].(float64))
+
+	// for Positions parsing, we need to create a Linestring with XYZM dimensions
+	// X, Y, Z, time (unix time nanoseconds)
+
+	// first, we'll grab the positions and store XYZM in a sequence
+	positionSequence := []float64{}
+	for _, v := range rawJsonData["positions"].([]interface{}) {
+		posArr := v.([]interface{})
+
+		// process time as posArr[0]
+		unixTimeNano := posArr[0].(string)
+		unixTimeNanoFloat64, err := strconv.ParseFloat(unixTimeNano, 64)
+		if err != nil {
+			writeLog(functionName, fmt.Sprintf(`Error converting unixTimeNano to float64: %v`, err), "ERROR")
+			return projectileEvent, err
+		}
+
+		// process actual position xyz as posArr[2]
+		pos := posArr[2].(string)
+		point, _, err := defs.Coord3857FromString(pos)
+		if err != nil {
+			json, _ := json.Marshal(data)
+			defs.Logger.Error().Err(err).Str("json", string(json)).Msg("Error converting position to Point")
+			return projectileEvent, err
+		}
+		coords, _ := point.Coordinates()
+
+		// append to sequence
+		positionSequence = append(
+			positionSequence,
+			coords.XY.X,
+			coords.XY.Y,
+			coords.Z,
+			unixTimeNanoFloat64,
+		)
+	}
+
+	// next, we'll create the linestring
+	posSeq := geom.NewSequence(positionSequence, geom.DimXYZM)
+	ls, err := geom.NewLineString(posSeq)
+	if err != nil {
+		json, _ := json.Marshal(data)
+		defs.Logger.Error().Err(err).Str("json", string(json)).Msg("Error creating linestring")
+		return projectileEvent, err
+	}
+
+	projectileEvent.Positions = ls
+
+	projectileEvent.Weapon = rawJsonData["weapon"].(string)
+	projectileEvent.WeaponDisplay = rawJsonData["weaponDisplay"].(string)
+	projectileEvent.Magazine = rawJsonData["magazine"].(string)
+	projectileEvent.MagazineDisplay = rawJsonData["magazineDisplay"].(string)
+	projectileEvent.Muzzle = rawJsonData["muzzle"].(string)
+
+	return projectileEvent, nil
+}
+
 func contains(s []string, str string) bool {
 	for _, v := range s {
 		if v == str {
@@ -2599,6 +2684,26 @@ func startAsyncProcessors() {
 		}
 	}()
 
+	// projectile events
+	go func() {
+		for v := range RVExtArgsDataChannels[":PROJECTILE:"] {
+			if !IsDatabaseValid {
+				continue
+			}
+
+			obj, err := logProjectileEvent(v)
+			if err == nil {
+				projectileEventsToWrite.Push([]defs.ProjectileEvent{obj})
+			} else {
+				// if its within the first 10 frames, we don't want to log the error (because it's likely the unit itself isn't inserted yet)
+				if err == errTooEarlyForStateAssociation {
+					continue
+				}
+				writeLog(functionName, fmt.Sprintf(`Failed to log projectile event. Err: %s`, err), "ERROR")
+			}
+		}
+	}()
+
 	go func() {
 		// process channel data
 		for v := range RVExtArgsDataChannels[":EVENT:"] {
@@ -2796,7 +2901,7 @@ func startDBWriters() {
 			}
 
 			if DBInsertsPaused {
-				time.Sleep(100 * time.Millisecond)
+				time.Sleep(500 * time.Millisecond)
 				continue
 			}
 
@@ -2876,6 +2981,22 @@ func startDBWriters() {
 					tx.Rollback()
 				}
 				firedEventsToWrite.Clear()
+			}
+
+			// write projectile events
+			if !projectileEventsToWrite.Empty() {
+				tx := DB.Begin()
+				projectileEventsToWrite.Lock()
+				err := tx.Create(&projectileEventsToWrite.Queue).Error
+				projectileEventsToWrite.Unlock()
+				tx.Commit()
+				if err != nil {
+					writeLog(functionName, fmt.Sprintf(`Error creating projectile events: %v`, err), "ERROR")
+					stmt := tx.Statement.SQL.String()
+					writeLog(functionName, stmt, "ERROR")
+					tx.Rollback()
+				}
+				projectileEventsToWrite.Clear()
 			}
 
 			// write general events
@@ -3070,32 +3191,124 @@ func migrateBackupsSqlite() (err error) {
 			return fmt.Errorf("error getting sqlite database: %v", err)
 		}
 
-		for _, modelName := range defs.DatabaseModelNames {
-			// get the model
-			// model := defs.DatabaseModels[i]
-			defs.Logger.Info().Msgf("Migrating %s", modelName)
-			defs.JSONLogger.Info().Msgf("Migrating %s", modelName)
+		// transaction for Postgres so we can rollback if errors
+		tx := postgresDB.Begin()
 
-			var data []interface{}
-			sqliteDB.Table(modelName).Find(&data)
-			defs.Logger.Info().Msgf("Found %d %s", len(data), modelName)
-			defs.JSONLogger.Info().Msgf("Found %d %s", len(data), modelName)
-
-			if len(data) == 0 {
-				continue
-			}
-
-			err = postgresDB.Table(modelName).Create(&data).Error
-			if err != nil {
-				defs.Logger.Error().Err(err).
-					Str("database", sqlitePath).
-					Msgf("Error migrating %s", modelName)
-				defs.JSONLogger.Error().Err(err).
-					Str("database", sqlitePath).
-					Msgf("Error migrating %s", modelName)
-				continue
-			}
+		// migrate all tables
+		// ocap_infos
+		err = migrateTable(sqliteDB, tx, defs.OcapInfo{}, "ocap_infos")
+		if err != nil {
+			return fmt.Errorf("error migrating ocapinfo: %v", err)
 		}
+		// after_action_reviews
+		err = migrateTable(sqliteDB, tx, defs.AfterActionReview{}, "after_action_reviews")
+		if err != nil {
+			return fmt.Errorf("error migrating after_action_reviews: %v", err)
+		}
+		// worlds
+		err = migrateTable(sqliteDB, tx, defs.World{}, "worlds")
+		if err != nil {
+			return fmt.Errorf("error migrating worlds: %v", err)
+		}
+		// missions
+		err = migrateTable(sqliteDB, tx, defs.Mission{}, "missions")
+		if err != nil {
+			return fmt.Errorf("error migrating missions: %v", err)
+		}
+
+		// soldiers
+		err = migrateTable(sqliteDB, tx, defs.Soldier{}, "soldiers")
+		if err != nil {
+			tx.Rollback()
+			return fmt.Errorf("error migrating soldiers: %v", err)
+		}
+		//soldier_states
+		err = migrateTable(sqliteDB, tx, defs.SoldierState{}, "soldier_states")
+		if err != nil {
+			tx.Rollback()
+			return fmt.Errorf("error migrating soldier_states: %v", err)
+		}
+		// vehicles
+		err = migrateTable(sqliteDB, tx, defs.Vehicle{}, "vehicles")
+		if err != nil {
+			tx.Rollback()
+			return fmt.Errorf("error migrating vehicles: %v", err)
+		}
+		// vehicle_states
+		err = migrateTable(sqliteDB, tx, defs.VehicleState{}, "vehicle_states")
+		if err != nil {
+			tx.Rollback()
+			return fmt.Errorf("error migrating vehicle_states: %v", err)
+		}
+		// fired_events
+		err = migrateTable(sqliteDB, tx, defs.FiredEvent{}, "fired_events")
+		if err != nil {
+			tx.Rollback()
+			return fmt.Errorf("error migrating fired_events: %v", err)
+		}
+		// projectile_events
+		err = migrateTable(sqliteDB, tx, defs.ProjectileEvent{}, "projectile_events")
+		if err != nil {
+			tx.Rollback()
+			return fmt.Errorf("error migrating projectile_events: %v", err)
+		}
+		// general_events
+		err = migrateTable(sqliteDB, tx, defs.GeneralEvent{}, "general_events")
+		if err != nil {
+			tx.Rollback()
+			return fmt.Errorf("error migrating general_events: %v", err)
+		}
+		// hit_events
+		err = migrateTable(sqliteDB, tx, defs.HitEvent{}, "hit_events")
+		if err != nil {
+			tx.Rollback()
+			return fmt.Errorf("error migrating hit_events: %v", err)
+		}
+		// kill_events
+		err = migrateTable(sqliteDB, tx, defs.KillEvent{}, "kill_events")
+		if err != nil {
+			tx.Rollback()
+			return fmt.Errorf("error migrating kill_events: %v", err)
+		}
+		// chat_events
+		err = migrateTable(sqliteDB, tx, defs.ChatEvent{}, "chat_events")
+		if err != nil {
+			tx.Rollback()
+			return fmt.Errorf("error migrating chat_events: %v", err)
+		}
+		// radio_events
+		err = migrateTable(sqliteDB, tx, defs.RadioEvent{}, "radio_events")
+		if err != nil {
+			tx.Rollback()
+			return fmt.Errorf("error migrating radio_events: %v", err)
+		}
+		// server_fps_events
+		err = migrateTable(sqliteDB, tx, defs.ServerFpsEvent{}, "server_fps_events")
+		if err != nil {
+			tx.Rollback()
+			return fmt.Errorf("error migrating server_fps_events: %v", err)
+		}
+		// ace3_death_events
+		err = migrateTable(sqliteDB, tx, defs.Ace3DeathEvent{}, "ace3_death_events")
+		if err != nil {
+			tx.Rollback()
+			return fmt.Errorf("error migrating ace3_death_events: %v", err)
+		}
+		// ace3_unconscious_events
+		err = migrateTable(sqliteDB, tx, defs.Ace3UnconsciousEvent{}, "ace3_unconscious_events")
+		if err != nil {
+			tx.Rollback()
+			return fmt.Errorf("error migrating ace3_unconscious_events: %v", err)
+		}
+		// ocap_performances
+		err = migrateTable(sqliteDB, tx, defs.OcapPerformance{}, "ocap_performances")
+		if err != nil {
+			tx.Rollback()
+			return fmt.Errorf("error migrating ocap_performances: %v", err)
+		}
+
+		// With no issues, we commit the transaction
+		tx.Commit()
 
 		// if we get here, we've successfully migrated this backup
 		// remove connections to the databases
@@ -3105,7 +3318,14 @@ func migrateBackupsSqlite() (err error) {
 			defs.JSONLogger.Error().Msgf("Error getting sqlite connection: %v", err)
 			continue
 		}
-		sqlConnection.Close()
+		err = sqlConnection.Close()
+		if err != nil {
+			defs.Logger.Error().Msgf("Error closing sqlite connection: %v", err)
+		}
+		err = os.Rename(sqlitePath, sqlitePath+".migrated")
+		if err != nil {
+			defs.Logger.Error().Msgf("Error renaming sqlite file: %v", err)
+		}
 		successfulMigrations = append(successfulMigrations, sqlitePath)
 	}
 
@@ -3118,6 +3338,44 @@ func migrateBackupsSqlite() (err error) {
 		"successfulMigrations",
 		successArr,
 	).Msgf("Successfully migrated %d backups, it's recommended to delete these to avoid future data duplication", len(successfulMigrations))
+
+	return nil
+}
+
+// helper function for sqlite migrations
+func migrateTable[M any](
+	sqliteDB *gorm.DB,
+	postgresDB *gorm.DB,
+	model M,
+	tableName string,
+) (err error) {
+	var data = &map[string]interface{}{}
+	sqliteDB.Model(&model).
+		Assign("id", gorm.Expr("NULL")). // remove the id field from the data
+		Find(data)
+	defs.Logger.Info().Msgf("Found %d %s", len(*data), tableName)
+	defs.JSONLogger.Info().Msgf("Found %d %s", len(*data), tableName)
+
+	if len(*data) == 0 {
+		return nil
+	}
+
+	defs.Logger.Info().Msgf("Inserting %d %s", len(*data), tableName)
+
+	// insert into postgres
+	postgresDB.Model(&model).Clauses(
+		clause.OnConflict{
+			DoNothing: true,
+		}).Create(data)
+	if postgresDB.Error != nil {
+		defs.Logger.Error().Err(err).
+			Str("database", sqliteDB.Name()).
+			Msgf("Error migrating %s", tableName)
+		defs.JSONLogger.Error().Err(err).
+			Str("database", sqliteDB.Name()).
+			Msgf("Error migrating %s", tableName)
+		return err
+	}
 
 	return nil
 }
@@ -3347,6 +3605,11 @@ func populateDemoData() {
 			"extensionBuild":               "1.0",
 			"ocapRecorderExtensionVersion": "1.0",
 			"addons":                       demoAddons,
+			"playableSlotsEast":            rand.Intn(20),
+			"playableSlotsWest":            rand.Intn(20),
+			"playableSlotsIndependent":     rand.Intn(20),
+			"playableSlotsCivilian":        rand.Intn(20),
+			"playableSlotsLogic":           rand.Intn(20),
 		}
 		missionDataJSON, err := json.Marshal(missionData)
 		if err != nil {
@@ -3746,8 +4009,9 @@ func getOcapRecording(missionIDs []string) (err error) {
 			for _, state := range soldierStates {
 				var thisPosition []interface{}
 
-				pos := geom.Point(state.Position)
-				posArr := []float64{pos.Coords().X(), pos.Coords().Y(), pos.Z()}
+				pos := state.Position
+				coords, _ := pos.Coordinates()
+				posArr := []float64{coords.X, coords.Y, coords.Z}
 				thisPosition = append(thisPosition, posArr)
 				thisPosition = append(thisPosition, state.Bearing)
 				thisPosition = append(thisPosition, state.Lifestate)
@@ -3797,8 +4061,9 @@ func getOcapRecording(missionIDs []string) (err error) {
 			for _, event := range firedEvents {
 				var thisFiredFrame []interface{}
 				thisFiredFrame = append(thisFiredFrame, event.CaptureFrame)
-				endPos := geom.Point(event.EndPosition)
-				endPosArr := []float64{endPos.Coords().X(), endPos.Coords().Y(), endPos.Z()}
+				endPos := event.EndPosition
+				endPosCoords, _ := endPos.Coordinates()
+				endPosArr := []float64{endPosCoords.X, endPosCoords.Y, endPosCoords.Z}
 				thisFiredFrame = append(thisFiredFrame, endPosArr)
 
 				jsonSoldier["framesFired"] = append(jsonSoldier["framesFired"].([]interface{}), thisFiredFrame)
@@ -3850,8 +4115,9 @@ func getOcapRecording(missionIDs []string) (err error) {
 					continue
 				}
 
-				pos := geom.Point(state.Position)
-				posArr := []float64{pos.Coords().X(), pos.Coords().Y(), pos.Z()}
+				pos := state.Position
+				coords, _ := pos.Coordinates()
+				posArr := []float64{coords.X, coords.Y, coords.Z}
 				thisPosition = append(thisPosition, posArr)
 				thisPosition = append(thisPosition, state.Bearing)
 				thisPosition = append(thisPosition, state.IsAlive)
@@ -4336,6 +4602,7 @@ func main() {
 		panic(err)
 	}
 	defs.Logger.Info().Msg("DB connect/migrate complete.")
+	initExtension()
 
 	// get arguments
 	args := os.Args[1:]
@@ -4345,7 +4612,7 @@ func main() {
 			IsDemoData = true
 			demoStart := time.Now()
 			populateDemoData()
-			defs.Logger.Info().Dur("duration", time.Since(demoStart)).Msg("Demo data populated.")
+			defs.Logger.Info().Dur("duration", time.Duration(time.Since(demoStart).Seconds())).Msg("Demo data populated.")
 			// wait input
 			fmt.Println("Press enter to exit.")
 		}

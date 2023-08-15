@@ -52,18 +52,6 @@ func (q *ArraysQueue) GetAndEmpty() [][]string {
 	return q.queue
 }
 
-// create interface for managing queues
-type Queue interface {
-	Lock() bool
-	Unlock()
-	Empty() bool
-	Push(interface{})
-	Pop() interface{}
-	Len() int
-	Clear() int
-	GetAndEmpty() interface{}
-}
-
 type SoldiersQueue struct {
 	mu    sync.Mutex // protects q
 	Queue []Soldier
@@ -340,6 +328,62 @@ func (q *FiredEventsQueue) Clear() int {
 }
 
 func (q *FiredEventsQueue) GetAndEmpty() []FiredEvent {
+	defer q.Clear()
+	return q.Queue
+}
+
+type ProjectileEventsQueue struct {
+	mu    sync.Mutex // protects q
+	Queue []ProjectileEvent
+}
+
+// lock, unlock, empty, push, pop, len, clear, getandempty
+func (q *ProjectileEventsQueue) Lock() bool {
+	q.mu.Lock()
+	return true
+}
+
+func (q *ProjectileEventsQueue) Unlock() {
+	q.mu.Unlock()
+}
+
+func (q *ProjectileEventsQueue) Empty() bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.Queue) == 0
+}
+
+func (q *ProjectileEventsQueue) Push(n []ProjectileEvent) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.Queue = append(q.Queue, n...)
+}
+
+func (q *ProjectileEventsQueue) Pop() ProjectileEvent {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if len(q.Queue) == 0 {
+		return ProjectileEvent{}
+	}
+	n := q.Queue[0]
+	q.Queue = q.Queue[1:]
+	return n
+}
+
+func (q *ProjectileEventsQueue) Len() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.Queue)
+}
+
+func (q *ProjectileEventsQueue) Clear() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.Queue = []ProjectileEvent{}
+	return len(q.Queue)
+}
+
+func (q *ProjectileEventsQueue) GetAndEmpty() []ProjectileEvent {
 	defer q.Clear()
 	return q.Queue
 }

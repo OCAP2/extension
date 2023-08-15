@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"time"
 
+	geom "github.com/peterstace/simplefeatures/geom"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
@@ -23,6 +24,7 @@ var DatabaseModels = []interface{}{
 	&Vehicle{},
 	&VehicleState{},
 	&FiredEvent{},
+	&ProjectileEvent{},
 	&GeneralEvent{},
 	&HitEvent{},
 	&KillEvent{},
@@ -32,28 +34,6 @@ var DatabaseModels = []interface{}{
 	&Ace3DeathEvent{},
 	&Ace3UnconsciousEvent{},
 	&OcapPerformance{},
-}
-
-// DatabaseModelNames is a list of all the names of the structs exported here which represent tables in the database schema
-var DatabaseModelNames = []string{
-	"ocap_infos",
-	"after_action_reviews",
-	"worlds",
-	"missions",
-	"soldiers",
-	"soldier_states",
-	"vehicles",
-	"vehicle_states",
-	"fired_events",
-	"general_events",
-	"hit_events",
-	"kill_events",
-	"chat_events",
-	"radio_events",
-	"server_fps_events",
-	"ace3_death_events",
-	"ace3_unconscious_events",
-	"ocap_performances",
 }
 
 ////////////////////////
@@ -69,6 +49,10 @@ type OcapInfo struct {
 	GroupLogo        string `json:"groupLogoURL" gorm:"size:255"`
 }
 
+func (*OcapInfo) TableName() string {
+	return "ocap_infos"
+}
+
 // OcapPerformance is the model for extension performance metrics
 type OcapPerformance struct {
 	Time                time.Time         `json:"time" gorm:"type:timestamptz;index:idx_time"`
@@ -77,6 +61,10 @@ type OcapPerformance struct {
 	BufferLengths       BufferLengths     `json:"bufferLengths" gorm:"embedded;embeddedPrefix:buffer_"`
 	WriteQueueLengths   WriteQueueLengths `json:"writeQueueLengths" gorm:"embedded;embeddedPrefix:writequeue_"`
 	LastWriteDurationMs float32           `json:"lastWriteDurationMs"`
+}
+
+func (*OcapPerformance) TableName() string {
+	return "ocap_performances"
 }
 
 // BufferLengths is the model for the buffer lengths
@@ -115,6 +103,10 @@ type WriteQueueLengths struct {
 	Ace3UnconsciousEvents uint16 `json:"ace3UnconsciousEvents"`
 }
 
+func (b *BufferLengths) TableName() string {
+	return "buffer_lengths"
+}
+
 ////////////////////////
 // RETRIEVAL
 ////////////////////////
@@ -129,6 +121,10 @@ type FrameData struct {
 	Fired        datatypes.JSON `json:"fired"`
 	Radio        datatypes.JSON `json:"radio"`
 	Chat         datatypes.JSON `json:"chat"`
+}
+
+func (*FrameData) TableName() string {
+	return "frame_data"
 }
 
 ////////////////////////
@@ -147,6 +143,10 @@ type AfterActionReview struct {
 	CommentOther string  `json:"commentOther" gorm:"size:2000"`
 }
 
+func (*AfterActionReview) TableName() string {
+	return "after_action_reviews"
+}
+
 ////////////////////////
 // RECORDING MODELS
 ////////////////////////
@@ -154,16 +154,20 @@ type AfterActionReview struct {
 // World is the main model for a world
 type World struct {
 	gorm.Model
-	Author            string         `json:"author" gorm:"size:64"`
-	WorkshopID        string         `json:"workshopID" gorm:"size:64"`
-	DisplayName       string         `json:"displayName" gorm:"size:127"`
-	WorldName         string         `json:"worldName" gorm:"size:127"`
-	WorldNameOriginal string         `json:"worldNameOriginal" gorm:"size:127"`
-	WorldSize         float32        `json:"worldSize"`
-	Latitude          float32        `json:"latitude" gorm:"-"`
-	Longitude         float32        `json:"longitude" gorm:"-"`
-	Location          GPSCoordinates `json:"location"`
+	Author            string     `json:"author" gorm:"size:64"`
+	WorkshopID        string     `json:"workshopID" gorm:"size:64"`
+	DisplayName       string     `json:"displayName" gorm:"size:127"`
+	WorldName         string     `json:"worldName" gorm:"size:127"`
+	WorldNameOriginal string     `json:"worldNameOriginal" gorm:"size:127"`
+	WorldSize         float32    `json:"worldSize"`
+	Latitude          float32    `json:"latitude" gorm:"-"`
+	Longitude         float32    `json:"longitude" gorm:"-"`
+	Location          geom.Point `json:"location"`
 	Missions          []Mission
+}
+
+func (*World) TableName() string {
+	return "worlds"
 }
 
 // Mission is the main model for a mission
@@ -197,12 +201,16 @@ type Mission struct {
 	HitEvents                    []HitEvent
 	KillEvents                   []KillEvent
 	FiredEvents                  []FiredEvent
-	FiredEventsNew               []FiredEventNew
+	ProjectileEvents             []ProjectileEvent
 	ChatEvents                   []ChatEvent
 	RadioEvents                  []RadioEvent
 	ServerFpsEvents              []ServerFpsEvent
 	Ace3DeathEvents              []Ace3DeathEvent
 	Ace3UnconsciousEvents        []Ace3UnconsciousEvent
+}
+
+func (*Mission) TableName() string {
+	return "missions"
 }
 
 // Addon is a mod or DLC
@@ -213,28 +221,36 @@ type Addon struct {
 	WorkshopID string    `json:"workshopID" gorm:"size:127"`
 }
 
+func (*Addon) TableName() string {
+	return "addons"
+}
+
 // Soldier is a player or AI unit
 type Soldier struct {
 	gorm.Model
-	Mission         Mission   `gorm:"foreignkey:MissionID"`
-	MissionID       uint      `json:"missionId"`
-	JoinTime        time.Time `json:"joinTime" gorm:"type:timestamptz;NOT NULL;index:idx_soldier_join_time"`
-	JoinFrame       uint      `json:"joinFrame"`
-	OcapID          uint16    `json:"ocapId" gorm:"index:idx_soldier_ocap_id"`
-	OcapType        string    `json:"type" gorm:"size:16;default:man"`
-	UnitName        string    `json:"unitName" gorm:"size:64"`
-	GroupID         string    `json:"groupId" gorm:"size:64"`
-	Side            string    `json:"side" gorm:"size:16"`
-	IsPlayer        bool      `json:"isPlayer" gorm:"default:false"`
-	RoleDescription string    `json:"roleDescription" gorm:"size:64"`
-	PlayerUID       string    `json:"playerUID" gorm:"size:64; default:NULL; index:idx_soldier_player_uid"`
-	ClassName       string    `json:"className" gorm:"default:NULL;size:64"`
-	DisplayName     string    `json:"displayName" gorm:"default:NULL;size:64"`
-	SoldierStates   []SoldierState
-	FiredEvents     []FiredEvent
-	FiredEventsNew  []FiredEventNew
-	ChatEvents      []ChatEvent
-	RadioEvents     []RadioEvent
+	Mission               Mission   `gorm:"foreignkey:MissionID"`
+	MissionID             uint      `json:"missionId"`
+	JoinTime              time.Time `json:"joinTime" gorm:"type:timestamptz;NOT NULL;index:idx_soldier_join_time"`
+	JoinFrame             uint      `json:"joinFrame"`
+	OcapID                uint16    `json:"ocapId" gorm:"index:idx_soldier_ocap_id"`
+	OcapType              string    `json:"type" gorm:"size:16;default:man"`
+	UnitName              string    `json:"unitName" gorm:"size:64"`
+	GroupID               string    `json:"groupId" gorm:"size:64"`
+	Side                  string    `json:"side" gorm:"size:16"`
+	IsPlayer              bool      `json:"isPlayer" gorm:"default:false"`
+	RoleDescription       string    `json:"roleDescription" gorm:"size:64"`
+	PlayerUID             string    `json:"playerUID" gorm:"size:64; default:NULL; index:idx_soldier_player_uid"`
+	ClassName             string    `json:"className" gorm:"default:NULL;size:64"`
+	DisplayName           string    `json:"displayName" gorm:"default:NULL;size:64"`
+	SoldierStates         []SoldierState
+	FiredEvents           []FiredEvent
+	ProjectileEventsFirer []ProjectileEvent `gorm:"foreignkey:FirerID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+	ChatEvents            []ChatEvent
+	RadioEvents           []RadioEvent
+}
+
+func (*Soldier) TableName() string {
+	return "soldiers"
 }
 
 // SoldierState inherits from Frame
@@ -248,18 +264,22 @@ type SoldierState struct {
 	SoldierID    uint      `json:"soldierId" gorm:"index:idx_soldierstate_soldier_id"`
 	Soldier      Soldier   `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:SoldierID;"`
 
-	Position         GPSCoordinates `json:"position"`
-	ElevationASL     float32        `json:"elevationASL"`
-	Bearing          uint16         `json:"bearing" gorm:"default:0"`
-	Lifestate        uint8          `json:"lifestate" gorm:"default:0"`
-	InVehicle        bool           `json:"inVehicle" gorm:"default:false"`
-	VehicleRole      string         `json:"vehicleRole" gorm:"size:64"`
-	UnitName         string         `json:"unitName" gorm:"size:64"`
-	IsPlayer         bool           `json:"isPlayer" gorm:"default:false"`
-	CurrentRole      string         `json:"currentRole" gorm:"size:64"`
-	HasStableVitals  bool           `json:"hasStableVitals" gorm:"default:true"`
-	IsDraggedCarried bool           `json:"isDraggedCarried" gorm:"default:false"`
-	Scores           SoldierScores  `json:"scores" gorm:"embedded;embeddedPrefix:scores_"`
+	Position         geom.Point    `json:"position"`
+	ElevationASL     float32       `json:"elevationASL"`
+	Bearing          uint16        `json:"bearing" gorm:"default:0"`
+	Lifestate        uint8         `json:"lifestate" gorm:"default:0"`
+	InVehicle        bool          `json:"inVehicle" gorm:"default:false"`
+	VehicleRole      string        `json:"vehicleRole" gorm:"size:64"`
+	UnitName         string        `json:"unitName" gorm:"size:64"`
+	IsPlayer         bool          `json:"isPlayer" gorm:"default:false"`
+	CurrentRole      string        `json:"currentRole" gorm:"size:64"`
+	HasStableVitals  bool          `json:"hasStableVitals" gorm:"default:true"`
+	IsDraggedCarried bool          `json:"isDraggedCarried" gorm:"default:false"`
+	Scores           SoldierScores `json:"scores" gorm:"embedded;embeddedPrefix:scores_"`
+}
+
+func (*SoldierState) TableName() string {
+	return "soldier_states"
 }
 
 // SoldierScores stores Arma 3 player scores
@@ -287,6 +307,10 @@ type Vehicle struct {
 	VehicleStates []VehicleState
 }
 
+func (*Vehicle) TableName() string {
+	return "vehicles"
+}
+
 // VehicleState defines the state of a vehicle at a given time
 type VehicleState struct {
 	// composite primary key with Time and OCAPID
@@ -298,16 +322,20 @@ type VehicleState struct {
 	VehicleID    uint      `json:"soldierID" gorm:"index:idx_vehicle_id"`
 	Vehicle      Vehicle   `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:VehicleID;"`
 
-	Position     GPSCoordinates `json:"position"`
-	ElevationASL float32        `json:"elevationASL"`
-	Bearing      uint16         `json:"bearing"`
-	IsAlive      bool           `json:"isAlive"`
-	Crew         string         `json:"crew" gorm:"size:128"`
-	Fuel         float32        `json:"fuel"`
-	Damage       float32        `json:"damage"`
-	Locked       bool           `json:"locked"`
-	EngineOn     bool           `json:"engineOn"`
-	Side         string         `json:"side" gorm:"size:16"`
+	Position     geom.Point `json:"position"`
+	ElevationASL float32    `json:"elevationASL"`
+	Bearing      uint16     `json:"bearing"`
+	IsAlive      bool       `json:"isAlive"`
+	Crew         string     `json:"crew" gorm:"size:128"`
+	Fuel         float32    `json:"fuel"`
+	Damage       float32    `json:"damage"`
+	Locked       bool       `json:"locked"`
+	EngineOn     bool       `json:"engineOn"`
+	Side         string     `json:"side" gorm:"size:16"`
+}
+
+func (*VehicleState) TableName() string {
+	return "vehicle_states"
 }
 
 // FiredEvent represents a weapon being fired
@@ -323,27 +351,44 @@ type FiredEvent struct {
 	Magazine     string    `json:"magazine" gorm:"size:64"`
 	FiringMode   string    `json:"mode" gorm:"size:64"`
 
-	StartPosition     GPSCoordinates `json:"startPos"`
-	StartElevationASL float32        `json:"startElev"`
-	EndPosition       GPSCoordinates `json:"endPos"`
-	EndElevationASL   float32        `json:"endElev"`
+	StartPosition     geom.Point `json:"startPos"`
+	StartElevationASL float32    `json:"startElev"`
+	EndPosition       geom.Point `json:"endPos"`
+	EndElevationASL   float32    `json:"endElev"`
+}
+
+func (*FiredEvent) TableName() string {
+	return "fired_events"
 }
 
 // FiredEventNew represents a weapon being fired and its lifetime
-type FiredEventNew struct {
-	ID           uint      `json:"id" gorm:"primarykey;autoIncrement;"`
-	Time         time.Time `json:"time" gorm:"type:timestamptz;"`
-	MissionID    uint      `json:"missionId" gorm:"index:idx_firedeventnew_mission_id"`
-	Mission      Mission   `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:MissionID;"`
-	SoldierID    uint      `json:"soldierId" gorm:"index:idx_firedeventnew_soldier_id"`
-	Soldier      Soldier   `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:SoldierID;"`
-	CaptureFrame uint      `json:"captureFrame" gorm:"index:idx_firedeventnew_capture_frame;"`
+type ProjectileEvent struct {
+	ID            uint      `json:"id" gorm:"primarykey;autoIncrement;"`
+	Time          time.Time `json:"firedTime" gorm:"type:timestamptz;"`
+	MissionID     uint      `json:"missionId" gorm:"index:idx_projectile_mission_id"`
+	Mission       Mission   `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:MissionID;"`
+	FirerID       uint      `json:"firerID" gorm:"index:idx_projectile_firer_id"`
+	Firer         Soldier   `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:FirerID;"`
+	ActualFirerID uint      `json:"remoteControllerID" gorm:"index:idx_projectile_actual_firer_id"`
+	ActualFirer   Soldier   `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:ActualFirerID;"`
+	VehicleRole   string    `json:"vehicleRole" gorm:"size:32"`
+	// omit the vehicle if nil, implying the soldier was not in one
+	VehicleID    uint    `json:"vehicleID,omitempty" gorm:"index:idx_projectile_vehicle_id"`
+	Vehicle      Vehicle `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:VehicleID;"`
+	CaptureFrame uint    `json:"firedFrame" gorm:"index:idx_projectile_capture_frame;"`
 
-	Weapon          string `json:"weapon" gorm:"size:64"`
-	WeaponDisplay   string `json:"weaponDisplay" gorm:"size:64"`
-	Magazine        string `json:"magazine" gorm:"size:64"`
-	MagazineDisplay string `json:"magazineDisplay" gorm:"size:64"`
-	FiringMode      string `json:"mode" gorm:"size:64"`
+	Positions       geom.LineString `json:"positions"`
+	Weapon          string          `json:"weapon" gorm:"size:64"`
+	WeaponDisplay   string          `json:"weaponDisplay" gorm:"size:64"`
+	Magazine        string          `json:"magazine" gorm:"size:64"`
+	MagazineDisplay string          `json:"magazineDisplay" gorm:"size:64"`
+	Muzzle          string          `json:"muzzle" gorm:"size:64"`
+	Ammo            string          `json:"ammo" gorm:"size:64"`
+	Mode            string          `json:"mode" gorm:"size:32"`
+}
+
+func (p *ProjectileEvent) TableName() string {
+	return "projectile_events"
 }
 
 // GeneralEvent is a generic event that can be used to store any data
@@ -356,6 +401,10 @@ type GeneralEvent struct {
 	Name         string         `json:"name" gorm:"size:64"`
 	Message      string         `json:"message"`
 	ExtraData    datatypes.JSON `json:"extraData" gorm:"type:jsonb;default:'{}'"`
+}
+
+func (g *GeneralEvent) TableName() string {
+	return "general_events"
 }
 
 // HitEvent represents something being hit by a projectile or explosion
@@ -378,6 +427,10 @@ type HitEvent struct {
 
 	EventText string  `json:"eventText" gorm:"size:80"`
 	Distance  float32 `json:"distance"`
+}
+
+func (h *HitEvent) TableName() string {
+	return "hit_events"
 }
 
 // KillEvent represents something being killed
@@ -403,6 +456,10 @@ type KillEvent struct {
 	Distance  float32 `json:"distance"`
 }
 
+func (k *KillEvent) TableName() string {
+	return "kill_events"
+}
+
 // for medical mods, capture death events (ACE3)
 type Ace3DeathEvent struct {
 	ID           uint      `json:"id" gorm:"primarykey;autoIncrement;"`
@@ -416,6 +473,10 @@ type Ace3DeathEvent struct {
 	Reason string `json:"reason"`
 }
 
+func (a *Ace3DeathEvent) TableName() string {
+	return "ace3_death_events"
+}
+
 // for medical mods, capture unconscious events (ACE3)
 type Ace3UnconsciousEvent struct {
 	ID           uint      `json:"id" gorm:"primarykey;autoIncrement;"`
@@ -427,6 +488,10 @@ type Ace3UnconsciousEvent struct {
 	Soldier      Soldier   `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:SoldierID;"`
 
 	IsAwake bool `json:"isAwake"`
+}
+
+func (a *Ace3UnconsciousEvent) TableName() string {
+	return "ace3_unconscious_events"
 }
 
 var ChatChannels map[int]string = map[int]string{
@@ -454,6 +519,10 @@ type ChatEvent struct {
 	PlayerUID    string        `json:"playerUID" gorm:"size:64; default:NULL; index:idx_chatevent_player_uid"`
 }
 
+func (c *ChatEvent) TableName() string {
+	return "chat_events"
+}
+
 type RadioEvent struct {
 	ID           uint          `json:"id" gorm:"primarykey;autoIncrement;"`
 	Time         time.Time     `json:"time" gorm:"type:timestamptz;"`
@@ -472,6 +541,10 @@ type RadioEvent struct {
 	Code         string  `json:"code" gorm:"size:32"`
 }
 
+func (r *RadioEvent) TableName() string {
+	return "radio_events"
+}
+
 type ServerFpsEvent struct {
 	Time         time.Time `json:"time" gorm:"type:timestamptz;"`
 	MissionID    uint      `json:"missionId" gorm:"index:idx_serverfpsevent_mission_id"`
@@ -479,4 +552,8 @@ type ServerFpsEvent struct {
 	CaptureFrame uint      `json:"captureFrame" gorm:"index:idx_serverfpsevent_capture_frame;"`
 	FpsAverage   float32   `json:"fpsAvg"`
 	FpsMin       float32   `json:"fpsMin"`
+}
+
+func (s *ServerFpsEvent) TableName() string {
+	return "server_fps_events"
 }

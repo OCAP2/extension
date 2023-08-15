@@ -188,6 +188,10 @@ github.com/pelletier/go-toml/v2/internal/characters
 github.com/pelletier/go-toml/v2/internal/danger
 github.com/pelletier/go-toml/v2/internal/tracker
 github.com/pelletier/go-toml/v2/unstable
+# github.com/peterstace/simplefeatures v0.44.0
+## explicit; go 1.17
+github.com/peterstace/simplefeatures/geom
+github.com/peterstace/simplefeatures/rtree
 # github.com/pkg/errors v0.9.1
 ## explicit
 github.com/pkg/errors
@@ -246,12 +250,6 @@ github.com/twitchyliquid64/golang-asm/objabi
 github.com/twitchyliquid64/golang-asm/src
 github.com/twitchyliquid64/golang-asm/sys
 github.com/twitchyliquid64/golang-asm/unsafeheader
-# github.com/twpayne/go-geom v1.5.2
-## explicit; go 1.18
-github.com/twpayne/go-geom
-github.com/twpayne/go-geom/encoding/ewkb
-github.com/twpayne/go-geom/encoding/ewkbhex
-github.com/twpayne/go-geom/encoding/wkbcommon
 # github.com/ugorji/go/codec v1.2.11
 ## explicit; go 1.11
 github.com/ugorji/go/codec

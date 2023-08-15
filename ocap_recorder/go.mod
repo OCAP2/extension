@@ -6,9 +6,9 @@ require (
 	github.com/Graylog2/go-gelf v0.0.0-20170811154226-7ebf4f536d8f
 	github.com/glebarez/sqlite v1.9.0
 	github.com/influxdata/influxdb-client-go/v2 v2.12.3
+	github.com/peterstace/simplefeatures v0.44.0
 	github.com/rs/zerolog v1.30.0
 	github.com/spf13/viper v1.16.0
-	github.com/twpayne/go-geom v1.5.2
 	github.com/wroge/wgs84 v1.1.7
 	gorm.io/datatypes v1.2.0
 	gorm.io/driver/postgres v1.5.2
