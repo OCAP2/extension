@@ -1,7 +1,7 @@
 ﻿// by Zealot
 // MIT licence https://opensource.org/licenses/MIT
 
-#define CURRENT_VERSION "4.4.2.3"
+#define CURRENT_VERSION "4.4.3.0"
 
 #include <cstring>
 #include <cstdio>
