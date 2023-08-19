@@ -83,17 +83,15 @@ func RVExtensionArgs(output *C.char, outputsize C.size_t, input *C.char, argv **
 	command := C.GoString(input)
 	// set default response
 	response := fmt.Sprintf(`["Function: %s", "nb params: %d"]`, command, argc)
-	// reply as soon as possible so Arma doesn't hang
+
 	replyToSyncArmaCall(response, output, outputsize)
 
-	// check if the callback channel is set for this command
-	if _, ok := Config.rvExtensionArgsChannels[command]; !ok {
-		// log an error if it isn't
-		writeErrChan(command, fmt.Errorf("no channel set"))
+	// get channel
+	channel := Config.rvExtensionArgsChannels[command]
+	if channel == nil {
+		writeErrChan(command, fmt.Errorf("channel not set"))
 		return
 	}
-
-	channel := Config.rvExtensionArgsChannels[command]
 
 	// now, we'll process the data
 	// process the C vector into a Go slice
@@ -107,10 +105,10 @@ func RVExtensionArgs(output *C.char, outputsize C.size_t, input *C.char, argv **
 	// append timestamp in nanoseconds
 	data = append(data, fmt.Sprintf("%d", time.Now().UnixNano()))
 
-	// send the data to the channel
-	go func(channel chan []string) {
-		Config.rvExtensionArgsChannels[command] <- data
-	}(channel)
+	go func(channel chan []string, data []string) {
+		// send the data to the channel
+		channel <- data
+	}(channel, data)
 }
 
 // replyToSyncArmaCall will respond to a synchronous extension call from Arma
@@ -135,7 +133,9 @@ func writeErrChan(command string, err error) {
 	if Config.errChan == nil {
 		return
 	}
-	Config.errChan <- []string{command, err.Error()}
+	go func() {
+		Config.errChan <- []string{command, err.Error()}
+	}()
 }
 
 func getTimestamp() string {

@@ -49,8 +49,9 @@ func Coord3857FromString(
 	// create the point
 	point, err = geom.NewPoint(
 		geom.Coordinates{
-			XY: geom.XY{X: long, Y: lat},
-			Z:  elev,
+			XY:   geom.XY{X: long, Y: lat},
+			Z:    elev,
+			Type: geom.CoordinatesType(geom.DimXYZ),
 		},
 	)
 	if err != nil {

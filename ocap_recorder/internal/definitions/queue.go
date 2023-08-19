@@ -104,7 +104,9 @@ func (q *SoldiersQueue) Clear() int {
 }
 
 func (q *SoldiersQueue) GetAndEmpty() []Soldier {
+	q.mu.Lock()
 	defer q.Clear()
+	defer q.mu.Unlock()
 	return q.Queue
 }
 
@@ -160,7 +162,9 @@ func (q *SoldierStatesQueue) Clear() int {
 }
 
 func (q *SoldierStatesQueue) GetAndEmpty() []SoldierState {
+	q.mu.Lock()
 	defer q.Clear()
+	defer q.mu.Unlock()
 	return q.Queue
 }
 
@@ -216,7 +220,9 @@ func (q *VehiclesQueue) Clear() int {
 }
 
 func (q *VehiclesQueue) GetAndEmpty() []Vehicle {
+	q.mu.Lock()
 	defer q.Clear()
+	defer q.mu.Unlock()
 	return q.Queue
 }
 
@@ -272,7 +278,9 @@ func (q *VehicleStatesQueue) Clear() int {
 }
 
 func (q *VehicleStatesQueue) GetAndEmpty() []VehicleState {
+	q.mu.Lock()
 	defer q.Clear()
+	defer q.mu.Unlock()
 	return q.Queue
 }
 
@@ -328,7 +336,9 @@ func (q *FiredEventsQueue) Clear() int {
 }
 
 func (q *FiredEventsQueue) GetAndEmpty() []FiredEvent {
+	q.mu.Lock()
 	defer q.Clear()
+	defer q.mu.Unlock()
 	return q.Queue
 }
 
@@ -384,7 +394,9 @@ func (q *ProjectileEventsQueue) Clear() int {
 }
 
 func (q *ProjectileEventsQueue) GetAndEmpty() []ProjectileEvent {
+	q.mu.Lock()
 	defer q.Clear()
+	defer q.mu.Unlock()
 	return q.Queue
 }
 
@@ -440,7 +452,9 @@ func (q *GeneralEventsQueue) Clear() int {
 }
 
 func (q *GeneralEventsQueue) GetAndEmpty() []GeneralEvent {
+	q.mu.Lock()
 	defer q.Clear()
+	defer q.mu.Unlock()
 	return q.Queue
 }
 
@@ -496,7 +510,9 @@ func (q *HitEventsQueue) Clear() int {
 }
 
 func (q *HitEventsQueue) GetAndEmpty() []HitEvent {
+	q.mu.Lock()
 	defer q.Clear()
+	defer q.mu.Unlock()
 	return q.Queue
 }
 
@@ -552,7 +568,9 @@ func (q *KillEventsQueue) Clear() int {
 }
 
 func (q *KillEventsQueue) GetAndEmpty() []KillEvent {
+	q.mu.Lock()
 	defer q.Clear()
+	defer q.mu.Unlock()
 	return q.Queue
 }
 
@@ -608,7 +626,9 @@ func (q *ChatEventsQueue) Clear() int {
 }
 
 func (q *ChatEventsQueue) GetAndEmpty() []ChatEvent {
+	q.mu.Lock()
 	defer q.Clear()
+	defer q.mu.Unlock()
 	return q.Queue
 }
 
@@ -664,7 +684,9 @@ func (q *RadioEventsQueue) Clear() int {
 }
 
 func (q *RadioEventsQueue) GetAndEmpty() []RadioEvent {
+	q.mu.Lock()
 	defer q.Clear()
+	defer q.mu.Unlock()
 	return q.Queue
 }
 
@@ -720,7 +742,9 @@ func (q *FpsEventsQueue) Clear() int {
 }
 
 func (q *FpsEventsQueue) GetAndEmpty() []ServerFpsEvent {
+	q.mu.Lock()
 	defer q.Clear()
+	defer q.mu.Unlock()
 	return q.Queue
 }
 
@@ -776,7 +800,9 @@ func (q *Ace3DeathEventsQueue) Clear() int {
 }
 
 func (q *Ace3DeathEventsQueue) GetAndEmpty() []Ace3DeathEvent {
+	q.mu.Lock()
 	defer q.Clear()
+	defer q.mu.Unlock()
 	return q.Queue
 }
 
@@ -833,7 +859,9 @@ func (q *Ace3UnconsciousEventsQueue) Clear() int {
 }
 
 func (q *Ace3UnconsciousEventsQueue) GetAndEmpty() []Ace3UnconsciousEvent {
+	q.mu.Lock()
 	defer q.Clear()
+	defer q.mu.Unlock()
 	return q.Queue
 }
 

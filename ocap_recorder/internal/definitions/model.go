@@ -25,6 +25,29 @@ var DatabaseModels = []interface{}{
 	&VehicleState{},
 	&FiredEvent{},
 	&ProjectileEvent{},
+	&ProjectileHitsSoldier{},
+	&ProjectileHitsVehicle{},
+	&GeneralEvent{},
+	&HitEvent{},
+	&KillEvent{},
+	&ChatEvent{},
+	&RadioEvent{},
+	&ServerFpsEvent{},
+	&Ace3DeathEvent{},
+	&Ace3UnconsciousEvent{},
+	&OcapPerformance{},
+}
+
+var DatabaseModelsSQLite = []interface{}{
+	&OcapInfo{},
+	&AfterActionReview{},
+	&World{},
+	&Mission{},
+	&Soldier{},
+	&SoldierState{},
+	&Vehicle{},
+	&VehicleState{},
+	&FiredEvent{},
 	&GeneralEvent{},
 	&HitEvent{},
 	&KillEvent{},
@@ -170,6 +193,25 @@ func (*World) TableName() string {
 	return "worlds"
 }
 
+func (w *World) GetOrInsert(db *gorm.DB) (
+	created bool,
+	err error,
+) {
+	var existingWorld World
+	err = db.Where("world_name = ?", w.WorldName).First(&existingWorld).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			// insert
+			err = db.Create(w).Error
+			return true, err
+		}
+		return false, err
+	}
+	// overwrite with db record if found
+	*w = existingWorld
+	return false, nil
+}
+
 // Mission is the main model for a mission
 type Mission struct {
 	gorm.Model
@@ -182,35 +224,49 @@ type Mission struct {
 	ServerProfile                string    `json:"serverProfile" gorm:"size:200"`
 	StartTime                    time.Time `json:"missionStart" gorm:"type:timestamptz;index:idx_mission_start"` // time.Time
 	WorldID                      uint
-	World                        World     `gorm:"foreignkey:WorldID"`
-	CaptureDelay                 float32   `json:"-" gorm:"default:1.0"`
-	AddonVersion                 string    `json:"addonVersion" gorm:"size:64;default:2.0.0"`
-	ExtensionVersion             string    `json:"extensionVersion" gorm:"size:64;default:2.0.0"`
-	ExtensionBuild               string    `json:"extensionBuild" gorm:"size:64;default:2.0.0"`
-	OcapRecorderExtensionVersion string    `json:"ocapRecorderExtensionVersion" gorm:"size:64;default:1.0.0"`
-	Tag                          string    `json:"tag" gorm:"size:127"`
-	PlayableSlotsWest            uint8     `json:"playableSlotsWest"`
-	PlayableSlotsEast            uint8     `json:"playableSlotsEast"`
-	PlayableSlotsIndependent     uint8     `json:"playableSlotsIndependent"`
-	PlayableSlotsCivilian        uint8     `json:"playableSlotsCivilian"`
-	PlayableSlotsLogic           uint8     `json:"playableSlotsLogic"`
-	Addons                       []Addon   `json:"-" gorm:"many2many:mission_addons;"`
-	Soldiers                     []Soldier `gorm:"foreignkey:MissionID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
-	Vehicles                     []Vehicle `gorm:"foreignkey:MissionID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
-	GeneralEvents                []GeneralEvent
-	HitEvents                    []HitEvent
-	KillEvents                   []KillEvent
-	FiredEvents                  []FiredEvent
-	ProjectileEvents             []ProjectileEvent
-	ChatEvents                   []ChatEvent
-	RadioEvents                  []RadioEvent
-	ServerFpsEvents              []ServerFpsEvent
-	Ace3DeathEvents              []Ace3DeathEvent
-	Ace3UnconsciousEvents        []Ace3UnconsciousEvent
+	World                        World   `gorm:"foreignkey:WorldID"`
+	CaptureDelay                 float32 `json:"-" gorm:"default:1.0"`
+	AddonVersion                 string  `json:"addonVersion" gorm:"size:64;default:2.0.0"`
+	ExtensionVersion             string  `json:"extensionVersion" gorm:"size:64;default:2.0.0"`
+	ExtensionBuild               string  `json:"extensionBuild" gorm:"size:64;default:2.0.0"`
+	OcapRecorderExtensionVersion string  `json:"ocapRecorderExtensionVersion" gorm:"size:64;default:1.0.0"`
+	Tag                          string  `json:"tag" gorm:"size:127"`
+
+	Addons                []Addon       `json:"-" gorm:"many2many:mission_addons;"`
+	Soldiers              []Soldier     `gorm:"foreignkey:MissionID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+	Vehicles              []Vehicle     `gorm:"foreignkey:MissionID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+	PlayableSlots         PlayableSlots `json:"playableSlots" gorm:"embedded;embeddedPrefix:playable_"`
+	SideFriendly          SideFriendly  `json:"sideFriendly" gorm:"embedded;embeddedPrefix:sidefriendly_"`
+	GeneralEvents         []GeneralEvent
+	HitEvents             []HitEvent
+	KillEvents            []KillEvent
+	FiredEvents           []FiredEvent
+	ProjectileEvents      []ProjectileEvent
+	ChatEvents            []ChatEvent
+	RadioEvents           []RadioEvent
+	ServerFpsEvents       []ServerFpsEvent
+	Ace3DeathEvents       []Ace3DeathEvent
+	Ace3UnconsciousEvents []Ace3UnconsciousEvent
 }
 
 func (*Mission) TableName() string {
 	return "missions"
+}
+
+// PlayableSlots shows counts of playable slots in the mission by side
+type PlayableSlots struct {
+	West        uint8 `json:"west"`
+	East        uint8 `json:"east"`
+	Independent uint8 `json:"independent"`
+	Civilian    uint8 `json:"civilian"`
+	Logic       uint8 `json:"logic"`
+}
+
+// SideFriendly represents which sides are allied
+type SideFriendly struct {
+	EastWest        bool `json:"eastWest"`
+	EastIndependent bool `json:"eastIndependent"`
+	WestIndependent bool `json:"westIndependent"`
 }
 
 // Addon is a mod or DLC
@@ -228,29 +284,38 @@ func (*Addon) TableName() string {
 // Soldier is a player or AI unit
 type Soldier struct {
 	gorm.Model
-	Mission               Mission   `gorm:"foreignkey:MissionID"`
-	MissionID             uint      `json:"missionId"`
-	JoinTime              time.Time `json:"joinTime" gorm:"type:timestamptz;NOT NULL;index:idx_soldier_join_time"`
-	JoinFrame             uint      `json:"joinFrame"`
-	OcapID                uint16    `json:"ocapId" gorm:"index:idx_soldier_ocap_id"`
-	OcapType              string    `json:"type" gorm:"size:16;default:man"`
-	UnitName              string    `json:"unitName" gorm:"size:64"`
-	GroupID               string    `json:"groupId" gorm:"size:64"`
-	Side                  string    `json:"side" gorm:"size:16"`
-	IsPlayer              bool      `json:"isPlayer" gorm:"default:false"`
-	RoleDescription       string    `json:"roleDescription" gorm:"size:64"`
-	PlayerUID             string    `json:"playerUID" gorm:"size:64; default:NULL; index:idx_soldier_player_uid"`
-	ClassName             string    `json:"className" gorm:"default:NULL;size:64"`
-	DisplayName           string    `json:"displayName" gorm:"default:NULL;size:64"`
-	SoldierStates         []SoldierState
-	FiredEvents           []FiredEvent
-	ProjectileEventsFirer []ProjectileEvent `gorm:"foreignkey:FirerID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
-	ChatEvents            []ChatEvent
-	RadioEvents           []RadioEvent
+	Mission                     Mission        `gorm:"foreignkey:MissionID"`
+	MissionID                   uint           `json:"missionId"`
+	JoinTime                    time.Time      `json:"joinTime" gorm:"type:timestamptz;NOT NULL;index:idx_soldier_join_time"`
+	JoinFrame                   uint           `json:"joinFrame"`
+	OcapID                      uint16         `json:"ocapId" gorm:"index:idx_soldier_ocap_id"`
+	OcapType                    string         `json:"type" gorm:"size:16;default:man"`
+	UnitName                    string         `json:"unitName" gorm:"size:64"`
+	GroupID                     string         `json:"groupId" gorm:"size:64"`
+	Side                        string         `json:"side" gorm:"size:16"`
+	IsPlayer                    bool           `json:"isPlayer" gorm:"default:false"`
+	RoleDescription             string         `json:"roleDescription" gorm:"size:64"`
+	SquadParams                 datatypes.JSON `json:"squadParams" gorm:"type:jsonb;default:'[]'"`
+	PlayerUID                   string         `json:"playerUID" gorm:"size:64; default:NULL; index:idx_soldier_player_uid"`
+	ClassName                   string         `json:"className" gorm:"default:NULL;size:64"`
+	DisplayName                 string         `json:"displayName" gorm:"default:NULL;size:64"`
+	SoldierStates               []SoldierState
+	FiredEvents                 []FiredEvent
+	ProjectileEventsFirer       []ProjectileEvent `gorm:"foreignkey:FirerID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+	ProjectileEventsActualFirer []ProjectileEvent `gorm:"foreignkey:ActualFirerID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+	ChatEvents                  []ChatEvent
+	RadioEvents                 []RadioEvent
 }
 
 func (*Soldier) TableName() string {
 	return "soldiers"
+}
+
+func (s *Soldier) Get(db *gorm.DB) (err error) {
+	err = db.Where(&s).Order(
+		"join_time DESC",
+	).First(&s).Error
+	return err
 }
 
 // SoldierState inherits from Frame
@@ -264,18 +329,21 @@ type SoldierState struct {
 	SoldierID    uint      `json:"soldierId" gorm:"index:idx_soldierstate_soldier_id"`
 	Soldier      Soldier   `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:SoldierID;"`
 
-	Position         geom.Point    `json:"position"`
-	ElevationASL     float32       `json:"elevationASL"`
-	Bearing          uint16        `json:"bearing" gorm:"default:0"`
-	Lifestate        uint8         `json:"lifestate" gorm:"default:0"`
-	InVehicle        bool          `json:"inVehicle" gorm:"default:false"`
-	VehicleRole      string        `json:"vehicleRole" gorm:"size:64"`
-	UnitName         string        `json:"unitName" gorm:"size:64"`
-	IsPlayer         bool          `json:"isPlayer" gorm:"default:false"`
-	CurrentRole      string        `json:"currentRole" gorm:"size:64"`
-	HasStableVitals  bool          `json:"hasStableVitals" gorm:"default:true"`
-	IsDraggedCarried bool          `json:"isDraggedCarried" gorm:"default:false"`
-	Scores           SoldierScores `json:"scores" gorm:"embedded;embeddedPrefix:scores_"`
+	Position          geom.Point    `json:"position"`
+	ElevationASL      float32       `json:"elevationASL"`
+	Bearing           uint16        `json:"bearing" gorm:"default:0"`
+	Lifestate         uint8         `json:"lifestate" gorm:"default:0"`
+	InVehicle         bool          `json:"inVehicle" gorm:"default:false"`
+	InVehicleObjectID sql.NullInt32 `json:"inVehicleObjectId" gorm:"default:NULL"`
+	InVehicleObject   Vehicle       `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:InVehicleObjectID;"`
+	VehicleRole       string        `json:"vehicleRole" gorm:"size:64"`
+	UnitName          string        `json:"unitName" gorm:"size:64"`
+	IsPlayer          bool          `json:"isPlayer" gorm:"default:false"`
+	CurrentRole       string        `json:"currentRole" gorm:"size:64"`
+	HasStableVitals   bool          `json:"hasStableVitals" gorm:"default:true"`
+	IsDraggedCarried  bool          `json:"isDraggedCarried" gorm:"default:false"`
+	Stance            string        `json:"stance" gorm:"size:64"`
+	Scores            SoldierScores `json:"scores" gorm:"embedded;embeddedPrefix:scores_"`
 }
 
 func (*SoldierState) TableName() string {
@@ -322,16 +390,20 @@ type VehicleState struct {
 	VehicleID    uint      `json:"soldierID" gorm:"index:idx_vehicle_id"`
 	Vehicle      Vehicle   `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:VehicleID;"`
 
-	Position     geom.Point `json:"position"`
-	ElevationASL float32    `json:"elevationASL"`
-	Bearing      uint16     `json:"bearing"`
-	IsAlive      bool       `json:"isAlive"`
-	Crew         string     `json:"crew" gorm:"size:128"`
-	Fuel         float32    `json:"fuel"`
-	Damage       float32    `json:"damage"`
-	Locked       bool       `json:"locked"`
-	EngineOn     bool       `json:"engineOn"`
-	Side         string     `json:"side" gorm:"size:16"`
+	Position        geom.Point `json:"position"`
+	ElevationASL    float32    `json:"elevationASL"`
+	Bearing         uint16     `json:"bearing"`
+	IsAlive         bool       `json:"isAlive"`
+	Crew            string     `json:"crew" gorm:"size:128"`
+	Fuel            float32    `json:"fuel"`
+	Damage          float32    `json:"damage"`
+	Locked          bool       `json:"locked"`
+	EngineOn        bool       `json:"engineOn"`
+	Side            string     `json:"side" gorm:"size:16"`
+	VectorDir       string     `json:"vectorDir" gorm:"size:64"`
+	VectorUp        string     `json:"vectorUp" gorm:"size:64"`
+	TurretAzimuth   float32    `json:"turretAzimuth"`
+	TurretElevation float32    `json:"turretElevation"`
 }
 
 func (*VehicleState) TableName() string {
@@ -373,22 +445,52 @@ type ProjectileEvent struct {
 	ActualFirer   Soldier   `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:ActualFirerID;"`
 	VehicleRole   string    `json:"vehicleRole" gorm:"size:32"`
 	// omit the vehicle if nil, implying the soldier was not in one
-	VehicleID    uint    `json:"vehicleID,omitempty" gorm:"index:idx_projectile_vehicle_id"`
-	Vehicle      Vehicle `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:VehicleID;"`
-	CaptureFrame uint    `json:"firedFrame" gorm:"index:idx_projectile_capture_frame;"`
+	VehicleID    sql.NullInt32 `json:"vehicleID,omitempty" gorm:"index:idx_projectile_vehicle_id"`
+	Vehicle      Vehicle       `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:VehicleID;"`
+	CaptureFrame uint          `json:"firedFrame" gorm:"index:idx_projectile_capture_frame;"`
 
-	Positions       geom.LineString `json:"positions"`
-	Weapon          string          `json:"weapon" gorm:"size:64"`
-	WeaponDisplay   string          `json:"weaponDisplay" gorm:"size:64"`
-	Magazine        string          `json:"magazine" gorm:"size:64"`
-	MagazineDisplay string          `json:"magazineDisplay" gorm:"size:64"`
-	Muzzle          string          `json:"muzzle" gorm:"size:64"`
-	Ammo            string          `json:"ammo" gorm:"size:64"`
-	Mode            string          `json:"mode" gorm:"size:32"`
+	Positions geom.Geometry `json:"-"`
+
+	// projectile data
+	InitialVelocity string `json:"initialVelocity" gorm:"size:64"`
+	Weapon          string `json:"weapon" gorm:"size:64"`
+	WeaponDisplay   string `json:"weaponDisplay" gorm:"size:64"`
+	Magazine        string `json:"magazine" gorm:"size:64"`
+	MagazineDisplay string `json:"magazineDisplay" gorm:"size:64"`
+	Muzzle          string `json:"muzzle" gorm:"size:64"`
+	MuzzleDisplay   string `json:"muzzleDisplay" gorm:"size:64"`
+	Ammo            string `json:"ammo" gorm:"size:64"`
+	Mode            string `json:"mode" gorm:"size:32"`
+
+	// projectile hits
+	HitSoldiers []ProjectileHitsSoldier `json:"hitsSoldiers" gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+	HitVehicles []ProjectileHitsVehicle `json:"hitsVehicles" gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
 }
 
 func (p *ProjectileEvent) TableName() string {
 	return "projectile_events"
+}
+
+type ProjectileHitsSoldier struct {
+	ID                uint            `json:"id" gorm:"primarykey;autoIncrement;"`
+	ProjectileEventID uint            `json:"projectileEventId" gorm:"index:idx_projectile_hit_soldier_projectile_event_id"`
+	ProjectileEvent   ProjectileEvent `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:ProjectileEventID;"`
+	SoldierID         uint            `json:"soldierId" gorm:"index:idx_projectile_hit_soldier_soldier_id"`
+	Soldier           Soldier         `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:SoldierID;"`
+	CaptureFrame      uint            `json:"captureFrame" gorm:"index:idx_projectile_hit_soldier_capture_frame;"`
+	Position          geom.Point      `json:"position"`
+	ComponentsHit     datatypes.JSON  `json:"componentsHit"`
+}
+
+type ProjectileHitsVehicle struct {
+	ID                uint            `json:"id" gorm:"primarykey;autoIncrement;"`
+	ProjectileEventID uint            `json:"projectileEventId" gorm:"index:idx_projectile_hit_vehicle_projectile_event_id"`
+	ProjectileEvent   ProjectileEvent `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:ProjectileEventID;"`
+	VehicleID         uint            `json:"vehicleId" gorm:"index:idx_projectile_hit_vehicle_vehicle_id"`
+	Vehicle           Vehicle         `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:VehicleID;"`
+	CaptureFrame      uint            `json:"captureFrame" gorm:"index:idx_projectile_hit_vehicle_capture_frame;"`
+	Position          geom.Point      `json:"position"`
+	ComponentsHit     datatypes.JSON  `json:"componentsHit"`
 }
 
 // GeneralEvent is a generic event that can be used to store any data
@@ -416,14 +518,14 @@ type HitEvent struct {
 	CaptureFrame uint      `json:"captureFrame" gorm:"index:idx_hitevent_capture_frame;"`
 
 	// caused by could be soldier or vehicle
-	VictimIDSoldier  sql.NullInt32 `json:"victimIdSoldier" gorm:"index:idx_hitevent_victim_id_soldier;default:NULL"`
-	VictimSoldier    Soldier       `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:VictimIDSoldier;"`
-	VictimIDVehicle  sql.NullInt32 `json:"victimIdVehicle" gorm:"index:idx_hitevent_victim_id_vehicle;default:NULL"`
-	VictimVehicle    Vehicle       `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:VictimIDVehicle;"`
-	ShooterIDSoldier sql.NullInt32 `json:"shooterIdSoldier" gorm:"index:idx_shooter_id;default:NULL"`
-	ShooterSoldier   Soldier       `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:ShooterIDSoldier;"`
-	ShooterIDVehicle sql.NullInt32 `json:"shooterIdVehicle" gorm:"index:idx_shooter_id;default:NULL"`
-	ShooterVehicle   Vehicle       `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:ShooterIDVehicle;"`
+	VictimSoldierID  sql.NullInt32 `json:"victimSoldierId" gorm:"index:idx_hitevent_victim_id_soldier;default:NULL"`
+	VictimSoldier    Soldier       `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:VictimSoldierID;"`
+	VictimVehicleID  sql.NullInt32 `json:"victimVehicleId" gorm:"index:idx_hitevent_victim_id_vehicle;default:NULL"`
+	VictimVehicle    Vehicle       `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:VictimVehicleID;"`
+	ShooterSoldierID sql.NullInt32 `json:"shooterSoldierId" gorm:"index:idx_shooter_id;default:NULL"`
+	ShooterSoldier   Soldier       `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:ShooterSoldierID;"`
+	ShooterVehicleID sql.NullInt32 `json:"shoooterVehicleId" gorm:"index:idx_shooter_id;default:NULL"`
+	ShooterVehicle   Vehicle       `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:ShooterVehicleID;"`
 
 	EventText string  `json:"eventText" gorm:"size:80"`
 	Distance  float32 `json:"distance"`
@@ -471,6 +573,9 @@ type Ace3DeathEvent struct {
 	Soldier      Soldier   `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:SoldierID;"`
 
 	Reason string `json:"reason"`
+
+	LastDamageSourceID sql.NullInt32 `json:"lastDamageSourceId" gorm:"index:idx_deathevent_last_damage_source_id"`
+	LastDamageSource   Soldier       `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:LastDamageSourceID;"`
 }
 
 func (a *Ace3DeathEvent) TableName() string {

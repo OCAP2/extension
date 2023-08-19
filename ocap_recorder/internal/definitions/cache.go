@@ -1,27 +1,75 @@
 package ocapdefs
 
-import "sync"
+import (
+	"sync"
+)
 
-type OcapIDCache struct {
-	mu    sync.Mutex // protects q
-	cache map[uint16]uint
+// cache soldiers and vehicles when they are created to avoid subsequent db reads. latency in these calls is critical to quickly process incoming data
+type EntityCacheStruct struct {
+	m        sync.Mutex
+	Soldiers map[uint16]Soldier
+	Vehicles map[uint16]Vehicle
 }
 
-func (q *OcapIDCache) Init() {
-	q.cache = make(map[uint16]uint)
+func NewEntityCache() *EntityCacheStruct {
+	return &EntityCacheStruct{
+		m:        sync.Mutex{},
+		Soldiers: make(map[uint16]Soldier),
+		Vehicles: make(map[uint16]Vehicle),
+	}
 }
 
-func (q *OcapIDCache) Set(ocapId uint16, id uint) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	q.cache[ocapId] = id
+func (c *EntityCacheStruct) Reset() {
+	c.m.Lock()
+	defer c.m.Unlock()
+	c.Soldiers = make(map[uint16]Soldier)
+	c.Vehicles = make(map[uint16]Vehicle)
 }
 
-func (q *OcapIDCache) Get(ocapId uint16) (uint, bool) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	id, ok := q.cache[ocapId]
-	return id, ok
+func (c *EntityCacheStruct) Lock() {
+	c.m.Lock()
+}
+
+func (c *EntityCacheStruct) Unlock() {
+	c.m.Unlock()
+}
+
+func (c *EntityCacheStruct) GetSoldier(id uint16) (
+	Soldier, bool,
+) {
+	c.m.Lock()
+	defer c.m.Unlock()
+	// check if exists
+	if s, ok := c.Soldiers[id]; ok {
+		return s, true
+	} else {
+		return Soldier{}, false
+	}
+}
+
+func (c *EntityCacheStruct) GetVehicle(id uint16) (
+	Vehicle, bool,
+) {
+	c.m.Lock()
+	defer c.m.Unlock()
+	// check if exists
+	if v, ok := c.Vehicles[id]; ok {
+		return v, true
+	} else {
+		return Vehicle{}, false
+	}
+}
+
+func (c *EntityCacheStruct) AddSoldier(s Soldier) {
+	c.m.Lock()
+	defer c.m.Unlock()
+	c.Soldiers[s.OcapID] = s
+}
+
+func (c *EntityCacheStruct) AddVehicle(v Vehicle) {
+	c.m.Lock()
+	defer c.m.Unlock()
+	c.Vehicles[v.OcapID] = v
 }
 
 type SafeCounter struct {

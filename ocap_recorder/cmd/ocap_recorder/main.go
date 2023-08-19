@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -116,6 +117,9 @@ var (
 
 	// sqlite flow
 	DBInsertsPaused bool = false
+
+	// EntityCache is a map of all entities in the current mission, used to find associated entities by ocapID for entity state processing
+	EntityCache *defs.EntityCacheStruct = defs.NewEntityCache()
 
 	SessionStartTime       time.Time = time.Now()
 	LastDBWriteDuration    time.Duration
@@ -237,6 +241,17 @@ func init() {
 		defs.Logger.Info().Msg("Set up a3interfaces")
 	}
 
+	// get count of cpus available
+	// set GOMAXPROCS to n - 2, minimum 2
+	// this is to ensure we're using all available cores
+
+	// get number of CPUs
+	numCPUs := runtime.NumCPU()
+	defs.Logger.Debug().Int("numCPUs", numCPUs).Msg("Number of CPUs")
+
+	// set GOMAXPROCS
+	runtime.GOMAXPROCS(int(math.Max(float64(numCPUs-2), 1)))
+
 	go func() {
 		startGoroutines()
 
@@ -296,7 +311,6 @@ func setupLogging(file *os.File) {
 	)
 
 	defs.Logger = zerolog.New(mlw).With().Timestamp().Logger().
-		Level(logLevelActual).
 		Hook(
 			zerolog.HookFunc(
 				func(e *zerolog.Event, level zerolog.Level, msg string) {
@@ -308,9 +322,13 @@ func setupLogging(file *os.File) {
 						Bool("statusMonitorActive", IsStatusProcessRunning)
 				}))
 
-	defs.DBStatusLogger = defs.Logger.With().
-		Str("component", "db_status").Logger().Sample(&zerolog.BasicSampler{
-		N: 50,
+	defs.TraceSample = defs.Logger.With().
+		Bool("asmpled", true).Logger().Sample(&zerolog.BurstSampler{
+		// allow max 5 entries per 10 seconds
+		// once reached, sample 1 in 100
+		Burst:       5,
+		Period:      10 * time.Second,
+		NextSampler: &zerolog.BasicSampler{N: 100},
 	})
 
 	defs.Logger.Info().Str("loglevel", defs.Logger.GetLevel().String()).Msg("Logging set up")
@@ -418,16 +436,18 @@ func initDB() (err error) {
 		writeLog(functionName, fmt.Sprintf(`Error connecting to database: %v`, err), "ERROR")
 		a3interface.WriteArmaCallback(ExtensionName, ":DB:ERROR:", err.Error())
 	} else {
-		err = setupDB(DB)
-		if err != nil {
-			writeLog(functionName, fmt.Sprintf(`Error setting up database: %v`, err), "ERROR")
-		}
-		InfluxClient, err = connectToInflux()
-		if err != nil {
-			writeLog(functionName, fmt.Sprintf(`Error connecting to InfluxDB: %v`, err), "ERROR")
-		}
-		// only if everything worked should we send a callback letting the addon know we're ready to receive the mission data
-		a3interface.WriteArmaCallback(ExtensionName, ":DB:OK:", DB.Dialector.Name())
+		go func() {
+			// err = setupDB(DB)
+			// if err != nil {
+			// 	writeLog(functionName, fmt.Sprintf(`Error setting up database: %v`, err), "ERROR")
+			// }
+			InfluxClient, err = connectToInflux()
+			if err != nil {
+				writeLog(functionName, fmt.Sprintf(`Error connecting to InfluxDB: %v`, err), "ERROR")
+			}
+			// only if everything worked should we send a callback letting the addon know we're ready to receive the mission data
+			a3interface.WriteArmaCallback(ExtensionName, ":DB:OK:", DB.Dialector.Name())
+		}()
 	}
 	return nil
 }
@@ -466,6 +486,7 @@ func setupA3Interface() (err error) {
 				// RVExtArgsDataChannels
 			case data := <-RVExtArgsDataChannels[":ADDON:VERSION:"]:
 				addonVersion = fixEscapeQuotes(trimQuotes(data[0]))
+				defs.Logger.Info().Str("version", addonVersion).Msg("Addon version")
 			case data := <-RVExtArgsDataChannels[":NEW:MISSION:"]:
 				go logNewMission(data)
 			}
@@ -734,25 +755,22 @@ func writeInfluxPoint(
 ) error {
 
 	if IsInfluxValid {
-		defs.Logger.Trace().Msgf("Writing point to InfluxDB bucket '%s'", bucket)
-		defs.JSONLogger.Trace().Msgf(`Writing point to InfluxDB bucket '%s'`, bucket)
+		defs.TraceSample.Trace().Msgf("Writing point to InfluxDB bucket '%s'", bucket)
 		if _, ok := InfluxWriters[bucket]; !ok {
-			defs.Logger.Trace().Msgf("InfluxDB bucket '%s' not registered, skipping", bucket)
+			defs.TraceSample.Warn().Msgf("InfluxDB bucket '%s' not registered, skipping", bucket)
 			return fmt.Errorf("influxDB bucket '%s' not registered", bucket)
 		}
 
 		// write to influx
 		InfluxWriters[bucket].WritePoint(point)
-		defs.Logger.Trace().Msgf("Point written to InfluxDB bucket '%s'", bucket)
-		defs.JSONLogger.Trace().Msgf(`Point written to InfluxDB bucket '%s'`, bucket)
+		defs.TraceSample.Trace().Msgf("Point written to InfluxDB bucket '%s'", bucket)
 	} else {
 		if InfluxBackupWriter == nil {
 			return fmt.Errorf("influxDB client not initialized and backup writer not available")
 		}
 
 		// write to backup file
-		defs.Logger.Trace().Msgf("Writing point to InfluxDB backup file")
-		defs.JSONLogger.Trace().Msgf(`Writing point to InfluxDB backup file`)
+		defs.TraceSample.Trace().Msgf("Writing point to InfluxDB backup file")
 		lineProtocol := influxdb2_write.PointToLineProtocol(
 			point, time.Duration(1*time.Nanosecond),
 		)
@@ -760,8 +778,7 @@ func writeInfluxPoint(
 		if err != nil {
 			return fmt.Errorf("error writing to InfluxDB backup file: %s", err)
 		}
-		defs.Logger.Trace().Msgf("Point written to InfluxDB backup file")
-		defs.JSONLogger.Trace().Msgf(`Point written to InfluxDB backup file`)
+		defs.TraceSample.Trace().Msgf("Point written to InfluxDB backup file")
 	}
 
 	return nil
@@ -1072,12 +1089,15 @@ func setupDB(db *gorm.DB) (err error) {
 		writeLog(functionName, "PostGIS Extension created", "INFO")
 	}
 
-	for _, model := range defs.DatabaseModels {
-		err = db.AutoMigrate(&model)
-		if err != nil {
-			IsDatabaseValid = false
-			return fmt.Errorf("failed to migrate schema: %s", err)
-		}
+	defs.Logger.Info().Msg("Migrating schema")
+	if ShouldSaveLocal {
+		err = db.AutoMigrate(defs.DatabaseModelsSQLite...)
+	} else {
+		err = db.AutoMigrate(defs.DatabaseModels...)
+	}
+	if err != nil {
+		IsDatabaseValid = false
+		return fmt.Errorf("failed to migrate schema: %s", err)
 	}
 
 	defs.Logger.Info().Msg("Database setup complete")
@@ -1417,35 +1437,44 @@ func logNewMission(data []string) (err error) {
 	mission.OnLoadName = missionTemp["onLoadName"].(string)
 	mission.Author = missionTemp["author"].(string)
 	mission.Tag = missionTemp["tag"].(string)
-	mission.PlayableSlotsEast = uint8(missionTemp["playableSlotsEast"].(float64))
-	mission.PlayableSlotsWest = uint8(missionTemp["playableSlotsWest"].(float64))
-	mission.PlayableSlotsIndependent = uint8(missionTemp["playableSlotsIndependent"].(float64))
-	mission.PlayableSlotsCivilian = uint8(missionTemp["playableSlotsCivilian"].(float64))
-	mission.PlayableSlotsLogic = uint8(missionTemp["playableSlotsLogic"].(float64))
+
+	// playableSlots
+	playableSlotsJSON := missionTemp["playableSlots"].([]interface{})
+	mission.PlayableSlots.East = uint8(playableSlotsJSON[0].(float64))
+	mission.PlayableSlots.West = uint8(playableSlotsJSON[1].(float64))
+	mission.PlayableSlots.Independent = uint8(playableSlotsJSON[2].(float64))
+	mission.PlayableSlots.Civilian = uint8(playableSlotsJSON[3].(float64))
+	mission.PlayableSlots.Logic = uint8(playableSlotsJSON[4].(float64))
+
+	// sideFriendly
+	sideFriendlyJSON := missionTemp["sideFriendly"].([]interface{})
+	mission.SideFriendly.EastWest = sideFriendlyJSON[0].(bool)
+	mission.SideFriendly.EastIndependent = sideFriendlyJSON[1].(bool)
+	mission.SideFriendly.WestIndependent = sideFriendlyJSON[2].(bool)
 
 	// received at extension init and saved to local memory
 	mission.AddonVersion = addonVersion
 
-	// check if world exists
-	err = DB.Where("world_name = ?", world.WorldName).First(&world).Error
-	if err != nil && err != gorm.ErrRecordNotFound {
-		writeLog(functionName, fmt.Sprintf(`Error checking if world exists: %v`, err), "ERROR")
+	// get or insert world
+	created, err := world.GetOrInsert(DB)
+	if err != nil {
+		defs.Logger.Error().Err(err).Msgf("Failed to get or insert world")
 		return err
-	} else if err == gorm.ErrRecordNotFound {
-		// world does not exist, create it
-		err = DB.Create(&world).Error
-		if err != nil {
-			writeLog(functionName, fmt.Sprintf(`Error creating world: %v`, err), "ERROR")
-			return err
-		}
+	}
+	if created {
+		defs.Logger.Debug().Msgf("New world inserted: %s", world.WorldName)
+	} else {
+		defs.Logger.Debug().Msgf("World already exists: %s", world.WorldName)
 	}
 
 	// always write new mission
 	mission.World = world
 	err = DB.Create(&mission).Error
 	if err != nil {
-		writeLog(functionName, fmt.Sprintf(`Error creating mission: %v`, err), "ERROR")
+		defs.Logger.Error().Err(err).Msgf("Failed to insert new mission")
 		return err
+	} else {
+		defs.Logger.Debug().Msgf("New mission inserted: %s", mission.MissionName)
 	}
 
 	// set current world and mission
@@ -1527,6 +1556,14 @@ func logNewSoldier(data []string) (soldier defs.Soldier, err error) {
 	// player uid
 	soldier.PlayerUID = data[9]
 
+	// marshal squadparams
+	squadParams := data[10]
+	err = json.Unmarshal([]byte(squadParams), &soldier.SquadParams)
+	if err != nil {
+		writeLog(functionName, fmt.Sprintf(`Error unmarshalling squadParams: %v`, err), "ERROR")
+		return soldier, err
+	}
+
 	return soldier, nil
 }
 
@@ -1555,22 +1592,12 @@ func logSoldierState(data []string) (soldierState defs.SoldierState, err error) 
 	}
 
 	// try and find soldier in DB to associate
-	var soldierID uint
-	err = DB.Model(&defs.Soldier{}).Order(
-		"join_time DESC",
-	).Where(
-		&defs.Soldier{
-			OcapID:    uint16(ocapID),
-			MissionID: CurrentMission.ID,
-		}).Limit(1).Pluck("id", &soldierID).Error
-	if err != nil {
-		if err == gorm.ErrRecordNotFound && capframe < 10 {
-			return defs.SoldierState{}, errTooEarlyForStateAssociation
-		}
-		json, _ := json.Marshal(data)
-		return soldierState, fmt.Errorf("error finding soldier in DB:\n%s\n%v\nMissionID: %d", json, err, CurrentMission.ID)
+	soldier, ok := EntityCache.GetSoldier(uint16(ocapID))
+	if !ok {
+		return soldierState, fmt.Errorf("soldier %d not found in cache", ocapID)
 	}
-	soldierState.SoldierID = soldierID
+
+	soldierState.SoldierID = soldier.ID
 
 	// timestamp will always be appended as the last element of data, in unixnano format as a string
 	timestampStr := data[len(data)-1]
@@ -1643,7 +1670,25 @@ func logSoldierState(data []string) (soldierState defs.SoldierState, err error) 
 		}
 	}
 
+	// seat in vehicle
 	soldierState.VehicleRole = data[12]
+
+	// InVehicleObjectID, if -1 not in a vehicle
+	inVehicleID, _ := strconv.Atoi(data[13])
+	if inVehicleID == -1 {
+		soldierState.InVehicleObjectID = sql.NullInt32{
+			Int32: 0,
+			Valid: false,
+		}
+	} else {
+		soldierState.InVehicleObjectID = sql.NullInt32{
+			Int32: int32(inVehicleID),
+			Valid: true,
+		}
+	}
+
+	// stance
+	soldierState.Stance = data[14]
 
 	return soldierState, nil
 }
@@ -1718,23 +1763,11 @@ func logVehicleState(data []string) (vehicleState defs.VehicleState, err error) 
 	}
 
 	// try and find vehicle in DB to associate
-	var vehicleID uint
-	err = DB.Model(&defs.Vehicle{}).Order(
-		"join_time DESC",
-	).Where(
-		&defs.Vehicle{
-			OcapID:    uint16(ocapID),
-			MissionID: CurrentMission.ID,
-		}).Limit(1).Pluck("id", &vehicleID).Error
-	if err != nil {
-		if err == gorm.ErrRecordNotFound && capframe < 10 {
-			return defs.VehicleState{}, errTooEarlyForStateAssociation
-		}
-		json, _ := json.Marshal(data)
-		writeLog(functionName, fmt.Sprintf("Error finding vehicle in DB:\n%s\n%v", json, err), "ERROR")
-		return vehicleState, err
+	vehicle, ok := EntityCache.GetVehicle(uint16(ocapID))
+	if !ok {
+		return vehicleState, fmt.Errorf("vehicle %d not found in cache", ocapID)
 	}
-	vehicleState.VehicleID = vehicleID
+	vehicleState.VehicleID = vehicle.ID
 
 	// timestamp will always be appended as the last element of data, in unixnano format as a string
 	timestampStr := data[len(data)-1]
@@ -1801,6 +1834,21 @@ func logVehicleState(data []string) (vehicleState defs.VehicleState, err error) 
 
 	vehicleState.Side = data[10]
 
+	vehicleState.VectorDir = data[11]
+	vehicleState.VectorUp = data[12]
+
+	turretAzimuth, err := strconv.ParseFloat(data[13], 32)
+	if err != nil {
+		return vehicleState, fmt.Errorf(`error converting turretAzimuth to float: %v`, err)
+	}
+	vehicleState.TurretAzimuth = float32(turretAzimuth)
+
+	turretElevation, err := strconv.ParseFloat(data[14], 32)
+	if err != nil {
+		return vehicleState, fmt.Errorf(`error converting turretElevation to float: %v`, err)
+	}
+	vehicleState.TurretElevation = float32(turretElevation)
+
 	return vehicleState, nil
 }
 
@@ -1832,26 +1880,11 @@ func logFiredEvent(data []string) (firedEvent defs.FiredEvent, err error) {
 	}
 
 	// try and find soldier in DB to associate
-	soldierID := uint(0)
-	err = DB.Model(&defs.Soldier{}).Select("id").Order(
-		"join_time DESC",
-	).Where(
-		&defs.Soldier{
-			OcapID:    uint16(ocapID),
-			MissionID: CurrentMission.ID,
-		}).Limit(1).Scan(&soldierID).Error
-	if err != nil && err != gorm.ErrRecordNotFound {
-		json, _ := json.Marshal(data)
-		writeLog(functionName, fmt.Sprintf("Error finding soldier in DB:\n%s\n%v", json, err), "ERROR")
-		return firedEvent, err
-	} else if err == gorm.ErrRecordNotFound {
-		if capframe < 10 {
-			return firedEvent, errTooEarlyForStateAssociation
-		}
-		// soldier not found, return
-		return firedEvent, nil
+	soldier, ok := EntityCache.GetSoldier(uint16(ocapID))
+	if !ok {
+		return firedEvent, fmt.Errorf("soldier %d not found in cache", ocapID)
 	}
-	firedEvent.SoldierID = soldierID
+	firedEvent.SoldierID = soldier.ID
 
 	// timestamp will always be appended as the last element of data, in unixnano format as a string
 	timestampStr := data[len(data)-1]
@@ -1895,7 +1928,6 @@ func logFiredEvent(data []string) (firedEvent defs.FiredEvent, err error) {
 }
 
 func logProjectileEvent(data []string) (projectileEvent defs.ProjectileEvent, err error) {
-	functionName := ":PROJECTILE:"
 
 	// fix received data
 	for i, v := range data {
@@ -1906,31 +1938,73 @@ func logProjectileEvent(data []string) (projectileEvent defs.ProjectileEvent, er
 
 	// this event will be sent as JSON, so we need to unmarshal it
 
+	defs.Logger.Trace().Msgf("Projectile data: %v", data[0])
+
 	var rawJsonData map[string]interface{}
 	err = json.Unmarshal([]byte(data[0]), &rawJsonData)
 	if err != nil {
-		writeLog(functionName, fmt.Sprintf(`Error unmarshalling json data: %v`, err), "ERROR")
-		return projectileEvent, err
+		return projectileEvent, fmt.Errorf(`error unmarshalling json data: %v`, err)
 	}
 
 	// get data from json - this is done bit by bit to avoid errors if the data is missing or mismatching type due to SQF vs Go
 
-	projectileEvent.Time = time.Unix(0, int64(rawJsonData["firedTime"].(float64)))
+	defs.Logger.Trace().Msg("Processing time and frame")
+	firedTime := rawJsonData["firedTime"].(string)
+	firedTimeInt, err := strconv.ParseInt(firedTime, 10, 64)
+	if err != nil {
+		return projectileEvent, fmt.Errorf(`error converting firedTime to int: %v`, err)
+	}
+	projectileEvent.Time = time.Unix(0, firedTimeInt)
 	projectileEvent.CaptureFrame = uint(rawJsonData["firedFrame"].(float64))
+
+	defs.Logger.Trace().Msg("Processing soldierFired")
+	soldierFired, ok := EntityCache.GetSoldier(uint16(rawJsonData["firerID"].(float64)))
+	if !ok {
+		return projectileEvent, fmt.Errorf("soldier %d not found in cache", uint16(rawJsonData["firerID"].(float64)))
+	}
+	projectileEvent.FirerID = soldierFired.ID
+
+	defs.Logger.Trace().Msg("Processing actualFirer")
+	actualFirer, ok := EntityCache.GetSoldier(uint16(rawJsonData["remoteControllerID"].(float64)))
+	if !ok {
+		return projectileEvent, fmt.Errorf("soldier %d not found in cache", uint16(rawJsonData["remoteControllerID"].(float64)))
+	}
+	projectileEvent.ActualFirerID = actualFirer.ID
+
+	defs.Logger.Trace().Msg("Processing vehicleID")
+	vehicleID := rawJsonData["vehicleID"].(float64)
+	vehicle, ok := EntityCache.GetVehicle(uint16(vehicleID))
+	if ok {
+		projectileEvent.VehicleID = sql.NullInt32{
+			Int32: int32(vehicle.ID),
+			Valid: true,
+		}
+		// its ok if the vehicle isn't found in the vehicle cache, it might be the person themselves. we'll just leave it null
+	} else {
+		projectileEvent.VehicleID = sql.NullInt32{
+			Int32: 0,
+			Valid: false,
+		}
+	}
 
 	// for Positions parsing, we need to create a Linestring with XYZM dimensions
 	// X, Y, Z, time (unix time nanoseconds)
 
 	// first, we'll grab the positions and store XYZM in a sequence
+	defs.Logger.Trace().Msgf("Projectile positions: %v", rawJsonData["positions"])
 	positionSequence := []float64{}
 	for _, v := range rawJsonData["positions"].([]interface{}) {
 		posArr := v.([]interface{})
 
+		defs.Logger.Trace().Msgf("Projectile posArr: %v", posArr)
+
 		// process time as posArr[0]
 		unixTimeNano := posArr[0].(string)
-		unixTimeNanoFloat64, err := strconv.ParseFloat(unixTimeNano, 64)
+		// convert to float64
+		unixTimeNanoFloat, err := strconv.ParseFloat(unixTimeNano, 64)
 		if err != nil {
-			writeLog(functionName, fmt.Sprintf(`Error converting unixTimeNano to float64: %v`, err), "ERROR")
+			json, _ := json.Marshal(posArr)
+			defs.Logger.Error().Err(err).Str("json", string(json)).Msg("Error converting timestamp to float64")
 			return projectileEvent, err
 		}
 
@@ -1938,7 +2012,7 @@ func logProjectileEvent(data []string) (projectileEvent defs.ProjectileEvent, er
 		pos := posArr[2].(string)
 		point, _, err := defs.Coord3857FromString(pos)
 		if err != nil {
-			json, _ := json.Marshal(data)
+			json, _ := json.Marshal(posArr)
 			defs.Logger.Error().Err(err).Str("json", string(json)).Msg("Error converting position to Point")
 			return projectileEvent, err
 		}
@@ -1950,7 +2024,7 @@ func logProjectileEvent(data []string) (projectileEvent defs.ProjectileEvent, er
 			coords.XY.X,
 			coords.XY.Y,
 			coords.Z,
-			unixTimeNanoFloat64,
+			unixTimeNanoFloat,
 		)
 	}
 
@@ -1958,18 +2032,100 @@ func logProjectileEvent(data []string) (projectileEvent defs.ProjectileEvent, er
 	posSeq := geom.NewSequence(positionSequence, geom.DimXYZM)
 	ls, err := geom.NewLineString(posSeq)
 	if err != nil {
-		json, _ := json.Marshal(data)
+		json, _ := json.Marshal(posSeq)
 		defs.Logger.Error().Err(err).Str("json", string(json)).Msg("Error creating linestring")
 		return projectileEvent, err
 	}
 
-	projectileEvent.Positions = ls
+	defs.Logger.Trace().
+		Interface("sequence", posSeq).
+		Interface("linestring", ls).
+		Interface("wkt", ls.AsText()).
+		Interface("wkb", ls.AsBinary()).
+		Msg("Created linestring")
 
+	projectileEvent.Positions = ls.AsGeometry()
+
+	defs.Logger.Trace().Msg("Processing hit events")
+	// hit events
+
+	projectileEvent.HitSoldiers = []defs.ProjectileHitsSoldier{}
+	projectileEvent.HitVehicles = []defs.ProjectileHitsVehicle{}
+	for _, event := range rawJsonData["hitParts"].([]interface{}) {
+		eventArr := event.([]interface{})
+
+		defs.Logger.Trace().Interface("eventArr", eventArr).Msg("Processing hit event")
+
+		// [1] is []string containing hit components
+		hitComponents := []string{}
+		for _, v := range eventArr[1].([]interface{}) {
+			hitComponents = append(hitComponents, v.(string))
+		}
+
+		// [2] is string with positionASL
+		hitPos := eventArr[2].(string)
+		hitPoint, _, err := defs.Coord3857FromString(hitPos)
+		if err != nil {
+			json, _ := json.Marshal(eventArr)
+			defs.Logger.Error().Err(err).Str("json", string(json)).Msg("Error converting hit position to Point")
+			return projectileEvent, err
+		}
+
+		// [3] is uint capture frame
+		hitFrame := eventArr[3].(float64)
+
+		// marshal hit components to json array
+		hitComponentsJSON, err := json.Marshal(hitComponents)
+		if err != nil {
+			defs.Logger.Error().Err(err).Msg("Error marshalling hit components to json")
+			return projectileEvent, err
+		}
+
+		defs.Logger.Trace().Interface("hitComponents", hitComponents).Msg("Processed hit components")
+
+		// [0] is the hit entity ocap id
+		hitEntityID := eventArr[0].(float64)
+		hitEntity, ok := EntityCache.GetSoldier(uint16(hitEntityID))
+		if ok {
+			projectileEvent.HitSoldiers = append(
+				projectileEvent.HitSoldiers,
+				defs.ProjectileHitsSoldier{
+					SoldierID:     hitEntity.ID,
+					ComponentsHit: hitComponentsJSON,
+					CaptureFrame:  uint(hitFrame),
+					Position:      hitPoint,
+				},
+			)
+		} else {
+			hitEntity, ok := EntityCache.GetVehicle(uint16(hitEntityID))
+			if ok {
+				projectileEvent.HitVehicles = append(
+					projectileEvent.HitVehicles,
+					defs.ProjectileHitsVehicle{
+						VehicleID:     hitEntity.ID,
+						ComponentsHit: hitComponentsJSON,
+						CaptureFrame:  uint(hitFrame),
+						Position:      hitPoint,
+					},
+				)
+			} else {
+				defs.Logger.Warn().Msgf("Hit entity %d not found in cache", uint16(hitEntityID))
+			}
+		}
+	}
+
+	defs.Logger.Trace().Msg("Processing other properties")
+
+	projectileEvent.VehicleRole = rawJsonData["vehicleRole"].(string)
 	projectileEvent.Weapon = rawJsonData["weapon"].(string)
 	projectileEvent.WeaponDisplay = rawJsonData["weaponDisplay"].(string)
 	projectileEvent.Magazine = rawJsonData["magazine"].(string)
 	projectileEvent.MagazineDisplay = rawJsonData["magazineDisplay"].(string)
 	projectileEvent.Muzzle = rawJsonData["muzzle"].(string)
+	projectileEvent.MuzzleDisplay = rawJsonData["muzzleDisplay"].(string)
+	projectileEvent.Ammo = rawJsonData["ammo"].(string)
+	projectileEvent.Mode = rawJsonData["fireMode"].(string)
+	projectileEvent.InitialVelocity = rawJsonData["initialVelocity"].(string)
 
 	return projectileEvent, nil
 }
@@ -2067,35 +2223,15 @@ func logHitEvent(data []string) (hitEvent defs.HitEvent, err error) {
 	}
 
 	// try and find victim in DB to associate
-	victimSoldier := defs.Soldier{}
-	// first, look in soldiers
-	err = DB.Model(&defs.Soldier{}).Where(
-		&defs.Soldier{
-			OcapID:    uint16(victimOcapID),
-			MissionID: CurrentMission.ID,
-		}).First(&victimSoldier).Error
-	if err != nil && err != gorm.ErrRecordNotFound {
-		return hitEvent, fmt.Errorf(`error finding victim in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, victimOcapID, err)
-	}
-	if err == nil {
+	victimSoldier, ok := EntityCache.GetSoldier(uint16(victimOcapID))
+	if ok {
 		hitEvent.VictimSoldier = victimSoldier
-	} else if err == gorm.ErrRecordNotFound {
-		// if not found, look in vehicles
-		victimVehicle := defs.Vehicle{}
-		err = DB.Model(&defs.Vehicle{}).Where(
-			&defs.Vehicle{
-				OcapID:    uint16(victimOcapID),
-				MissionID: CurrentMission.ID,
-			}).First(&victimVehicle).Error
-		if err != nil && err != gorm.ErrRecordNotFound {
-			return hitEvent, fmt.Errorf(`error finding victim in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, victimOcapID, err)
-		} else if err == gorm.ErrRecordNotFound {
-			if capframe < 10 {
-				return defs.HitEvent{}, errTooEarlyForStateAssociation
-			}
-			return hitEvent, fmt.Errorf(`victim ocap id not found in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, victimOcapID, err)
-		} else {
+	} else {
+		victimVehicle, ok := EntityCache.GetVehicle(uint16(victimOcapID))
+		if ok {
 			hitEvent.VictimVehicle = victimVehicle
+		} else {
+			return hitEvent, fmt.Errorf(`victim ocap id not found in cache: %d`, victimOcapID)
 		}
 	}
 
@@ -2107,34 +2243,16 @@ func logHitEvent(data []string) (hitEvent defs.HitEvent, err error) {
 
 	// try and find shooter in DB to associate
 	// first, look in soldiers
-	shooterSoldier := defs.Soldier{}
-	err = DB.Model(&defs.Soldier{}).Where(
-		&defs.Soldier{
-			OcapID:    uint16(shooterOcapID),
-			MissionID: CurrentMission.ID,
-		}).First(&shooterSoldier).Error
-	if err != nil && err != gorm.ErrRecordNotFound {
-		return hitEvent, fmt.Errorf(`error finding shooter in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, shooterOcapID, err)
-	}
-	if err == nil {
+	shooterSoldier, ok := EntityCache.GetSoldier(uint16(shooterOcapID))
+	if ok {
 		hitEvent.ShooterSoldier = shooterSoldier
-	} else if err == gorm.ErrRecordNotFound {
+	} else {
 		// if not found, look in vehicles
-		shooterVehicle := defs.Vehicle{}
-		err = DB.Model(&defs.Vehicle{}).Where(
-			&defs.Vehicle{
-				OcapID:    uint16(shooterOcapID),
-				MissionID: CurrentMission.ID,
-			}).First(&shooterVehicle).Error
-		if err != nil && err != gorm.ErrRecordNotFound {
-			return hitEvent, fmt.Errorf(`error finding shooter in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, shooterOcapID, err)
-		} else if err == gorm.ErrRecordNotFound {
-			if capframe < 10 {
-				return defs.HitEvent{}, errTooEarlyForStateAssociation
-			}
-			return hitEvent, fmt.Errorf(`shooter ocap id not found in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, shooterOcapID, err)
-		} else {
+		shooterVehicle, ok := EntityCache.GetVehicle(uint16(shooterOcapID))
+		if ok {
 			hitEvent.ShooterVehicle = shooterVehicle
+		} else {
+			return hitEvent, fmt.Errorf(`shooter ocap id not found in cache: %d`, shooterOcapID)
 		}
 	}
 
@@ -2184,34 +2302,16 @@ func logKillEvent(data []string) (killEvent defs.KillEvent, err error) {
 
 	// try and find victim in DB to associate
 	// first, look in soldiers
-	victimSoldier := defs.Soldier{}
-	err = DB.Model(&defs.Soldier{}).Where(
-		&defs.Soldier{
-			OcapID:    uint16(victimOcapID),
-			MissionID: CurrentMission.ID,
-		}).First(&victimSoldier).Error
-	if err != nil && err != gorm.ErrRecordNotFound {
-		return killEvent, fmt.Errorf(`error finding victim in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, victimOcapID, err)
-	}
-	if err == nil {
+	victimSoldier, ok := EntityCache.GetSoldier(uint16(victimOcapID))
+	if ok {
 		killEvent.VictimSoldier = victimSoldier
-	} else if err == gorm.ErrRecordNotFound {
+	} else {
 		// if not found, look in vehicles
-		victimVehicle := defs.Vehicle{}
-		err = DB.Model(&defs.Vehicle{}).Where(
-			&defs.Vehicle{
-				OcapID:  uint16(victimOcapID),
-				Mission: *CurrentMission,
-			}).First(&victimVehicle).Error
-		if err != nil && err != gorm.ErrRecordNotFound {
-			return killEvent, fmt.Errorf(`error finding victim in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, victimOcapID, err)
-		} else if err == gorm.ErrRecordNotFound {
-			if capframe < 10 {
-				return defs.KillEvent{}, errTooEarlyForStateAssociation
-			}
-			return killEvent, fmt.Errorf(`victim ocap id not found in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, victimOcapID, err)
-		} else {
+		victimVehicle, ok := EntityCache.GetVehicle(uint16(victimOcapID))
+		if ok {
 			killEvent.VictimVehicle = victimVehicle
+		} else {
+			return killEvent, fmt.Errorf(`victim ocap id not found in cache: %d`, victimOcapID)
 		}
 	}
 
@@ -2223,33 +2323,16 @@ func logKillEvent(data []string) (killEvent defs.KillEvent, err error) {
 
 	// try and find killer in DB to associate
 	// first, look in soldiers
-	killerSoldier := defs.Soldier{}
-	err = DB.Model(&defs.Soldier{}).Where(
-		&defs.Soldier{
-			OcapID:    uint16(killerOcapID),
-			MissionID: CurrentMission.ID,
-		}).First(&killerSoldier).Error
-	if err != nil && err != gorm.ErrRecordNotFound {
-		return killEvent, fmt.Errorf(`error finding killer in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, killerOcapID, err)
-	} else if err == nil {
+	killerSoldier, ok := EntityCache.GetSoldier(uint16(killerOcapID))
+	if ok {
 		killEvent.KillerSoldier = killerSoldier
-	} else if err == gorm.ErrRecordNotFound {
+	} else {
 		// if not found, look in vehicles
-		killerVehicle := defs.Vehicle{}
-		err = DB.Model(&defs.Vehicle{}).Where(
-			&defs.Vehicle{
-				OcapID:  uint16(killerOcapID),
-				Mission: *CurrentMission,
-			}).First(&killerVehicle).Error
-		if err != nil && err != gorm.ErrRecordNotFound {
-			return killEvent, fmt.Errorf(`error finding killer in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, killerOcapID, err)
-		} else if err == gorm.ErrRecordNotFound {
-			if capframe < 10 {
-				return defs.KillEvent{}, errTooEarlyForStateAssociation
-			}
-			return killEvent, fmt.Errorf(`killer ocap id not found in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, killerOcapID, err)
-		} else {
+		killerVehicle, ok := EntityCache.GetVehicle(uint16(killerOcapID))
+		if ok {
 			killEvent.KillerVehicle = killerVehicle
+		} else {
+			return killEvent, fmt.Errorf(`killer ocap id not found in cache: %d`, killerOcapID)
 		}
 	}
 
@@ -2300,22 +2383,12 @@ func logChatEvent(data []string) (chatEvent defs.ChatEvent, err error) {
 	}
 
 	// try and find sender solder in DB to associate if not -1
-	if senderOcapID != -1 {
-		senderSoldier := defs.Soldier{}
-		err = DB.Model(&defs.Soldier{}).Where(
-			&defs.Soldier{
-				OcapID:    uint16(senderOcapID),
-				MissionID: CurrentMission.ID,
-			}).First(&senderSoldier).Error
-		if err != nil && err != gorm.ErrRecordNotFound {
-			return chatEvent, fmt.Errorf(`error finding sender in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, senderOcapID, err)
-		} else if err == gorm.ErrRecordNotFound {
-			if capframe < 10 {
-				return defs.ChatEvent{}, errTooEarlyForStateAssociation
-			}
-			return chatEvent, fmt.Errorf(`sender ocap id not found in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, senderOcapID, err)
-		} else if err == nil {
-			chatEvent.Soldier = senderSoldier
+	if senderOcapID > -1 {
+		sendSoldier, ok := EntityCache.GetSoldier(uint16(senderOcapID))
+		if ok {
+			chatEvent.Soldier = sendSoldier
+		} else {
+			return chatEvent, fmt.Errorf(`sender ocap id not found in cache: %d`, senderOcapID)
 		}
 	}
 
@@ -2386,23 +2459,13 @@ func logRadioEvent(data []string) (radioEvent defs.RadioEvent, err error) {
 	}
 
 	// try and find sender solder in DB to associate if not -1
-	if senderOcapID != -1 {
-		senderSoldier := defs.Soldier{}
-		err = DB.Model(&defs.Soldier{}).Where(
-			&defs.Soldier{
-				OcapID:    uint16(senderOcapID),
-				MissionID: CurrentMission.ID,
-			}).First(&senderSoldier).Error
-		if err != nil && err != gorm.ErrRecordNotFound {
-			return radioEvent, fmt.Errorf(`error finding sender in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, senderOcapID, err)
-		} else if err == gorm.ErrRecordNotFound {
-			if capframe < 10 {
-				return defs.RadioEvent{}, errTooEarlyForStateAssociation
-			}
-			return radioEvent, fmt.Errorf(`sender ocap id not found in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, senderOcapID, err)
-		} else if err == nil {
-			radioEvent.Soldier = senderSoldier
+	if senderOcapID > -1 {
+		senderSoldier, ok := EntityCache.GetSoldier(uint16(senderOcapID))
+
+		if !ok {
+			return radioEvent, fmt.Errorf(`sender ocap id not found in cache: %d`, senderOcapID)
 		}
+		radioEvent.Soldier = senderSoldier
 	}
 
 	// parse the rest of array
@@ -2511,23 +2574,28 @@ func logAce3DeathEvent(data []string) (deathEvent defs.Ace3DeathEvent, err error
 
 	// try and find victim in DB to associate
 	// first, look in soldiers
-	victimSoldier := defs.Soldier{}
-	err = DB.Model(&defs.Soldier{}).Where(
-		&defs.Soldier{
-			OcapID:    uint16(victimOcapID),
-			MissionID: CurrentMission.ID,
-		}).First(&victimSoldier).Error
-	if err != nil && err != gorm.ErrRecordNotFound {
-		return deathEvent, fmt.Errorf(`error finding victim in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, victimOcapID, err)
-	} else if err == gorm.ErrRecordNotFound {
-		if capframe < 10 {
-			return defs.Ace3DeathEvent{}, errTooEarlyForStateAssociation
-		}
-		return deathEvent, fmt.Errorf(`victim ocap id not found in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, victimOcapID, err)
+	soldier, ok := EntityCache.GetSoldier(uint16(victimOcapID))
+	if ok {
+		deathEvent.Soldier = soldier
+	} else {
+		return deathEvent, fmt.Errorf(`victim ocap id not found in cache: %d`, victimOcapID)
 	}
-	deathEvent.Soldier = victimSoldier
 
 	deathEvent.Reason = data[2]
+
+	// get last damage source id [3]
+	lastDamageSourceID, err := strconv.ParseInt(data[3], 10, 64)
+	if err != nil {
+		return deathEvent, fmt.Errorf(`error converting last damage source id to uint: %v`, err)
+	}
+
+	if lastDamageSourceID > -1 {
+		lastDamageSource, ok := EntityCache.GetSoldier(uint16(lastDamageSourceID))
+		if !ok {
+			return deathEvent, fmt.Errorf(`last damage source id not found in cache: %d`, lastDamageSourceID)
+		}
+		deathEvent.LastDamageSourceID = sql.NullInt32{Int32: int32(lastDamageSource.ID), Valid: true}
+	}
 
 	return deathEvent, nil
 }
@@ -2555,21 +2623,10 @@ func logAce3UnconsciousEvent(data []string) (unconsciousEvent defs.Ace3Unconscio
 	}
 
 	// try and find soldier in DB to associate
-	soldier := defs.Soldier{}
-	err = DB.Model(&defs.Soldier{}).Where(
-		&defs.Soldier{
-			OcapID:    uint16(ocapID),
-			MissionID: CurrentMission.ID,
-		}).First(&soldier).Error
-	if err != nil && err != gorm.ErrRecordNotFound {
-		return unconsciousEvent, fmt.Errorf(`error finding soldier in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, ocapID, err)
-	} else if err == gorm.ErrRecordNotFound {
-		if capframe < 10 {
-			return defs.Ace3UnconsciousEvent{}, errTooEarlyForStateAssociation
-		}
-		return unconsciousEvent, fmt.Errorf(`ocap id not found in db: mission_id = %d AND ocap_id = %d - err: %s`, CurrentMission.ID, ocapID, err)
+	soldier, ok := EntityCache.GetSoldier(uint16(ocapID))
+	if !ok {
+		return unconsciousEvent, fmt.Errorf("soldier %d not found in cache", ocapID)
 	}
-
 	unconsciousEvent.Soldier = soldier
 
 	isAwake, err := strconv.ParseBool(data[2])
@@ -2687,7 +2744,8 @@ func startAsyncProcessors() {
 	// projectile events
 	go func() {
 		for v := range RVExtArgsDataChannels[":PROJECTILE:"] {
-			if !IsDatabaseValid {
+			// new projectile events use linestringzm geo format, which is not supported by SQLite
+			if !IsDatabaseValid || ShouldSaveLocal {
 				continue
 			}
 
@@ -2901,7 +2959,7 @@ func startDBWriters() {
 			}
 
 			if DBInsertsPaused {
-				time.Sleep(500 * time.Millisecond)
+				time.Sleep(1 * time.Second)
 				continue
 			}
 
@@ -2912,209 +2970,205 @@ func startDBWriters() {
 			// write new soldiers
 			if !soldiersToWrite.Empty() {
 				tx := DB.Begin()
-				soldiersToWrite.Lock()
-				err := tx.Create(&soldiersToWrite.Queue).Error
-				soldiersToWrite.Unlock()
-				tx.Commit()
+				toWrite := soldiersToWrite.GetAndEmpty()
+				err := tx.Create(&toWrite).Error
 				if err != nil {
 					writeLog(functionName, fmt.Sprintf(`Error creating soldiers: %v`, err), "ERROR")
 					tx.Rollback()
+				} else {
+					tx.Commit()
+
+					// update entity cache
+					for _, v := range toWrite {
+						EntityCache.AddSoldier(v)
+					}
 				}
-				soldiersToWrite.Clear()
 			}
 
 			// write soldier states
 			if !soldierStatesToWrite.Empty() {
 				tx := DB.Begin()
-				soldierStatesToWrite.Lock()
-				err := tx.Create(&soldierStatesToWrite.Queue).Error
-				soldierStatesToWrite.Unlock()
-				tx.Commit()
+				toWrite := soldierStatesToWrite.GetAndEmpty()
+				err := tx.Create(&toWrite).Error
 				if err != nil {
 					writeLog(functionName, fmt.Sprintf(`Error creating soldier states: %v`, err), "ERROR")
 					tx.Rollback()
+				} else {
+					tx.Commit()
 				}
-				soldierStatesToWrite.Clear()
 			}
 
 			// write new vehicles
 			if !vehiclesToWrite.Empty() {
 				tx := DB.Begin()
-				vehiclesToWrite.Lock()
-				err := tx.Create(&vehiclesToWrite.Queue).Error
-				vehiclesToWrite.Unlock()
-				tx.Commit()
+				toWrite := vehiclesToWrite.GetAndEmpty()
+				err := tx.Create(&toWrite).Error
 				if err != nil {
 					writeLog(functionName, fmt.Sprintf(`Error creating vehicles: %v`, err), "ERROR")
 					tx.Rollback()
+				} else {
+					tx.Commit()
+
+					// update entity cache
+					for _, v := range toWrite {
+						EntityCache.AddVehicle(v)
+					}
 				}
-				vehiclesToWrite.Clear()
 			}
 
 			// write vehicle states
 			if !vehicleStatesToWrite.Empty() {
 				tx := DB.Begin()
-				vehicleStatesToWrite.Lock()
-				err := tx.Create(&vehicleStatesToWrite.Queue).Error
-				vehicleStatesToWrite.Unlock()
-				tx.Commit()
+				toWrite := vehicleStatesToWrite.GetAndEmpty()
+				err := tx.Create(&toWrite).Error
 				if err != nil {
 					writeLog(functionName, fmt.Sprintf(`Error creating vehicle states: %v`, err), "ERROR")
 					stmt := tx.Statement.SQL.String()
 					writeLog(functionName, stmt, "ERROR")
 					tx.Rollback()
+				} else {
+					tx.Commit()
 				}
-				vehicleStatesToWrite.Clear()
 			}
 
 			// write fired events
 			if !firedEventsToWrite.Empty() {
 				tx := DB.Begin()
-				firedEventsToWrite.Lock()
-				err := tx.Create(&firedEventsToWrite.Queue).Error
-				firedEventsToWrite.Unlock()
-				tx.Commit()
+				toWrite := firedEventsToWrite.GetAndEmpty()
+				err := tx.Create(&toWrite).Error
 				if err != nil {
 					writeLog(functionName, fmt.Sprintf(`Error creating fired events: %v`, err), "ERROR")
 					stmt := tx.Statement.SQL.String()
 					writeLog(functionName, stmt, "ERROR")
 					tx.Rollback()
+				} else {
+					tx.Commit()
 				}
-				firedEventsToWrite.Clear()
 			}
 
 			// write projectile events
 			if !projectileEventsToWrite.Empty() {
 				tx := DB.Begin()
-				projectileEventsToWrite.Lock()
-				err := tx.Create(&projectileEventsToWrite.Queue).Error
-				projectileEventsToWrite.Unlock()
-				tx.Commit()
+				toWrite := projectileEventsToWrite.GetAndEmpty()
+				err := tx.Create(&toWrite).Error
 				if err != nil {
 					writeLog(functionName, fmt.Sprintf(`Error creating projectile events: %v`, err), "ERROR")
 					stmt := tx.Statement.SQL.String()
 					writeLog(functionName, stmt, "ERROR")
 					tx.Rollback()
+				} else {
+					tx.Commit()
 				}
-				projectileEventsToWrite.Clear()
 			}
 
 			// write general events
 			if !generalEventsToWrite.Empty() {
 				tx := DB.Begin()
-				generalEventsToWrite.Lock()
-				err := tx.Create(&generalEventsToWrite.Queue).Error
-				generalEventsToWrite.Unlock()
-				tx.Commit()
+				toWrite := generalEventsToWrite.GetAndEmpty()
+				err := tx.Create(&toWrite).Error
 				if err != nil {
 					writeLog(functionName, fmt.Sprintf(`Error creating general events: %v`, err), "ERROR")
 					tx.Rollback()
+				} else {
+					tx.Commit()
 				}
-				generalEventsToWrite.Clear()
 			}
 
 			// write hit events
 			if !hitEventsToWrite.Empty() {
 				tx := DB.Begin()
-				hitEventsToWrite.Lock()
-				err := tx.Create(&hitEventsToWrite.Queue).Error
-				hitEventsToWrite.Unlock()
-				tx.Commit()
+				toWrite := hitEventsToWrite.GetAndEmpty()
+				err := tx.Create(&toWrite).Error
 				if err != nil {
 					writeLog(functionName, fmt.Sprintf(`Error creating hit events: %v`, err), "ERROR")
 					tx.Rollback()
+				} else {
+					tx.Commit()
 				}
-				hitEventsToWrite.Clear()
 			}
 
 			// write kill events
 			if !killEventsToWrite.Empty() {
 				tx := DB.Begin()
-				killEventsToWrite.Lock()
-				err := tx.Create(&killEventsToWrite.Queue).Error
-				killEventsToWrite.Unlock()
-				tx.Commit()
+				toWrite := killEventsToWrite.GetAndEmpty()
+				err := tx.Create(&toWrite).Error
 				if err != nil {
 					writeLog(functionName, fmt.Sprintf(`Error creating killed events: %v`, err), "ERROR")
 					tx.Rollback()
+				} else {
+					tx.Commit()
 				}
-				killEventsToWrite.Clear()
 			}
 
 			// write chat events
 			if !chatEventsToWrite.Empty() {
 				tx := DB.Begin()
-				chatEventsToWrite.Lock()
-				err := tx.Create(&chatEventsToWrite.Queue).Error
-				chatEventsToWrite.Unlock()
-				tx.Commit()
+				toWrite := chatEventsToWrite.GetAndEmpty()
+				err := tx.Create(&toWrite).Error
 				if err != nil {
 					writeLog(functionName, fmt.Sprintf(`Error creating chat events: %v`, err), "ERROR")
 					tx.Rollback()
+				} else {
+					tx.Commit()
 				}
-				chatEventsToWrite.Clear()
 			}
 
 			// write radio events
 			if !radioEventsToWrite.Empty() {
 				tx := DB.Begin()
-				radioEventsToWrite.Lock()
-				err := tx.Create(&radioEventsToWrite.Queue).Error
-				radioEventsToWrite.Unlock()
-				tx.Commit()
+				toWrite := radioEventsToWrite.GetAndEmpty()
+				err := tx.Create(&toWrite).Error
 				if err != nil {
 					writeLog(functionName, fmt.Sprintf(`Error creating radio events: %v`, err), "ERROR")
 					tx.Rollback()
+				} else {
+					tx.Commit()
 				}
-				radioEventsToWrite.Clear()
 			}
 
 			// write serverfps events
 			if !fpsEventsToWrite.Empty() {
 				tx := DB.Begin()
-				fpsEventsToWrite.Lock()
-				err := tx.Create(&fpsEventsToWrite.Queue).Error
-				fpsEventsToWrite.Unlock()
-				tx.Commit()
+				toWrite := fpsEventsToWrite.GetAndEmpty()
+				err := tx.Create(&toWrite).Error
 				if err != nil {
 					writeLog(functionName, fmt.Sprintf(`Error creating serverfps events: %v`, err), "ERROR")
 					tx.Rollback()
+				} else {
+					tx.Commit()
 				}
-				fpsEventsToWrite.Clear()
 			}
 
 			// write ace3 death events
 			if !ace3DeathEventsToWrite.Empty() {
 				tx := DB.Begin()
-				ace3DeathEventsToWrite.Lock()
-				err := tx.Create(&ace3DeathEventsToWrite.Queue).Error
-				ace3DeathEventsToWrite.Unlock()
-				tx.Commit()
+				toWrite := ace3DeathEventsToWrite.GetAndEmpty()
+				err := tx.Create(&toWrite).Error
 				if err != nil {
 					writeLog(functionName, fmt.Sprintf(`Error creating ace3 death events: %v`, err), "ERROR")
 					tx.Rollback()
+				} else {
+					tx.Commit()
 				}
-				ace3DeathEventsToWrite.Clear()
 			}
 
 			// write ace3 unconscious events
 			if !ace3UnconsciousEventsToWrite.Empty() {
 				tx := DB.Begin()
-				ace3UnconsciousEventsToWrite.Lock()
-				err := tx.Create(&ace3UnconsciousEventsToWrite.Queue).Error
-				ace3UnconsciousEventsToWrite.Unlock()
-				tx.Commit()
+				toWrite := ace3UnconsciousEventsToWrite.GetAndEmpty()
+				err := tx.Create(&toWrite).Error
 				if err != nil {
 					writeLog(functionName, fmt.Sprintf(`Error creating ace3 unconscious events: %v`, err), "ERROR")
 					tx.Rollback()
+				} else {
+					tx.Commit()
 				}
-				ace3UnconsciousEventsToWrite.Clear()
 			}
 
 			LastDBWriteDuration = time.Since(writeStart)
 
 			// sleep
-			time.Sleep(750*time.Millisecond + time.Duration(rand.Intn(500))*time.Millisecond)
+			time.Sleep(2 * time.Second)
 
 		}
 	}()
@@ -3387,7 +3441,7 @@ func populateDemoData() {
 
 	// declare test size counts
 	var (
-		numMissions              int = 1
+		numMissions              int = 2
 		missionDuration          int = 60 * 15                                                    // s * value (m) = total (s)
 		numUnitsPerMission       int = 60                                                         // num units per mission
 		numSoldiers              int = int(math.Ceil(float64(numUnitsPerMission) * float64(0.8))) // numUnits / 3
@@ -3578,15 +3632,7 @@ func populateDemoData() {
 		data[0] = string(worldDataJSON)
 
 		// MISSION CONTEXT SENT AS STRING IN DATA[1]
-		// ["missionName", missionName],
-		// ["briefingName", briefingName],
-		// ["missionNameSource", missionNameSource],
-		// ["onLoadName", getMissionConfigValue ["onLoadName", ""]],
-		// ["author", getMissionConfigValue ["author", ""]],
-		// ["serverName", serverName],
-		// ["serverProfile", profileName],
-		// ["missionStart", "0"],
-		// ["worldName", toLower worldName],
+
 		// ["tag", EGVAR(settings,saveTag)]
 		missionData := map[string]interface{}{
 			"missionName":                  fmt.Sprintf("Demo Mission %d", i),
@@ -3605,11 +3651,8 @@ func populateDemoData() {
 			"extensionBuild":               "1.0",
 			"ocapRecorderExtensionVersion": "1.0",
 			"addons":                       demoAddons,
-			"playableSlotsEast":            rand.Intn(20),
-			"playableSlotsWest":            rand.Intn(20),
-			"playableSlotsIndependent":     rand.Intn(20),
-			"playableSlotsCivilian":        rand.Intn(20),
-			"playableSlotsLogic":           rand.Intn(20),
+			"playableSlots":                []float64{20, 20, 20, 5, 2},
+			"sideFriendly":                 []bool{false, false, true},
 		}
 		missionDataJSON, err := json.Marshal(missionData)
 		if err != nil {
@@ -3617,10 +3660,7 @@ func populateDemoData() {
 		}
 		data[1] = string(missionDataJSON)
 
-		err = logNewMission(data)
-		if err != nil {
-			fmt.Println(err)
-		}
+		RVExtArgsDataChannels[":NEW:MISSION:"] <- data
 
 		time.Sleep(500 * time.Millisecond)
 	}
@@ -3630,10 +3670,10 @@ func populateDemoData() {
 
 	// for each mission
 	missions := []defs.Mission{}
-	DB.Model(&defs.Mission{}).Where(
-		"created_at > ?",
-		missionsStart,
-	).Find(&missions)
+	DB.Model(&defs.Mission{}).
+		Order("created_at DESC").
+		Limit(numMissions).
+		Find(&missions)
 
 	waitGroup = sync.WaitGroup{}
 	for _, mission := range missions {
@@ -3650,6 +3690,17 @@ func populateDemoData() {
 				// these will be sent as an array
 				// frame := strconv.FormatInt(int64(rand.Intn(missionDuration)), 10)
 				soldierID := strconv.FormatInt(int64(thisId), 10)
+				squadParams := []interface{}{
+					[]string{"DD", "Diamond Dogs", "t@example.com", "https://example.com", "", "Diamond Dogs"},
+					[]string{"12491654", "Sleeping Tiger", "Sleeping Tiger", "st@example.com", "", "Thanks, Boss!"},
+					"1294510750",
+					"04328572",
+				}
+				squadParamsJSON, err := json.Marshal(squadParams)
+				if err != nil {
+					fmt.Println(err)
+				}
+
 				soldier := []string{
 					soldierID,                                          // join frame
 					soldierID,                                          // ocapid
@@ -3661,14 +3712,21 @@ func populateDemoData() {
 					"B_Soldier_F",                                      // unit classname
 					"Rifleman",                                         // unit display name
 					strconv.FormatInt(int64(rand.Intn(1000000000)), 10), // random player uid
+					// json squad params
+					string(squadParamsJSON),
 				}
 
 				// add timestamp to end of array
 				soldier = append(soldier, fmt.Sprintf("%d", time.Now().UnixNano()))
 				RVExtArgsDataChannels[":NEW:SOLDIER:"] <- soldier
 
-				// sleep to ensure soldier is written
-				time.Sleep(3000 * time.Millisecond)
+				//wait loop to check if in cache yet
+				for {
+					time.Sleep(100 * time.Millisecond)
+					if _, ok := EntityCache.GetSoldier(uint16(thisId)); ok {
+						break
+					}
+				}
 
 				// write soldier states
 				var randomPos [3]float64 = [3]float64{rand.Float64() * 30720, rand.Float64() * 30720, rand.Float64() * 30720}
@@ -3678,7 +3736,7 @@ func populateDemoData() {
 				var currentRole string = roles[rand.Intn(len(roles))]
 				for i := 0; i <= missionDuration; i++ {
 					// sleep 500 ms to make sure there's enough time between processing so time doesn't match exactly
-					time.Sleep(50 * time.Millisecond)
+					time.Sleep(100 * time.Millisecond)
 
 					stateFrame := i
 					// determine xy transform to translate pos in randomDir limited to 180 degress of dirMoveOffset
@@ -3735,6 +3793,8 @@ func populateDemoData() {
 						fmt.Sprintf("%d,%d,%d,%d,%d,%d", rand.Intn(20), rand.Intn(20), rand.Intn(20), rand.Intn(20), rand.Intn(20), rand.Intn(20)),
 						// vehicle role, select random
 						"Passenger",
+						// random stance
+						[]string{"Up", "Middle", "Down"}[rand.Intn(3)],
 					}
 
 					// add timestamp to end of array
@@ -3745,6 +3805,10 @@ func populateDemoData() {
 			}(idCounter)
 			idCounter++
 		}
+
+		EntityCache.Lock()
+		defs.Logger.Debug().Int("numSoldiersCached", len(EntityCache.Soldiers)).Msg("Soldiers cached")
+		EntityCache.Unlock()
 
 		// write vehicles
 		for i := 0; i <= numVehicles; i++ {
@@ -3778,12 +3842,19 @@ func populateDemoData() {
 				vehicle = append(vehicle, fmt.Sprintf("%d", time.Now().UnixNano()))
 				RVExtArgsDataChannels[":NEW:VEHICLE:"] <- vehicle
 
-				// sleep to ensure vehicle is written
-				time.Sleep(3000 * time.Millisecond)
+				// use loop, waiting for vehicle to be written (available in cache)
+				for {
+					// sleep 1000 ms
+					time.Sleep(1000 * time.Millisecond)
+					// check if vehicle is in cache
+					if _, ok := EntityCache.GetVehicle(uint16(thisId)); ok {
+						break
+					}
+				}
 
 				// send vehicle states
 				for i := 0; i <= missionDuration; i++ {
-					// sleep 100 ms
+					// sleep for timestamp
 					time.Sleep(100 * time.Millisecond)
 					vehicleState := []string{
 						// ocap id
@@ -3808,6 +3879,10 @@ func populateDemoData() {
 						strconv.FormatBool(rand.Intn(10) == 0),
 						// random side
 						sides[rand.Intn(len(sides))],
+						// vectordir
+						fmt.Sprintf("[%f,%f,%f]", rand.Float64(), rand.Float64(), rand.Float64()),
+						// vectorup
+						fmt.Sprintf("[%f,%f,%f]", rand.Float64(), rand.Float64(), rand.Float64()),
 					}
 
 					// add timestamp to end of array
@@ -4228,11 +4303,11 @@ func getOcapRecording(missionIDs []string) (err error) {
 			jsonEvent := make([]interface{}, 5)
 			jsonEvent[0] = hitEvent.CaptureFrame
 			jsonEvent[1] = "hit"
-			// victimIDVehicle or victimIDSoldier, whichever is not empty
+			// VictimVehicleID or VictimSoldierID, whichever is not empty
 			victimID := uint(0)
 
 			// get soldier ocap_id
-			err = DB.Model(&defs.Soldier{}).Where("id = ?", hitEvent.VictimIDSoldier).Pluck(
+			err = DB.Model(&defs.Soldier{}).Where("id = ?", hitEvent.VictimSoldierID).Pluck(
 				"ocap_id", &victimID,
 			).Error
 			if err != nil && err != gorm.ErrRecordNotFound {
@@ -4242,7 +4317,7 @@ func getOcapRecording(missionIDs []string) (err error) {
 				jsonEvent[2] = victimID
 			} else {
 				// get vehicle ocap_id
-				err = DB.Model(&defs.Vehicle{}).Where("id = ?", hitEvent.VictimIDVehicle).Pluck(
+				err = DB.Model(&defs.Vehicle{}).Where("id = ?", hitEvent.VictimVehicleID).Pluck(
 					"ocap_id", &victimID,
 				).Error
 				if err != nil && err != gorm.ErrRecordNotFound {
@@ -4260,7 +4335,7 @@ func getOcapRecording(missionIDs []string) (err error) {
 			causedBy := make([]interface{}, 2)
 			causedByID := uint(0)
 			// get soldier ocap_id
-			err = DB.Model(&defs.Soldier{}).Where("id = ?", hitEvent.ShooterIDSoldier).Pluck(
+			err = DB.Model(&defs.Soldier{}).Where("id = ?", hitEvent.ShooterSoldierID).Pluck(
 				"ocap_id", &causedByID,
 			).Error
 			if err != nil && err != gorm.ErrRecordNotFound {
@@ -4269,7 +4344,7 @@ func getOcapRecording(missionIDs []string) (err error) {
 				// if soldier ocap_id found, use it
 			} else {
 				// get vehicle ocap_id
-				err = DB.Model(&defs.Vehicle{}).Where("id = ?", hitEvent.ShooterIDVehicle).Pluck(
+				err = DB.Model(&defs.Vehicle{}).Where("id = ?", hitEvent.ShooterVehicleID).Pluck(
 					"ocap_id", &causedByID,
 				).Error
 				if err != nil && err != gorm.ErrRecordNotFound {
@@ -4615,6 +4690,13 @@ func main() {
 			defs.Logger.Info().Dur("duration", time.Duration(time.Since(demoStart).Seconds())).Msg("Demo data populated.")
 			// wait input
 			fmt.Println("Press enter to exit.")
+		}
+		if strings.ToLower(args[0]) == "setupdb" {
+			err = setupDB(DB)
+			if err != nil {
+				panic(err)
+			}
+			defs.Logger.Info().Msg("DB setup complete.")
 		}
 		if strings.ToLower(args[0]) == "getjson" {
 			missionIds := args[1:]
