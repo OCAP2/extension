@@ -110,6 +110,9 @@ type BufferLengths struct {
 	ServerFpsEvents       uint16 `json:"serverFpsEvents"`
 	Ace3DeathEvents       uint16 `json:"ace3DeathEvents"`
 	Ace3UnconsciousEvents uint16 `json:"ace3UnconsciousEvents"`
+	MarkerCreates         uint16 `json:"markerCreates"`
+	MarkerMoves           uint16 `json:"markerMoves"`
+	MarkerDeletes         uint16 `json:"markerDeletes"`
 }
 
 // WriteQueueLengths is the model for the write queue lengths
@@ -128,6 +131,8 @@ type WriteQueueLengths struct {
 	ServerFpsEvents       uint16 `json:"serverFpsEvents"`
 	Ace3DeathEvents       uint16 `json:"ace3DeathEvents"`
 	Ace3UnconsciousEvents uint16 `json:"ace3UnconsciousEvents"`
+	Markers               uint16 `json:"markers"`
+	MarkerStates          uint16 `json:"markerStates"`
 }
 
 func (b *BufferLengths) TableName() string {

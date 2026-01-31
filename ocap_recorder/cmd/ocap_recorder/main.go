@@ -584,6 +584,9 @@ func getProgramStatus(
 		ServerFpsEvents:       uint16(len(RVExtArgsDataChannels[":FPS:"])),
 		Ace3DeathEvents:       uint16(len(RVExtArgsDataChannels[":ACE3:DEATH:"])),
 		Ace3UnconsciousEvents: uint16(len(RVExtArgsDataChannels[":ACE3:UNCONSCIOUS:"])),
+		MarkerCreates:         uint16(len(RVExtArgsDataChannels[":MARKER:CREATE:"])),
+		MarkerMoves:           uint16(len(RVExtArgsDataChannels[":MARKER:MOVE:"])),
+		MarkerDeletes:         uint16(len(RVExtArgsDataChannels[":MARKER:DELETE:"])),
 	}
 
 	writeQueuesObj := defs.WriteQueueLengths{
@@ -600,6 +603,8 @@ func getProgramStatus(
 		ServerFpsEvents:       uint16(fpsEventsToWrite.Len()),
 		Ace3DeathEvents:       uint16(ace3DeathEventsToWrite.Len()),
 		Ace3UnconsciousEvents: uint16(ace3UnconsciousEventsToWrite.Len()),
+		Markers:               uint16(markersToWrite.Len()),
+		MarkerStates:          uint16(markerStatesToWrite.Len()),
 	}
 
 	perf := defs.OcapPerformance{
