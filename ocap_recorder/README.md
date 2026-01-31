@@ -38,3 +38,13 @@ docker run --rm -it -v ${PWD}:/app -e GOOS=linux -e GOARCH=amd64 -e CGO_ENABLED=
 # Compile x86 Linux .so
 docker run --rm -it -v ${PWD}:/app -e GOOS=linux -e GOARCH=386 -e CGO_ENABLED=1 -e CC=gcc indifox926/build-a3go:linux-so go build -o dist/ocap_recorder.so -linkshared ./cmd/ocap_recorder
 ```
+
+## Supported Commands
+
+### Marker Commands
+- `:MARKER:CREATE:` - Create a new map marker
+- `:MARKER:MOVE:` - Update marker position
+- `:MARKER:DELETE:` - Delete a marker
+
+### Data Format
+Markers are stored with full history of position changes for replay.
