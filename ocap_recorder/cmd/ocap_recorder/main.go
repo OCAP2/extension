@@ -1491,6 +1491,11 @@ func logNewMission(data []string) (err error) {
 	CurrentWorld = &world
 	CurrentMission = &mission
 
+	// Clear marker cache for new mission
+	MarkerCacheLock.Lock()
+	MarkerCache = make(map[string]uint)
+	MarkerCacheLock.Unlock()
+
 	// write to log
 	writeLog(functionName, `New mission logged`, "INFO")
 
