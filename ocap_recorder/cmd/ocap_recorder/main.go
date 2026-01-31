@@ -4252,6 +4252,71 @@ func populateDemoData() {
 			}()
 		}
 		wg2.Wait()
+
+		// demo markers
+		markerTypes := []string{"mil_dot", "mil_triangle", "mil_box", "hd_flag"}
+		markerColors := []string{"ColorRed", "ColorBlue", "ColorGreen", "ColorYellow"}
+		markerShapes := []string{"ICON", "RECTANGLE", "ELLIPSE"}
+
+		for i := 0; i < 10; i++ {
+			marker := []string{
+				// markerName
+				fmt.Sprintf("DemoMarker_%d", i),
+				// direction
+				fmt.Sprintf("%d", rand.Intn(360)),
+				// type
+				markerTypes[rand.Intn(len(markerTypes))],
+				// text
+				fmt.Sprintf("Demo Marker %d", i),
+				// frameNo
+				strconv.Itoa(rand.Intn(missionDuration)),
+				// -1
+				"-1",
+				// ownerId
+				strconv.Itoa(rand.Intn(numSoldiers) + 1),
+				// color
+				markerColors[rand.Intn(len(markerColors))],
+				// size
+				"[1,1]",
+				// side
+				sides[rand.Intn(len(sides))],
+				// position
+				fmt.Sprintf("[%f,%f,%f]", rand.Float64()*30720+1, rand.Float64()*30720+1, 0.0),
+				// shape
+				markerShapes[rand.Intn(len(markerShapes))],
+				// alpha
+				"1.0",
+				// brush
+				"Solid",
+			}
+			// add timestamp
+			marker = append(marker, fmt.Sprintf("%d", time.Now().UnixNano()))
+			RVExtArgsDataChannels[":MARKER:CREATE:"] <- marker
+
+			// Add some marker moves
+			for j := 0; j < 3; j++ {
+				time.Sleep(100 * time.Millisecond)
+				markerMove := []string{
+					fmt.Sprintf("DemoMarker_%d", i),
+					strconv.Itoa(rand.Intn(missionDuration)),
+					fmt.Sprintf("[%f,%f,%f]", rand.Float64()*30720+1, rand.Float64()*30720+1, 0.0),
+					fmt.Sprintf("%d", rand.Intn(360)),
+					"1.0",
+				}
+				markerMove = append(markerMove, fmt.Sprintf("%d", time.Now().UnixNano()))
+				RVExtArgsDataChannels[":MARKER:MOVE:"] <- markerMove
+			}
+		}
+
+		// Delete some markers
+		for i := 0; i < 3; i++ {
+			markerDelete := []string{
+				fmt.Sprintf("DemoMarker_%d", i),
+				strconv.Itoa(missionDuration - 10),
+			}
+			markerDelete = append(markerDelete, fmt.Sprintf("%d", time.Now().UnixNano()))
+			RVExtArgsDataChannels[":MARKER:DELETE:"] <- markerDelete
+		}
 	}
 
 	// pause until RVExtArgsDataChannels[":FIRED:"] is empty
