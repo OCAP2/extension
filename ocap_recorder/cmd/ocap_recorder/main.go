@@ -3144,6 +3144,72 @@ func startAsyncProcessors() {
 			}
 		}
 	}()
+
+	// :MARKER:CREATE: processor
+	go func() {
+		for data := range RVExtArgsDataChannels[":MARKER:CREATE:"] {
+			if !IsDatabaseValid {
+				continue
+			}
+
+			marker, err := logMarkerCreate(data)
+			if err != nil {
+				defs.Logger.Error().Err(err).Msg("Error processing marker create")
+				continue
+			}
+			markersToWrite.Push([]defs.Marker{marker})
+		}
+	}()
+
+	// :MARKER:MOVE: processor
+	go func() {
+		for data := range RVExtArgsDataChannels[":MARKER:MOVE:"] {
+			if !IsDatabaseValid {
+				continue
+			}
+
+			markerState, err := logMarkerMove(data)
+			if err != nil {
+				defs.Logger.Warn().Err(err).Msg("Error processing marker move")
+				continue
+			}
+			markerStatesToWrite.Push([]defs.MarkerState{markerState})
+		}
+	}()
+
+	// :MARKER:DELETE: processor
+	go func() {
+		for data := range RVExtArgsDataChannels[":MARKER:DELETE:"] {
+			if !IsDatabaseValid {
+				continue
+			}
+
+			markerName, frameNo, err := logMarkerDelete(data)
+			if err != nil {
+				defs.Logger.Error().Err(err).Msg("Error processing marker delete")
+				continue
+			}
+
+			// Look up marker and mark as deleted
+			MarkerCacheLock.RLock()
+			markerID, ok := MarkerCache[markerName]
+			MarkerCacheLock.RUnlock()
+			if ok {
+				// Create a marker state marking deletion
+				deleteState := defs.MarkerState{
+					MissionID:    CurrentMission.ID,
+					MarkerID:     markerID,
+					CaptureFrame: frameNo,
+					Time:         time.Now(),
+					Alpha:        0, // Zero alpha indicates deletion
+				}
+				markerStatesToWrite.Push([]defs.MarkerState{deleteState})
+
+				// Update marker as deleted in DB
+				DB.Model(&defs.Marker{}).Where("id = ?", markerID).Update("is_deleted", true)
+			}
+		}
+	}()
 }
 
 var errTooEarlyForStateAssociation error = fmt.Errorf(`too early for state association`)
