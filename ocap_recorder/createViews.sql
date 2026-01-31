@@ -531,3 +531,48 @@ create materialized view vehicle_frames_geojson as (
   order by e.mission_id,
     ss.capture_frame
 );
+-- markers view for mission playback
+create materialized view mission_markers as (
+  select
+    m.id as marker_id,
+    m.mission_id,
+    m.marker_name,
+    m.marker_type,
+    m.text,
+    m.color,
+    m.size,
+    m.side,
+    m.shape,
+    m.brush,
+    m.alpha,
+    m.direction,
+    m.capture_frame as created_frame,
+    m.is_deleted,
+    ST_AsText(
+      ST_Transform(
+        ST_SetSRID(m.position::geometry, 3857),
+        4326
+      )
+    ) as position,
+    json_agg(
+      json_build_object(
+        'frame', ms.capture_frame,
+        'position', ST_AsText(ST_Transform(ST_SetSRID(ms.position::geometry, 3857), 4326)),
+        'direction', ms.direction,
+        'alpha', ms.alpha
+      ) order by ms.capture_frame
+    ) filter (where ms.id is not null) as states
+  from markers m
+  left join marker_states ms on ms.marker_id = m.id
+  group by m.id
+  order by m.capture_frame
+);
+
+-- refresh function for markers
+create or replace function refresh_mission_markers()
+returns trigger as $$
+begin
+  refresh materialized view concurrently mission_markers;
+  return null;
+end;
+$$ language plpgsql;
