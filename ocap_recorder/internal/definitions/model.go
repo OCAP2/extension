@@ -36,6 +36,8 @@ var DatabaseModels = []interface{}{
 	&Ace3DeathEvent{},
 	&Ace3UnconsciousEvent{},
 	&OcapPerformance{},
+	&Marker{},
+	&MarkerState{},
 }
 
 var DatabaseModelsSQLite = []interface{}{
@@ -57,6 +59,8 @@ var DatabaseModelsSQLite = []interface{}{
 	&Ace3DeathEvent{},
 	&Ace3UnconsciousEvent{},
 	&OcapPerformance{},
+	&Marker{},
+	&MarkerState{},
 }
 
 ////////////////////////
@@ -247,6 +251,8 @@ type Mission struct {
 	ServerFpsEvents       []ServerFpsEvent
 	Ace3DeathEvents       []Ace3DeathEvent
 	Ace3UnconsciousEvents []Ace3UnconsciousEvent
+	Markers               []Marker
+	MarkerStates          []MarkerState
 }
 
 func (*Mission) TableName() string {
@@ -661,4 +667,50 @@ type ServerFpsEvent struct {
 
 func (s *ServerFpsEvent) TableName() string {
 	return "server_fps_events"
+}
+
+// Marker represents a map marker
+type Marker struct {
+	ID           uint      `json:"id" gorm:"primarykey;autoIncrement;"`
+	Time         time.Time `json:"time" gorm:"type:timestamptz;"`
+	MissionID    uint      `json:"missionId" gorm:"index:idx_marker_mission_id"`
+	Mission      Mission   `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:MissionID;"`
+	CaptureFrame uint      `json:"captureFrame" gorm:"index:idx_marker_capture_frame;"`
+
+	MarkerName string     `json:"markerName" gorm:"size:128;index:idx_marker_name"`
+	Direction  float32    `json:"direction"`
+	MarkerType string     `json:"markerType" gorm:"size:64"`
+	Text       string     `json:"text" gorm:"size:256"`
+	OwnerID    int        `json:"ownerId"`
+	Color      string     `json:"color" gorm:"size:32"`
+	Size       string     `json:"size" gorm:"size:32"` // stored as "[w,h]"
+	Side       string     `json:"side" gorm:"size:16"`
+	Position   geom.Point `json:"position"`
+	Shape      string     `json:"shape" gorm:"size:32"`
+	Alpha      float32    `json:"alpha"`
+	Brush      string     `json:"brush" gorm:"size:32"`
+	IsDeleted  bool       `json:"isDeleted" gorm:"default:false"`
+}
+
+func (*Marker) TableName() string {
+	return "markers"
+}
+
+// MarkerState tracks marker position changes over time
+type MarkerState struct {
+	ID           uint      `json:"id" gorm:"primarykey;autoIncrement;"`
+	Time         time.Time `json:"time" gorm:"type:timestamptz;"`
+	MissionID    uint      `json:"missionId" gorm:"index:idx_markerstate_mission_id"`
+	Mission      Mission   `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:MissionID;"`
+	MarkerID     uint      `json:"markerId" gorm:"index:idx_markerstate_marker_id"`
+	Marker       Marker    `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:MarkerID;"`
+	CaptureFrame uint      `json:"captureFrame" gorm:"index:idx_markerstate_capture_frame;"`
+
+	Position  geom.Point `json:"position"`
+	Direction float32    `json:"direction"`
+	Alpha     float32    `json:"alpha"`
+}
+
+func (*MarkerState) TableName() string {
+	return "marker_states"
 }
