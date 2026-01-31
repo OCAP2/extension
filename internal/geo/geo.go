@@ -1,4 +1,4 @@
-package ocapdefs
+package geo
 
 import (
 	"errors"
@@ -16,7 +16,7 @@ import (
 // ErrInvalidCoordinates is returned when the coordinates are invalid
 var ErrInvalidCoordinates = errors.New("invalid coordinates provided")
 
-// GPSFromString parses a string in the format "long,lat" or "long,lat,elev" into a GPS point, and returns the type and elevation
+// Coord3857FromString parses a string in the format "long,lat" or "long,lat,elev" into a GPS point, and returns the type and elevation
 func Coord3857FromString(
 	coords string,
 ) (
@@ -60,7 +60,7 @@ func Coord3857FromString(
 	return point, elev, nil
 }
 
-// GPSFromCoords creates a GPS point from a longitude and latitude
+// Coords3857From4326 creates a GPS point from a longitude and latitude
 func Coords3857From4326(
 	longitude float64,
 	latitude float64,

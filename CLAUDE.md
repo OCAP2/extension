@@ -24,10 +24,12 @@ docker run --rm -v ${PWD}:/go/work -w /go/work -e GOARCH=386 x1unix/go-mingw:1.2
 ## Project Structure (Go Standard Layout)
 
 ```
-/cmd/ocap_recorder/main.go    - Main application entry point
-/internal/definitions/        - Private application code (models, queues, cache)
-/pkg/a3interface/            - ArmA 3 extension interface (RVExtension exports)
-/pkg/assemblyfinder/         - Assembly/module path utilities
+/cmd/ocap_recorder/main.go   - Main application entry point
+/internal/model/             - GORM database models
+/internal/queue/             - Thread-safe queue implementations
+/internal/cache/             - Entity caching layer
+/internal/geo/               - Coordinate/geometry utilities
+/pkg/a3interface/            - ArmA 3 extension interface (RVExtension exports, module path)
 Dockerfile                   - Docker build for Linux
 go.mod, go.sum               - Go module dependencies
 createViews.sql              - PostgreSQL materialized views
@@ -48,9 +50,9 @@ CGo exports for ArmA 3 extension interface:
 
 - **Async channels:** Each command type has a buffered channel for non-blocking processing
 - **Goroutines:** Dedicated goroutines consume from channels and process data
-- **Thread-safe queues:** `internal/definitions/queue.go` provides mutex-protected queues for DB batching
+- **Thread-safe queues:** `internal/queue/queue.go` provides mutex-protected queues for DB batching
 
-### Data Models (internal/definitions/model.go)
+### Data Models (internal/model/model.go)
 
 GORM models for PostgreSQL/SQLite:
 - `Mission`, `World`, `Addon` - Mission metadata

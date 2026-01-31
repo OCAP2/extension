@@ -1,12 +1,14 @@
-package ocapdefs
+package queue
 
 import (
 	"fmt"
 	"sync"
+
+	"github.com/OCAP2/extension/internal/model"
 )
 
 type ArraysQueue struct {
-	mu    sync.Mutex // protects q
+	mu    sync.Mutex
 	queue [][]string
 }
 
@@ -53,11 +55,10 @@ func (q *ArraysQueue) GetAndEmpty() [][]string {
 }
 
 type SoldiersQueue struct {
-	mu    sync.Mutex // protects q
-	Queue []Soldier
+	mu    sync.Mutex
+	Queue []model.Soldier
 }
 
-// lock, unlock, empty, push, pop, len, clear, getandempty
 func (q *SoldiersQueue) Lock() bool {
 	q.mu.Lock()
 	return true
@@ -73,17 +74,17 @@ func (q *SoldiersQueue) Empty() bool {
 	return len(q.Queue) == 0
 }
 
-func (q *SoldiersQueue) Push(n []Soldier) {
+func (q *SoldiersQueue) Push(n []model.Soldier) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.Queue = append(q.Queue, n...)
 }
 
-func (q *SoldiersQueue) Pop() Soldier {
+func (q *SoldiersQueue) Pop() model.Soldier {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if len(q.Queue) == 0 {
-		return Soldier{}
+		return model.Soldier{}
 	}
 	n := q.Queue[0]
 	q.Queue = q.Queue[1:]
@@ -99,11 +100,11 @@ func (q *SoldiersQueue) Len() int {
 func (q *SoldiersQueue) Clear() int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	q.Queue = []Soldier{}
+	q.Queue = []model.Soldier{}
 	return len(q.Queue)
 }
 
-func (q *SoldiersQueue) GetAndEmpty() []Soldier {
+func (q *SoldiersQueue) GetAndEmpty() []model.Soldier {
 	q.mu.Lock()
 	defer q.Clear()
 	defer q.mu.Unlock()
@@ -111,11 +112,10 @@ func (q *SoldiersQueue) GetAndEmpty() []Soldier {
 }
 
 type SoldierStatesQueue struct {
-	mu    sync.Mutex // protects q
-	Queue []SoldierState
+	mu    sync.Mutex
+	Queue []model.SoldierState
 }
 
-// lock, unlock, empty, push, pop, len, clear, getandempty
 func (q *SoldierStatesQueue) Lock() bool {
 	q.mu.Lock()
 	return true
@@ -131,17 +131,17 @@ func (q *SoldierStatesQueue) Empty() bool {
 	return len(q.Queue) == 0
 }
 
-func (q *SoldierStatesQueue) Push(n []SoldierState) {
+func (q *SoldierStatesQueue) Push(n []model.SoldierState) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.Queue = append(q.Queue, n...)
 }
 
-func (q *SoldierStatesQueue) Pop() SoldierState {
+func (q *SoldierStatesQueue) Pop() model.SoldierState {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if len(q.Queue) == 0 {
-		return SoldierState{}
+		return model.SoldierState{}
 	}
 	n := q.Queue[0]
 	q.Queue = q.Queue[1:]
@@ -157,11 +157,11 @@ func (q *SoldierStatesQueue) Len() int {
 func (q *SoldierStatesQueue) Clear() int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	q.Queue = []SoldierState{}
+	q.Queue = []model.SoldierState{}
 	return len(q.Queue)
 }
 
-func (q *SoldierStatesQueue) GetAndEmpty() []SoldierState {
+func (q *SoldierStatesQueue) GetAndEmpty() []model.SoldierState {
 	q.mu.Lock()
 	defer q.Clear()
 	defer q.mu.Unlock()
@@ -169,11 +169,10 @@ func (q *SoldierStatesQueue) GetAndEmpty() []SoldierState {
 }
 
 type VehiclesQueue struct {
-	mu    sync.Mutex // protects q
-	Queue []Vehicle
+	mu    sync.Mutex
+	Queue []model.Vehicle
 }
 
-// lock, unlock, empty, push, pop, len, clear, getandempty
 func (q *VehiclesQueue) Lock() bool {
 	q.mu.Lock()
 	return true
@@ -189,17 +188,17 @@ func (q *VehiclesQueue) Empty() bool {
 	return len(q.Queue) == 0
 }
 
-func (q *VehiclesQueue) Push(n []Vehicle) {
+func (q *VehiclesQueue) Push(n []model.Vehicle) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.Queue = append(q.Queue, n...)
 }
 
-func (q *VehiclesQueue) Pop() Vehicle {
+func (q *VehiclesQueue) Pop() model.Vehicle {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if len(q.Queue) == 0 {
-		return Vehicle{}
+		return model.Vehicle{}
 	}
 	n := q.Queue[0]
 	q.Queue = q.Queue[1:]
@@ -215,11 +214,11 @@ func (q *VehiclesQueue) Len() int {
 func (q *VehiclesQueue) Clear() int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	q.Queue = []Vehicle{}
+	q.Queue = []model.Vehicle{}
 	return len(q.Queue)
 }
 
-func (q *VehiclesQueue) GetAndEmpty() []Vehicle {
+func (q *VehiclesQueue) GetAndEmpty() []model.Vehicle {
 	q.mu.Lock()
 	defer q.Clear()
 	defer q.mu.Unlock()
@@ -227,11 +226,10 @@ func (q *VehiclesQueue) GetAndEmpty() []Vehicle {
 }
 
 type VehicleStatesQueue struct {
-	mu    sync.Mutex // protects q
-	Queue []VehicleState
+	mu    sync.Mutex
+	Queue []model.VehicleState
 }
 
-// lock, unlock, empty, push, pop, len, clear, getandempty
 func (q *VehicleStatesQueue) Lock() bool {
 	q.mu.Lock()
 	return true
@@ -247,17 +245,17 @@ func (q *VehicleStatesQueue) Empty() bool {
 	return len(q.Queue) == 0
 }
 
-func (q *VehicleStatesQueue) Push(n []VehicleState) {
+func (q *VehicleStatesQueue) Push(n []model.VehicleState) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.Queue = append(q.Queue, n...)
 }
 
-func (q *VehicleStatesQueue) Pop() VehicleState {
+func (q *VehicleStatesQueue) Pop() model.VehicleState {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if len(q.Queue) == 0 {
-		return VehicleState{}
+		return model.VehicleState{}
 	}
 	n := q.Queue[0]
 	q.Queue = q.Queue[1:]
@@ -273,11 +271,11 @@ func (q *VehicleStatesQueue) Len() int {
 func (q *VehicleStatesQueue) Clear() int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	q.Queue = []VehicleState{}
+	q.Queue = []model.VehicleState{}
 	return len(q.Queue)
 }
 
-func (q *VehicleStatesQueue) GetAndEmpty() []VehicleState {
+func (q *VehicleStatesQueue) GetAndEmpty() []model.VehicleState {
 	q.mu.Lock()
 	defer q.Clear()
 	defer q.mu.Unlock()
@@ -285,11 +283,10 @@ func (q *VehicleStatesQueue) GetAndEmpty() []VehicleState {
 }
 
 type FiredEventsQueue struct {
-	mu    sync.Mutex // protects q
-	Queue []FiredEvent
+	mu    sync.Mutex
+	Queue []model.FiredEvent
 }
 
-// lock, unlock, empty, push, pop, len, clear, getandempty
 func (q *FiredEventsQueue) Lock() bool {
 	q.mu.Lock()
 	return true
@@ -305,17 +302,17 @@ func (q *FiredEventsQueue) Empty() bool {
 	return len(q.Queue) == 0
 }
 
-func (q *FiredEventsQueue) Push(n []FiredEvent) {
+func (q *FiredEventsQueue) Push(n []model.FiredEvent) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.Queue = append(q.Queue, n...)
 }
 
-func (q *FiredEventsQueue) Pop() FiredEvent {
+func (q *FiredEventsQueue) Pop() model.FiredEvent {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if len(q.Queue) == 0 {
-		return FiredEvent{}
+		return model.FiredEvent{}
 	}
 	n := q.Queue[0]
 	q.Queue = q.Queue[1:]
@@ -331,11 +328,11 @@ func (q *FiredEventsQueue) Len() int {
 func (q *FiredEventsQueue) Clear() int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	q.Queue = []FiredEvent{}
+	q.Queue = []model.FiredEvent{}
 	return len(q.Queue)
 }
 
-func (q *FiredEventsQueue) GetAndEmpty() []FiredEvent {
+func (q *FiredEventsQueue) GetAndEmpty() []model.FiredEvent {
 	q.mu.Lock()
 	defer q.Clear()
 	defer q.mu.Unlock()
@@ -343,11 +340,10 @@ func (q *FiredEventsQueue) GetAndEmpty() []FiredEvent {
 }
 
 type ProjectileEventsQueue struct {
-	mu    sync.Mutex // protects q
-	Queue []ProjectileEvent
+	mu    sync.Mutex
+	Queue []model.ProjectileEvent
 }
 
-// lock, unlock, empty, push, pop, len, clear, getandempty
 func (q *ProjectileEventsQueue) Lock() bool {
 	q.mu.Lock()
 	return true
@@ -363,17 +359,17 @@ func (q *ProjectileEventsQueue) Empty() bool {
 	return len(q.Queue) == 0
 }
 
-func (q *ProjectileEventsQueue) Push(n []ProjectileEvent) {
+func (q *ProjectileEventsQueue) Push(n []model.ProjectileEvent) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.Queue = append(q.Queue, n...)
 }
 
-func (q *ProjectileEventsQueue) Pop() ProjectileEvent {
+func (q *ProjectileEventsQueue) Pop() model.ProjectileEvent {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if len(q.Queue) == 0 {
-		return ProjectileEvent{}
+		return model.ProjectileEvent{}
 	}
 	n := q.Queue[0]
 	q.Queue = q.Queue[1:]
@@ -389,11 +385,11 @@ func (q *ProjectileEventsQueue) Len() int {
 func (q *ProjectileEventsQueue) Clear() int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	q.Queue = []ProjectileEvent{}
+	q.Queue = []model.ProjectileEvent{}
 	return len(q.Queue)
 }
 
-func (q *ProjectileEventsQueue) GetAndEmpty() []ProjectileEvent {
+func (q *ProjectileEventsQueue) GetAndEmpty() []model.ProjectileEvent {
 	q.mu.Lock()
 	defer q.Clear()
 	defer q.mu.Unlock()
@@ -401,11 +397,10 @@ func (q *ProjectileEventsQueue) GetAndEmpty() []ProjectileEvent {
 }
 
 type GeneralEventsQueue struct {
-	mu    sync.Mutex // protects q
-	Queue []GeneralEvent
+	mu    sync.Mutex
+	Queue []model.GeneralEvent
 }
 
-// lock, unlock, empty, push, pop, len, clear, getandempty
 func (q *GeneralEventsQueue) Lock() bool {
 	q.mu.Lock()
 	return true
@@ -421,17 +416,17 @@ func (q *GeneralEventsQueue) Empty() bool {
 	return len(q.Queue) == 0
 }
 
-func (q *GeneralEventsQueue) Push(n []GeneralEvent) {
+func (q *GeneralEventsQueue) Push(n []model.GeneralEvent) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.Queue = append(q.Queue, n...)
 }
 
-func (q *GeneralEventsQueue) Pop() GeneralEvent {
+func (q *GeneralEventsQueue) Pop() model.GeneralEvent {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if len(q.Queue) == 0 {
-		return GeneralEvent{}
+		return model.GeneralEvent{}
 	}
 	n := q.Queue[0]
 	q.Queue = q.Queue[1:]
@@ -447,11 +442,11 @@ func (q *GeneralEventsQueue) Len() int {
 func (q *GeneralEventsQueue) Clear() int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	q.Queue = []GeneralEvent{}
+	q.Queue = []model.GeneralEvent{}
 	return len(q.Queue)
 }
 
-func (q *GeneralEventsQueue) GetAndEmpty() []GeneralEvent {
+func (q *GeneralEventsQueue) GetAndEmpty() []model.GeneralEvent {
 	q.mu.Lock()
 	defer q.Clear()
 	defer q.mu.Unlock()
@@ -459,11 +454,10 @@ func (q *GeneralEventsQueue) GetAndEmpty() []GeneralEvent {
 }
 
 type HitEventsQueue struct {
-	mu    sync.Mutex // protects q
-	Queue []HitEvent
+	mu    sync.Mutex
+	Queue []model.HitEvent
 }
 
-// lock, unlock, empty, push, pop, len, clear, getandempty
 func (q *HitEventsQueue) Lock() bool {
 	q.mu.Lock()
 	return true
@@ -479,17 +473,17 @@ func (q *HitEventsQueue) Empty() bool {
 	return len(q.Queue) == 0
 }
 
-func (q *HitEventsQueue) Push(n []HitEvent) {
+func (q *HitEventsQueue) Push(n []model.HitEvent) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.Queue = append(q.Queue, n...)
 }
 
-func (q *HitEventsQueue) Pop() HitEvent {
+func (q *HitEventsQueue) Pop() model.HitEvent {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if len(q.Queue) == 0 {
-		return HitEvent{}
+		return model.HitEvent{}
 	}
 	n := q.Queue[0]
 	q.Queue = q.Queue[1:]
@@ -505,11 +499,11 @@ func (q *HitEventsQueue) Len() int {
 func (q *HitEventsQueue) Clear() int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	q.Queue = []HitEvent{}
+	q.Queue = []model.HitEvent{}
 	return len(q.Queue)
 }
 
-func (q *HitEventsQueue) GetAndEmpty() []HitEvent {
+func (q *HitEventsQueue) GetAndEmpty() []model.HitEvent {
 	q.mu.Lock()
 	defer q.Clear()
 	defer q.mu.Unlock()
@@ -517,11 +511,10 @@ func (q *HitEventsQueue) GetAndEmpty() []HitEvent {
 }
 
 type KillEventsQueue struct {
-	mu    sync.Mutex // protects q
-	Queue []KillEvent
+	mu    sync.Mutex
+	Queue []model.KillEvent
 }
 
-// lock, unlock, empty, push, pop, len, clear, getandempty
 func (q *KillEventsQueue) Lock() bool {
 	q.mu.Lock()
 	return true
@@ -537,17 +530,17 @@ func (q *KillEventsQueue) Empty() bool {
 	return len(q.Queue) == 0
 }
 
-func (q *KillEventsQueue) Push(n []KillEvent) {
+func (q *KillEventsQueue) Push(n []model.KillEvent) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.Queue = append(q.Queue, n...)
 }
 
-func (q *KillEventsQueue) Pop() KillEvent {
+func (q *KillEventsQueue) Pop() model.KillEvent {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if len(q.Queue) == 0 {
-		return KillEvent{}
+		return model.KillEvent{}
 	}
 	n := q.Queue[0]
 	q.Queue = q.Queue[1:]
@@ -563,11 +556,11 @@ func (q *KillEventsQueue) Len() int {
 func (q *KillEventsQueue) Clear() int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	q.Queue = []KillEvent{}
+	q.Queue = []model.KillEvent{}
 	return len(q.Queue)
 }
 
-func (q *KillEventsQueue) GetAndEmpty() []KillEvent {
+func (q *KillEventsQueue) GetAndEmpty() []model.KillEvent {
 	q.mu.Lock()
 	defer q.Clear()
 	defer q.mu.Unlock()
@@ -575,11 +568,10 @@ func (q *KillEventsQueue) GetAndEmpty() []KillEvent {
 }
 
 type ChatEventsQueue struct {
-	mu    sync.Mutex // protects q
-	Queue []ChatEvent
+	mu    sync.Mutex
+	Queue []model.ChatEvent
 }
 
-// lock, unlock, empty, push, pop, len, clear, getandempty
 func (q *ChatEventsQueue) Lock() bool {
 	q.mu.Lock()
 	return true
@@ -595,17 +587,17 @@ func (q *ChatEventsQueue) Empty() bool {
 	return len(q.Queue) == 0
 }
 
-func (q *ChatEventsQueue) Push(n []ChatEvent) {
+func (q *ChatEventsQueue) Push(n []model.ChatEvent) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.Queue = append(q.Queue, n...)
 }
 
-func (q *ChatEventsQueue) Pop() ChatEvent {
+func (q *ChatEventsQueue) Pop() model.ChatEvent {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if len(q.Queue) == 0 {
-		return ChatEvent{}
+		return model.ChatEvent{}
 	}
 	n := q.Queue[0]
 	q.Queue = q.Queue[1:]
@@ -621,11 +613,11 @@ func (q *ChatEventsQueue) Len() int {
 func (q *ChatEventsQueue) Clear() int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	q.Queue = []ChatEvent{}
+	q.Queue = []model.ChatEvent{}
 	return len(q.Queue)
 }
 
-func (q *ChatEventsQueue) GetAndEmpty() []ChatEvent {
+func (q *ChatEventsQueue) GetAndEmpty() []model.ChatEvent {
 	q.mu.Lock()
 	defer q.Clear()
 	defer q.mu.Unlock()
@@ -633,11 +625,10 @@ func (q *ChatEventsQueue) GetAndEmpty() []ChatEvent {
 }
 
 type RadioEventsQueue struct {
-	mu    sync.Mutex // protects q
-	Queue []RadioEvent
+	mu    sync.Mutex
+	Queue []model.RadioEvent
 }
 
-// lock, unlock, empty, push, pop, len, clear, getandempty
 func (q *RadioEventsQueue) Lock() bool {
 	q.mu.Lock()
 	return true
@@ -653,17 +644,17 @@ func (q *RadioEventsQueue) Empty() bool {
 	return len(q.Queue) == 0
 }
 
-func (q *RadioEventsQueue) Push(n []RadioEvent) {
+func (q *RadioEventsQueue) Push(n []model.RadioEvent) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.Queue = append(q.Queue, n...)
 }
 
-func (q *RadioEventsQueue) Pop() RadioEvent {
+func (q *RadioEventsQueue) Pop() model.RadioEvent {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if len(q.Queue) == 0 {
-		return RadioEvent{}
+		return model.RadioEvent{}
 	}
 	n := q.Queue[0]
 	q.Queue = q.Queue[1:]
@@ -679,11 +670,11 @@ func (q *RadioEventsQueue) Len() int {
 func (q *RadioEventsQueue) Clear() int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	q.Queue = []RadioEvent{}
+	q.Queue = []model.RadioEvent{}
 	return len(q.Queue)
 }
 
-func (q *RadioEventsQueue) GetAndEmpty() []RadioEvent {
+func (q *RadioEventsQueue) GetAndEmpty() []model.RadioEvent {
 	q.mu.Lock()
 	defer q.Clear()
 	defer q.mu.Unlock()
@@ -691,11 +682,10 @@ func (q *RadioEventsQueue) GetAndEmpty() []RadioEvent {
 }
 
 type FpsEventsQueue struct {
-	mu    sync.Mutex // protects q
-	Queue []ServerFpsEvent
+	mu    sync.Mutex
+	Queue []model.ServerFpsEvent
 }
 
-// lock, unlock, empty, push, pop, len, clear, getandempty
 func (q *FpsEventsQueue) Lock() bool {
 	q.mu.Lock()
 	return true
@@ -711,17 +701,17 @@ func (q *FpsEventsQueue) Empty() bool {
 	return len(q.Queue) == 0
 }
 
-func (q *FpsEventsQueue) Push(n []ServerFpsEvent) {
+func (q *FpsEventsQueue) Push(n []model.ServerFpsEvent) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.Queue = append(q.Queue, n...)
 }
 
-func (q *FpsEventsQueue) Pop() ServerFpsEvent {
+func (q *FpsEventsQueue) Pop() model.ServerFpsEvent {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if len(q.Queue) == 0 {
-		return ServerFpsEvent{}
+		return model.ServerFpsEvent{}
 	}
 	n := q.Queue[0]
 	q.Queue = q.Queue[1:]
@@ -737,11 +727,11 @@ func (q *FpsEventsQueue) Len() int {
 func (q *FpsEventsQueue) Clear() int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	q.Queue = []ServerFpsEvent{}
+	q.Queue = []model.ServerFpsEvent{}
 	return len(q.Queue)
 }
 
-func (q *FpsEventsQueue) GetAndEmpty() []ServerFpsEvent {
+func (q *FpsEventsQueue) GetAndEmpty() []model.ServerFpsEvent {
 	q.mu.Lock()
 	defer q.Clear()
 	defer q.mu.Unlock()
@@ -749,11 +739,10 @@ func (q *FpsEventsQueue) GetAndEmpty() []ServerFpsEvent {
 }
 
 type Ace3DeathEventsQueue struct {
-	mu    sync.Mutex // protects q
-	Queue []Ace3DeathEvent
+	mu    sync.Mutex
+	Queue []model.Ace3DeathEvent
 }
 
-// lock, unlock, empty, push, pop, len, clear, getandempty
 func (q *Ace3DeathEventsQueue) Lock() bool {
 	q.mu.Lock()
 	return true
@@ -769,17 +758,17 @@ func (q *Ace3DeathEventsQueue) Empty() bool {
 	return len(q.Queue) == 0
 }
 
-func (q *Ace3DeathEventsQueue) Push(n []Ace3DeathEvent) {
+func (q *Ace3DeathEventsQueue) Push(n []model.Ace3DeathEvent) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.Queue = append(q.Queue, n...)
 }
 
-func (q *Ace3DeathEventsQueue) Pop() Ace3DeathEvent {
+func (q *Ace3DeathEventsQueue) Pop() model.Ace3DeathEvent {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if len(q.Queue) == 0 {
-		return Ace3DeathEvent{}
+		return model.Ace3DeathEvent{}
 	}
 	n := q.Queue[0]
 	q.Queue = q.Queue[1:]
@@ -795,11 +784,11 @@ func (q *Ace3DeathEventsQueue) Len() int {
 func (q *Ace3DeathEventsQueue) Clear() int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	q.Queue = []Ace3DeathEvent{}
+	q.Queue = []model.Ace3DeathEvent{}
 	return len(q.Queue)
 }
 
-func (q *Ace3DeathEventsQueue) GetAndEmpty() []Ace3DeathEvent {
+func (q *Ace3DeathEventsQueue) GetAndEmpty() []model.Ace3DeathEvent {
 	q.mu.Lock()
 	defer q.Clear()
 	defer q.mu.Unlock()
@@ -807,11 +796,9 @@ func (q *Ace3DeathEventsQueue) GetAndEmpty() []Ace3DeathEvent {
 }
 
 type Ace3UnconsciousEventsQueue struct {
-	mu    sync.Mutex // protects q
-	Queue []Ace3UnconsciousEvent
+	mu    sync.Mutex
+	Queue []model.Ace3UnconsciousEvent
 }
-
-// lock, unlock, empty, push, pop, len, clear, getandempty
 
 func (q *Ace3UnconsciousEventsQueue) Lock() bool {
 	q.mu.Lock()
@@ -828,17 +815,17 @@ func (q *Ace3UnconsciousEventsQueue) Empty() bool {
 	return len(q.Queue) == 0
 }
 
-func (q *Ace3UnconsciousEventsQueue) Push(n []Ace3UnconsciousEvent) {
+func (q *Ace3UnconsciousEventsQueue) Push(n []model.Ace3UnconsciousEvent) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.Queue = append(q.Queue, n...)
 }
 
-func (q *Ace3UnconsciousEventsQueue) Pop() Ace3UnconsciousEvent {
+func (q *Ace3UnconsciousEventsQueue) Pop() model.Ace3UnconsciousEvent {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if len(q.Queue) == 0 {
-		return Ace3UnconsciousEvent{}
+		return model.Ace3UnconsciousEvent{}
 	}
 	n := q.Queue[0]
 	q.Queue = q.Queue[1:]
@@ -854,46 +841,40 @@ func (q *Ace3UnconsciousEventsQueue) Len() int {
 func (q *Ace3UnconsciousEventsQueue) Clear() int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	q.Queue = []Ace3UnconsciousEvent{}
+	q.Queue = []model.Ace3UnconsciousEvent{}
 	return len(q.Queue)
 }
 
-func (q *Ace3UnconsciousEventsQueue) GetAndEmpty() []Ace3UnconsciousEvent {
+func (q *Ace3UnconsciousEventsQueue) GetAndEmpty() []model.Ace3UnconsciousEvent {
 	q.mu.Lock()
 	defer q.Clear()
 	defer q.mu.Unlock()
 	return q.Queue
 }
 
-/* Map to process soldier states for write out to JSON */
-
+// SoldierStatesMap processes soldier states for write out to JSON
 type SoldierStatesMap struct {
-	frameData map[uint][]interface{}
-	lastState []interface{}
+	frameData map[uint][]any
+	lastState []any
 }
 
 func NewSoldierStatesMap() *SoldierStatesMap {
 	return &SoldierStatesMap{
-		frameData: make(map[uint][]interface{}),
+		frameData: make(map[uint][]any),
 	}
 }
 
-func (q *SoldierStatesMap) Set(frame uint, state []interface{}) {
+func (q *SoldierStatesMap) Set(frame uint, state []any) {
 	q.frameData[frame] = state
 }
 
-// Len
 func (q *SoldierStatesMap) Len() int {
 	return len(q.frameData)
 }
 
-// method to get the soldier state at a given capture frame, or scan forward to find the next state that exists
-// returns the state and an error if not found
-func (q *SoldierStatesMap) GetStateAtFrame(frame uint, endFrame uint) ([]interface{}, error) {
-	// get the soldier frame matching the capture frame
+func (q *SoldierStatesMap) GetStateAtFrame(frame uint, endFrame uint) ([]any, error) {
 	state, ok := q.frameData[frame]
 	if !ok {
-		// scan forward to find the next state that exists
 		for i := frame; i <= endFrame; i++ {
 			state, ok := q.frameData[i]
 			if ok {
@@ -901,22 +882,20 @@ func (q *SoldierStatesMap) GetStateAtFrame(frame uint, endFrame uint) ([]interfa
 				return state, nil
 			}
 		}
-		return []interface{}{}, fmt.Errorf("no soldier state found for frame %d", frame)
+		return []any{}, fmt.Errorf("no soldier state found for frame %d", frame)
 	}
 	return state, nil
 }
 
-// get last valid state
-func (q *SoldierStatesMap) GetLastState() []interface{} {
+func (q *SoldierStatesMap) GetLastState() []any {
 	return q.lastState
 }
 
 type MarkersQueue struct {
-	mu    sync.Mutex // protects q
-	Queue []Marker
+	mu    sync.Mutex
+	Queue []model.Marker
 }
 
-// lock, unlock, empty, push, pop, len, clear, getandempty
 func (q *MarkersQueue) Lock() bool {
 	q.mu.Lock()
 	return true
@@ -932,17 +911,17 @@ func (q *MarkersQueue) Empty() bool {
 	return len(q.Queue) == 0
 }
 
-func (q *MarkersQueue) Push(n []Marker) {
+func (q *MarkersQueue) Push(n []model.Marker) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.Queue = append(q.Queue, n...)
 }
 
-func (q *MarkersQueue) Pop() Marker {
+func (q *MarkersQueue) Pop() model.Marker {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if len(q.Queue) == 0 {
-		return Marker{}
+		return model.Marker{}
 	}
 	n := q.Queue[0]
 	q.Queue = q.Queue[1:]
@@ -958,11 +937,11 @@ func (q *MarkersQueue) Len() int {
 func (q *MarkersQueue) Clear() int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	q.Queue = []Marker{}
+	q.Queue = []model.Marker{}
 	return len(q.Queue)
 }
 
-func (q *MarkersQueue) GetAndEmpty() []Marker {
+func (q *MarkersQueue) GetAndEmpty() []model.Marker {
 	q.mu.Lock()
 	defer q.Clear()
 	defer q.mu.Unlock()
@@ -970,11 +949,10 @@ func (q *MarkersQueue) GetAndEmpty() []Marker {
 }
 
 type MarkerStatesQueue struct {
-	mu    sync.Mutex // protects q
-	Queue []MarkerState
+	mu    sync.Mutex
+	Queue []model.MarkerState
 }
 
-// lock, unlock, empty, push, pop, len, clear, getandempty
 func (q *MarkerStatesQueue) Lock() bool {
 	q.mu.Lock()
 	return true
@@ -990,17 +968,17 @@ func (q *MarkerStatesQueue) Empty() bool {
 	return len(q.Queue) == 0
 }
 
-func (q *MarkerStatesQueue) Push(n []MarkerState) {
+func (q *MarkerStatesQueue) Push(n []model.MarkerState) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.Queue = append(q.Queue, n...)
 }
 
-func (q *MarkerStatesQueue) Pop() MarkerState {
+func (q *MarkerStatesQueue) Pop() model.MarkerState {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if len(q.Queue) == 0 {
-		return MarkerState{}
+		return model.MarkerState{}
 	}
 	n := q.Queue[0]
 	q.Queue = q.Queue[1:]
@@ -1016,11 +994,11 @@ func (q *MarkerStatesQueue) Len() int {
 func (q *MarkerStatesQueue) Clear() int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	q.Queue = []MarkerState{}
+	q.Queue = []model.MarkerState{}
 	return len(q.Queue)
 }
 
-func (q *MarkerStatesQueue) GetAndEmpty() []MarkerState {
+func (q *MarkerStatesQueue) GetAndEmpty() []model.MarkerState {
 	q.mu.Lock()
 	defer q.Clear()
 	defer q.mu.Unlock()

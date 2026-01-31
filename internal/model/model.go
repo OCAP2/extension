@@ -1,4 +1,4 @@
-package ocapdefs
+package model
 
 import (
 	"database/sql"
