@@ -3431,6 +3431,41 @@ func startDBWriters() {
 				}
 			}
 
+			// write markers
+			if !markersToWrite.Empty() {
+				tx := DB.Begin()
+				toWrite := markersToWrite.GetAndEmpty()
+				err := tx.Create(&toWrite).Error
+				if err != nil {
+					writeLog(functionName, fmt.Sprintf(`Error creating markers: %v`, err), "ERROR")
+					tx.Rollback()
+				} else {
+					tx.Commit()
+
+					// update marker cache with new IDs
+					MarkerCacheLock.Lock()
+					for _, m := range toWrite {
+						if m.ID != 0 {
+							MarkerCache[m.MarkerName] = m.ID
+						}
+					}
+					MarkerCacheLock.Unlock()
+				}
+			}
+
+			// write marker states
+			if !markerStatesToWrite.Empty() {
+				tx := DB.Begin()
+				toWrite := markerStatesToWrite.GetAndEmpty()
+				err := tx.Create(&toWrite).Error
+				if err != nil {
+					writeLog(functionName, fmt.Sprintf(`Error creating marker states: %v`, err), "ERROR")
+					tx.Rollback()
+				} else {
+					tx.Commit()
+				}
+			}
+
 			LastDBWriteDuration = time.Since(writeStart)
 
 			// sleep
