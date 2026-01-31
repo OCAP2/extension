@@ -121,6 +121,10 @@ var (
 	// EntityCache is a map of all entities in the current mission, used to find associated entities by ocapID for entity state processing
 	EntityCache *defs.EntityCacheStruct = defs.NewEntityCache()
 
+	// MarkerCache maps marker names to their database IDs for the current mission
+	MarkerCache     = make(map[string]uint)
+	MarkerCacheLock sync.RWMutex
+
 	SessionStartTime       time.Time = time.Now()
 	LastDBWriteDuration    time.Duration
 	IsStatusProcessRunning bool = false
@@ -145,6 +149,8 @@ var (
 	fpsEventsToWrite             = defs.FpsEventsQueue{}
 	ace3DeathEventsToWrite       = defs.Ace3DeathEventsQueue{}
 	ace3UnconsciousEventsToWrite = defs.Ace3UnconsciousEventsQueue{}
+	markersToWrite               = defs.MarkersQueue{}
+	markerStatesToWrite          = defs.MarkerStatesQueue{}
 
 	InfluxBucketNames = []string{
 		"mission_data",
@@ -409,6 +415,10 @@ var (
 		":FPS:":               make(chan []string, 1000),
 		":ACE3:DEATH:":        make(chan []string, 1000),
 		":ACE3:UNCONSCIOUS:":  make(chan []string, 1000),
+		// marker channels
+		":MARKER:CREATE:": make(chan []string, 500),
+		":MARKER:MOVE:":   make(chan []string, 1000),
+		":MARKER:DELETE:": make(chan []string, 500),
 		// metric channel
 		":METRIC:": make(chan []string, 1000),
 	}
