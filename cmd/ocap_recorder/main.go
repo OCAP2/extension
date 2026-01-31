@@ -27,9 +27,11 @@ import (
 	"sync"
 	"time"
 
-	defs "github.com/OCAP2/extension/internal/definitions"
+	"github.com/OCAP2/extension/internal/cache"
+	"github.com/OCAP2/extension/internal/geo"
+	"github.com/OCAP2/extension/internal/model"
+	"github.com/OCAP2/extension/internal/queue"
 	"github.com/OCAP2/extension/pkg/a3interface"
-	"github.com/OCAP2/extension/pkg/assemblyfinder"
 
 	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
 	influxdb2_api "github.com/influxdata/influxdb-client-go/v2/api"
@@ -112,6 +114,13 @@ var (
 	// GraylogWriter is the GELF writer
 	GraylogWriter *gelf.Writer
 
+	// Logger writes to console and file in line format
+	Logger zerolog.Logger
+	// TraceSample will write sampled DB status errors in case of connection issues
+	TraceSample zerolog.Logger
+	// JSONLogger is hooked from Logger and writes to JSONL file
+	JSONLogger zerolog.Logger
+
 	// testing
 	IsDemoData bool = false
 
@@ -119,7 +128,7 @@ var (
 	DBInsertsPaused bool = false
 
 	// EntityCache is a map of all entities in the current mission, used to find associated entities by ocapID for entity state processing
-	EntityCache *defs.EntityCacheStruct = defs.NewEntityCache()
+	EntityCache *cache.EntityCache = cache.NewEntityCache()
 
 	// MarkerCache maps marker names to their database IDs for the current mission
 	MarkerCache     = make(map[string]uint)
@@ -135,22 +144,22 @@ var (
 // channels
 var (
 	// caches of processed models pending DB write
-	soldiersToWrite              = defs.SoldiersQueue{}
-	soldierStatesToWrite         = defs.SoldierStatesQueue{}
-	vehiclesToWrite              = defs.VehiclesQueue{}
-	vehicleStatesToWrite         = defs.VehicleStatesQueue{}
-	firedEventsToWrite           = defs.FiredEventsQueue{}
-	projectileEventsToWrite      = defs.ProjectileEventsQueue{}
-	generalEventsToWrite         = defs.GeneralEventsQueue{}
-	hitEventsToWrite             = defs.HitEventsQueue{}
-	killEventsToWrite            = defs.KillEventsQueue{}
-	chatEventsToWrite            = defs.ChatEventsQueue{}
-	radioEventsToWrite           = defs.RadioEventsQueue{}
-	fpsEventsToWrite             = defs.FpsEventsQueue{}
-	ace3DeathEventsToWrite       = defs.Ace3DeathEventsQueue{}
-	ace3UnconsciousEventsToWrite = defs.Ace3UnconsciousEventsQueue{}
-	markersToWrite               = defs.MarkersQueue{}
-	markerStatesToWrite          = defs.MarkerStatesQueue{}
+	soldiersToWrite              = queue.SoldiersQueue{}
+	soldierStatesToWrite         = queue.SoldierStatesQueue{}
+	vehiclesToWrite              = queue.VehiclesQueue{}
+	vehicleStatesToWrite         = queue.VehicleStatesQueue{}
+	firedEventsToWrite           = queue.FiredEventsQueue{}
+	projectileEventsToWrite      = queue.ProjectileEventsQueue{}
+	generalEventsToWrite         = queue.GeneralEventsQueue{}
+	hitEventsToWrite             = queue.HitEventsQueue{}
+	killEventsToWrite            = queue.KillEventsQueue{}
+	chatEventsToWrite            = queue.ChatEventsQueue{}
+	radioEventsToWrite           = queue.RadioEventsQueue{}
+	fpsEventsToWrite             = queue.FpsEventsQueue{}
+	ace3DeathEventsToWrite       = queue.Ace3DeathEventsQueue{}
+	ace3UnconsciousEventsToWrite = queue.Ace3UnconsciousEventsQueue{}
+	markersToWrite               = queue.MarkersQueue{}
+	markerStatesToWrite          = queue.MarkerStatesQueue{}
 
 	InfluxBucketNames = []string{
 		"mission_data",
@@ -171,7 +180,7 @@ func init() {
 		panic(err)
 	}
 
-	ModulePath = assemblyfinder.GetModulePath()
+	ModulePath = a3interface.GetModulePath()
 	ModuleFolder = filepath.Dir(ModulePath)
 
 	// if the module dir is not the a3 root, we want to assume the addon folder has been renamed and adjust it accordingly
@@ -191,7 +200,7 @@ func init() {
 
 	InitLogFile, err = os.Create(InitLogFilePath)
 	if err != nil {
-		defer defs.Logger.Warn().Err(err).Str("path", InitLogFilePath).
+		defer Logger.Warn().Err(err).Str("path", InitLogFilePath).
 			Msg("Failed to create/open log file!")
 	}
 	setupLogging(InitLogFile)
@@ -199,9 +208,9 @@ func init() {
 	// load config
 	err = loadConfig()
 	if err != nil {
-		defs.Logger.Warn().Err(err).Msg("Failed to load config, using defaults!")
+		Logger.Warn().Err(err).Msg("Failed to load config, using defaults!")
 	} else {
-		defs.Logger.Info().Msg("Loaded config")
+		Logger.Info().Msg("Loaded config")
 	}
 
 	// resolve path set in config
@@ -226,25 +235,25 @@ func init() {
 
 	OcapLogFile, err = os.OpenFile(OcapLogFilePath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
-		defs.Logger.Error().Err(err).Str("path", OcapLogFilePath).
+		Logger.Error().Err(err).Str("path", OcapLogFilePath).
 			Msg("Failed to create/open log file!")
 	}
 
-	defs.Logger.Info().Str("path", OcapLogFilePath).Msg("Begin logging in logs directory")
+	Logger.Info().Str("path", OcapLogFilePath).Msg("Begin logging in logs directory")
 
 	// set up logging
 	setupLogging(OcapLogFile)
-	defs.Logger.Info().Str("path", OcapLogFilePath).Msg("Logging to file")
+	Logger.Info().Str("path", OcapLogFilePath).Msg("Logging to file")
 
 	SqliteDBFilePath = fmt.Sprintf(`%s\%s_%s.db`, AddonFolder, ExtensionName, SessionStartTime.Format("20060102_150405"))
 	InfluxBackupFilePath = AddonFolder + "\\influx_backup.log.gzip"
 	// set up a3interfaces
-	defs.Logger.Info().Msg("Setting up a3interface...")
+	Logger.Info().Msg("Setting up a3interface...")
 	err = setupA3Interface()
 	if err != nil {
-		defs.Logger.Fatal().Err(err).Msg("Failed to set up a3interfaces!")
+		Logger.Fatal().Err(err).Msg("Failed to set up a3interfaces!")
 	} else {
-		defs.Logger.Info().Msg("Set up a3interfaces")
+		Logger.Info().Msg("Set up a3interfaces")
 	}
 
 	// get count of cpus available
@@ -253,7 +262,7 @@ func init() {
 
 	// get number of CPUs
 	numCPUs := runtime.NumCPU()
-	defs.Logger.Debug().Int("numCPUs", numCPUs).Msg("Number of CPUs")
+	Logger.Debug().Int("numCPUs", numCPUs).Msg("Number of CPUs")
 
 	// set GOMAXPROCS
 	runtime.GOMAXPROCS(int(math.Max(float64(numCPUs-2), 1)))
@@ -316,7 +325,7 @@ func setupLogging(file *os.File) {
 		},
 	)
 
-	defs.Logger = zerolog.New(mlw).With().Timestamp().Logger().
+	Logger = zerolog.New(mlw).With().Timestamp().Logger().
 		Hook(
 			zerolog.HookFunc(
 				func(e *zerolog.Event, level zerolog.Level, msg string) {
@@ -328,7 +337,7 @@ func setupLogging(file *os.File) {
 						Bool("statusMonitorActive", IsStatusProcessRunning)
 				}))
 
-	defs.TraceSample = defs.Logger.With().
+	TraceSample = Logger.With().
 		Bool("asmpled", true).Logger().Sample(&zerolog.BurstSampler{
 		// allow max 5 entries per 10 seconds
 		// once reached, sample 1 in 100
@@ -337,7 +346,7 @@ func setupLogging(file *os.File) {
 		NextSampler: &zerolog.BasicSampler{N: 100},
 	})
 
-	defs.Logger.Info().Str("loglevel", defs.Logger.GetLevel().String()).Msg("Logging set up")
+	Logger.Info().Str("loglevel", Logger.GetLevel().String()).Msg("Logging set up")
 }
 
 func writeToLogIo(level zerolog.Level, msg string) {
@@ -358,7 +367,7 @@ func writeToLogIo(level zerolog.Level, msg string) {
 
 	_, err := LogIoConn.Write(data)
 	if err != nil {
-		defs.Logger.Debug().Err(err).Msg("Failed to send log to log.io")
+		Logger.Debug().Err(err).Msg("Failed to send log to log.io")
 	}
 }
 
@@ -366,7 +375,7 @@ func writeToLogIo(level zerolog.Level, msg string) {
 func removeOldLogs(path string, daysDelta int) {
 	files, err := os.ReadDir(path)
 	if err != nil {
-		defs.Logger.Warn().Err(err).Msg("Failed to read logs dir")
+		Logger.Warn().Err(err).Msg("Failed to read logs dir")
 		return
 	}
 
@@ -377,7 +386,7 @@ func removeOldLogs(path string, daysDelta int) {
 		// get file info
 		r, err := f.Info()
 		if err != nil {
-			defs.Logger.Warn().Err(err).Msg("Failed to get file info")
+			Logger.Warn().Err(err).Msg("Failed to get file info")
 			continue
 		}
 		// check if file is a log file and if it's older than daysDelta days
@@ -437,7 +446,7 @@ var (
 )
 
 func initDB() (err error) {
-	defs.Logger.Trace().Msg("Received :INIT:DB: call")
+	Logger.Trace().Msg("Received :INIT:DB: call")
 	loadConfig()
 	functionName := ":INIT:DB:"
 	DB, err = getDB()
@@ -476,7 +485,7 @@ func setupA3Interface() (err error) {
 		for {
 			select {
 			case errData := <-a3ErrorChan:
-				defs.Logger.Error().
+				Logger.Error().
 					Str("command", errData[0]).
 					Str("error", errData[1]).
 					Msg("Error in A3Interface")
@@ -496,7 +505,7 @@ func setupA3Interface() (err error) {
 				// RVExtArgsDataChannels
 			case data := <-RVExtArgsDataChannels[":ADDON:VERSION:"]:
 				addonVersion = fixEscapeQuotes(trimQuotes(data[0]))
-				defs.Logger.Info().Str("version", addonVersion).Msg("Addon version")
+				Logger.Info().Str("version", addonVersion).Msg("Addon version")
 			case data := <-RVExtArgsDataChannels[":NEW:MISSION:"]:
 				go logNewMission(data)
 			}
@@ -555,9 +564,9 @@ func checkServerStatus() {
 	// if server is not running, log error and exit
 	_, err = http.Get(viper.GetString("api.serverUrl") + "/healthcheck")
 	if err != nil {
-		defs.Logger.Info().Msg("OCAP Frontend is offline")
+		Logger.Info().Msg("OCAP Frontend is offline")
 	} else {
-		defs.Logger.Info().Msg("OCAP Frontend is online")
+		Logger.Info().Msg("OCAP Frontend is online")
 	}
 }
 
@@ -565,12 +574,12 @@ func getProgramStatus(
 	rawBuffers bool,
 	writeQueues bool,
 	lastWrite bool,
-) (output []string, model defs.OcapPerformance) {
+) (output []string, model model.OcapPerformance) {
 	// returns a slice of strings indicating raw arrays pending processing as rawBuffers
 	// returns a slice of strings indicating pending data to write to DB as writeQueues
 	// returns a string indicating the last write duration in ms as lastWrite
 
-	buffersObj := defs.BufferLengths{
+	buffersObj := model.BufferLengths{
 		Soldiers:              uint16(len(RVExtArgsDataChannels[":NEW:SOLDIER:"])),
 		Vehicles:              uint16(len(RVExtArgsDataChannels[":NEW:VEHICLE:"])),
 		SoldierStates:         uint16(len(RVExtArgsDataChannels[":NEW:SOLDIER:STATE:"])),
@@ -589,7 +598,7 @@ func getProgramStatus(
 		MarkerDeletes:         uint16(len(RVExtArgsDataChannels[":MARKER:DELETE:"])),
 	}
 
-	writeQueuesObj := defs.WriteQueueLengths{
+	writeQueuesObj := model.WriteQueueLengths{
 		Soldiers:              uint16(soldiersToWrite.Len()),
 		Vehicles:              uint16(vehiclesToWrite.Len()),
 		SoldierStates:         uint16(soldierStatesToWrite.Len()),
@@ -607,7 +616,7 @@ func getProgramStatus(
 		MarkerStates:          uint16(markerStatesToWrite.Len()),
 	}
 
-	perf := defs.OcapPerformance{
+	perf := model.OcapPerformance{
 		Time:              time.Now(),
 		Mission:           *CurrentMission,
 		BufferLengths:     buffersObj,
@@ -743,8 +752,8 @@ func connectToInflux() (influxdb2.Client, error) {
 func createInfluxWriters() {
 	// create influx writers
 	for _, bucket := range InfluxBucketNames {
-		defs.Logger.Trace().Msgf("Creating InfluxDB writer for bucket '%s'", bucket)
-		defs.JSONLogger.Trace().Msgf(`Creating InfluxDB writer for bucket '%s'`, bucket)
+		Logger.Trace().Msgf("Creating InfluxDB writer for bucket '%s'", bucket)
+		JSONLogger.Trace().Msgf(`Creating InfluxDB writer for bucket '%s'`, bucket)
 		InfluxWriters[bucket] = InfluxClient.WriteAPI(
 			viper.GetString("influx.org"),
 			bucket,
@@ -755,12 +764,12 @@ func createInfluxWriters() {
 				writeLog(bucketName, fmt.Sprintf(`Error sending data to InfluxDB: %s`, writeErr.Error()), "ERROR")
 			}
 		}(bucket, errorsCh)
-		defs.Logger.Trace().Msgf("InfluxDB writer for bucket '%s' created", bucket)
-		defs.JSONLogger.Trace().Msgf(`InfluxDB writer for bucket '%s' created`, bucket)
+		Logger.Trace().Msgf("InfluxDB writer for bucket '%s' created", bucket)
+		JSONLogger.Trace().Msgf(`InfluxDB writer for bucket '%s' created`, bucket)
 	}
 
-	defs.Logger.Debug().Msg("InfluxDB writers initialized")
-	defs.JSONLogger.Debug().Msg("InfluxDB writers initialized")
+	Logger.Debug().Msg("InfluxDB writers initialized")
+	JSONLogger.Debug().Msg("InfluxDB writers initialized")
 }
 
 func writeInfluxPoint(
@@ -770,22 +779,22 @@ func writeInfluxPoint(
 ) error {
 
 	if IsInfluxValid {
-		defs.TraceSample.Trace().Msgf("Writing point to InfluxDB bucket '%s'", bucket)
+		TraceSample.Trace().Msgf("Writing point to InfluxDB bucket '%s'", bucket)
 		if _, ok := InfluxWriters[bucket]; !ok {
-			defs.TraceSample.Warn().Msgf("InfluxDB bucket '%s' not registered, skipping", bucket)
+			TraceSample.Warn().Msgf("InfluxDB bucket '%s' not registered, skipping", bucket)
 			return fmt.Errorf("influxDB bucket '%s' not registered", bucket)
 		}
 
 		// write to influx
 		InfluxWriters[bucket].WritePoint(point)
-		defs.TraceSample.Trace().Msgf("Point written to InfluxDB bucket '%s'", bucket)
+		TraceSample.Trace().Msgf("Point written to InfluxDB bucket '%s'", bucket)
 	} else {
 		if InfluxBackupWriter == nil {
 			return fmt.Errorf("influxDB client not initialized and backup writer not available")
 		}
 
 		// write to backup file
-		defs.TraceSample.Trace().Msgf("Writing point to InfluxDB backup file")
+		TraceSample.Trace().Msgf("Writing point to InfluxDB backup file")
 		lineProtocol := influxdb2_write.PointToLineProtocol(
 			point, time.Duration(1*time.Nanosecond),
 		)
@@ -793,7 +802,7 @@ func writeInfluxPoint(
 		if err != nil {
 			return fmt.Errorf("error writing to InfluxDB backup file: %s", err)
 		}
-		defs.TraceSample.Trace().Msgf("Point written to InfluxDB backup file")
+		TraceSample.Trace().Msgf("Point written to InfluxDB backup file")
 	}
 
 	return nil
@@ -851,14 +860,14 @@ func processMetricData(data []string) (
 		case "int":
 			tagValueInt, err := strconv.Atoi(fieldValue)
 			if err != nil {
-				defs.Logger.Error().Err(err).Str("function", functionName).Msgf("Error converting tag value '%s' to int", fieldValue)
+				Logger.Error().Err(err).Str("function", functionName).Msgf("Error converting tag value '%s' to int", fieldValue)
 				return "", nil, err
 			}
 			point.AddField(fieldName, tagValueInt)
 		case "float":
 			tagValueFloat, err := strconv.ParseFloat(fieldValue, 64)
 			if err != nil {
-				defs.Logger.Error().Err(err).Str("function", functionName).Msgf("Error converting tag value '%s' to float", fieldValue)
+				Logger.Error().Err(err).Str("function", functionName).Msgf("Error converting tag value '%s' to float", fieldValue)
 				return "", nil, err
 			}
 			point.AddField(fieldName, tagValueFloat)
@@ -979,9 +988,9 @@ func dumpMemoryDBToDisk() (err error) {
 		return err
 	}
 	writeLog(functionName, fmt.Sprintf(`Dumped memory DB to disk in %s`, time.Since(start)), "INFO")
-	defs.Logger.Debug().
+	Logger.Debug().
 		Dur("duration", time.Since(start)).Msg("Dumped memory DB to disk")
-	defs.JSONLogger.Debug().
+	JSONLogger.Debug().
 		Dur("duration", time.Since(start)).Msg("Dumped memory DB to disk")
 	return nil
 }
@@ -996,7 +1005,7 @@ func getPostgresDB() (db *gorm.DB, err error) {
 		viper.GetString("db.database"),
 	)
 
-	defs.Logger.Debug().Msgf("Connecting to Postgres DB at '%s'", dsn)
+	Logger.Debug().Msgf("Connecting to Postgres DB at '%s'", dsn)
 
 	db, err = gorm.Open(postgres.New(postgres.Config{
 		DSN:                  dsn,
@@ -1019,8 +1028,8 @@ func getDB() (db *gorm.DB, err error) {
 
 	db, err = getPostgresDB()
 	if err != nil {
-		defs.Logger.Error().Err(err).Msg("Failed to connect to Postgres DB, trying SQLite")
-		defs.JSONLogger.Error().Err(err).Msg("Failed to connect to Postgres DB, trying SQLite")
+		Logger.Error().Err(err).Msg("Failed to connect to Postgres DB, trying SQLite")
+		JSONLogger.Error().Err(err).Msg("Failed to connect to Postgres DB, trying SQLite")
 		ShouldSaveLocal = true
 		db, err = getSqliteDB("")
 		if err != nil || db == nil {
@@ -1066,16 +1075,16 @@ func setupDB(db *gorm.DB) (err error) {
 	functionName := "setupDB"
 
 	// Check if OcapInfo table exists
-	if !db.Migrator().HasTable(&defs.OcapInfo{}) {
+	if !db.Migrator().HasTable(&model.OcapInfo{}) {
 		// Create the table
-		err = db.AutoMigrate(&defs.OcapInfo{})
+		err = db.AutoMigrate(&model.OcapInfo{})
 		if err != nil {
 			writeLog(functionName, fmt.Sprintf(`Failed to create ocap_info table. Err: %s`, err), "ERROR")
 			IsDatabaseValid = false
 			return err
 		}
 		// Create the default settings
-		err = db.Create(&defs.OcapInfo{
+		err = db.Create(&model.OcapInfo{
 			GroupName:        "OCAP",
 			GroupDescription: "OCAP",
 			GroupLogo:        "https://i.imgur.com/0Q4z0ZP.png",
@@ -1104,18 +1113,18 @@ func setupDB(db *gorm.DB) (err error) {
 		writeLog(functionName, "PostGIS Extension created", "INFO")
 	}
 
-	defs.Logger.Info().Msg("Migrating schema")
+	Logger.Info().Msg("Migrating schema")
 	if ShouldSaveLocal {
-		err = db.AutoMigrate(defs.DatabaseModelsSQLite...)
+		err = db.AutoMigrate(model.DatabaseModelsSQLite...)
 	} else {
-		err = db.AutoMigrate(defs.DatabaseModels...)
+		err = db.AutoMigrate(model.DatabaseModels...)
 	}
 	if err != nil {
 		IsDatabaseValid = false
 		return fmt.Errorf("failed to migrate schema: %s", err)
 	}
 
-	defs.Logger.Info().Msg("Database setup complete")
+	Logger.Info().Msg("Database setup complete")
 	return nil
 }
 
@@ -1123,20 +1132,20 @@ func startGoroutines() (err error) {
 
 	functionName := "startGoroutines"
 
-	defs.Logger.Trace().Msg("Starting async processors")
+	Logger.Trace().Msg("Starting async processors")
 	startAsyncProcessors()
-	defs.Logger.Trace().Msg("Starting DB writers")
+	Logger.Trace().Msg("Starting DB writers")
 	startDBWriters()
 
 	if !IsStatusProcessRunning {
-		defs.Logger.Trace().Msg("Status process not runnning, starting it")
+		Logger.Trace().Msg("Status process not runnning, starting it")
 		// start status monitor
 		startStatusMonitor()
 	}
 
 	// goroutine to, every x seconds, pause insert execution and dump memory sqlite db to disk
 	go func() {
-		defs.Logger.Debug().
+		Logger.Debug().
 			Str("function", functionName).
 			Msg("Starting DB dump goroutine")
 
@@ -1240,18 +1249,18 @@ func startStatusMonitor() {
 			IsStatusProcessRunning = false
 		}()
 
-		defs.Logger.Debug().
+		Logger.Debug().
 			Str("function", "startStatusMonitor").
 			Msg("Starting status monitor goroutine")
 
 		// get status file writer with full control of file
-		defs.Logger.Trace().
+		Logger.Trace().
 			Str("function", "startStatusMonitor").
 			Str("file", AddonFolder+"/status.txt")
 
 		statusFile, err := os.Create(AddonFolder + "/status.txt")
 		if err != nil {
-			defs.Logger.Error().Err(err).Msg("Error creating status file")
+			Logger.Error().Err(err).Msg("Error creating status file")
 		}
 		defer statusFile.Close()
 
@@ -1277,7 +1286,7 @@ func startStatusMonitor() {
 			if IsDatabaseValid {
 				err = DB.Create(&perfModel).Error
 				if err != nil {
-					defs.Logger.Error().Err(err).Msg("Error writing perf model to Postgres")
+					Logger.Error().Err(err).Msg("Error writing perf model to Postgres")
 				}
 			}
 
@@ -1361,12 +1370,12 @@ func startStatusMonitor() {
 /////////////////////////////////////
 
 // CurrentWorld is the world that is currently being played
-var CurrentWorld *defs.World = &defs.World{
+var CurrentWorld *model.World = &model.World{
 	WorldName: "No world loaded",
 }
 
 // CurrentMission is the mission that is currently being played
-var CurrentMission *defs.Mission = &defs.Mission{
+var CurrentMission *model.Mission = &model.Mission{
 	MissionName: "No mission loaded",
 }
 
@@ -1379,8 +1388,8 @@ func logNewMission(data []string) (err error) {
 		data[i] = fixEscapeQuotes(trimQuotes(v))
 	}
 
-	world := defs.World{}
-	mission := defs.Mission{}
+	world := model.World{}
+	mission := model.Mission{}
 	// unmarshal data[0]
 	err = json.Unmarshal([]byte(data[0]), &world)
 	if err != nil {
@@ -1389,7 +1398,7 @@ func logNewMission(data []string) (err error) {
 	}
 
 	// preprocess the world 'location' to geopoint
-	worldLocation, err := defs.Coords3857From4326(
+	worldLocation, err := geo.Coords3857From4326(
 		float64(world.Longitude),
 		float64(world.Latitude),
 	)
@@ -1408,9 +1417,9 @@ func logNewMission(data []string) (err error) {
 	}
 
 	// add addons
-	addons := []defs.Addon{}
+	addons := []model.Addon{}
 	for _, addon := range missionTemp["addons"].([]interface{}) {
-		thisAddon := defs.Addon{
+		thisAddon := model.Addon{
 			Name: addon.([]interface{})[0].(string),
 		}
 		// if addon[1] workshopId is int, convert to string
@@ -1473,23 +1482,23 @@ func logNewMission(data []string) (err error) {
 	// get or insert world
 	created, err := world.GetOrInsert(DB)
 	if err != nil {
-		defs.Logger.Error().Err(err).Msgf("Failed to get or insert world")
+		Logger.Error().Err(err).Msgf("Failed to get or insert world")
 		return err
 	}
 	if created {
-		defs.Logger.Debug().Msgf("New world inserted: %s", world.WorldName)
+		Logger.Debug().Msgf("New world inserted: %s", world.WorldName)
 	} else {
-		defs.Logger.Debug().Msgf("World already exists: %s", world.WorldName)
+		Logger.Debug().Msgf("World already exists: %s", world.WorldName)
 	}
 
 	// always write new mission
 	mission.World = world
 	err = DB.Create(&mission).Error
 	if err != nil {
-		defs.Logger.Error().Err(err).Msgf("Failed to insert new mission")
+		Logger.Error().Err(err).Msgf("Failed to insert new mission")
 		return err
 	} else {
-		defs.Logger.Debug().Msgf("New mission inserted: %s", mission.MissionName)
+		Logger.Debug().Msgf("New mission inserted: %s", mission.MissionName)
 	}
 
 	// set current world and mission
@@ -1504,11 +1513,11 @@ func logNewMission(data []string) (err error) {
 	// write to log
 	writeLog(functionName, `New mission logged`, "INFO")
 
-	defs.Logger.Debug().Dict("worldData", zerolog.Dict().
+	Logger.Debug().Dict("worldData", zerolog.Dict().
 		Str("worldName", world.WorldName).
 		Str("displayName", world.DisplayName),
 	).Send()
-	defs.Logger.Debug().Dict(
+	Logger.Debug().Dict(
 		"missionData", zerolog.Dict().
 			Str("missionName", mission.MissionName).
 			Str("briefingName", mission.BriefingName).
@@ -1527,7 +1536,7 @@ func logNewMission(data []string) (err error) {
 // (UNITS) AND VEHICLES
 
 // logNewSoldier logs a new soldier to the database
-func logNewSoldier(data []string) (soldier defs.Soldier, err error) {
+func logNewSoldier(data []string) (soldier model.Soldier, err error) {
 	functionName := ":NEW:SOLDIER:"
 
 	// fix received data
@@ -1588,7 +1597,7 @@ func logNewSoldier(data []string) (soldier defs.Soldier, err error) {
 }
 
 // logSoldierState logs a SoldierState state to the database
-func logSoldierState(data []string) (soldierState defs.SoldierState, err error) {
+func logSoldierState(data []string) (soldierState model.SoldierState, err error) {
 	functionName := ":NEW:SOLDIER:STATE:"
 
 	// fix received data
@@ -1632,7 +1641,7 @@ func logSoldierState(data []string) (soldierState defs.SoldierState, err error) 
 	pos := data[1]
 	pos = strings.TrimPrefix(pos, "[")
 	pos = strings.TrimSuffix(pos, "]")
-	point, elev, err := defs.Coord3857FromString(pos)
+	point, elev, err := geo.Coord3857FromString(pos)
 	if err != nil {
 		json, _ := json.Marshal(data)
 		writeLog(functionName, fmt.Sprintf("Error converting position to Point:\n%s\n%v", json, err), "ERROR")
@@ -1680,7 +1689,7 @@ func logSoldierState(data []string) (soldierState defs.SoldierState, err error) 
 			scoresInt[i] = uint8(num)
 		}
 
-		soldierState.Scores = defs.SoldierScores{
+		soldierState.Scores = model.SoldierScores{
 			InfantryKills: scoresInt[0],
 			VehicleKills:  scoresInt[1],
 			ArmorKills:    scoresInt[2],
@@ -1714,7 +1723,7 @@ func logSoldierState(data []string) (soldierState defs.SoldierState, err error) 
 }
 
 // log a new vehicle
-func logNewVehicle(data []string) (vehicle defs.Vehicle, err error) {
+func logNewVehicle(data []string) (vehicle model.Vehicle, err error) {
 	functionName := ":NEW:VEHICLE:"
 
 	// fix received data
@@ -1756,7 +1765,7 @@ func logNewVehicle(data []string) (vehicle defs.Vehicle, err error) {
 	return vehicle, nil
 }
 
-func logVehicleState(data []string) (vehicleState defs.VehicleState, err error) {
+func logVehicleState(data []string) (vehicleState model.VehicleState, err error) {
 	functionName := ":NEW:VEHICLE:STATE:"
 
 	// fix received data
@@ -1802,7 +1811,7 @@ func logVehicleState(data []string) (vehicleState defs.VehicleState, err error) 
 	pos := data[1]
 	pos = strings.TrimPrefix(pos, "[")
 	pos = strings.TrimSuffix(pos, "]")
-	point, elev, err := defs.Coord3857FromString(pos)
+	point, elev, err := geo.Coord3857FromString(pos)
 	if err != nil {
 		json, _ := json.Marshal(data)
 		writeLog(functionName, fmt.Sprintf("Error converting position to Point:\n%s\n%v", json, err), "ERROR")
@@ -1873,7 +1882,7 @@ func logVehicleState(data []string) (vehicleState defs.VehicleState, err error) 
 }
 
 // FIRED EVENTS
-func logFiredEvent(data []string) (firedEvent defs.FiredEvent, err error) {
+func logFiredEvent(data []string) (firedEvent model.FiredEvent, err error) {
 	functionName := ":FIRED:"
 
 	// fix received data
@@ -1917,7 +1926,7 @@ func logFiredEvent(data []string) (firedEvent defs.FiredEvent, err error) {
 
 	// parse BULLET END POS from an arma string
 	endpos := data[2]
-	endpoint, endelev, err := defs.Coord3857FromString(endpos)
+	endpoint, endelev, err := geo.Coord3857FromString(endpos)
 	if err != nil {
 		json, _ := json.Marshal(data)
 		writeLog(functionName, fmt.Sprintf("Error converting position to Point:\n%s\n%v", json, err), "ERROR")
@@ -1928,7 +1937,7 @@ func logFiredEvent(data []string) (firedEvent defs.FiredEvent, err error) {
 
 	// parse BULLET START POS from an arma string
 	startpos := data[3]
-	startpoint, startelev, err := defs.Coord3857FromString(startpos)
+	startpoint, startelev, err := geo.Coord3857FromString(startpos)
 	if err != nil {
 		json, _ := json.Marshal(data)
 		writeLog(functionName, fmt.Sprintf("Error converting position to Point:\n%s\n%v", json, err), "ERROR")
@@ -1947,7 +1956,7 @@ func logFiredEvent(data []string) (firedEvent defs.FiredEvent, err error) {
 	return firedEvent, nil
 }
 
-func logProjectileEvent(data []string) (projectileEvent defs.ProjectileEvent, err error) {
+func logProjectileEvent(data []string) (projectileEvent model.ProjectileEvent, err error) {
 
 	// fix received data
 	for i, v := range data {
@@ -1958,7 +1967,7 @@ func logProjectileEvent(data []string) (projectileEvent defs.ProjectileEvent, er
 
 	// this event will be sent as JSON, so we need to unmarshal it
 
-	defs.Logger.Trace().Msgf("Projectile data: %v", data[0])
+	Logger.Trace().Msgf("Projectile data: %v", data[0])
 
 	var rawJsonData map[string]interface{}
 	err = json.Unmarshal([]byte(data[0]), &rawJsonData)
@@ -1968,7 +1977,7 @@ func logProjectileEvent(data []string) (projectileEvent defs.ProjectileEvent, er
 
 	// get data from json - this is done bit by bit to avoid errors if the data is missing or mismatching type due to SQF vs Go
 
-	defs.Logger.Trace().Msg("Processing time and frame")
+	Logger.Trace().Msg("Processing time and frame")
 	firedTime := rawJsonData["firedTime"].(string)
 	firedTimeInt, err := strconv.ParseInt(firedTime, 10, 64)
 	if err != nil {
@@ -1977,21 +1986,21 @@ func logProjectileEvent(data []string) (projectileEvent defs.ProjectileEvent, er
 	projectileEvent.Time = time.Unix(0, firedTimeInt)
 	projectileEvent.CaptureFrame = uint(rawJsonData["firedFrame"].(float64))
 
-	defs.Logger.Trace().Msg("Processing soldierFired")
+	Logger.Trace().Msg("Processing soldierFired")
 	soldierFired, ok := EntityCache.GetSoldier(uint16(rawJsonData["firerID"].(float64)))
 	if !ok {
 		return projectileEvent, fmt.Errorf("soldier %d not found in cache", uint16(rawJsonData["firerID"].(float64)))
 	}
 	projectileEvent.FirerID = soldierFired.ID
 
-	defs.Logger.Trace().Msg("Processing actualFirer")
+	Logger.Trace().Msg("Processing actualFirer")
 	actualFirer, ok := EntityCache.GetSoldier(uint16(rawJsonData["remoteControllerID"].(float64)))
 	if !ok {
 		return projectileEvent, fmt.Errorf("soldier %d not found in cache", uint16(rawJsonData["remoteControllerID"].(float64)))
 	}
 	projectileEvent.ActualFirerID = actualFirer.ID
 
-	defs.Logger.Trace().Msg("Processing vehicleID")
+	Logger.Trace().Msg("Processing vehicleID")
 	vehicleID := rawJsonData["vehicleID"].(float64)
 	vehicle, ok := EntityCache.GetVehicle(uint16(vehicleID))
 	if ok {
@@ -2011,12 +2020,12 @@ func logProjectileEvent(data []string) (projectileEvent defs.ProjectileEvent, er
 	// X, Y, Z, time (unix time nanoseconds)
 
 	// first, we'll grab the positions and store XYZM in a sequence
-	defs.Logger.Trace().Msgf("Projectile positions: %v", rawJsonData["positions"])
+	Logger.Trace().Msgf("Projectile positions: %v", rawJsonData["positions"])
 	positionSequence := []float64{}
 	for _, v := range rawJsonData["positions"].([]interface{}) {
 		posArr := v.([]interface{})
 
-		defs.Logger.Trace().Msgf("Projectile posArr: %v", posArr)
+		Logger.Trace().Msgf("Projectile posArr: %v", posArr)
 
 		// process time as posArr[0]
 		unixTimeNano := posArr[0].(string)
@@ -2024,16 +2033,16 @@ func logProjectileEvent(data []string) (projectileEvent defs.ProjectileEvent, er
 		unixTimeNanoFloat, err := strconv.ParseFloat(unixTimeNano, 64)
 		if err != nil {
 			json, _ := json.Marshal(posArr)
-			defs.Logger.Error().Err(err).Str("json", string(json)).Msg("Error converting timestamp to float64")
+			Logger.Error().Err(err).Str("json", string(json)).Msg("Error converting timestamp to float64")
 			return projectileEvent, err
 		}
 
 		// process actual position xyz as posArr[2]
 		pos := posArr[2].(string)
-		point, _, err := defs.Coord3857FromString(pos)
+		point, _, err := geo.Coord3857FromString(pos)
 		if err != nil {
 			json, _ := json.Marshal(posArr)
-			defs.Logger.Error().Err(err).Str("json", string(json)).Msg("Error converting position to Point")
+			Logger.Error().Err(err).Str("json", string(json)).Msg("Error converting position to Point")
 			return projectileEvent, err
 		}
 		coords, _ := point.Coordinates()
@@ -2053,11 +2062,11 @@ func logProjectileEvent(data []string) (projectileEvent defs.ProjectileEvent, er
 	ls, err := geom.NewLineString(posSeq)
 	if err != nil {
 		json, _ := json.Marshal(posSeq)
-		defs.Logger.Error().Err(err).Str("json", string(json)).Msg("Error creating linestring")
+		Logger.Error().Err(err).Str("json", string(json)).Msg("Error creating linestring")
 		return projectileEvent, err
 	}
 
-	defs.Logger.Trace().
+	Logger.Trace().
 		Interface("sequence", posSeq).
 		Interface("linestring", ls).
 		Interface("wkt", ls.AsText()).
@@ -2066,15 +2075,15 @@ func logProjectileEvent(data []string) (projectileEvent defs.ProjectileEvent, er
 
 	projectileEvent.Positions = ls.AsGeometry()
 
-	defs.Logger.Trace().Msg("Processing hit events")
+	Logger.Trace().Msg("Processing hit events")
 	// hit events
 
-	projectileEvent.HitSoldiers = []defs.ProjectileHitsSoldier{}
-	projectileEvent.HitVehicles = []defs.ProjectileHitsVehicle{}
+	projectileEvent.HitSoldiers = []model.ProjectileHitsSoldier{}
+	projectileEvent.HitVehicles = []model.ProjectileHitsVehicle{}
 	for _, event := range rawJsonData["hitParts"].([]interface{}) {
 		eventArr := event.([]interface{})
 
-		defs.Logger.Trace().Interface("eventArr", eventArr).Msg("Processing hit event")
+		Logger.Trace().Interface("eventArr", eventArr).Msg("Processing hit event")
 
 		// [1] is []string containing hit components
 		hitComponents := []string{}
@@ -2084,10 +2093,10 @@ func logProjectileEvent(data []string) (projectileEvent defs.ProjectileEvent, er
 
 		// [2] is string with positionASL
 		hitPos := eventArr[2].(string)
-		hitPoint, _, err := defs.Coord3857FromString(hitPos)
+		hitPoint, _, err := geo.Coord3857FromString(hitPos)
 		if err != nil {
 			json, _ := json.Marshal(eventArr)
-			defs.Logger.Error().Err(err).Str("json", string(json)).Msg("Error converting hit position to Point")
+			Logger.Error().Err(err).Str("json", string(json)).Msg("Error converting hit position to Point")
 			return projectileEvent, err
 		}
 
@@ -2097,11 +2106,11 @@ func logProjectileEvent(data []string) (projectileEvent defs.ProjectileEvent, er
 		// marshal hit components to json array
 		hitComponentsJSON, err := json.Marshal(hitComponents)
 		if err != nil {
-			defs.Logger.Error().Err(err).Msg("Error marshalling hit components to json")
+			Logger.Error().Err(err).Msg("Error marshalling hit components to json")
 			return projectileEvent, err
 		}
 
-		defs.Logger.Trace().Interface("hitComponents", hitComponents).Msg("Processed hit components")
+		Logger.Trace().Interface("hitComponents", hitComponents).Msg("Processed hit components")
 
 		// [0] is the hit entity ocap id
 		hitEntityID := eventArr[0].(float64)
@@ -2109,7 +2118,7 @@ func logProjectileEvent(data []string) (projectileEvent defs.ProjectileEvent, er
 		if ok {
 			projectileEvent.HitSoldiers = append(
 				projectileEvent.HitSoldiers,
-				defs.ProjectileHitsSoldier{
+				model.ProjectileHitsSoldier{
 					SoldierID:     hitEntity.ID,
 					ComponentsHit: hitComponentsJSON,
 					CaptureFrame:  uint(hitFrame),
@@ -2121,7 +2130,7 @@ func logProjectileEvent(data []string) (projectileEvent defs.ProjectileEvent, er
 			if ok {
 				projectileEvent.HitVehicles = append(
 					projectileEvent.HitVehicles,
-					defs.ProjectileHitsVehicle{
+					model.ProjectileHitsVehicle{
 						VehicleID:     hitEntity.ID,
 						ComponentsHit: hitComponentsJSON,
 						CaptureFrame:  uint(hitFrame),
@@ -2129,12 +2138,12 @@ func logProjectileEvent(data []string) (projectileEvent defs.ProjectileEvent, er
 					},
 				)
 			} else {
-				defs.Logger.Warn().Msgf("Hit entity %d not found in cache", uint16(hitEntityID))
+				Logger.Warn().Msgf("Hit entity %d not found in cache", uint16(hitEntityID))
 			}
 		}
 	}
 
-	defs.Logger.Trace().Msg("Processing other properties")
+	Logger.Trace().Msg("Processing other properties")
 
 	projectileEvent.VehicleRole = rawJsonData["vehicleRole"].(string)
 	projectileEvent.Weapon = rawJsonData["weapon"].(string)
@@ -2161,7 +2170,7 @@ func contains(s []string, str string) bool {
 }
 
 // function to process events of different kinds
-func logGeneralEvent(data []string) (thisEvent defs.GeneralEvent, err error) {
+func logGeneralEvent(data []string) (thisEvent model.GeneralEvent, err error) {
 
 	functionName := ":EVENT:"
 
@@ -2211,7 +2220,7 @@ func logGeneralEvent(data []string) (thisEvent defs.GeneralEvent, err error) {
 	return thisEvent, nil
 }
 
-func logHitEvent(data []string) (hitEvent defs.HitEvent, err error) {
+func logHitEvent(data []string) (hitEvent model.HitEvent, err error) {
 
 	// fix received data
 	for i, v := range data {
@@ -2289,7 +2298,7 @@ func logHitEvent(data []string) (hitEvent defs.HitEvent, err error) {
 	return hitEvent, nil
 }
 
-func logKillEvent(data []string) (killEvent defs.KillEvent, err error) {
+func logKillEvent(data []string) (killEvent model.KillEvent, err error) {
 
 	// fix received data
 	for i, v := range data {
@@ -2371,7 +2380,7 @@ func logKillEvent(data []string) (killEvent defs.KillEvent, err error) {
 	return killEvent, nil
 }
 
-func logChatEvent(data []string) (chatEvent defs.ChatEvent, err error) {
+func logChatEvent(data []string) (chatEvent model.ChatEvent, err error) {
 
 	// fix received data
 	for i, v := range data {
@@ -2420,7 +2429,7 @@ func logChatEvent(data []string) (chatEvent defs.ChatEvent, err error) {
 	if err != nil {
 		return chatEvent, fmt.Errorf(`error converting channel to int: %v`, err)
 	}
-	channelName, ok := defs.ChatChannels[int(channelInt)]
+	channelName, ok := model.ChatChannels[int(channelInt)]
 	if ok {
 		chatEvent.Channel = channelName
 	} else {
@@ -2447,7 +2456,7 @@ func logChatEvent(data []string) (chatEvent defs.ChatEvent, err error) {
 }
 
 // radio events
-func logRadioEvent(data []string) (radioEvent defs.RadioEvent, err error) {
+func logRadioEvent(data []string) (radioEvent model.RadioEvent, err error) {
 
 	// fix received data
 	for i, v := range data {
@@ -2520,7 +2529,7 @@ func logRadioEvent(data []string) (radioEvent defs.RadioEvent, err error) {
 	return radioEvent, nil
 }
 
-func logFpsEvent(data []string) (fpsEvent defs.ServerFpsEvent, err error) {
+func logFpsEvent(data []string) (fpsEvent model.ServerFpsEvent, err error) {
 
 	// fix received data
 	for i, v := range data {
@@ -2561,7 +2570,7 @@ func logFpsEvent(data []string) (fpsEvent defs.ServerFpsEvent, err error) {
 	return fpsEvent, nil
 }
 
-func logAce3DeathEvent(data []string) (deathEvent defs.Ace3DeathEvent, err error) {
+func logAce3DeathEvent(data []string) (deathEvent model.Ace3DeathEvent, err error) {
 
 	// fix received data
 	for i, v := range data {
@@ -2620,7 +2629,7 @@ func logAce3DeathEvent(data []string) (deathEvent defs.Ace3DeathEvent, err error
 	return deathEvent, nil
 }
 
-func logAce3UnconsciousEvent(data []string) (unconsciousEvent defs.Ace3UnconsciousEvent, err error) {
+func logAce3UnconsciousEvent(data []string) (unconsciousEvent model.Ace3UnconsciousEvent, err error) {
 	// fix received data
 	for i, v := range data {
 		data[i] = fixEscapeQuotes(trimQuotes(v))
@@ -2660,7 +2669,7 @@ func logAce3UnconsciousEvent(data []string) (unconsciousEvent defs.Ace3Unconscio
 
 // logMarkerCreate processes :MARKER:CREATE: command
 // Data format: [markerName, dir, type, text, frameNo, -1, ownerId, color, size, side, pos, shape, alpha, brush, timestamp]
-func logMarkerCreate(data []string) (marker defs.Marker, err error) {
+func logMarkerCreate(data []string) (marker model.Marker, err error) {
 	functionName := ":MARKER:CREATE:"
 
 	// fix received data
@@ -2719,7 +2728,7 @@ func logMarkerCreate(data []string) (marker defs.Marker, err error) {
 	pos := data[10]
 	pos = strings.TrimPrefix(pos, "[")
 	pos = strings.TrimSuffix(pos, "]")
-	point, _, err := defs.Coord3857FromString(pos)
+	point, _, err := geo.Coord3857FromString(pos)
 	if err != nil {
 		writeLog(functionName, fmt.Sprintf("Error parsing position: %v", err), "ERROR")
 		return marker, err
@@ -2756,7 +2765,7 @@ func logMarkerCreate(data []string) (marker defs.Marker, err error) {
 
 // logMarkerMove processes :MARKER:MOVE: command
 // Data format: [markerName, frameNo, pos, dir, alpha, timestamp]
-func logMarkerMove(data []string) (markerState defs.MarkerState, err error) {
+func logMarkerMove(data []string) (markerState model.MarkerState, err error) {
 	functionName := ":MARKER:MOVE:"
 
 	// fix received data
@@ -2789,7 +2798,7 @@ func logMarkerMove(data []string) (markerState defs.MarkerState, err error) {
 	pos := data[2]
 	pos = strings.TrimPrefix(pos, "[")
 	pos = strings.TrimSuffix(pos, "]")
-	point, _, err := defs.Coord3857FromString(pos)
+	point, _, err := geo.Coord3857FromString(pos)
 	if err != nil {
 		writeLog(functionName, fmt.Sprintf("Error parsing position: %v", err), "ERROR")
 		return markerState, err
@@ -2865,7 +2874,7 @@ func startAsyncProcessors() {
 
 			obj, err := logNewSoldier(v)
 			if err == nil {
-				soldiersToWrite.Push([]defs.Soldier{obj})
+				soldiersToWrite.Push([]model.Soldier{obj})
 			} else {
 				writeLog(functionName, fmt.Sprintf(`Failed to log new soldier. Err: %s`, err), "ERROR")
 			}
@@ -2881,7 +2890,7 @@ func startAsyncProcessors() {
 
 			obj, err := logNewVehicle(v)
 			if err == nil {
-				vehiclesToWrite.Push([]defs.Vehicle{obj})
+				vehiclesToWrite.Push([]model.Vehicle{obj})
 			} else {
 
 				writeLog(functionName, fmt.Sprintf(`Failed to log new vehicle. Err: %s`, err), "ERROR")
@@ -2898,7 +2907,7 @@ func startAsyncProcessors() {
 
 			obj, err := logSoldierState(v)
 			if err == nil {
-				soldierStatesToWrite.Push([]defs.SoldierState{obj})
+				soldierStatesToWrite.Push([]model.SoldierState{obj})
 			} else {
 				// if its within the first 10 frames, we don't want to log the error (because it's likely the unit itself isn't inserted yet)
 				if err == errTooEarlyForStateAssociation {
@@ -2918,7 +2927,7 @@ func startAsyncProcessors() {
 
 			obj, err := logVehicleState(v)
 			if err == nil {
-				vehicleStatesToWrite.Push([]defs.VehicleState{obj})
+				vehicleStatesToWrite.Push([]model.VehicleState{obj})
 				continue
 			} else {
 				// if its within the first 10 frames, we don't want to log the error (because it's likely the unit itself isn't inserted yet)
@@ -2940,7 +2949,7 @@ func startAsyncProcessors() {
 
 			obj, err := logFiredEvent(v)
 			if err == nil {
-				firedEventsToWrite.Push([]defs.FiredEvent{obj})
+				firedEventsToWrite.Push([]model.FiredEvent{obj})
 			} else {
 				// if its within the first 10 frames, we don't want to log the error (because it's likely the unit itself isn't inserted yet)
 				if err == errTooEarlyForStateAssociation {
@@ -2961,7 +2970,7 @@ func startAsyncProcessors() {
 
 			obj, err := logProjectileEvent(v)
 			if err == nil {
-				projectileEventsToWrite.Push([]defs.ProjectileEvent{obj})
+				projectileEventsToWrite.Push([]model.ProjectileEvent{obj})
 			} else {
 				// if its within the first 10 frames, we don't want to log the error (because it's likely the unit itself isn't inserted yet)
 				if err == errTooEarlyForStateAssociation {
@@ -2981,7 +2990,7 @@ func startAsyncProcessors() {
 
 			obj, err := logGeneralEvent(v)
 			if err == nil {
-				generalEventsToWrite.Push([]defs.GeneralEvent{obj})
+				generalEventsToWrite.Push([]model.GeneralEvent{obj})
 			} else {
 				writeLog(functionName, fmt.Sprintf(`Failed to log fired event. Err: %s`, err), "ERROR")
 			}
@@ -2997,7 +3006,7 @@ func startAsyncProcessors() {
 
 			obj, err := logHitEvent(v)
 			if err == nil {
-				hitEventsToWrite.Push([]defs.HitEvent{obj})
+				hitEventsToWrite.Push([]model.HitEvent{obj})
 			} else {
 				// if its within the first 10 frames, we don't want to log the error (because it's likely the unit itself isn't inserted yet)
 				if err == errTooEarlyForStateAssociation {
@@ -3017,7 +3026,7 @@ func startAsyncProcessors() {
 
 			obj, err := logKillEvent(v)
 			if err == nil {
-				killEventsToWrite.Push([]defs.KillEvent{obj})
+				killEventsToWrite.Push([]model.KillEvent{obj})
 			} else {
 				// if its within the first 10 frames, we don't want to log the error (because it's likely the unit itself isn't inserted yet)
 				if err == errTooEarlyForStateAssociation {
@@ -3038,7 +3047,7 @@ func startAsyncProcessors() {
 
 			obj, err := logChatEvent(v)
 			if err == nil {
-				chatEventsToWrite.Push([]defs.ChatEvent{obj})
+				chatEventsToWrite.Push([]model.ChatEvent{obj})
 			} else {
 				// if its within the first 10 frames, we don't want to log the error (because it's likely the unit itself isn't inserted yet)
 				if err == errTooEarlyForStateAssociation {
@@ -3059,7 +3068,7 @@ func startAsyncProcessors() {
 
 			obj, err := logRadioEvent(v)
 			if err == nil {
-				radioEventsToWrite.Push([]defs.RadioEvent{obj})
+				radioEventsToWrite.Push([]model.RadioEvent{obj})
 			} else {
 				// if its within the first 10 frames, we don't want to log the error (because it's likely the unit itself isn't inserted yet)
 				if err == errTooEarlyForStateAssociation {
@@ -3080,7 +3089,7 @@ func startAsyncProcessors() {
 
 			obj, err := logFpsEvent(v)
 			if err == nil {
-				fpsEventsToWrite.Push([]defs.ServerFpsEvent{obj})
+				fpsEventsToWrite.Push([]model.ServerFpsEvent{obj})
 			} else {
 				// if its within the first 10 frames, we don't want to log the error (because it's likely the unit itself isn't inserted yet)
 				if err == errTooEarlyForStateAssociation {
@@ -3101,7 +3110,7 @@ func startAsyncProcessors() {
 
 			obj, err := logAce3DeathEvent(v)
 			if err == nil {
-				ace3DeathEventsToWrite.Push([]defs.Ace3DeathEvent{obj})
+				ace3DeathEventsToWrite.Push([]model.Ace3DeathEvent{obj})
 			} else {
 				// if its within the first 10 frames, we don't want to log the error (because it's likely the unit itself isn't inserted yet)
 				if err == errTooEarlyForStateAssociation {
@@ -3122,7 +3131,7 @@ func startAsyncProcessors() {
 
 			obj, err := logAce3UnconsciousEvent(v)
 			if err == nil {
-				ace3UnconsciousEventsToWrite.Push([]defs.Ace3UnconsciousEvent{obj})
+				ace3UnconsciousEventsToWrite.Push([]model.Ace3UnconsciousEvent{obj})
 			} else {
 				writeLog(functionName, fmt.Sprintf(`Failed to log ace3 unconscious event. Err: %s`, err), "ERROR")
 			}
@@ -3143,13 +3152,13 @@ func startAsyncProcessors() {
 			var point *influxdb2_write.Point
 			bucket, point, err = processMetricData(data)
 			if err != nil {
-				defs.Logger.Error().Err(err).Msg("error processing metric data")
+				Logger.Error().Err(err).Msg("error processing metric data")
 				continue
 			}
 
 			err = writeInfluxPoint(context.Background(), bucket, point)
 			if err != nil {
-				defs.Logger.Error().Err(err).Msg("error writing influx point")
+				Logger.Error().Err(err).Msg("error writing influx point")
 				continue
 			}
 		}
@@ -3164,10 +3173,10 @@ func startAsyncProcessors() {
 
 			marker, err := logMarkerCreate(data)
 			if err != nil {
-				defs.Logger.Error().Err(err).Msg("Error processing marker create")
+				Logger.Error().Err(err).Msg("Error processing marker create")
 				continue
 			}
-			markersToWrite.Push([]defs.Marker{marker})
+			markersToWrite.Push([]model.Marker{marker})
 		}
 	}()
 
@@ -3180,10 +3189,10 @@ func startAsyncProcessors() {
 
 			markerState, err := logMarkerMove(data)
 			if err != nil {
-				defs.Logger.Warn().Err(err).Msg("Error processing marker move")
+				Logger.Warn().Err(err).Msg("Error processing marker move")
 				continue
 			}
-			markerStatesToWrite.Push([]defs.MarkerState{markerState})
+			markerStatesToWrite.Push([]model.MarkerState{markerState})
 		}
 	}()
 
@@ -3196,7 +3205,7 @@ func startAsyncProcessors() {
 
 			markerName, frameNo, err := logMarkerDelete(data)
 			if err != nil {
-				defs.Logger.Error().Err(err).Msg("Error processing marker delete")
+				Logger.Error().Err(err).Msg("Error processing marker delete")
 				continue
 			}
 
@@ -3206,17 +3215,17 @@ func startAsyncProcessors() {
 			MarkerCacheLock.RUnlock()
 			if ok {
 				// Create a marker state marking deletion
-				deleteState := defs.MarkerState{
+				deleteState := model.MarkerState{
 					MissionID:    CurrentMission.ID,
 					MarkerID:     markerID,
 					CaptureFrame: frameNo,
 					Time:         time.Now(),
 					Alpha:        0, // Zero alpha indicates deletion
 				}
-				markerStatesToWrite.Push([]defs.MarkerState{deleteState})
+				markerStatesToWrite.Push([]model.MarkerState{deleteState})
 
 				// Update marker as deleted in DB
-				DB.Model(&defs.Marker{}).Where("id = ?", markerID).Update("is_deleted", true)
+				DB.Model(&model.Marker{}).Where("id = ?", markerID).Update("is_deleted", true)
 			}
 		}
 	}()
@@ -3522,11 +3531,11 @@ func writeLog(
 	}
 
 	// debug limits configured in global defs based on config
-	defs.Logger.WithLevel(logLevelActual).
+	Logger.WithLevel(logLevelActual).
 		Str("function", functionName).
 		Msg(data)
 
-	defs.JSONLogger.WithLevel(logLevelActual).
+	JSONLogger.WithLevel(logLevelActual).
 		Str("function", functionName).
 		Msg(data)
 }
@@ -3561,112 +3570,112 @@ func migrateBackupsSqlite() (err error) {
 
 		// migrate all tables
 		// ocap_infos
-		err = migrateTable(sqliteDB, tx, defs.OcapInfo{}, "ocap_infos")
+		err = migrateTable(sqliteDB, tx, model.OcapInfo{}, "ocap_infos")
 		if err != nil {
 			return fmt.Errorf("error migrating ocapinfo: %v", err)
 		}
 		// after_action_reviews
-		err = migrateTable(sqliteDB, tx, defs.AfterActionReview{}, "after_action_reviews")
+		err = migrateTable(sqliteDB, tx, model.AfterActionReview{}, "after_action_reviews")
 		if err != nil {
 			return fmt.Errorf("error migrating after_action_reviews: %v", err)
 		}
 		// worlds
-		err = migrateTable(sqliteDB, tx, defs.World{}, "worlds")
+		err = migrateTable(sqliteDB, tx, model.World{}, "worlds")
 		if err != nil {
 			return fmt.Errorf("error migrating worlds: %v", err)
 		}
 		// missions
-		err = migrateTable(sqliteDB, tx, defs.Mission{}, "missions")
+		err = migrateTable(sqliteDB, tx, model.Mission{}, "missions")
 		if err != nil {
 			return fmt.Errorf("error migrating missions: %v", err)
 		}
 
 		// soldiers
-		err = migrateTable(sqliteDB, tx, defs.Soldier{}, "soldiers")
+		err = migrateTable(sqliteDB, tx, model.Soldier{}, "soldiers")
 		if err != nil {
 			tx.Rollback()
 			return fmt.Errorf("error migrating soldiers: %v", err)
 		}
 		//soldier_states
-		err = migrateTable(sqliteDB, tx, defs.SoldierState{}, "soldier_states")
+		err = migrateTable(sqliteDB, tx, model.SoldierState{}, "soldier_states")
 		if err != nil {
 			tx.Rollback()
 			return fmt.Errorf("error migrating soldier_states: %v", err)
 		}
 		// vehicles
-		err = migrateTable(sqliteDB, tx, defs.Vehicle{}, "vehicles")
+		err = migrateTable(sqliteDB, tx, model.Vehicle{}, "vehicles")
 		if err != nil {
 			tx.Rollback()
 			return fmt.Errorf("error migrating vehicles: %v", err)
 		}
 		// vehicle_states
-		err = migrateTable(sqliteDB, tx, defs.VehicleState{}, "vehicle_states")
+		err = migrateTable(sqliteDB, tx, model.VehicleState{}, "vehicle_states")
 		if err != nil {
 			tx.Rollback()
 			return fmt.Errorf("error migrating vehicle_states: %v", err)
 		}
 		// fired_events
-		err = migrateTable(sqliteDB, tx, defs.FiredEvent{}, "fired_events")
+		err = migrateTable(sqliteDB, tx, model.FiredEvent{}, "fired_events")
 		if err != nil {
 			tx.Rollback()
 			return fmt.Errorf("error migrating fired_events: %v", err)
 		}
 		// projectile_events
-		err = migrateTable(sqliteDB, tx, defs.ProjectileEvent{}, "projectile_events")
+		err = migrateTable(sqliteDB, tx, model.ProjectileEvent{}, "projectile_events")
 		if err != nil {
 			tx.Rollback()
 			return fmt.Errorf("error migrating projectile_events: %v", err)
 		}
 		// general_events
-		err = migrateTable(sqliteDB, tx, defs.GeneralEvent{}, "general_events")
+		err = migrateTable(sqliteDB, tx, model.GeneralEvent{}, "general_events")
 		if err != nil {
 			tx.Rollback()
 			return fmt.Errorf("error migrating general_events: %v", err)
 		}
 		// hit_events
-		err = migrateTable(sqliteDB, tx, defs.HitEvent{}, "hit_events")
+		err = migrateTable(sqliteDB, tx, model.HitEvent{}, "hit_events")
 		if err != nil {
 			tx.Rollback()
 			return fmt.Errorf("error migrating hit_events: %v", err)
 		}
 		// kill_events
-		err = migrateTable(sqliteDB, tx, defs.KillEvent{}, "kill_events")
+		err = migrateTable(sqliteDB, tx, model.KillEvent{}, "kill_events")
 		if err != nil {
 			tx.Rollback()
 			return fmt.Errorf("error migrating kill_events: %v", err)
 		}
 		// chat_events
-		err = migrateTable(sqliteDB, tx, defs.ChatEvent{}, "chat_events")
+		err = migrateTable(sqliteDB, tx, model.ChatEvent{}, "chat_events")
 		if err != nil {
 			tx.Rollback()
 			return fmt.Errorf("error migrating chat_events: %v", err)
 		}
 		// radio_events
-		err = migrateTable(sqliteDB, tx, defs.RadioEvent{}, "radio_events")
+		err = migrateTable(sqliteDB, tx, model.RadioEvent{}, "radio_events")
 		if err != nil {
 			tx.Rollback()
 			return fmt.Errorf("error migrating radio_events: %v", err)
 		}
 		// server_fps_events
-		err = migrateTable(sqliteDB, tx, defs.ServerFpsEvent{}, "server_fps_events")
+		err = migrateTable(sqliteDB, tx, model.ServerFpsEvent{}, "server_fps_events")
 		if err != nil {
 			tx.Rollback()
 			return fmt.Errorf("error migrating server_fps_events: %v", err)
 		}
 		// ace3_death_events
-		err = migrateTable(sqliteDB, tx, defs.Ace3DeathEvent{}, "ace3_death_events")
+		err = migrateTable(sqliteDB, tx, model.Ace3DeathEvent{}, "ace3_death_events")
 		if err != nil {
 			tx.Rollback()
 			return fmt.Errorf("error migrating ace3_death_events: %v", err)
 		}
 		// ace3_unconscious_events
-		err = migrateTable(sqliteDB, tx, defs.Ace3UnconsciousEvent{}, "ace3_unconscious_events")
+		err = migrateTable(sqliteDB, tx, model.Ace3UnconsciousEvent{}, "ace3_unconscious_events")
 		if err != nil {
 			tx.Rollback()
 			return fmt.Errorf("error migrating ace3_unconscious_events: %v", err)
 		}
 		// ocap_performances
-		err = migrateTable(sqliteDB, tx, defs.OcapPerformance{}, "ocap_performances")
+		err = migrateTable(sqliteDB, tx, model.OcapPerformance{}, "ocap_performances")
 		if err != nil {
 			tx.Rollback()
 			return fmt.Errorf("error migrating ocap_performances: %v", err)
@@ -3679,17 +3688,17 @@ func migrateBackupsSqlite() (err error) {
 		// remove connections to the databases
 		sqlConnection, err := sqliteDB.DB()
 		if err != nil {
-			defs.Logger.Error().Msgf("Error getting sqlite connection: %v", err)
-			defs.JSONLogger.Error().Msgf("Error getting sqlite connection: %v", err)
+			Logger.Error().Msgf("Error getting sqlite connection: %v", err)
+			JSONLogger.Error().Msgf("Error getting sqlite connection: %v", err)
 			continue
 		}
 		err = sqlConnection.Close()
 		if err != nil {
-			defs.Logger.Error().Msgf("Error closing sqlite connection: %v", err)
+			Logger.Error().Msgf("Error closing sqlite connection: %v", err)
 		}
 		err = os.Rename(sqlitePath, sqlitePath+".migrated")
 		if err != nil {
-			defs.Logger.Error().Msgf("Error renaming sqlite file: %v", err)
+			Logger.Error().Msgf("Error renaming sqlite file: %v", err)
 		}
 		successfulMigrations = append(successfulMigrations, sqlitePath)
 	}
@@ -3699,7 +3708,7 @@ func migrateBackupsSqlite() (err error) {
 	for _, successfulMigration := range successfulMigrations {
 		successArr.Str(successfulMigration)
 	}
-	defs.Logger.Info().Array(
+	Logger.Info().Array(
 		"successfulMigrations",
 		successArr,
 	).Msgf("Successfully migrated %d backups, it's recommended to delete these to avoid future data duplication", len(successfulMigrations))
@@ -3718,14 +3727,14 @@ func migrateTable[M any](
 	sqliteDB.Model(&model).
 		Assign("id", gorm.Expr("NULL")). // remove the id field from the data
 		Find(data)
-	defs.Logger.Info().Msgf("Found %d %s", len(*data), tableName)
-	defs.JSONLogger.Info().Msgf("Found %d %s", len(*data), tableName)
+	Logger.Info().Msgf("Found %d %s", len(*data), tableName)
+	JSONLogger.Info().Msgf("Found %d %s", len(*data), tableName)
 
 	if len(*data) == 0 {
 		return nil
 	}
 
-	defs.Logger.Info().Msgf("Inserting %d %s", len(*data), tableName)
+	Logger.Info().Msgf("Inserting %d %s", len(*data), tableName)
 
 	// insert into postgres
 	postgresDB.Model(&model).Clauses(
@@ -3733,10 +3742,10 @@ func migrateTable[M any](
 			DoNothing: true,
 		}).Create(data)
 	if postgresDB.Error != nil {
-		defs.Logger.Error().Err(err).
+		Logger.Error().Err(err).
 			Str("database", sqliteDB.Name()).
 			Msgf("Error migrating %s", tableName)
-		defs.JSONLogger.Error().Err(err).
+		JSONLogger.Error().Err(err).
 			Str("database", sqliteDB.Name()).
 			Msgf("Error migrating %s", tableName)
 		return err
@@ -3980,8 +3989,8 @@ func populateDemoData() {
 	fmt.Printf("Sent %d missions in %s\n", numMissions, missionsElapsed)
 
 	// for each mission
-	missions := []defs.Mission{}
-	DB.Model(&defs.Mission{}).
+	missions := []model.Mission{}
+	DB.Model(&model.Mission{}).
 		Order("created_at DESC").
 		Limit(numMissions).
 		Find(&missions)
@@ -4118,7 +4127,7 @@ func populateDemoData() {
 		}
 
 		EntityCache.Lock()
-		defs.Logger.Debug().Int("numSoldiersCached", len(EntityCache.Soldiers)).Msg("Soldiers cached")
+		Logger.Debug().Int("numSoldiersCached", len(EntityCache.Soldiers)).Msg("Soldiers cached")
 		EntityCache.Unlock()
 
 		// write vehicles
@@ -4344,9 +4353,9 @@ func getOcapRecording(missionIDs []string) (err error) {
 
 		// get mission data
 		txStart = time.Now()
-		var mission defs.Mission
+		var mission model.Mission
 		ocapMission := make(map[string]interface{})
-		err = DB.Model(&defs.Mission{}).Where("id = ?", missionIDInt).First(&mission).Error
+		err = DB.Model(&model.Mission{}).Where("id = ?", missionIDInt).First(&mission).Error
 		if err != nil {
 			return err
 		}
@@ -4371,8 +4380,8 @@ func getOcapRecording(missionIDs []string) (err error) {
 		ocapMission["times"] = make([]interface{}, 0)
 
 		// get world name by checking relation
-		var world defs.World
-		err = DB.Model(&defs.World{}).Where("id = ?", mission.WorldID).Select([]string{"world_name", "display_name"}).Scan(&world).Error
+		var world model.World
+		err = DB.Model(&model.World{}).Where("id = ?", mission.WorldID).Select([]string{"world_name", "display_name"}).Scan(&world).Error
 		if err != nil {
 			return err
 		}
@@ -4381,7 +4390,7 @@ func getOcapRecording(missionIDs []string) (err error) {
 
 		// check for an endmission event in the general events table
 		var endMissionEventFrame uint
-		err = DB.Model(&defs.GeneralEvent{}).Where("name = ?", "endMission").Order("capture_frame DESC").Limit(1).Pluck("capture_frame", &endMissionEventFrame).Error
+		err = DB.Model(&model.GeneralEvent{}).Where("name = ?", "endMission").Order("capture_frame DESC").Limit(1).Pluck("capture_frame", &endMissionEventFrame).Error
 		if err != nil {
 			return err
 		}
@@ -4389,14 +4398,14 @@ func getOcapRecording(missionIDs []string) (err error) {
 		// get last soldier state
 		if endMissionEventFrame == 0 {
 			var endSoldierStatesFrame uint
-			err = DB.Model(&defs.SoldierState{}).Where("mission_id = ?", mission.ID).Order("capture_frame DESC").Limit(1).Pluck("capture_frame", &endSoldierStatesFrame).Error
+			err = DB.Model(&model.SoldierState{}).Where("mission_id = ?", mission.ID).Order("capture_frame DESC").Limit(1).Pluck("capture_frame", &endSoldierStatesFrame).Error
 			if err != nil {
 				return err
 			}
 
 			// get last vehicle state
 			var endVehicleStatesFrame uint
-			err = DB.Model(&defs.VehicleState{}).Where("mission_id = ?", mission.ID).Order("capture_frame DESC").Limit(1).Pluck("capture_frame", &endVehicleStatesFrame).Error
+			err = DB.Model(&model.VehicleState{}).Where("mission_id = ?", mission.ID).Order("capture_frame DESC").Limit(1).Pluck("capture_frame", &endVehicleStatesFrame).Error
 			if err != nil {
 				return err
 			}
@@ -4418,7 +4427,7 @@ func getOcapRecording(missionIDs []string) (err error) {
 
 		// process soldier entities
 		txStart = time.Now()
-		var missionSoldiers []defs.Soldier
+		var missionSoldiers []model.Soldier
 
 		err = DB.Model(&mission).Association("Soldiers").Find(&missionSoldiers)
 		if err != nil {
@@ -4445,7 +4454,7 @@ func getOcapRecording(missionIDs []string) (err error) {
 			jsonSoldier["framesFired"] = make([]interface{}, 0)
 
 			// get soldier states
-			var soldierStates []defs.SoldierState
+			var soldierStates []model.SoldierState
 			err = DB.Model(&dbSoldier).Order("capture_frame ASC").Association("SoldierStates").Find(&soldierStates)
 			if err != nil {
 				return err
@@ -4456,7 +4465,7 @@ func getOcapRecording(missionIDs []string) (err error) {
 			}
 
 			// preprocess the soldier states into a map of capture frame to interface
-			soldierStatesMap := defs.NewSoldierStatesMap()
+			soldierStatesMap := queue.NewSoldierStatesMap()
 			for _, state := range soldierStates {
 				var thisPosition []interface{}
 
@@ -4503,7 +4512,7 @@ func getOcapRecording(missionIDs []string) (err error) {
 			}
 
 			// fired frames
-			var firedEvents []defs.FiredEvent
+			var firedEvents []model.FiredEvent
 			err = DB.Model(&dbSoldier).Order("capture_frame ASC").Association("FiredEvents").Find(&firedEvents)
 			if err != nil {
 				return err
@@ -4527,7 +4536,7 @@ func getOcapRecording(missionIDs []string) (err error) {
 
 		// process vehicle entities
 		txStart = time.Now()
-		var missionVehicles []defs.Vehicle
+		var missionVehicles []model.Vehicle
 
 		err = DB.Model(&mission).Association("Vehicles").Find(&missionVehicles)
 		if err != nil {
@@ -4549,7 +4558,7 @@ func getOcapRecording(missionIDs []string) (err error) {
 			jsonVehicle["positions"] = make([]interface{}, 0)
 
 			// get vehicle states
-			var vehicleStates []defs.VehicleState
+			var vehicleStates []model.VehicleState
 			err = DB.Model(&dbVehicle).Order("capture_frame ASC").Association("VehicleStates").Find(&vehicleStates)
 			if err != nil {
 				return err
@@ -4636,7 +4645,7 @@ func getOcapRecording(missionIDs []string) (err error) {
 
 		// process markers
 		txStart = time.Now()
-		var missionMarkers []defs.Marker
+		var missionMarkers []model.Marker
 		err = DB.Where("mission_id = ?", mission.ID).Order("capture_frame ASC").Find(&missionMarkers).Error
 		if err != nil {
 			return err
@@ -4648,10 +4657,10 @@ func getOcapRecording(missionIDs []string) (err error) {
 		markersJson := make([]interface{}, 0)
 		for _, dbMarker := range missionMarkers {
 			// Get marker states for this marker
-			var markerStates []defs.MarkerState
+			var markerStates []model.MarkerState
 			err = DB.Where("marker_id = ?", dbMarker.ID).Order("capture_frame ASC").Find(&markerStates).Error
 			if err != nil {
-				defs.Logger.Warn().Err(err).Msgf("Error getting states for marker %s", dbMarker.MarkerName)
+				Logger.Warn().Err(err).Msgf("Error getting states for marker %s", dbMarker.MarkerName)
 			}
 
 			// Build marker JSON structure matching OCAP2 web format
@@ -4709,9 +4718,9 @@ func getOcapRecording(missionIDs []string) (err error) {
 		txStart = time.Now()
 
 		allEvents := [][]interface{}{}
-		generalEvents := []defs.GeneralEvent{}
-		hitEvents := []defs.HitEvent{}
-		killEvents := []defs.KillEvent{}
+		generalEvents := []model.GeneralEvent{}
+		hitEvents := []model.HitEvent{}
+		killEvents := []model.KillEvent{}
 		if err = DB.Model(&mission).Order("capture_frame ASC, time ASC").Association("GeneralEvents").Find(&generalEvents); err != nil {
 			return err
 		}
@@ -4754,7 +4763,7 @@ func getOcapRecording(missionIDs []string) (err error) {
 			victimID := uint(0)
 
 			// get soldier ocap_id
-			err = DB.Model(&defs.Soldier{}).Where("id = ?", hitEvent.VictimSoldierID).Pluck(
+			err = DB.Model(&model.Soldier{}).Where("id = ?", hitEvent.VictimSoldierID).Pluck(
 				"ocap_id", &victimID,
 			).Error
 			if err != nil && err != gorm.ErrRecordNotFound {
@@ -4764,7 +4773,7 @@ func getOcapRecording(missionIDs []string) (err error) {
 				jsonEvent[2] = victimID
 			} else {
 				// get vehicle ocap_id
-				err = DB.Model(&defs.Vehicle{}).Where("id = ?", hitEvent.VictimVehicleID).Pluck(
+				err = DB.Model(&model.Vehicle{}).Where("id = ?", hitEvent.VictimVehicleID).Pluck(
 					"ocap_id", &victimID,
 				).Error
 				if err != nil && err != gorm.ErrRecordNotFound {
@@ -4782,7 +4791,7 @@ func getOcapRecording(missionIDs []string) (err error) {
 			causedBy := make([]interface{}, 2)
 			causedByID := uint(0)
 			// get soldier ocap_id
-			err = DB.Model(&defs.Soldier{}).Where("id = ?", hitEvent.ShooterSoldierID).Pluck(
+			err = DB.Model(&model.Soldier{}).Where("id = ?", hitEvent.ShooterSoldierID).Pluck(
 				"ocap_id", &causedByID,
 			).Error
 			if err != nil && err != gorm.ErrRecordNotFound {
@@ -4791,7 +4800,7 @@ func getOcapRecording(missionIDs []string) (err error) {
 				// if soldier ocap_id found, use it
 			} else {
 				// get vehicle ocap_id
-				err = DB.Model(&defs.Vehicle{}).Where("id = ?", hitEvent.ShooterVehicleID).Pluck(
+				err = DB.Model(&model.Vehicle{}).Where("id = ?", hitEvent.ShooterVehicleID).Pluck(
 					"ocap_id", &causedByID,
 				).Error
 				if err != nil && err != gorm.ErrRecordNotFound {
@@ -4824,7 +4833,7 @@ func getOcapRecording(missionIDs []string) (err error) {
 			victimID := uint(0)
 
 			// get soldier ocap_id
-			err = DB.Model(&defs.Soldier{}).Where("id = ?", killEvent.VictimIDSoldier).Pluck(
+			err = DB.Model(&model.Soldier{}).Where("id = ?", killEvent.VictimIDSoldier).Pluck(
 				"ocap_id", &victimID,
 			).Error
 			if err != nil && err != gorm.ErrRecordNotFound {
@@ -4834,7 +4843,7 @@ func getOcapRecording(missionIDs []string) (err error) {
 				jsonEvent[2] = victimID
 			} else {
 				// get vehicle ocap_id
-				err = DB.Model(&defs.Vehicle{}).Where("id = ?", killEvent.VictimIDVehicle).Pluck(
+				err = DB.Model(&model.Vehicle{}).Where("id = ?", killEvent.VictimIDVehicle).Pluck(
 					"ocap_id", &victimID,
 				).Error
 				if err != nil && err != gorm.ErrRecordNotFound {
@@ -4852,7 +4861,7 @@ func getOcapRecording(missionIDs []string) (err error) {
 			causedBy := make([]interface{}, 2)
 			var causedByID uint16
 			// get soldier ocap_id
-			err = DB.Model(&defs.Soldier{}).Where("id = ?", killEvent.KillerIDSoldier).Pluck(
+			err = DB.Model(&model.Soldier{}).Where("id = ?", killEvent.KillerIDSoldier).Pluck(
 				"ocap_id", &causedByID,
 			).Error
 			if err != nil && err != gorm.ErrRecordNotFound {
@@ -4861,7 +4870,7 @@ func getOcapRecording(missionIDs []string) (err error) {
 				// if soldier ocap_id found, use it
 			} else {
 				// get vehicle ocap_id
-				err = DB.Model(&defs.Vehicle{}).Where("id = ?", killEvent.KillerIDVehicle).Pluck(
+				err = DB.Model(&model.Vehicle{}).Where("id = ?", killEvent.KillerIDVehicle).Pluck(
 					"ocap_id", &causedByID,
 				).Error
 				if err != nil && err != gorm.ErrRecordNotFound {
@@ -4968,8 +4977,8 @@ func reduceMission(missionIDs []string) (err error) {
 
 		// get mission data
 		txStart := time.Now()
-		var mission defs.Mission
-		err = DB.Model(&defs.Mission{}).Where("id = ?", missionIDInt).First(&mission).Error
+		var mission model.Mission
+		err = DB.Model(&model.Mission{}).Where("id = ?", missionIDInt).First(&mission).Error
 		if err != nil {
 			return fmt.Errorf("error getting mission: %w", err)
 		}
@@ -4978,8 +4987,8 @@ func reduceMission(missionIDs []string) (err error) {
 		// we'll be left with 1 state every 5 frames, plus the first and last states
 
 		// get soldier states to remove
-		soldierStatesToDelete := []defs.SoldierState{}
-		err = DB.Model(&defs.SoldierState{}).Where(
+		soldierStatesToDelete := []model.SoldierState{}
+		err = DB.Model(&model.SoldierState{}).Where(
 			"mission_id = ? AND capture_frame % 5 != 0",
 			mission.ID,
 		).Order("capture_frame ASC").Find(&soldierStatesToDelete).Error
@@ -5070,7 +5079,7 @@ order by s.ocap_id,
 `
 
 	// get rows
-	frameData := []defs.FrameData{}
+	frameData := []model.FrameData{}
 	err = DB.Raw(query, 4, 0, 100).Scan(&frameData).Error
 	if err != nil {
 		fmt.Println(err)
@@ -5081,7 +5090,7 @@ order by s.ocap_id,
 
 	// for rows.Next() {
 
-	// 	rowData := defs.FrameData{}
+	// 	rowData := model.FrameData{}
 	// 	err = DB.ScanRows(rows, &rowData)
 	// 	if err != nil {
 	// 		fmt.Println(err)
@@ -5116,25 +5125,25 @@ order by s.ocap_id,
 
 func main() {
 	var err error
-	defs.Logger.Info().Msg("Starting up...")
+	Logger.Info().Msg("Starting up...")
 	// connect to DB
-	defs.Logger.Info().Msg("Connecting to DB...")
+	Logger.Info().Msg("Connecting to DB...")
 	err = initDB()
 	if err != nil {
 		panic(err)
 	}
-	defs.Logger.Info().Msg("DB connect/migrate complete.")
+	Logger.Info().Msg("DB connect/migrate complete.")
 	initExtension()
 
 	// get arguments
 	args := os.Args[1:]
 	if len(args) > 0 {
 		if strings.ToLower(args[0]) == "demo" {
-			defs.Logger.Info().Msg("Populating demo data...")
+			Logger.Info().Msg("Populating demo data...")
 			IsDemoData = true
 			demoStart := time.Now()
 			populateDemoData()
-			defs.Logger.Info().Dur("duration", time.Duration(time.Since(demoStart).Seconds())).Msg("Demo data populated.")
+			Logger.Info().Dur("duration", time.Duration(time.Since(demoStart).Seconds())).Msg("Demo data populated.")
 			// wait input
 			fmt.Println("Press enter to exit.")
 		}
@@ -5143,7 +5152,7 @@ func main() {
 			if err != nil {
 				panic(err)
 			}
-			defs.Logger.Info().Msg("DB setup complete.")
+			Logger.Info().Msg("DB setup complete.")
 		}
 		if strings.ToLower(args[0]) == "getjson" {
 			missionIds := args[1:]
@@ -5173,7 +5182,7 @@ func main() {
 			if err != nil {
 				panic(err)
 			}
-			defs.Logger.Info().Msg("Finished migrating backups.")
+			Logger.Info().Msg("Finished migrating backups.")
 		}
 		if strings.ToLower(args[0]) == "testquery" {
 			err = testQuery()

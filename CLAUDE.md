@@ -4,83 +4,117 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-C++ native DLL extension for ArmA 3 that records gameplay/mission replay data and transmits it to an OCAP2 (Operational Combat Analysis Platform) backend server.
+Go native DLL extension for ArmA 3 that records gameplay/mission replay data to PostgreSQL (with SQLite fallback) and optionally sends metrics to InfluxDB.
 
 ## Build Commands
 
 ```bash
-# Configure (Windows with Visual Studio 2019)
-cmake -B build -S OcapReplaySaver2 -G "Visual Studio 16 2019" -A x64   # 64-bit
-cmake -B build -S OcapReplaySaver2 -G "Visual Studio 16 2019" -A Win32 # 32-bit
+# Pull Docker image
+docker pull x1unix/go-mingw:1.20
 
-# Build
-cmake --build build --config Release
+# Build x64 Windows DLL
+docker run --rm -v ${PWD}:/go/work -w /go/work x1unix/go-mingw:1.20 go build -o dist/ocap_recorder_x64.dll -buildmode=c-shared ./cmd/ocap_recorder
 
-# Install (optional)
-cmake --install build --prefix <destination>
+# Build x86 Windows DLL
+docker run --rm -v ${PWD}:/go/work -w /go/work -e GOARCH=386 x1unix/go-mingw:1.20 go build -o dist/ocap_recorder.dll -buildmode=c-shared ./cmd/ocap_recorder
 ```
 
-**Dependencies:** CURL, zlib (must be installed before CMake configuration)
+**Output:** `dist/ocap_recorder_x64.dll` or `dist/ocap_recorder.dll`
 
-**Output:** `OcapReplaySaver2.dll` (32-bit) or `OcapReplaySaver2_x64.dll` (64-bit)
+## Project Structure (Go Standard Layout)
+
+```
+/cmd/ocap_recorder/main.go   - Main application entry point
+/internal/model/             - GORM database models
+/internal/queue/             - Thread-safe queue implementations
+/internal/cache/             - Entity caching layer
+/internal/geo/               - Coordinate/geometry utilities
+/pkg/a3interface/            - ArmA 3 extension interface (RVExtension exports, module path)
+Dockerfile                   - Docker build for Linux
+go.mod, go.sum               - Go module dependencies
+createViews.sql              - PostgreSQL materialized views
+ocap-recorder.cfg.json.example - Configuration template
+```
 
 ## Architecture
 
-### DLL Entry Points (OcapReplaySaver2.h)
+### DLL Entry Points (pkg/a3interface/)
 
-Three exported functions for ArmA 3 extension interface:
+CGo exports for ArmA 3 extension interface:
 - `RVExtensionVersion()` - Returns version string
 - `RVExtension()` - Legacy simple command handler
 - `RVExtensionArgs()` - Main command dispatcher with arguments
+- `RVExtensionRegisterCallback()` - Callback registration for async responses
 
-### Command Processing (OcapReplaySaver2.cpp)
+### Command Processing (cmd/ocap_recorder/main.go)
 
-- **Threading:** Background worker thread processes commands from a thread-safe queue
-- **Command dispatch:** `dll_commands` unordered_map maps command strings to handler functions
-- **State:** `is_writing` atomic flag controls recording state
+- **Async channels:** Each command type has a buffered channel for non-blocking processing
+- **Goroutines:** Dedicated goroutines consume from channels and process data
+- **Thread-safe queues:** `internal/queue/queue.go` provides mutex-protected queues for DB batching
+
+### Data Models (internal/model/model.go)
+
+GORM models for PostgreSQL/SQLite:
+- `Mission`, `World`, `Addon` - Mission metadata
+- `Soldier`, `SoldierState` - Unit tracking with positions
+- `Vehicle`, `VehicleState` - Vehicle tracking
+- `ProjectileEvent`, `ProjectileHitsSoldier`, `ProjectileHitsVehicle` - Combat events
+- `Marker`, `MarkerState` - Map marker tracking
 
 ### Commands
 
 | Command | Purpose |
 |---------|---------|
 | `:NEW:UNIT:`, `:NEW:VEH:` | Register new units/vehicles |
-| `:UPDATE:UNIT:`, `:UPDATE:VEH:` | Update position data |
+| `:UPDATE:UNIT:`, `:UPDATE:VEH:` | Update position/state data |
 | `:EVENT:`, `:FIRED:` | Log gameplay events |
 | `:MARKER:CREATE/DELETE/MOVE:` | Marker operations |
-| `:START:` | Begin recording |
-| `:SAVE:` | Save and transmit to backend |
-| `:CLEAR:` | Clear JSON buffer |
-| `:TIME:` | Set recording time |
-| `:VERSION:`, `:SET:VERSION:` | Version management |
+| `:START:` | Begin recording mission |
+| `:SAVE:` | End recording and finalize |
+| `:LOG:` | Custom log events |
 
 ### Data Flow
 
-1. Game sends commands via `RVExtensionArgs()` → queued in thread-safe queue
-2. Background thread processes commands → builds JSON data structure
-3. On `:SAVE:` → gzip compress → HTTP POST to backend API
-4. Failed transmissions saved locally in `OCAPLOG/` for retry
+1. Game sends commands via `RVExtensionArgs()` → dispatched to appropriate channel
+2. Goroutines consume channels → populate thread-safe queues
+3. DB writer goroutines batch-insert from queues → PostgreSQL/SQLite
+4. On mission end → JSON export compatible with OCAP2 web frontend
 
 ## Configuration
 
-File: `OcapReplaySaver2.cfg.json` (placed alongside DLL)
+File: `ocap-recorder.cfg.json` (placed alongside DLL)
 
 ```json
 {
-  "newUrl": "http://127.0.0.1/api/v1/operations/add",
-  "newUrlRequestSecret": "pwd1234",
-  "httpRequestTimeout": 120,
-  "traceLog": 0,
+  "logLevel": "info",
   "logsDir": "./OCAPLOG",
-  "logAndTmpPrefix": "ocap-",
-  "newServerGameType": "TvT"
+  "defaultTag": "TvT",
+  "api": {
+    "serverUrl": "127.0.0.1:5000",
+    "apiKey": "secret"
+  },
+  "db": {
+    "host": "127.0.0.1",
+    "port": "5432",
+    "username": "postgres",
+    "password": "postgres",
+    "database": "ocap"
+  },
+  "influx": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": "8086",
+    "protocol": "http",
+    "token": "token",
+    "org": "ocap-metrics"
+  }
 }
 ```
 
-Set `traceLog: 1` to enable verbose logging.
+## Key Dependencies
 
-## Key Libraries
-
-- **nlohmann/json** (json.hpp) - JSON serialization
-- **easylogging++** - Logging framework
-- **CURL** - HTTP requests
-- **zlib** - gzip compression
+- **GORM** - ORM for PostgreSQL/SQLite
+- **peterstace/simplefeatures** - Geometry/GIS support
+- **rs/zerolog** - Structured logging
+- **spf13/viper** - Configuration management
+- **influxdb-client-go** - InfluxDB metrics

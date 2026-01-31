@@ -1,4 +1,4 @@
-package assemblyfinder
+package a3interface
 
 import (
 	"unsafe"
@@ -68,6 +68,5 @@ import "C"
 func GetModulePath() string {
 	modPath := C.GetModulePath()
 	defer C.free(unsafe.Pointer(modPath))
-	// fmt.Printf("Running on %s, module path: %s\n", runtime.GOOS, C.GoString(modPath))
 	return C.GoString(modPath)
 }
