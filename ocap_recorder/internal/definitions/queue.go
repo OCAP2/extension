@@ -910,3 +910,119 @@ func (q *SoldierStatesMap) GetStateAtFrame(frame uint, endFrame uint) ([]interfa
 func (q *SoldierStatesMap) GetLastState() []interface{} {
 	return q.lastState
 }
+
+type MarkersQueue struct {
+	mu    sync.Mutex // protects q
+	Queue []Marker
+}
+
+// lock, unlock, empty, push, pop, len, clear, getandempty
+func (q *MarkersQueue) Lock() bool {
+	q.mu.Lock()
+	return true
+}
+
+func (q *MarkersQueue) Unlock() {
+	q.mu.Unlock()
+}
+
+func (q *MarkersQueue) Empty() bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.Queue) == 0
+}
+
+func (q *MarkersQueue) Push(n []Marker) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.Queue = append(q.Queue, n...)
+}
+
+func (q *MarkersQueue) Pop() Marker {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if len(q.Queue) == 0 {
+		return Marker{}
+	}
+	n := q.Queue[0]
+	q.Queue = q.Queue[1:]
+	return n
+}
+
+func (q *MarkersQueue) Len() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.Queue)
+}
+
+func (q *MarkersQueue) Clear() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.Queue = []Marker{}
+	return len(q.Queue)
+}
+
+func (q *MarkersQueue) GetAndEmpty() []Marker {
+	q.mu.Lock()
+	defer q.Clear()
+	defer q.mu.Unlock()
+	return q.Queue
+}
+
+type MarkerStatesQueue struct {
+	mu    sync.Mutex // protects q
+	Queue []MarkerState
+}
+
+// lock, unlock, empty, push, pop, len, clear, getandempty
+func (q *MarkerStatesQueue) Lock() bool {
+	q.mu.Lock()
+	return true
+}
+
+func (q *MarkerStatesQueue) Unlock() {
+	q.mu.Unlock()
+}
+
+func (q *MarkerStatesQueue) Empty() bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.Queue) == 0
+}
+
+func (q *MarkerStatesQueue) Push(n []MarkerState) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.Queue = append(q.Queue, n...)
+}
+
+func (q *MarkerStatesQueue) Pop() MarkerState {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if len(q.Queue) == 0 {
+		return MarkerState{}
+	}
+	n := q.Queue[0]
+	q.Queue = q.Queue[1:]
+	return n
+}
+
+func (q *MarkerStatesQueue) Len() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.Queue)
+}
+
+func (q *MarkerStatesQueue) Clear() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.Queue = []MarkerState{}
+	return len(q.Queue)
+}
+
+func (q *MarkerStatesQueue) GetAndEmpty() []MarkerState {
+	q.mu.Lock()
+	defer q.Clear()
+	defer q.mu.Unlock()
+	return q.Queue
+}
