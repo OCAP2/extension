@@ -28,7 +28,7 @@ docker run --rm -v ${PWD}:/go/work -w /go/work -e GOARCH=386 x1unix/go-mingw:1.2
 /internal/definitions/        - Private application code (models, queues, cache)
 /pkg/a3interface/            - ArmA 3 extension interface (RVExtension exports)
 /pkg/assemblyfinder/         - Assembly/module path utilities
-/build/                      - Docker build files
+Dockerfile                   - Docker build for Linux
 go.mod, go.sum               - Go module dependencies
 createViews.sql              - PostgreSQL materialized views
 ocap-recorder.cfg.json.example - Configuration template
