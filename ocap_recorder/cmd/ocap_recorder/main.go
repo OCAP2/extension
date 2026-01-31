@@ -4559,6 +4559,77 @@ func getOcapRecording(missionIDs []string) (err error) {
 
 		fmt.Printf("Processed vehicle data in %s\n", time.Since(txStart))
 
+		// process markers
+		txStart = time.Now()
+		var missionMarkers []defs.Marker
+		err = DB.Where("mission_id = ?", mission.ID).Order("capture_frame ASC").Find(&missionMarkers).Error
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Found %d markers in mission in %s\n", len(missionMarkers), time.Since(txStart))
+
+		// process marker data into json
+		txStart = time.Now()
+		markersJson := make([]interface{}, 0)
+		for _, dbMarker := range missionMarkers {
+			// Get marker states for this marker
+			var markerStates []defs.MarkerState
+			err = DB.Where("marker_id = ?", dbMarker.ID).Order("capture_frame ASC").Find(&markerStates).Error
+			if err != nil {
+				defs.Logger.Warn().Err(err).Msgf("Error getting states for marker %s", dbMarker.MarkerName)
+			}
+
+			// Build marker JSON structure matching OCAP2 web format
+			// Format: [name, [positions...], type, text, color, size, side, shape, brush, alpha, direction]
+			// where positions = [[frame, [x,y,z], dir, alpha], ...]
+
+			jsonMarker := make([]interface{}, 0)
+			jsonMarker = append(jsonMarker, dbMarker.MarkerName)
+
+			// Build positions array - initial position plus all state changes
+			positions := make([]interface{}, 0)
+
+			// Add initial creation position
+			initialPos := dbMarker.Position
+			initialCoords, _ := initialPos.Coordinates()
+			initialPosArr := []interface{}{
+				dbMarker.CaptureFrame,
+				[]float64{initialCoords.X, initialCoords.Y, 0},
+				dbMarker.Direction,
+				dbMarker.Alpha,
+			}
+			positions = append(positions, initialPosArr)
+
+			// Add state changes
+			for _, state := range markerStates {
+				pos := state.Position
+				coords, _ := pos.Coordinates()
+				statePos := []interface{}{
+					state.CaptureFrame,
+					[]float64{coords.X, coords.Y, 0},
+					state.Direction,
+					state.Alpha,
+				}
+				positions = append(positions, statePos)
+			}
+			jsonMarker = append(jsonMarker, positions)
+
+			// Add marker properties
+			jsonMarker = append(jsonMarker, dbMarker.MarkerType)
+			jsonMarker = append(jsonMarker, dbMarker.Text)
+			jsonMarker = append(jsonMarker, dbMarker.Color)
+			jsonMarker = append(jsonMarker, dbMarker.Size)
+			jsonMarker = append(jsonMarker, dbMarker.Side)
+			jsonMarker = append(jsonMarker, dbMarker.Shape)
+			jsonMarker = append(jsonMarker, dbMarker.Brush)
+			jsonMarker = append(jsonMarker, dbMarker.Alpha)
+			jsonMarker = append(jsonMarker, dbMarker.Direction)
+
+			markersJson = append(markersJson, jsonMarker)
+		}
+		ocapMission["Markers"] = markersJson
+		fmt.Printf("Processed marker data in %s\n", time.Since(txStart))
+
 		// process events
 		txStart = time.Now()
 
