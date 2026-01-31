@@ -4,6 +4,6 @@
     "logsDir": "./OCAPLOG",
     "newServerGameType": "TvT",
     "newUrl": "http://127.0.0.1/api/v1/operations/add",
-    "newUrlRequestSecret": "pwd1234",
+    "newUrlRequestSecret": "same-secret",
     "traceLog": 0
 }
