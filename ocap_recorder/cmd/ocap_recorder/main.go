@@ -2648,6 +2648,196 @@ func logAce3UnconsciousEvent(data []string) (unconsciousEvent defs.Ace3Unconscio
 	return unconsciousEvent, nil
 }
 
+// logMarkerCreate processes :MARKER:CREATE: command
+// Data format: [markerName, dir, type, text, frameNo, -1, ownerId, color, size, side, pos, shape, alpha, brush, timestamp]
+func logMarkerCreate(data []string) (marker defs.Marker, err error) {
+	functionName := ":MARKER:CREATE:"
+
+	// fix received data
+	for i, v := range data {
+		data[i] = fixEscapeQuotes(trimQuotes(v))
+	}
+
+	marker.MissionID = CurrentMission.ID
+
+	// markerName
+	marker.MarkerName = data[0]
+
+	// direction
+	dir, err := strconv.ParseFloat(data[1], 32)
+	if err != nil {
+		writeLog(functionName, fmt.Sprintf("Error parsing direction: %v", err), "ERROR")
+		return marker, err
+	}
+	marker.Direction = float32(dir)
+
+	// type
+	marker.MarkerType = data[2]
+
+	// text
+	marker.Text = data[3]
+
+	// frameNo
+	frameStr := data[4]
+	capframe, err := strconv.ParseInt(frameStr, 10, 64)
+	if err != nil {
+		writeLog(functionName, fmt.Sprintf("Error parsing capture frame: %v", err), "ERROR")
+		return marker, err
+	}
+	marker.CaptureFrame = uint(capframe)
+
+	// data[5] is -1, skip
+
+	// ownerId
+	ownerId, err := strconv.Atoi(data[6])
+	if err != nil {
+		writeLog(functionName, fmt.Sprintf("Error parsing ownerId: %v", err), "WARN")
+		ownerId = -1
+	}
+	marker.OwnerID = ownerId
+
+	// color
+	marker.Color = data[7]
+
+	// size (stored as string "[w,h]")
+	marker.Size = data[8]
+
+	// side
+	marker.Side = data[9]
+
+	// position - parse from arma string "[x,y,z]"
+	pos := data[10]
+	pos = strings.TrimPrefix(pos, "[")
+	pos = strings.TrimSuffix(pos, "]")
+	point, _, err := defs.Coord3857FromString(pos)
+	if err != nil {
+		writeLog(functionName, fmt.Sprintf("Error parsing position: %v", err), "ERROR")
+		return marker, err
+	}
+	marker.Position = point
+
+	// shape
+	marker.Shape = data[11]
+
+	// alpha
+	alpha, err := strconv.ParseFloat(data[12], 32)
+	if err != nil {
+		writeLog(functionName, fmt.Sprintf("Error parsing alpha: %v", err), "WARN")
+		alpha = 1.0
+	}
+	marker.Alpha = float32(alpha)
+
+	// brush
+	marker.Brush = data[13]
+
+	// timestamp
+	timestampStr := data[len(data)-1]
+	timestampInt, err := strconv.ParseInt(timestampStr, 10, 64)
+	if err != nil {
+		writeLog(functionName, fmt.Sprintf("Error parsing timestamp: %v", err), "ERROR")
+		return marker, err
+	}
+	marker.Time = time.Unix(0, timestampInt)
+
+	marker.IsDeleted = false
+
+	return marker, nil
+}
+
+// logMarkerMove processes :MARKER:MOVE: command
+// Data format: [markerName, frameNo, pos, dir, alpha, timestamp]
+func logMarkerMove(data []string) (markerState defs.MarkerState, err error) {
+	functionName := ":MARKER:MOVE:"
+
+	// fix received data
+	for i, v := range data {
+		data[i] = fixEscapeQuotes(trimQuotes(v))
+	}
+
+	markerState.MissionID = CurrentMission.ID
+
+	// markerName - look up marker ID from cache
+	markerName := data[0]
+	MarkerCacheLock.RLock()
+	markerID, ok := MarkerCache[markerName]
+	MarkerCacheLock.RUnlock()
+	if !ok {
+		return markerState, fmt.Errorf("marker %s not found in cache", markerName)
+	}
+	markerState.MarkerID = markerID
+
+	// frameNo
+	frameStr := data[1]
+	capframe, err := strconv.ParseInt(frameStr, 10, 64)
+	if err != nil {
+		writeLog(functionName, fmt.Sprintf("Error parsing capture frame: %v", err), "ERROR")
+		return markerState, err
+	}
+	markerState.CaptureFrame = uint(capframe)
+
+	// position
+	pos := data[2]
+	pos = strings.TrimPrefix(pos, "[")
+	pos = strings.TrimSuffix(pos, "]")
+	point, _, err := defs.Coord3857FromString(pos)
+	if err != nil {
+		writeLog(functionName, fmt.Sprintf("Error parsing position: %v", err), "ERROR")
+		return markerState, err
+	}
+	markerState.Position = point
+
+	// direction
+	dir, err := strconv.ParseFloat(data[3], 32)
+	if err != nil {
+		writeLog(functionName, fmt.Sprintf("Error parsing direction: %v", err), "WARN")
+		dir = 0
+	}
+	markerState.Direction = float32(dir)
+
+	// alpha
+	alpha, err := strconv.ParseFloat(data[4], 32)
+	if err != nil {
+		writeLog(functionName, fmt.Sprintf("Error parsing alpha: %v", err), "WARN")
+		alpha = 1.0
+	}
+	markerState.Alpha = float32(alpha)
+
+	// timestamp
+	timestampStr := data[len(data)-1]
+	timestampInt, err := strconv.ParseInt(timestampStr, 10, 64)
+	if err != nil {
+		writeLog(functionName, fmt.Sprintf("Error parsing timestamp: %v", err), "ERROR")
+		return markerState, err
+	}
+	markerState.Time = time.Unix(0, timestampInt)
+
+	return markerState, nil
+}
+
+// logMarkerDelete processes :MARKER:DELETE: command
+// Data format: [markerName, frameNo, timestamp]
+func logMarkerDelete(data []string) (markerName string, frameNo uint, err error) {
+	functionName := ":MARKER:DELETE:"
+
+	// fix received data
+	for i, v := range data {
+		data[i] = fixEscapeQuotes(trimQuotes(v))
+	}
+
+	markerName = data[0]
+
+	// frameNo
+	frameStr := data[1]
+	capframe, err := strconv.ParseInt(frameStr, 10, 64)
+	if err != nil {
+		writeLog(functionName, fmt.Sprintf("Error parsing capture frame: %v", err), "ERROR")
+		return markerName, 0, err
+	}
+	frameNo = uint(capframe)
+
+	return markerName, frameNo, nil
+}
+
 ///////////////////////
 // GOROUTINES //
 ///////////////////////
