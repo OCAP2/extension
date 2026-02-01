@@ -6,11 +6,8 @@ import (
 	"io"
 	"time"
 
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutlog"
-	"go.opentelemetry.io/otel/metric"
-	"go.opentelemetry.io/otel/metric/noop"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
@@ -111,12 +108,6 @@ func (p *Provider) LoggerProvider() *sdklog.LoggerProvider {
 	return p.logProvider
 }
 
-// Meter returns a meter with the given name for creating metrics.
-// Returns a no-op meter since we're using file-based logging primarily.
-func (p *Provider) Meter(name string) metric.Meter {
-	return noop.Meter{}
-}
-
 // Flush forces a flush of all pending logs.
 // Use this during mission save to ensure all data is exported.
 func (p *Provider) Flush(ctx context.Context) error {
@@ -153,6 +144,3 @@ func (p *Provider) Shutdown(ctx context.Context) error {
 func (p *Provider) Enabled() bool {
 	return p.config.Enabled
 }
-
-// ensure otel import is used
-var _ = otel.Version

@@ -308,6 +308,21 @@ func initDB() (err error) {
 
 func setupA3Interface() (err error) {
 	a3interface.SetVersion(CurrentExtensionVersion)
+
+	// Create early dispatcher for commands that don't need DB/workers
+	// This ensures :VERSION:, :INIT:, etc. work immediately when the DLL loads
+	dispatcherLogger := logging.NewDispatcherLogger(Logger)
+	earlyDispatcher, err := dispatcher.New(dispatcherLogger)
+	if err != nil {
+		return fmt.Errorf("failed to create early dispatcher: %w", err)
+	}
+
+	// Register early handlers
+	registerLifecycleHandlers(earlyDispatcher)
+	a3interface.SetDispatcher(earlyDispatcher)
+	eventDispatcher = earlyDispatcher
+
+	Logger.Info("Early dispatcher initialized with lifecycle handlers")
 	return nil
 }
 
@@ -515,25 +530,10 @@ func startGoroutines() (err error) {
 		Logger.Info("Memory storage backend initialized")
 	}
 
-	// Initialize event dispatcher
-	Logger.Debug("Initializing event dispatcher")
-	dispatcherLogger := logging.NewDispatcherLogger(Logger)
-	var meter = OTelProvider.Meter("ocap-recorder")
-	eventDispatcher, err = dispatcher.New(dispatcherLogger, meter)
-	if err != nil {
-		Logger.Error("Failed to create event dispatcher", "error", err)
-		return fmt.Errorf("failed to create dispatcher: %w", err)
-	}
-
-	// Register handlers with dispatcher
+	// Register worker handlers with the early dispatcher (created in setupA3Interface)
+	Logger.Debug("Registering worker handlers with dispatcher")
 	workerManager.RegisterHandlers(eventDispatcher)
-
-	// Register lifecycle/system handlers
-	registerLifecycleHandlers(eventDispatcher)
-
-	// Set dispatcher on a3interface
-	a3interface.SetDispatcher(eventDispatcher)
-	Logger.Info("Event dispatcher initialized and registered")
+	Logger.Info("Worker handlers registered with dispatcher")
 
 	// Start DB writers (processes queues filled by dispatcher handlers)
 	Logger.Debug("Starting DB writers")

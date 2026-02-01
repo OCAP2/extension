@@ -8,8 +8,6 @@ import (
 	"github.com/OCAP2/extension/v5/internal/dispatcher"
 	"github.com/OCAP2/extension/v5/internal/model"
 	"github.com/OCAP2/extension/v5/internal/model/core"
-
-	"go.opentelemetry.io/otel/metric/noop"
 )
 
 // mockLogger implements dispatcher.Logger for testing
@@ -434,9 +432,8 @@ func (h *mockHandlerService) LogMarkerDelete(args []string) (string, int, error)
 
 func newTestDispatcher(t *testing.T) (*dispatcher.Dispatcher, *mockLogger) {
 	logger := &mockLogger{}
-	meter := noop.NewMeterProvider().Meter("test")
 
-	d, err := dispatcher.New(logger, meter)
+	d, err := dispatcher.New(logger)
 	if err != nil {
 		t.Fatalf("failed to create dispatcher: %v", err)
 	}
