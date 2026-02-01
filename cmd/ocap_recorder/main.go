@@ -27,6 +27,7 @@ import (
 	"github.com/OCAP2/extension/internal/cache"
 	"github.com/OCAP2/extension/internal/config"
 	"github.com/OCAP2/extension/internal/database"
+	"github.com/OCAP2/extension/internal/dispatcher"
 	"github.com/OCAP2/extension/internal/handlers"
 	"github.com/OCAP2/extension/internal/influx"
 	"github.com/OCAP2/extension/internal/logging"
@@ -40,6 +41,7 @@ import (
 
 	influxdb2_write "github.com/influxdata/influxdb-client-go/v2/api/write"
 	"github.com/spf13/viper"
+	"go.opentelemetry.io/otel"
 
 	"github.com/rs/zerolog"
 	"gorm.io/gorm"
@@ -123,59 +125,16 @@ var (
 	addonVersion string = "unknown"
 
 	// Services
-	handlerService *handlers.Service
-	workerManager  *worker.Manager
-	monitorService *monitor.Service
-	queues         *worker.Queues
+	handlerService  *handlers.Service
+	workerManager   *worker.Manager
+	monitorService  *monitor.Service
+	queues          *worker.Queues
+	eventDispatcher *dispatcher.Dispatcher
 
 	// Storage backend (optional)
 	storageBackend storage.Backend
 )
 
-// channels
-var (
-	// RVExtArgsDataChannels is a map of channels for receiving data from RVExtensionArgs
-	RVExtArgsDataChannels = map[string]chan []string{
-		// channels for receiving data from Arma
-		":ADDON:VERSION:": make(chan []string, 1),
-		":NEW:MISSION:":   make(chan []string, 1),
-		// channels for receiving new data and filing to DB
-		":NEW:SOLDIER:":       make(chan []string, 1000),
-		":NEW:VEHICLE:":       make(chan []string, 1000),
-		":NEW:SOLDIER:STATE:": make(chan []string, 10000),
-		":NEW:VEHICLE:STATE:": make(chan []string, 10000),
-		":EVENT:":             make(chan []string, 1000),
-		":FIRED:":             make(chan []string, 10000),
-		":PROJECTILE:":        make(chan []string, 5000),
-		":HIT:":               make(chan []string, 2000),
-		":KILL:":              make(chan []string, 2000),
-		":CHAT:":              make(chan []string, 1000),
-		":RADIO:":             make(chan []string, 1000),
-		":FPS:":               make(chan []string, 1000),
-		":ACE3:DEATH:":        make(chan []string, 1000),
-		":ACE3:UNCONSCIOUS:":  make(chan []string, 1000),
-		// marker channels
-		":MARKER:CREATE:": make(chan []string, 500),
-		":MARKER:MOVE:":   make(chan []string, 1000),
-		":MARKER:DELETE:": make(chan []string, 500),
-		// metric channel
-		":METRIC:": make(chan []string, 1000),
-		// mission end channel
-		":SAVE:": make(chan []string, 1),
-	}
-	// RVExtDataChannels is a map of channels for receiving data from RVExtension
-	RVExtDataChannels = map[string]chan string{
-		":VERSION:":        make(chan string, 1),
-		":INIT:":           make(chan string, 1),
-		":INIT:DB:":        make(chan string, 1),
-		":GETDIR:ARMA:":    make(chan string, 1),
-		":GETDIR:MODULE:":  make(chan string, 1),
-		":GETDIR:OCAPLOG:": make(chan string, 1),
-	}
-
-	// a3ErrorChan is used to send errors from the a3interface package to the main thread
-	a3ErrorChan = make(chan []string, 50)
-)
 
 // init is run automatically when the module is loaded
 func init() {
@@ -337,61 +296,7 @@ func initDB() (err error) {
 }
 
 func setupA3Interface() (err error) {
-
 	a3interface.SetVersion(CurrentExtensionVersion)
-	a3interface.RegisterErrorChan(a3ErrorChan)
-
-	// register channels
-	a3interface.RegisterRvExtensionChannels(RVExtDataChannels)
-	a3interface.RegisterRvExtensionArgsChannels(RVExtArgsDataChannels)
-
-	// in our case, add listeners for things not already handled by startAsyncProcessors
-	go func() {
-		for {
-			select {
-			case errData := <-a3ErrorChan:
-				Logger.Error().
-					Str("command", errData[0]).
-					Str("error", errData[1]).
-					Msg("Error in A3Interface")
-				// RVExtDataChannels
-			case <-RVExtDataChannels[":INIT:"]:
-				go initExtension()
-			case <-RVExtDataChannels[":INIT:DB:"]:
-				go initDB()
-			case <-RVExtDataChannels[":VERSION"]:
-				a3interface.WriteArmaCallback(ExtensionName, ":VERSION:", CurrentExtensionVersion)
-			case <-RVExtDataChannels[":GETDIR:ARMA:"]:
-				a3interface.WriteArmaCallback(ExtensionName, ":GETDIR:ARMA:", ArmaDir)
-			case <-RVExtDataChannels[":GETDIR:MODULE:"]:
-				a3interface.WriteArmaCallback(ExtensionName, ":GETDIR:MODULE:", ModulePath)
-			case <-RVExtDataChannels[":GETDIR:OCAPLOG:"]:
-				a3interface.WriteArmaCallback(ExtensionName, ":GETDIR:OCAPLOG:", OcapLogFilePath)
-				// RVExtArgsDataChannels
-			case data := <-RVExtArgsDataChannels[":ADDON:VERSION:"]:
-				addonVersion = util.FixEscapeQuotes(util.TrimQuotes(data[0]))
-				Logger.Info().Str("version", addonVersion).Msg("Addon version")
-			case data := <-RVExtArgsDataChannels[":NEW:MISSION:"]:
-				go func() {
-					if handlerService != nil {
-						handlerService.LogNewMission(data)
-					}
-				}()
-			case <-RVExtArgsDataChannels[":SAVE:"]:
-				go func() {
-					Logger.Info().Msg("Received :SAVE: command, ending mission recording")
-					if storageBackend != nil {
-						if err := storageBackend.EndMission(); err != nil {
-							Logger.Error().Err(err).Msg("Failed to end mission in storage backend")
-						} else {
-							Logger.Info().Msg("Mission recording saved to storage backend")
-						}
-					}
-				}()
-			}
-		}
-	}()
-
 	return nil
 }
 
@@ -619,7 +524,7 @@ func startGoroutines() (err error) {
 		IsDatabaseValid: func() bool { return IsDatabaseValid },
 		ShouldSaveLocal: func() bool { return ShouldSaveLocal },
 		DBInsertsPaused: func() bool { return DBInsertsPaused },
-	}, queues, RVExtArgsDataChannels)
+	}, queues)
 
 	// Set up InfluxDB integration for worker
 	workerManager.SetInfluxIntegration(
@@ -638,8 +543,27 @@ func startGoroutines() (err error) {
 		Logger.Info().Msg("Memory storage backend initialized")
 	}
 
-	Logger.Trace().Msg("Starting async processors")
-	workerManager.StartAsyncProcessors()
+	// Initialize event dispatcher
+	Logger.Trace().Msg("Initializing event dispatcher")
+	dispatcherLogger := logging.NewDispatcherLogger(Logger)
+	meter := otel.Meter("ocap-recorder")
+	eventDispatcher, err = dispatcher.New(dispatcherLogger, meter)
+	if err != nil {
+		Logger.Error().Err(err).Msg("Failed to create event dispatcher")
+		return fmt.Errorf("failed to create dispatcher: %w", err)
+	}
+
+	// Register handlers with dispatcher
+	workerManager.RegisterHandlers(eventDispatcher)
+
+	// Register lifecycle/system handlers
+	registerLifecycleHandlers(eventDispatcher)
+
+	// Set dispatcher on a3interface
+	a3interface.SetDispatcher(eventDispatcher)
+	Logger.Info().Msg("Event dispatcher initialized and registered")
+
+	// Start DB writers (processes queues filled by dispatcher handlers)
 	Logger.Trace().Msg("Starting DB writers")
 	workerManager.StartDBWriters()
 
@@ -652,12 +576,6 @@ func startGoroutines() (err error) {
 		Queues:         queues,
 		AddonFolder:    AddonFolder,
 		IsDatabaseValid: func() bool { return IsDatabaseValid },
-		GetChannelLength: func(name string) int {
-			if ch, ok := RVExtArgsDataChannels[name]; ok {
-				return len(ch)
-			}
-			return 0
-		},
 	})
 
 	// Set up InfluxDB integration for monitor
@@ -898,6 +816,77 @@ func migrateTable[M any](
 	return nil
 }
 
+// registerLifecycleHandlers registers system/lifecycle command handlers with the dispatcher
+func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
+	// Simple commands (RVExtension style - no args)
+	d.Register(":INIT:", func(e dispatcher.Event) (any, error) {
+		go initExtension()
+		return "ok", nil
+	})
+
+	d.Register(":INIT:DB:", func(e dispatcher.Event) (any, error) {
+		go initDB()
+		return "ok", nil
+	})
+
+	// Simple queries - sync return is sufficient, no callback needed
+	d.Register(":VERSION:", func(e dispatcher.Event) (any, error) {
+		return CurrentExtensionVersion, nil
+	})
+
+	d.Register(":GETDIR:ARMA:", func(e dispatcher.Event) (any, error) {
+		return ArmaDir, nil
+	})
+
+	d.Register(":GETDIR:MODULE:", func(e dispatcher.Event) (any, error) {
+		return ModulePath, nil
+	})
+
+	d.Register(":GETDIR:OCAPLOG:", func(e dispatcher.Event) (any, error) {
+		return OcapLogFilePath, nil
+	})
+
+	// Commands with args (RVExtensionArgs style)
+	d.Register(":ADDON:VERSION:", func(e dispatcher.Event) (any, error) {
+		if len(e.Args) > 0 {
+			addonVersion = util.FixEscapeQuotes(util.TrimQuotes(e.Args[0]))
+			Logger.Info().Str("version", addonVersion).Msg("Addon version")
+		}
+		return "ok", nil
+	})
+
+	d.Register(":NEW:MISSION:", func(e dispatcher.Event) (any, error) {
+		if handlerService != nil {
+			handlerService.LogNewMission(e.Args)
+		}
+		return "ok", nil
+	})
+
+	d.Register(":SAVE:", func(e dispatcher.Event) (any, error) {
+		Logger.Info().Msg("Received :SAVE: command, ending mission recording")
+		if storageBackend != nil {
+			if err := storageBackend.EndMission(); err != nil {
+				Logger.Error().Err(err).Msg("Failed to end mission in storage backend")
+				return nil, err
+			}
+			Logger.Info().Msg("Mission recording saved to storage backend")
+		}
+		return "ok", nil
+	})
+}
+
+// dispatchDemoEvent dispatches an event through the dispatcher for demo/test purposes
+func dispatchDemoEvent(command string, args []string) {
+	if eventDispatcher == nil {
+		return
+	}
+	eventDispatcher.Dispatch(dispatcher.Event{
+		Command:   command,
+		Args:      args,
+		Timestamp: time.Now(),
+	})
+}
+
 func populateDemoData() {
 	if !IsDatabaseValid {
 		return
@@ -1033,7 +1022,7 @@ func populateDemoData() {
 		}
 		data[1] = string(missionDataJSON)
 
-		RVExtArgsDataChannels[":NEW:MISSION:"] <- data
+		dispatchDemoEvent(":NEW:MISSION:", data)
 
 		time.Sleep(500 * time.Millisecond)
 	}
@@ -1089,7 +1078,7 @@ func populateDemoData() {
 				}
 
 				soldier = append(soldier, fmt.Sprintf("%d", time.Now().UnixNano()))
-				RVExtArgsDataChannels[":NEW:SOLDIER:"] <- soldier
+				dispatchDemoEvent(":NEW:SOLDIER:", soldier)
 
 				for {
 					time.Sleep(100 * time.Millisecond)
@@ -1145,7 +1134,7 @@ func populateDemoData() {
 					}
 
 					soldierState = append(soldierState, fmt.Sprintf("%d", time.Now().UnixNano()))
-					RVExtArgsDataChannels[":NEW:SOLDIER:STATE:"] <- soldierState
+					dispatchDemoEvent(":NEW:SOLDIER:STATE:", soldierState)
 				}
 				waitGroup.Done()
 			}(idCounter)
@@ -1171,7 +1160,7 @@ func populateDemoData() {
 				}
 
 				vehicle = append(vehicle, fmt.Sprintf("%d", time.Now().UnixNano()))
-				RVExtArgsDataChannels[":NEW:VEHICLE:"] <- vehicle
+				dispatchDemoEvent(":NEW:VEHICLE:", vehicle)
 
 				for {
 					time.Sleep(1000 * time.Millisecond)
@@ -1201,7 +1190,7 @@ func populateDemoData() {
 					}
 
 					vehicleState = append(vehicleState, fmt.Sprintf("%d", time.Now().UnixNano()))
-					RVExtArgsDataChannels[":NEW:VEHICLE:STATE:"] <- vehicleState
+					dispatchDemoEvent(":NEW:VEHICLE:STATE:", vehicleState)
 				}
 				waitGroup.Done()
 			}(idCounter)
@@ -1235,7 +1224,7 @@ func populateDemoData() {
 				}
 
 				firedEvent = append(firedEvent, fmt.Sprintf("%d", time.Now().UnixNano()))
-				RVExtArgsDataChannels[":FIRED:"] <- firedEvent
+				dispatchDemoEvent(":FIRED:", firedEvent)
 				wg2.Done()
 			}()
 		}
@@ -1264,7 +1253,7 @@ func populateDemoData() {
 				"Solid",
 			}
 			marker = append(marker, fmt.Sprintf("%d", time.Now().UnixNano()))
-			RVExtArgsDataChannels[":MARKER:CREATE:"] <- marker
+			dispatchDemoEvent(":MARKER:CREATE:", marker)
 
 			for j := 0; j < 3; j++ {
 				time.Sleep(100 * time.Millisecond)
@@ -1276,7 +1265,7 @@ func populateDemoData() {
 					"1.0",
 				}
 				markerMove = append(markerMove, fmt.Sprintf("%d", time.Now().UnixNano()))
-				RVExtArgsDataChannels[":MARKER:MOVE:"] <- markerMove
+				dispatchDemoEvent(":MARKER:MOVE:", markerMove)
 			}
 		}
 
@@ -1286,13 +1275,12 @@ func populateDemoData() {
 				strconv.Itoa(missionDuration - 10),
 			}
 			markerDelete = append(markerDelete, fmt.Sprintf("%d", time.Now().UnixNano()))
-			RVExtArgsDataChannels[":MARKER:DELETE:"] <- markerDelete
+			dispatchDemoEvent(":MARKER:DELETE:", markerDelete)
 		}
 	}
 
-	for len(RVExtArgsDataChannels[":FIRED:"]) > 0 {
-		time.Sleep(1000 * time.Millisecond)
-	}
+	// Give dispatcher time to process buffered events
+	time.Sleep(2 * time.Second)
 }
 
 func getOcapRecording(missionIDs []string) (err error) {
