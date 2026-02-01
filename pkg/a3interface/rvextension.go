@@ -68,7 +68,7 @@ func RVExtension(output *C.char, outputsize C.size_t, input *C.char) {
 	}
 
 	// No handler found
-	replyToSyncArmaCall(fmt.Sprintf(`["error", "%s", "no handler registered"]`, command), output, outputsize)
+	replyToSyncArmaCall(fmt.Sprintf(`["error", "no handler registered for %s"]`, command), output, outputsize)
 }
 
 // called by Arma when in the format of: "extensionName" callExtension ["command", ["data"]]
@@ -94,7 +94,7 @@ func RVExtensionArgs(output *C.char, outputsize C.size_t, input *C.char, argv **
 	}
 
 	// No handler found
-	replyToSyncArmaCall(fmt.Sprintf(`["error", "%s", "no handler registered"]`, command), output, outputsize)
+	replyToSyncArmaCall(fmt.Sprintf(`["error", "no handler registered for %s"]`, command), output, outputsize)
 }
 
 // parseArgsFromC converts C argv array to Go string slice
@@ -134,7 +134,7 @@ func formatDispatchResponse(command string, result any, err error) string {
 // This prevents the game from crashing due to unhandled Go panics.
 func recoverPanic(funcName string, output *C.char, outputsize C.size_t) {
 	if r := recover(); r != nil {
-		errMsg := fmt.Sprintf(`["error", "%s", "panic recovered: %v"]`, funcName, r)
+		errMsg := fmt.Sprintf(`["error", "panic in %s: %v"]`, funcName, r)
 		replyToSyncArmaCall(errMsg, output, outputsize)
 	}
 }
