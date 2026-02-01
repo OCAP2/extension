@@ -28,25 +28,23 @@ import (
 	"time"
 
 	"github.com/OCAP2/extension/internal/cache"
+	"github.com/OCAP2/extension/internal/config"
+	"github.com/OCAP2/extension/internal/database"
 	"github.com/OCAP2/extension/internal/geo"
+	"github.com/OCAP2/extension/internal/influx"
 	"github.com/OCAP2/extension/internal/model"
 	"github.com/OCAP2/extension/internal/queue"
 	"github.com/OCAP2/extension/pkg/a3interface"
 
 	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
-	influxdb2_api "github.com/influxdata/influxdb-client-go/v2/api"
 	influxdb2_write "github.com/influxdata/influxdb-client-go/v2/api/write"
-	"github.com/influxdata/influxdb-client-go/v2/domain"
 	"github.com/spf13/viper"
 
 	"github.com/Graylog2/go-gelf/gelf"
-	"github.com/glebarez/sqlite"
 	geom "github.com/peterstace/simplefeatures/geom"
 	"github.com/rs/zerolog"
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
-	"gorm.io/gorm/logger"
 )
 
 // module defs
@@ -98,13 +96,8 @@ var (
 	// sqlDB is the native Go SQL interface
 	sqlDB *sql.DB
 
-	// IsInfluxValid indicates whether or not InfluxDB connection could be established
-	IsInfluxValid bool = false
-
-	// InfluxClient is the InfluxDB client
-	InfluxClient influxdb2.Client
-	// InfluxBackupWriter is the gzip writer Influx will use
-	InfluxBackupWriter *gzip.Writer
+	// InfluxManager handles InfluxDB connections
+	InfluxManager *influx.Manager
 
 	// LogIoConn is the connection to the log.io service
 	LogIoConn net.Conn
@@ -161,14 +154,6 @@ var (
 	markersToWrite               = queue.MarkersQueue{}
 	markerStatesToWrite          = queue.MarkerStatesQueue{}
 
-	InfluxBucketNames = []string{
-		"mission_data",
-		"ocap_performance",
-		"player_performance",
-		"server_performance",
-		"Telegraf",
-	}
-	InfluxWriters = make(map[string]influxdb2_api.WriteAPI)
 )
 
 // init is run automatically when the module is loaded
@@ -460,7 +445,7 @@ func initDB() (err error) {
 			// if err != nil {
 			// 	writeLog(functionName, fmt.Sprintf(`Error setting up database: %v`, err), "ERROR")
 			// }
-			InfluxClient, err = connectToInflux()
+			err = connectToInflux()
 			if err != nil {
 				writeLog(functionName, fmt.Sprintf(`Error connecting to InfluxDB: %v`, err), "ERROR")
 			}
@@ -516,45 +501,7 @@ func setupA3Interface() (err error) {
 }
 
 func loadConfig() (err error) {
-	// load config from file as JSON
-
-	// set default values
-	viper.SetDefault("logLevel", "info")
-	viper.SetDefault("defaultTag", "Op")
-	viper.SetDefault("logsDir", "./ocaplogs")
-
-	viper.SetDefault("api.serverUrl", "http://localhost:5000")
-	viper.SetDefault("api.apiKey", "")
-
-	viper.SetDefault("db.host", "localhost")
-	viper.SetDefault("db.port", "5432")
-	viper.SetDefault("db.username", "postgres")
-	viper.SetDefault("db.password", "postgres")
-	viper.SetDefault("db.database", "ocap")
-
-	viper.SetDefault("influx.enabled", true)
-	viper.SetDefault("influx.host", "localhost")
-	viper.SetDefault("influx.port", "8086")
-	viper.SetDefault("influx.protocol", "http")
-	viper.SetDefault("influx.token", "supersecrettoken")
-	viper.SetDefault("influx.org", "ocap-metrics")
-
-	viper.SetDefault("graylog.enabled", true)
-	viper.SetDefault("graylog.address", "localhost:12201")
-
-	viper.SetDefault("logio.enabled", true)
-	viper.SetDefault("logio.host", "localhost")
-	viper.SetDefault("logio.port", "28777")
-
-	viper.SetConfigName("ocap_recorder.cfg.json")
-	viper.AddConfigPath(AddonFolder)
-	viper.SetConfigType("json")
-	err = viper.ReadInConfig()
-	if err != nil {
-		return fmt.Errorf("error reading config file: %v", err)
-	}
-
-	return nil
+	return config.Load(AddonFolder)
 }
 
 func checkServerStatus() {
@@ -574,7 +521,7 @@ func getProgramStatus(
 	rawBuffers bool,
 	writeQueues bool,
 	lastWrite bool,
-) (output []string, model model.OcapPerformance) {
+) (output []string, perfModel model.OcapPerformance) {
 	// returns a slice of strings indicating raw arrays pending processing as rawBuffers
 	// returns a slice of strings indicating pending data to write to DB as writeQueues
 	// returns a string indicating the last write duration in ms as lastWrite
@@ -653,123 +600,10 @@ func getProgramStatus(
 // /////////////////////
 // INFLUXDB OPS //
 // /////////////////////
-// return db client and error
-func connectToInflux() (influxdb2.Client, error) {
 
-	if !viper.GetBool("influx.enabled") {
-		return nil, errors.New("influxdb.Enabled is false")
-	}
-
-	InfluxClient = influxdb2.NewClientWithOptions(
-		fmt.Sprintf(
-			"%s://%s:%s",
-			viper.GetString("influx.protocol"),
-			viper.GetString("influx.host"),
-			viper.GetString("influx.port"),
-		),
-		viper.GetString("influx.token"),
-		influxdb2.DefaultOptions().
-			SetBatchSize(2500).
-			SetFlushInterval(1000),
-	)
-
-	// validate client connection health
-	running, err := InfluxClient.Ping(context.Background())
-
-	if err != nil || !running {
-		IsInfluxValid = false
-		// create backup writer
-		if InfluxBackupWriter == nil {
-			writeLog("connectToInflux", fmt.Sprintf(`Failed to initialize InfluxDB client, writing to backup file: %s`, InfluxBackupFilePath), "INFO")
-
-			// create if not exists
-			file, err := os.OpenFile(InfluxBackupFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-			if err != nil {
-				return nil, fmt.Errorf("error creating backup file: %v", err)
-			}
-			InfluxBackupWriter = gzip.NewWriter(file)
-			if err != nil {
-				return nil, fmt.Errorf("error creating gzip writer: %v", err)
-			}
-		}
-	} else {
-		IsInfluxValid = true
-	}
-
-	if IsInfluxValid {
-		// ensure org exists
-		ctx := context.Background()
-		_, err = InfluxClient.OrganizationsAPI().
-			FindOrganizationByName(ctx, viper.GetString("influx.org"))
-		if err != nil {
-			writeLog("connectToInflux", fmt.Sprintf(`Organization not found, creating: %s`, viper.GetString("influx.org")), "INFO")
-			_, err = InfluxClient.OrganizationsAPI().
-				CreateOrganizationWithName(ctx, viper.GetString("influx.org"))
-			if err != nil {
-				writeLog("connectToInflux", fmt.Sprintf(`Error creating organization: %s`, err), "ERROR")
-				return nil, err
-			}
-		}
-
-		// get influxOrg
-		influxOrg, err := InfluxClient.OrganizationsAPI().
-			FindOrganizationByName(ctx, viper.GetString("influx.org"))
-		if err != nil {
-			writeLog("connectToInflux", fmt.Sprintf(`Error getting organization: %s`, err), "ERROR")
-			return nil, err
-		}
-
-		// ensure buckets exist with 90 day retention
-		for _, bucket := range InfluxBucketNames {
-			_, err = InfluxClient.BucketsAPI().
-				FindBucketByName(ctx, bucket)
-			if err != nil {
-				writeLog("connectToInflux", fmt.Sprintf(`Bucket not found, creating: %s`, bucket), "INFO")
-
-				rule := domain.RetentionRuleTypeExpire
-				_, err = InfluxClient.BucketsAPI().
-					CreateBucketWithName(ctx, influxOrg, bucket, domain.RetentionRule{
-						Type:         &rule,
-						EverySeconds: 60 * 60 * 24 * 90, // 90 days
-					})
-				if err != nil {
-					writeLog("connectToInflux", fmt.Sprintf(`Error creating bucket: %s`, err), "ERROR")
-					return nil, err
-				}
-			}
-		}
-
-		// create influx writers
-		createInfluxWriters()
-		writeLog("connectToInflux", `InfluxDB client initialized`, "INFO")
-	} else {
-		writeLog("connectToInflux", `InfluxDB client failed to initialize, using backup writer`, "WARN")
-	}
-
-	return InfluxClient, nil
-}
-
-func createInfluxWriters() {
-	// create influx writers
-	for _, bucket := range InfluxBucketNames {
-		Logger.Trace().Msgf("Creating InfluxDB writer for bucket '%s'", bucket)
-		JSONLogger.Trace().Msgf(`Creating InfluxDB writer for bucket '%s'`, bucket)
-		InfluxWriters[bucket] = InfluxClient.WriteAPI(
-			viper.GetString("influx.org"),
-			bucket,
-		)
-		errorsCh := InfluxWriters[bucket].Errors()
-		go func(bucketName string, errorsCh <-chan error) {
-			for writeErr := range errorsCh {
-				writeLog(bucketName, fmt.Sprintf(`Error sending data to InfluxDB: %s`, writeErr.Error()), "ERROR")
-			}
-		}(bucket, errorsCh)
-		Logger.Trace().Msgf("InfluxDB writer for bucket '%s' created", bucket)
-		JSONLogger.Trace().Msgf(`InfluxDB writer for bucket '%s' created`, bucket)
-	}
-
-	Logger.Debug().Msg("InfluxDB writers initialized")
-	JSONLogger.Debug().Msg("InfluxDB writers initialized")
+func connectToInflux() error {
+	InfluxManager = influx.NewManager(Logger, InfluxBackupFilePath)
+	return InfluxManager.Connect()
 }
 
 func writeInfluxPoint(
@@ -777,35 +611,10 @@ func writeInfluxPoint(
 	bucket string,
 	point *influxdb2_write.Point,
 ) error {
-
-	if IsInfluxValid {
-		TraceSample.Trace().Msgf("Writing point to InfluxDB bucket '%s'", bucket)
-		if _, ok := InfluxWriters[bucket]; !ok {
-			TraceSample.Warn().Msgf("InfluxDB bucket '%s' not registered, skipping", bucket)
-			return fmt.Errorf("influxDB bucket '%s' not registered", bucket)
-		}
-
-		// write to influx
-		InfluxWriters[bucket].WritePoint(point)
-		TraceSample.Trace().Msgf("Point written to InfluxDB bucket '%s'", bucket)
-	} else {
-		if InfluxBackupWriter == nil {
-			return fmt.Errorf("influxDB client not initialized and backup writer not available")
-		}
-
-		// write to backup file
-		TraceSample.Trace().Msgf("Writing point to InfluxDB backup file")
-		lineProtocol := influxdb2_write.PointToLineProtocol(
-			point, time.Duration(1*time.Nanosecond),
-		)
-		_, err := InfluxBackupWriter.Write([]byte(lineProtocol + "\n"))
-		if err != nil {
-			return fmt.Errorf("error writing to InfluxDB backup file: %s", err)
-		}
-		TraceSample.Trace().Msgf("Point written to InfluxDB backup file")
+	if InfluxManager == nil {
+		return fmt.Errorf("influx manager not initialized")
 	}
-
-	return nil
+	return InfluxManager.WritePoint(ctx, bucket, point)
 }
 
 func processMetricData(data []string) (
@@ -813,68 +622,7 @@ func processMetricData(data []string) (
 	point *influxdb2_write.Point,
 	err error,
 ) {
-	functionName := ":METRIC:"
-
-	// fix received data
-	for i, v := range data {
-		data[i] = fixEscapeQuotes(trimQuotes(v))
-	}
-
-	// each metric will come through as a string array
-	// 0 = bucket name
-	// 1 = measurement name
-	// n with "tag" prefix = tag name
-	// n with "field" prefix = field
-	// tag and field values use "::" separator
-
-	// get bucket name
-	bucket = data[0]
-
-	// get measurement name
-	measurementName := data[1]
-
-	// create point
-	point = influxdb2_write.NewPointWithMeasurement(measurementName)
-
-	// add tags
-	for _, tag := range data[2:] {
-		if !strings.HasPrefix(tag, "tag::") {
-			continue
-		}
-		tagName := strings.Split(tag, "::")[1]
-		tagValue := strings.Split(tag, "::")[2]
-		point.AddTag(tagName, tagValue)
-	}
-
-	// add fields
-	for _, field := range data[2:] {
-		if !strings.HasPrefix(field, "field::") {
-			continue
-		}
-		fieldType := strings.Split(field, "::")[1]
-		fieldName := strings.Split(field, "::")[2]
-		fieldValue := strings.Split(field, "::")[3]
-		switch fieldType {
-		case "string":
-			point.AddField(fieldName, fieldValue)
-		case "int":
-			tagValueInt, err := strconv.Atoi(fieldValue)
-			if err != nil {
-				Logger.Error().Err(err).Str("function", functionName).Msgf("Error converting tag value '%s' to int", fieldValue)
-				return "", nil, err
-			}
-			point.AddField(fieldName, tagValueInt)
-		case "float":
-			tagValueFloat, err := strconv.ParseFloat(fieldValue, 64)
-			if err != nil {
-				Logger.Error().Err(err).Str("function", functionName).Msgf("Error converting tag value '%s' to float", fieldValue)
-				return "", nil, err
-			}
-			point.AddField(fieldName, tagValueFloat)
-		}
-	}
-
-	return bucket, point, nil
+	return influx.ProcessMetricData(data, fixEscapeQuotes, trimQuotes)
 }
 
 ///////////////////////
@@ -883,106 +631,27 @@ func processMetricData(data []string) (
 
 func getSqliteDB(path string) (db *gorm.DB, err error) {
 	functionName := "getSqliteDB"
-
-	// if path is an empty string, use a memory db
-	// otherwise, use the path provided (like in retrieving backups)
+	db, err = database.GetSqliteDBStandalone(path)
+	if err != nil {
+		IsDatabaseValid = false
+		return nil, err
+	}
 	if path != "" {
-		// connect to database (SQLite)
-		db, err = gorm.Open(sqlite.Open(path), &gorm.Config{
-			PrepareStmt:            true,
-			SkipDefaultTransaction: true,
-			CreateBatchSize:        2000,
-			Logger:                 logger.Default.LogMode(logger.Silent),
-		})
-		if err != nil {
-			IsDatabaseValid = false
-			return nil, err
-		}
 		writeLog(functionName, fmt.Sprintf("Using local SQlite DB at '%s'", path), "INFO")
 	} else {
-		// connect to database (SQLite)
-		db, err = gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{
-			PrepareStmt:            true,
-			SkipDefaultTransaction: true,
-			CreateBatchSize:        2000,
-			Logger:                 logger.Default.LogMode(logger.Silent),
-		})
-		if err != nil {
-			IsDatabaseValid = false
-			return nil, err
-		}
 		writeLog(functionName, "Using local SQlite DB in memory with periodic disk dump", "INFO")
 	}
-
-	// set PRAGMAS
-	err = db.Exec("PRAGMA user_version = 1;").Error
-	if err != nil {
-		return nil, fmt.Errorf("error setting user_version PRAGMA: %s", err)
-	}
-	err = db.Exec("PRAGMA journal_mode = MEMORY;").Error
-	if err != nil {
-		return nil, fmt.Errorf("error setting journal_mode PRAGMA: %s", err)
-	}
-	err = db.Exec("PRAGMA synchronous = OFF;").Error
-	if err != nil {
-		return nil, fmt.Errorf("error setting synchronous PRAGMA: %s", err)
-	}
-	err = db.Exec("PRAGMA cache_size = -32000;").Error
-	if err != nil {
-		return nil, fmt.Errorf("error setting cache_size PRAGMA: %s", err)
-	}
-	err = db.Exec("PRAGMA temp_store = MEMORY;").Error
-	if err != nil {
-		return nil, fmt.Errorf("error setting temp_store PRAGMA: %s", err)
-	}
-
-	err = db.Exec("PRAGMA page_size = 32768;").Error
-	if err != nil {
-		return nil, fmt.Errorf("error setting page_size PRAGMA: %s", err)
-	}
-
-	err = db.Exec("PRAGMA mmap_size = 30000000000;").Error
-	if err != nil {
-		return nil, fmt.Errorf("error setting mmap_size PRAGMA: %s", err)
-	}
-
 	return db, nil
 }
 
 func getBackupDBPaths() (dbPaths []string, err error) {
-	// search addon folder for .db files
-	path := AddonFolder
-	files, err := os.ReadDir(path)
-	if err != nil {
-		return nil, err
-	}
-	// filter out non .db files
-	for _, file := range files {
-		if !file.IsDir() && strings.HasSuffix(file.Name(), ".db") {
-			// return path of file
-			dbPaths = append(dbPaths, filepath.Join(path, file.Name()))
-		}
-	}
-	return dbPaths, nil
+	return database.GetBackupDBPaths(AddonFolder)
 }
 
 func dumpMemoryDBToDisk() (err error) {
 	functionName := "dumpMemoryDBToDisk"
-	// remove existing file if it exists
-	exists, err := os.Stat(SqliteDBFilePath)
-	if err == nil {
-		if exists != nil {
-			err = os.Remove(SqliteDBFilePath)
-			if err != nil {
-				writeLog(functionName, "Error removing existing DB file", "ERROR")
-				return err
-			}
-		}
-	}
-
-	// dump memory DB to disk
 	start := time.Now()
-	err = DB.Exec("VACUUM INTO 'file:" + SqliteDBFilePath + "';").Error
+	err = database.DumpMemoryDBToDisk(DB, SqliteDBFilePath)
 	if err != nil {
 		writeLog(functionName, "Error dumping memory DB to disk", "ERROR")
 		return err
@@ -996,30 +665,8 @@ func dumpMemoryDBToDisk() (err error) {
 }
 
 func getPostgresDB() (db *gorm.DB, err error) {
-	// connect to database (Postgres) using gorm
-	dsn := fmt.Sprintf(`host=%s port=%s user=%s password=%s dbname=%s sslmode=disable`,
-		viper.GetString("db.host"),
-		viper.GetString("db.port"),
-		viper.GetString("db.username"),
-		viper.GetString("db.password"),
-		viper.GetString("db.database"),
-	)
-
-	Logger.Debug().Msgf("Connecting to Postgres DB at '%s'", dsn)
-
-	db, err = gorm.Open(postgres.New(postgres.Config{
-		DSN:                  dsn,
-		PreferSimpleProtocol: true, // disables implicit prepared statement usage
-	}), &gorm.Config{
-		// PrepareStmt:            true,
-		SkipDefaultTransaction: true,
-		CreateBatchSize:        10000,
-		Logger:                 logger.Default.LogMode(logger.Silent),
-	})
-	if err != nil {
-		return nil, err
-	}
-	return db, nil
+	Logger.Debug().Msgf("Connecting to Postgres DB")
+	return database.GetPostgresDBStandalone()
 }
 
 // getDB connects to the Postgres database, and if it fails, it will use a local SQlite DB
@@ -3143,7 +2790,7 @@ func startAsyncProcessors() {
 		var err error
 		for data := range RVExtArgsDataChannels[":METRIC:"] {
 
-			if InfluxClient == nil && InfluxBackupWriter == nil {
+			if InfluxManager == nil {
 				continue
 			}
 
