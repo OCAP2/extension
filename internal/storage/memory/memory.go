@@ -59,3 +59,52 @@ func New(cfg config.MemoryConfig) *Backend {
 		markers:  make(map[string]*MarkerRecord),
 	}
 }
+
+// Init initializes the backend
+func (b *Backend) Init() error {
+	return nil
+}
+
+// Close cleans up resources
+func (b *Backend) Close() error {
+	return nil
+}
+
+// StartMission begins recording a new mission
+func (b *Backend) StartMission(mission *core.Mission, world *core.World) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.mission = mission
+	b.world = world
+
+	// Reset all collections
+	b.soldiers = make(map[uint16]*SoldierRecord)
+	b.vehicles = make(map[uint16]*VehicleRecord)
+	b.markers = make(map[string]*MarkerRecord)
+	b.generalEvents = nil
+	b.hitEvents = nil
+	b.killEvents = nil
+	b.chatEvents = nil
+	b.radioEvents = nil
+	b.serverFpsEvents = nil
+	b.ace3DeathEvents = nil
+	b.ace3UnconsciousEvents = nil
+	b.idCounter = 0
+
+	return nil
+}
+
+// EndMission finalizes and exports the mission data
+func (b *Backend) EndMission() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return b.exportJSON()
+}
+
+// exportJSON writes the mission data to a JSON file
+func (b *Backend) exportJSON() error {
+	// TODO: implement in Task 4.5
+	return nil
+}
