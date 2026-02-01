@@ -72,17 +72,21 @@ type Dispatcher struct {
 	buffers map[string]chan Event
 }
 
-// New creates a new Dispatcher with the given logger and OTEL meter.
-func New(logger Logger, meter metric.Meter) (*Dispatcher, error) {
+// New creates a new Dispatcher with the given logger.
+// Uses the global OTel meter for metrics (no-op if not configured).
+func New(logger Logger) (*Dispatcher, error) {
 	d := &Dispatcher{
 		handlers: make(map[string]HandlerFunc),
 		buffers:  make(map[string]chan Event),
 		logger:   logger,
 	}
 
+	// Get meter from global OTel provider (returns no-op if not configured)
+	m := meter()
+
 	var err error
 
-	d.queueSize, err = meter.Int64ObservableGauge(
+	d.queueSize, err = m.Int64ObservableGauge(
 		"dispatcher.queue.size",
 		metric.WithDescription("Current number of events in queue"),
 	)
@@ -90,7 +94,7 @@ func New(logger Logger, meter metric.Meter) (*Dispatcher, error) {
 		return nil, fmt.Errorf("creating queue size gauge: %w", err)
 	}
 
-	_, err = meter.RegisterCallback(
+	_, err = m.RegisterCallback(
 		func(ctx context.Context, o metric.Observer) error {
 			d.mu.RLock()
 			defer d.mu.RUnlock()
@@ -106,7 +110,7 @@ func New(logger Logger, meter metric.Meter) (*Dispatcher, error) {
 		return nil, fmt.Errorf("registering queue callback: %w", err)
 	}
 
-	d.processed, err = meter.Int64Counter(
+	d.processed, err = m.Int64Counter(
 		"dispatcher.events.processed",
 		metric.WithDescription("Total events processed"),
 	)
@@ -114,7 +118,7 @@ func New(logger Logger, meter metric.Meter) (*Dispatcher, error) {
 		return nil, fmt.Errorf("creating processed counter: %w", err)
 	}
 
-	d.dropped, err = meter.Int64Counter(
+	d.dropped, err = m.Int64Counter(
 		"dispatcher.events.dropped",
 		metric.WithDescription("Total events dropped due to full queue"),
 	)

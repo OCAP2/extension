@@ -6,8 +6,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"go.opentelemetry.io/otel/metric/noop"
 )
 
 // testLogger implements Logger for testing
@@ -36,9 +34,8 @@ func (l *testLogger) Error(msg string, keysAndValues ...any) {
 
 func newTestDispatcher(t *testing.T) (*Dispatcher, *testLogger) {
 	logger := &testLogger{}
-	meter := noop.NewMeterProvider().Meter("test")
 
-	d, err := New(logger, meter)
+	d, err := New(logger)
 	if err != nil {
 		t.Fatalf("failed to create dispatcher: %v", err)
 	}
