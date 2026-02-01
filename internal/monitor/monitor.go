@@ -22,19 +22,15 @@ import (
 // InfluxWriter is a function type for writing to InfluxDB
 type InfluxWriter func(ctx context.Context, bucket string, point *influxdb2_write.Point) error
 
-// ChannelLengthGetter returns the length of a channel by name
-type ChannelLengthGetter func(name string) int
-
 // Dependencies holds all dependencies for the monitor service
 type Dependencies struct {
-	DB                *gorm.DB
-	LogManager        *logging.Manager
-	HandlerService    *handlers.Service
-	WorkerManager     *worker.Manager
-	Queues            *worker.Queues
-	AddonFolder       string
-	IsDatabaseValid   func() bool
-	GetChannelLength  ChannelLengthGetter
+	DB              *gorm.DB
+	LogManager      *logging.Manager
+	HandlerService  *handlers.Service
+	WorkerManager   *worker.Manager
+	Queues          *worker.Queues
+	AddonFolder     string
+	IsDatabaseValid func() bool
 }
 
 // Service manages status monitoring
@@ -82,24 +78,8 @@ func (s *Service) GetProgramStatus(
 ) (output []string, perfModel model.OcapPerformance) {
 	mission := s.deps.HandlerService.GetMissionContext().GetMission()
 
-	buffersObj := model.BufferLengths{
-		Soldiers:              uint16(s.deps.GetChannelLength(":NEW:SOLDIER:")),
-		Vehicles:              uint16(s.deps.GetChannelLength(":NEW:VEHICLE:")),
-		SoldierStates:         uint16(s.deps.GetChannelLength(":NEW:SOLDIER:STATE:")),
-		VehicleStates:         uint16(s.deps.GetChannelLength(":NEW:VEHICLE:STATE:")),
-		FiredEvents:           uint16(s.deps.GetChannelLength(":FIRED:")),
-		GeneralEvents:         uint16(s.deps.GetChannelLength(":EVENT:")),
-		HitEvents:             uint16(s.deps.GetChannelLength(":HIT:")),
-		KillEvents:            uint16(s.deps.GetChannelLength(":KILL:")),
-		ChatEvents:            uint16(s.deps.GetChannelLength(":CHAT:")),
-		RadioEvents:           uint16(s.deps.GetChannelLength(":RADIO:")),
-		ServerFpsEvents:       uint16(s.deps.GetChannelLength(":FPS:")),
-		Ace3DeathEvents:       uint16(s.deps.GetChannelLength(":ACE3:DEATH:")),
-		Ace3UnconsciousEvents: uint16(s.deps.GetChannelLength(":ACE3:UNCONSCIOUS:")),
-		MarkerCreates:         uint16(s.deps.GetChannelLength(":MARKER:CREATE:")),
-		MarkerMoves:           uint16(s.deps.GetChannelLength(":MARKER:MOVE:")),
-		MarkerDeletes:         uint16(s.deps.GetChannelLength(":MARKER:DELETE:")),
-	}
+	// Buffer lengths are now tracked via OTEL metrics in the dispatcher
+	buffersObj := model.BufferLengths{}
 
 	writeQueuesObj := model.WriteQueueLengths{
 		Soldiers:              uint16(s.deps.Queues.Soldiers.Len()),

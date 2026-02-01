@@ -590,10 +590,6 @@ func startGoroutines() (err error) {
 		Queues:         queues,
 		AddonFolder:    AddonFolder,
 		IsDatabaseValid: func() bool { return IsDatabaseValid },
-		GetChannelLength: func(name string) int {
-			// Legacy channels removed - dispatcher handles all events now
-			return 0
-		},
 	})
 
 	// Set up InfluxDB integration for monitor
@@ -847,23 +843,20 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 		return "ok", nil
 	})
 
+	// Simple queries - sync return is sufficient, no callback needed
 	d.Register(":VERSION:", func(e dispatcher.Event) (any, error) {
-		a3interface.WriteArmaCallback(ExtensionName, ":VERSION:", CurrentExtensionVersion)
 		return CurrentExtensionVersion, nil
 	})
 
 	d.Register(":GETDIR:ARMA:", func(e dispatcher.Event) (any, error) {
-		a3interface.WriteArmaCallback(ExtensionName, ":GETDIR:ARMA:", ArmaDir)
 		return ArmaDir, nil
 	})
 
 	d.Register(":GETDIR:MODULE:", func(e dispatcher.Event) (any, error) {
-		a3interface.WriteArmaCallback(ExtensionName, ":GETDIR:MODULE:", ModulePath)
 		return ModulePath, nil
 	})
 
 	d.Register(":GETDIR:OCAPLOG:", func(e dispatcher.Event) (any, error) {
-		a3interface.WriteArmaCallback(ExtensionName, ":GETDIR:OCAPLOG:", OcapLogFilePath)
 		return OcapLogFilePath, nil
 	})
 
