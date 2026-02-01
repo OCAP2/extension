@@ -25,7 +25,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version-file: 'go.mod'
+          go-version: '1.21'
           cache: true
 
       - name: Run go vet
@@ -80,18 +80,11 @@ jobs:
           docker run --rm -v "${{ github.workspace }}:/go/work" -w /go/work x1unix/go-mingw:1.20 \
             go build -buildvcs=false -o dist/ocap_recorder_x64.dll -buildmode=c-shared ./cmd/ocap_recorder
 
-      - name: Build x86 DLL
-        run: |
-          docker run --rm -v "${{ github.workspace }}:/go/work" -w /go/work -e GOARCH=386 x1unix/go-mingw:1.20 \
-            go build -buildvcs=false -o dist/ocap_recorder.dll -buildmode=c-shared ./cmd/ocap_recorder
-
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: dll-artifacts
-          path: |
-            dist/ocap_recorder_x64.dll
-            dist/ocap_recorder.dll
+          path: dist/ocap_recorder_x64.dll
 
   code_coverage:
     name: "Code coverage report"
