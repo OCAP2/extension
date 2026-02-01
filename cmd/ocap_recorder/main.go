@@ -27,6 +27,7 @@ import (
 	"github.com/OCAP2/extension/internal/cache"
 	"github.com/OCAP2/extension/internal/config"
 	"github.com/OCAP2/extension/internal/database"
+	"github.com/OCAP2/extension/internal/dispatcher"
 	"github.com/OCAP2/extension/internal/handlers"
 	"github.com/OCAP2/extension/internal/influx"
 	"github.com/OCAP2/extension/internal/logging"
@@ -40,6 +41,7 @@ import (
 
 	influxdb2_write "github.com/influxdata/influxdb-client-go/v2/api/write"
 	"github.com/spf13/viper"
+	"go.opentelemetry.io/otel"
 
 	"github.com/rs/zerolog"
 	"gorm.io/gorm"
@@ -123,10 +125,11 @@ var (
 	addonVersion string = "unknown"
 
 	// Services
-	handlerService *handlers.Service
-	workerManager  *worker.Manager
-	monitorService *monitor.Service
-	queues         *worker.Queues
+	handlerService  *handlers.Service
+	workerManager   *worker.Manager
+	monitorService  *monitor.Service
+	queues          *worker.Queues
+	eventDispatcher *dispatcher.Dispatcher
 
 	// Storage backend (optional)
 	storageBackend storage.Backend
@@ -638,10 +641,30 @@ func startGoroutines() (err error) {
 		Logger.Info().Msg("Memory storage backend initialized")
 	}
 
-	Logger.Trace().Msg("Starting async processors")
-	workerManager.StartAsyncProcessors()
+	// Initialize event dispatcher
+	Logger.Trace().Msg("Initializing event dispatcher")
+	dispatcherLogger := logging.NewDispatcherLogger(Logger)
+	meter := otel.Meter("ocap-recorder")
+	eventDispatcher, err = dispatcher.New(dispatcherLogger, meter)
+	if err != nil {
+		Logger.Error().Err(err).Msg("Failed to create event dispatcher")
+		return fmt.Errorf("failed to create dispatcher: %w", err)
+	}
+
+	// Register handlers with dispatcher
+	workerManager.RegisterHandlers(eventDispatcher)
+
+	// Set dispatcher on a3interface
+	a3interface.SetDispatcher(eventDispatcher)
+	Logger.Info().Msg("Event dispatcher initialized and registered")
+
+	// Start DB writers (still needed for queue processing)
 	Logger.Trace().Msg("Starting DB writers")
 	workerManager.StartDBWriters()
+
+	// Keep legacy async processors for channels not yet migrated
+	Logger.Trace().Msg("Starting legacy async processors")
+	workerManager.StartAsyncProcessors()
 
 	// Initialize monitor service
 	monitorService = monitor.NewService(monitor.Dependencies{

@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 	"unsafe"
+
+	"github.com/OCAP2/extension/internal/dispatcher"
 )
 
 // Config defines how calls to this extension will be handled
@@ -33,42 +35,54 @@ func RVExtensionVersion(output *C.char, outputsize C.size_t) {
 //
 //export RVExtension
 func RVExtension(output *C.char, outputsize C.size_t, input *C.char) {
+	command := C.GoString(input)
+	commandSubstr := strings.Split(command, "|")[0]
 
-	var command string = C.GoString(input)
-	var commandSubstr string = strings.Split(command, "|")[0]
-	var desiredCommand string
-	var response string = "OK"
-
+	// Handle built-in timestamp command
 	if command == ":TIMESTAMP:" {
-		response = getTimestamp()
-		replyToSyncArmaCall(response, output, outputsize)
+		replyToSyncArmaCall(getTimestamp(), output, outputsize)
 		return
 	}
 
-	// send default or timestamp reply immediately
-	replyToSyncArmaCall(response, output, outputsize)
+	// Use dispatcher if configured (check both full command and substring)
+	if Config.dispatcher != nil {
+		dispatchCommand := command
+		if !Config.dispatcher.HasHandler(command) && Config.dispatcher.HasHandler(commandSubstr) {
+			dispatchCommand = commandSubstr
+		}
 
-	// check if the callback channel is set for this command
-	// first with the full command
+		if Config.dispatcher.HasHandler(dispatchCommand) {
+			event := dispatcher.Event{
+				Command:   dispatchCommand,
+				Args:      []string{command}, // pass full command as arg for legacy compat
+				Timestamp: time.Now(),
+			}
+
+			result, err := Config.dispatcher.Dispatch(event)
+			response := formatDispatchResponse(dispatchCommand, result, err)
+			replyToSyncArmaCall(response, output, outputsize)
+			return
+		}
+	}
+
+	// Fall back to legacy channel system
+	replyToSyncArmaCall("OK", output, outputsize)
+
+	desiredCommand := command
 	if _, ok := Config.rvExtensionChannels[command]; !ok {
-		// then with the substring
 		if _, ok := Config.rvExtensionChannels[commandSubstr]; !ok {
-			// log an error if it isn't
 			writeErrChan(command, fmt.Errorf("no channel set"))
 			return
 		}
 		desiredCommand = commandSubstr
-	} else {
-		desiredCommand = command
 	}
 
-	// get channel
 	channel := Config.rvExtensionChannels[desiredCommand]
 	if channel == nil {
 		writeErrChan(command, fmt.Errorf("channel not set"))
 		return
 	}
-	// send full command to channel
+
 	go func(channel chan string) {
 		channel <- command
 	}(channel)
@@ -78,37 +92,61 @@ func RVExtension(output *C.char, outputsize C.size_t, input *C.char) {
 //
 //export RVExtensionArgs
 func RVExtensionArgs(output *C.char, outputsize C.size_t, input *C.char, argv **C.char, argc C.int) {
-
-	// get command as Go string
 	command := C.GoString(input)
-	// set default response
-	response := fmt.Sprintf(`["Function: %s", "nb params: %d"]`, command, argc)
+	args := parseArgsFromC(argv, argc)
 
+	// Use dispatcher if configured
+	if Config.dispatcher != nil && Config.dispatcher.HasHandler(command) {
+		event := dispatcher.Event{
+			Command:   command,
+			Args:      args,
+			Timestamp: time.Now(),
+		}
+
+		result, err := Config.dispatcher.Dispatch(event)
+		response := formatDispatchResponse(command, result, err)
+		replyToSyncArmaCall(response, output, outputsize)
+		return
+	}
+
+	// Fall back to legacy channel system
+	response := fmt.Sprintf(`["Function: %s", "nb params: %d"]`, command, argc)
 	replyToSyncArmaCall(response, output, outputsize)
 
-	// get channel
 	channel := Config.rvExtensionArgsChannels[command]
 	if channel == nil {
 		writeErrChan(command, fmt.Errorf("channel not set"))
 		return
 	}
 
-	// now, we'll process the data
-	// process the C vector into a Go slice
+	// append timestamp in nanoseconds for legacy handlers
+	args = append(args, fmt.Sprintf("%d", time.Now().UnixNano()))
+
+	go func(channel chan []string, data []string) {
+		channel <- data
+	}(channel, args)
+}
+
+// parseArgsFromC converts C argv array to Go string slice
+func parseArgsFromC(argv **C.char, argc C.int) []string {
 	var offset = unsafe.Sizeof(uintptr(0))
 	var data []string
 	for index := C.int(0); index < argc; index++ {
 		data = append(data, C.GoString(*argv))
 		argv = (**C.char)(unsafe.Pointer(uintptr(unsafe.Pointer(argv)) + offset))
 	}
+	return data
+}
 
-	// append timestamp in nanoseconds
-	data = append(data, fmt.Sprintf("%d", time.Now().UnixNano()))
-
-	go func(channel chan []string, data []string) {
-		// send the data to the channel
-		channel <- data
-	}(channel, data)
+// formatDispatchResponse formats the dispatcher result for ArmA
+func formatDispatchResponse(command string, result any, err error) string {
+	if err != nil {
+		return fmt.Sprintf(`["error", "%s", "%s"]`, command, err.Error())
+	}
+	if result == nil {
+		return fmt.Sprintf(`["ok", "%s"]`, command)
+	}
+	return fmt.Sprintf(`["ok", "%s", "%v"]`, command, result)
 }
 
 // replyToSyncArmaCall will respond to a synchronous extension call from Arma

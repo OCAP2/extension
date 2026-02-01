@@ -7,6 +7,10 @@ package a3interface
 */
 import "C"
 
+import (
+	"github.com/OCAP2/extension/internal/dispatcher"
+)
+
 // ConfigStruct is the central configuration used by this library
 type configStruct struct {
 
@@ -21,6 +25,9 @@ type configStruct struct {
 
 	// errChan is the channel that errors will be sent to. the string slice will contain the command that caused the error and the error itself
 	errChan chan []string
+
+	// dispatcher handles event routing (new architecture)
+	dispatcher *dispatcher.Dispatcher
 }
 
 // Init method initializes the config struct
@@ -78,5 +85,14 @@ func RegisterErrorChan(
 	Config.errChan = channel
 }
 
-// TODO: add a way to unregister channels
-// TODO: add a way to register a sync response for limited data, as subfunctions across channels cannot trigger
+// SetDispatcher sets the event dispatcher for handling commands.
+// When set, RVExtensionArgs will route events through the dispatcher
+// instead of the legacy channel system.
+func SetDispatcher(d *dispatcher.Dispatcher) {
+	Config.dispatcher = d
+}
+
+// GetDispatcher returns the configured dispatcher, or nil if not set.
+func GetDispatcher() *dispatcher.Dispatcher {
+	return Config.dispatcher
+}
