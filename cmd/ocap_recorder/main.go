@@ -135,38 +135,16 @@ var (
 	storageBackend storage.Backend
 )
 
-// channels
+// channels - only for commands not handled by dispatcher
 var (
-	// RVExtArgsDataChannels is a map of channels for receiving data from RVExtensionArgs
+	// RVExtArgsDataChannels for legacy commands (mission lifecycle, addon version)
 	RVExtArgsDataChannels = map[string]chan []string{
-		// channels for receiving data from Arma
 		":ADDON:VERSION:": make(chan []string, 1),
 		":NEW:MISSION:":   make(chan []string, 1),
-		// channels for receiving new data and filing to DB
-		":NEW:SOLDIER:":       make(chan []string, 1000),
-		":NEW:VEHICLE:":       make(chan []string, 1000),
-		":NEW:SOLDIER:STATE:": make(chan []string, 10000),
-		":NEW:VEHICLE:STATE:": make(chan []string, 10000),
-		":EVENT:":             make(chan []string, 1000),
-		":FIRED:":             make(chan []string, 10000),
-		":PROJECTILE:":        make(chan []string, 5000),
-		":HIT:":               make(chan []string, 2000),
-		":KILL:":              make(chan []string, 2000),
-		":CHAT:":              make(chan []string, 1000),
-		":RADIO:":             make(chan []string, 1000),
-		":FPS:":               make(chan []string, 1000),
-		":ACE3:DEATH:":        make(chan []string, 1000),
-		":ACE3:UNCONSCIOUS:":  make(chan []string, 1000),
-		// marker channels
-		":MARKER:CREATE:": make(chan []string, 500),
-		":MARKER:MOVE:":   make(chan []string, 1000),
-		":MARKER:DELETE:": make(chan []string, 500),
-		// metric channel
-		":METRIC:": make(chan []string, 1000),
-		// mission end channel
-		":SAVE:": make(chan []string, 1),
+		":SAVE:":          make(chan []string, 1),
 	}
-	// RVExtDataChannels is a map of channels for receiving data from RVExtension
+
+	// RVExtDataChannels for simple extension calls
 	RVExtDataChannels = map[string]chan string{
 		":VERSION:":        make(chan string, 1),
 		":INIT:":           make(chan string, 1),
@@ -622,7 +600,7 @@ func startGoroutines() (err error) {
 		IsDatabaseValid: func() bool { return IsDatabaseValid },
 		ShouldSaveLocal: func() bool { return ShouldSaveLocal },
 		DBInsertsPaused: func() bool { return DBInsertsPaused },
-	}, queues, RVExtArgsDataChannels)
+	}, queues)
 
 	// Set up InfluxDB integration for worker
 	workerManager.SetInfluxIntegration(
@@ -658,13 +636,9 @@ func startGoroutines() (err error) {
 	a3interface.SetDispatcher(eventDispatcher)
 	Logger.Info().Msg("Event dispatcher initialized and registered")
 
-	// Start DB writers (still needed for queue processing)
+	// Start DB writers (processes queues filled by dispatcher handlers)
 	Logger.Trace().Msg("Starting DB writers")
 	workerManager.StartDBWriters()
-
-	// Keep legacy async processors for channels not yet migrated
-	Logger.Trace().Msg("Starting legacy async processors")
-	workerManager.StartAsyncProcessors()
 
 	// Initialize monitor service
 	monitorService = monitor.NewService(monitor.Dependencies{
@@ -921,6 +895,18 @@ func migrateTable[M any](
 	return nil
 }
 
+// dispatchDemoEvent dispatches an event through the dispatcher for demo/test purposes
+func dispatchDemoEvent(command string, args []string) {
+	if eventDispatcher == nil {
+		return
+	}
+	eventDispatcher.Dispatch(dispatcher.Event{
+		Command:   command,
+		Args:      args,
+		Timestamp: time.Now(),
+	})
+}
+
 func populateDemoData() {
 	if !IsDatabaseValid {
 		return
@@ -1112,7 +1098,7 @@ func populateDemoData() {
 				}
 
 				soldier = append(soldier, fmt.Sprintf("%d", time.Now().UnixNano()))
-				RVExtArgsDataChannels[":NEW:SOLDIER:"] <- soldier
+				dispatchDemoEvent(":NEW:SOLDIER:", soldier)
 
 				for {
 					time.Sleep(100 * time.Millisecond)
@@ -1168,7 +1154,7 @@ func populateDemoData() {
 					}
 
 					soldierState = append(soldierState, fmt.Sprintf("%d", time.Now().UnixNano()))
-					RVExtArgsDataChannels[":NEW:SOLDIER:STATE:"] <- soldierState
+					dispatchDemoEvent(":NEW:SOLDIER:STATE:", soldierState)
 				}
 				waitGroup.Done()
 			}(idCounter)
@@ -1194,7 +1180,7 @@ func populateDemoData() {
 				}
 
 				vehicle = append(vehicle, fmt.Sprintf("%d", time.Now().UnixNano()))
-				RVExtArgsDataChannels[":NEW:VEHICLE:"] <- vehicle
+				dispatchDemoEvent(":NEW:VEHICLE:", vehicle)
 
 				for {
 					time.Sleep(1000 * time.Millisecond)
@@ -1224,7 +1210,7 @@ func populateDemoData() {
 					}
 
 					vehicleState = append(vehicleState, fmt.Sprintf("%d", time.Now().UnixNano()))
-					RVExtArgsDataChannels[":NEW:VEHICLE:STATE:"] <- vehicleState
+					dispatchDemoEvent(":NEW:VEHICLE:STATE:", vehicleState)
 				}
 				waitGroup.Done()
 			}(idCounter)
@@ -1258,7 +1244,7 @@ func populateDemoData() {
 				}
 
 				firedEvent = append(firedEvent, fmt.Sprintf("%d", time.Now().UnixNano()))
-				RVExtArgsDataChannels[":FIRED:"] <- firedEvent
+				dispatchDemoEvent(":FIRED:", firedEvent)
 				wg2.Done()
 			}()
 		}
@@ -1287,7 +1273,7 @@ func populateDemoData() {
 				"Solid",
 			}
 			marker = append(marker, fmt.Sprintf("%d", time.Now().UnixNano()))
-			RVExtArgsDataChannels[":MARKER:CREATE:"] <- marker
+			dispatchDemoEvent(":MARKER:CREATE:", marker)
 
 			for j := 0; j < 3; j++ {
 				time.Sleep(100 * time.Millisecond)
@@ -1299,7 +1285,7 @@ func populateDemoData() {
 					"1.0",
 				}
 				markerMove = append(markerMove, fmt.Sprintf("%d", time.Now().UnixNano()))
-				RVExtArgsDataChannels[":MARKER:MOVE:"] <- markerMove
+				dispatchDemoEvent(":MARKER:MOVE:", markerMove)
 			}
 		}
 
@@ -1309,13 +1295,12 @@ func populateDemoData() {
 				strconv.Itoa(missionDuration - 10),
 			}
 			markerDelete = append(markerDelete, fmt.Sprintf("%d", time.Now().UnixNano()))
-			RVExtArgsDataChannels[":MARKER:DELETE:"] <- markerDelete
+			dispatchDemoEvent(":MARKER:DELETE:", markerDelete)
 		}
 	}
 
-	for len(RVExtArgsDataChannels[":FIRED:"]) > 0 {
-		time.Sleep(1000 * time.Millisecond)
-	}
+	// Give dispatcher time to process buffered events
+	time.Sleep(2 * time.Second)
 }
 
 func getOcapRecording(missionIDs []string) (err error) {
