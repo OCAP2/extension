@@ -186,3 +186,124 @@ func (b *Backend) GetMarkerByName(name string) (*core.Marker, bool) {
 	}
 	return nil, false
 }
+
+// RecordSoldierState records a soldier state update
+func (b *Backend) RecordSoldierState(s *core.SoldierState) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	// Find soldier by looking up via SoldierID
+	for _, record := range b.soldiers {
+		if record.Soldier.ID == s.SoldierID {
+			record.States = append(record.States, *s)
+			return nil
+		}
+	}
+	return nil // silently ignore if soldier not found
+}
+
+// RecordVehicleState records a vehicle state update
+func (b *Backend) RecordVehicleState(v *core.VehicleState) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	for _, record := range b.vehicles {
+		if record.Vehicle.ID == v.VehicleID {
+			record.States = append(record.States, *v)
+			return nil
+		}
+	}
+	return nil
+}
+
+// RecordMarkerState records a marker state update
+func (b *Backend) RecordMarkerState(s *core.MarkerState) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	for _, record := range b.markers {
+		if record.Marker.ID == s.MarkerID {
+			record.States = append(record.States, *s)
+			return nil
+		}
+	}
+	return nil
+}
+
+// RecordFiredEvent records a fired event
+func (b *Backend) RecordFiredEvent(e *core.FiredEvent) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	for _, record := range b.soldiers {
+		if record.Soldier.ID == e.SoldierID {
+			record.FiredEvents = append(record.FiredEvents, *e)
+			return nil
+		}
+	}
+	return nil
+}
+
+// RecordGeneralEvent records a general event
+func (b *Backend) RecordGeneralEvent(e *core.GeneralEvent) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.generalEvents = append(b.generalEvents, *e)
+	return nil
+}
+
+// RecordHitEvent records a hit event
+func (b *Backend) RecordHitEvent(e *core.HitEvent) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.hitEvents = append(b.hitEvents, *e)
+	return nil
+}
+
+// RecordKillEvent records a kill event
+func (b *Backend) RecordKillEvent(e *core.KillEvent) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.killEvents = append(b.killEvents, *e)
+	return nil
+}
+
+// RecordChatEvent records a chat event
+func (b *Backend) RecordChatEvent(e *core.ChatEvent) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.chatEvents = append(b.chatEvents, *e)
+	return nil
+}
+
+// RecordRadioEvent records a radio event
+func (b *Backend) RecordRadioEvent(e *core.RadioEvent) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.radioEvents = append(b.radioEvents, *e)
+	return nil
+}
+
+// RecordServerFpsEvent records a server FPS event
+func (b *Backend) RecordServerFpsEvent(e *core.ServerFpsEvent) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.serverFpsEvents = append(b.serverFpsEvents, *e)
+	return nil
+}
+
+// RecordAce3DeathEvent records an ACE3 death event
+func (b *Backend) RecordAce3DeathEvent(e *core.Ace3DeathEvent) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.ace3DeathEvents = append(b.ace3DeathEvents, *e)
+	return nil
+}
+
+// RecordAce3UnconsciousEvent records an ACE3 unconscious event
+func (b *Backend) RecordAce3UnconsciousEvent(e *core.Ace3UnconsciousEvent) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.ace3UnconsciousEvents = append(b.ace3UnconsciousEvents, *e)
+	return nil
+}
