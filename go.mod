@@ -13,7 +13,7 @@ require (
 	go.opentelemetry.io/otel/exporters/stdout/stdoutlog v0.15.0
 	go.opentelemetry.io/otel/metric v1.39.0
 	go.opentelemetry.io/otel/sdk v1.39.0
-	go.opentelemetry.io/otel/sdk/log v0.14.0
+	go.opentelemetry.io/otel/sdk/log v0.15.0
 	gorm.io/datatypes v1.2.7
 	gorm.io/driver/postgres v1.6.0
 	gorm.io/gorm v1.30.0
