@@ -9,9 +9,11 @@ import "C" // This is required to import the C code
 
 import (
 	"compress/gzip"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"math"
 	"math/rand"
 	"net/http"
@@ -31,6 +33,7 @@ import (
 	"github.com/OCAP2/extension/v5/internal/logging"
 	"github.com/OCAP2/extension/v5/internal/model"
 	"github.com/OCAP2/extension/v5/internal/monitor"
+	intOtel "github.com/OCAP2/extension/v5/internal/otel"
 	"github.com/OCAP2/extension/v5/internal/storage"
 	"github.com/OCAP2/extension/v5/internal/storage/memory"
 	"github.com/OCAP2/extension/v5/internal/util"
@@ -38,9 +41,7 @@ import (
 	"github.com/OCAP2/extension/v5/pkg/a3interface"
 
 	"github.com/spf13/viper"
-	"go.opentelemetry.io/otel"
-
-	"github.com/rs/zerolog"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -90,14 +91,14 @@ var (
 	// sqlDB is the native Go SQL interface
 	sqlDB *sql.DB
 
-	// LogManager handles all logging
-	LogManager *logging.Manager
+	// SlogManager handles all slog-based logging
+	SlogManager *logging.SlogManager
 
-	// Logger writes to console and file in line format (convenience reference)
-	Logger zerolog.Logger
+	// Logger is the slog logger (convenience reference)
+	Logger *slog.Logger
 
-	// JSONLogger is hooked from Logger and writes to JSONL file
-	JSONLogger zerolog.Logger
+	// OTelProvider handles OpenTelemetry
+	OTelProvider *intOtel.Provider
 
 	// testing
 	IsDemoData bool = false
@@ -156,21 +157,21 @@ func init() {
 
 	InitLogFile, err = os.Create(InitLogFilePath)
 	if err != nil {
-		defer LogManager.Logger.Warn().Err(err).Str("path", InitLogFilePath).
-			Msg("Failed to create/open log file!")
+		// Log to stderr since logging isn't set up yet
+		fmt.Fprintf(os.Stderr, "Failed to create init log file: %v\n", err)
 	}
 
-	// Initialize logging manager
-	LogManager = logging.NewManager()
-	LogManager.Setup(InitLogFile, viper.GetString("logLevel"))
-	Logger = LogManager.Logger
+	// Initialize slog manager with initial config
+	SlogManager = logging.NewSlogManager()
+	SlogManager.Setup(InitLogFile, viper.GetString("logLevel"), nil)
+	Logger = SlogManager.Logger()
 
 	// load config
 	err = loadConfig()
 	if err != nil {
-		Logger.Warn().Err(err).Msg("Failed to load config, using defaults!")
+		Logger.Warn("Failed to load config, using defaults!", "error", err)
 	} else {
-		Logger.Info().Msg("Loaded config")
+		Logger.Info("Loaded config")
 	}
 
 	// resolve path set in config
@@ -195,32 +196,57 @@ func init() {
 
 	OcapLogFile, err = os.OpenFile(OcapLogFilePath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
-		Logger.Error().Err(err).Str("path", OcapLogFilePath).
-			Msg("Failed to create/open log file!")
+		Logger.Error("Failed to create/open log file!", "error", err, "path", OcapLogFilePath)
 	}
 
-	Logger.Info().Str("path", OcapLogFilePath).Msg("Begin logging in logs directory")
+	Logger.Info("Begin logging in logs directory", "path", OcapLogFilePath)
 
-	// set up logging
-	LogManager.Setup(OcapLogFile, viper.GetString("logLevel"))
-	Logger = LogManager.Logger
-	Logger.Info().Str("path", OcapLogFilePath).Msg("Logging to file")
+	// Initialize OTel provider if enabled (after log file is created)
+	otelCfg := config.GetOTelConfig()
+	if otelCfg.Enabled {
+		OTelProvider, err = intOtel.New(intOtel.Config{
+			Enabled:      otelCfg.Enabled,
+			ServiceName:  otelCfg.ServiceName,
+			BatchTimeout: otelCfg.BatchTimeout,
+			LogWriter:    OcapLogFile,       // Write OTel logs to file
+			Endpoint:     otelCfg.Endpoint,  // Optional OTLP endpoint
+			Insecure:     otelCfg.Insecure,
+		})
+		if err != nil {
+			Logger.Error("Failed to initialize OTel provider", "error", err)
+		} else {
+			if otelCfg.Endpoint != "" {
+				Logger.Info("OTel provider initialized", "file", OcapLogFilePath, "endpoint", otelCfg.Endpoint)
+			} else {
+				Logger.Info("OTel provider initialized", "file", OcapLogFilePath)
+			}
+		}
+	}
+
+	// Re-setup logging with file output and optional OTel
+	var otelLogProvider *sdklog.LoggerProvider
+	if OTelProvider != nil {
+		otelLogProvider = OTelProvider.LoggerProvider()
+	}
+	SlogManager.Setup(OcapLogFile, viper.GetString("logLevel"), otelLogProvider)
+	Logger = SlogManager.Logger()
+	Logger.Info("Logging to file", "path", OcapLogFilePath)
 
 	// Set up dynamic state callbacks for logging
-	LogManager.GetMissionName = func() string {
+	SlogManager.GetMissionName = func() string {
 		if handlerService != nil {
 			return handlerService.GetMissionContext().GetMission().MissionName
 		}
 		return ""
 	}
-	LogManager.GetMissionID = func() uint {
+	SlogManager.GetMissionID = func() uint {
 		if handlerService != nil {
 			return handlerService.GetMissionContext().GetMission().ID
 		}
 		return 0
 	}
-	LogManager.IsUsingLocalDB = func() bool { return ShouldSaveLocal }
-	LogManager.IsStatusRunning = func() bool {
+	SlogManager.IsUsingLocalDB = func() bool { return ShouldSaveLocal }
+	SlogManager.IsStatusRunning = func() bool {
 		if monitorService != nil {
 			return monitorService.IsRunning()
 		}
@@ -229,12 +255,13 @@ func init() {
 
 	SqliteDBFilePath = fmt.Sprintf(`%s\%s_%s.db`, AddonFolder, ExtensionName, SessionStartTime.Format("20060102_150405"))
 	// set up a3interfaces
-	Logger.Info().Msg("Setting up a3interface...")
+	Logger.Info("Setting up a3interface...")
 	err = setupA3Interface()
 	if err != nil {
-		Logger.Fatal().Err(err).Msg("Failed to set up a3interfaces!")
+		Logger.Error("Failed to set up a3interfaces!", "error", err)
+		panic(err)
 	} else {
-		Logger.Info().Msg("Set up a3interfaces")
+		Logger.Info("Set up a3interfaces")
 	}
 
 	// get count of cpus available
@@ -243,7 +270,7 @@ func init() {
 
 	// get number of CPUs
 	numCPUs := runtime.NumCPU()
-	Logger.Debug().Int("numCPUs", numCPUs).Msg("Number of CPUs")
+	Logger.Debug("Number of CPUs", "numCPUs", numCPUs)
 
 	// set GOMAXPROCS
 	runtime.GOMAXPROCS(int(math.Max(float64(numCPUs-2), 1)))
@@ -264,13 +291,13 @@ func initExtension() {
 }
 
 func initDB() (err error) {
-	Logger.Trace().Msg("Received :INIT:DB: call")
+	Logger.Debug("Received :INIT:DB: call")
 	loadConfig()
 	functionName := ":INIT:DB:"
 	DB, err = getDB()
 	if err != nil || DB == nil {
 		// if we couldn't connect to the database, send a callback to the addon to let it know
-		LogManager.WriteLog(functionName, fmt.Sprintf(`Error connecting to database: %v`, err), "ERROR")
+		SlogManager.WriteLog(functionName, fmt.Sprintf(`Error connecting to database: %v`, err), "ERROR")
 		a3interface.WriteArmaCallback(ExtensionName, ":DB:ERROR:", err.Error())
 	} else {
 		a3interface.WriteArmaCallback(ExtensionName, ":DB:OK:", DB.Dialector.Name())
@@ -294,9 +321,9 @@ func checkServerStatus() {
 	// if server is not running, log error and exit
 	_, err = http.Get(viper.GetString("api.serverUrl") + "/healthcheck")
 	if err != nil {
-		Logger.Info().Msg("OCAP Frontend is offline")
+		Logger.Info("OCAP Frontend is offline")
 	} else {
-		Logger.Info().Msg("OCAP Frontend is online")
+		Logger.Info("OCAP Frontend is online")
 	}
 }
 
@@ -312,9 +339,9 @@ func getSqliteDB(path string) (db *gorm.DB, err error) {
 		return nil, err
 	}
 	if path != "" {
-		LogManager.WriteLog(functionName, fmt.Sprintf("Using local SQlite DB at '%s'", path), "INFO")
+		SlogManager.WriteLog(functionName, fmt.Sprintf("Using local SQlite DB at '%s'", path), "INFO")
 	} else {
-		LogManager.WriteLog(functionName, "Using local SQlite DB in memory with periodic disk dump", "INFO")
+		SlogManager.WriteLog(functionName, "Using local SQlite DB in memory with periodic disk dump", "INFO")
 	}
 	return db, nil
 }
@@ -328,19 +355,16 @@ func dumpMemoryDBToDisk() (err error) {
 	start := time.Now()
 	err = database.DumpMemoryDBToDisk(DB, SqliteDBFilePath)
 	if err != nil {
-		LogManager.WriteLog(functionName, "Error dumping memory DB to disk", "ERROR")
+		SlogManager.WriteLog(functionName, "Error dumping memory DB to disk", "ERROR")
 		return err
 	}
-	LogManager.WriteLog(functionName, fmt.Sprintf(`Dumped memory DB to disk in %s`, time.Since(start)), "INFO")
-	Logger.Debug().
-		Dur("duration", time.Since(start)).Msg("Dumped memory DB to disk")
-	JSONLogger.Debug().
-		Dur("duration", time.Since(start)).Msg("Dumped memory DB to disk")
+	SlogManager.WriteLog(functionName, fmt.Sprintf(`Dumped memory DB to disk in %s`, time.Since(start)), "INFO")
+	Logger.Debug("Dumped memory DB to disk", "duration", time.Since(start))
 	return nil
 }
 
 func getPostgresDB() (db *gorm.DB, err error) {
-	Logger.Debug().Msgf("Connecting to Postgres DB")
+	Logger.Debug("Connecting to Postgres DB")
 	return database.GetPostgresDBStandalone()
 }
 
@@ -350,8 +374,7 @@ func getDB() (db *gorm.DB, err error) {
 
 	db, err = getPostgresDB()
 	if err != nil {
-		Logger.Error().Err(err).Msg("Failed to connect to Postgres DB, trying SQLite")
-		JSONLogger.Error().Err(err).Msg("Failed to connect to Postgres DB, trying SQLite")
+		Logger.Error("Failed to connect to Postgres DB, trying SQLite", "error", err)
 		ShouldSaveLocal = true
 		db, err = getSqliteDB("")
 		if err != nil || db == nil {
@@ -367,7 +390,7 @@ func getDB() (db *gorm.DB, err error) {
 	}
 	err = sqlDB.Ping()
 	if err != nil {
-		LogManager.WriteLog(functionName, fmt.Sprintf(`Failed to validate connection. Err: %s`, err), "ERROR")
+		SlogManager.WriteLog(functionName, fmt.Sprintf(`Failed to validate connection. Err: %s`, err), "ERROR")
 		ShouldSaveLocal = true
 		db, err = getSqliteDB("")
 		if err != nil || db == nil {
@@ -377,7 +400,7 @@ func getDB() (db *gorm.DB, err error) {
 		IsDatabaseValid = true
 
 	} else {
-		LogManager.WriteLog(functionName, "Connected to database", "INFO")
+		SlogManager.WriteLog(functionName, "Connected to database", "INFO")
 		IsDatabaseValid = true
 	}
 
@@ -401,7 +424,7 @@ func setupDB(db *gorm.DB) (err error) {
 		// Create the table
 		err = db.AutoMigrate(&model.OcapInfo{})
 		if err != nil {
-			LogManager.WriteLog(functionName, fmt.Sprintf(`Failed to create ocap_info table. Err: %s`, err), "ERROR")
+			SlogManager.WriteLog(functionName, fmt.Sprintf(`Failed to create ocap_info table. Err: %s`, err), "ERROR")
 			IsDatabaseValid = false
 			return err
 		}
@@ -432,10 +455,10 @@ func setupDB(db *gorm.DB) (err error) {
 			IsDatabaseValid = false
 			return fmt.Errorf("failed to create PostGIS Extension: %s", err)
 		}
-		LogManager.WriteLog(functionName, "PostGIS Extension created", "INFO")
+		SlogManager.WriteLog(functionName, "PostGIS Extension created", "INFO")
 	}
 
-	Logger.Info().Msg("Migrating schema")
+	Logger.Info("Migrating schema")
 	if ShouldSaveLocal {
 		err = db.AutoMigrate(model.DatabaseModelsSQLite...)
 	} else {
@@ -446,7 +469,7 @@ func setupDB(db *gorm.DB) (err error) {
 		return fmt.Errorf("failed to migrate schema: %s", err)
 	}
 
-	Logger.Info().Msg("Database setup complete")
+	Logger.Info("Database setup complete")
 	return nil
 }
 
@@ -464,7 +487,7 @@ func startGoroutines() (err error) {
 		DB:            DB,
 		EntityCache:   EntityCache,
 		MarkerCache:   MarkerCache,
-		LogManager:    LogManager,
+		LogManager:    SlogManager,
 		ExtensionName: ExtensionName,
 		AddonVersion:  addonVersion,
 	}, missionCtx)
@@ -474,7 +497,7 @@ func startGoroutines() (err error) {
 		DB:              DB,
 		EntityCache:     EntityCache,
 		MarkerCache:     MarkerCache,
-		LogManager:      LogManager,
+		LogManager:      SlogManager,
 		HandlerService:  handlerService,
 		IsDatabaseValid: func() bool { return IsDatabaseValid },
 		ShouldSaveLocal: func() bool { return ShouldSaveLocal },
@@ -488,16 +511,16 @@ func startGoroutines() (err error) {
 		storageBackend.Init()
 		workerManager.SetBackend(storageBackend)
 		handlerService.SetBackend(storageBackend)
-		Logger.Info().Msg("Memory storage backend initialized")
+		Logger.Info("Memory storage backend initialized")
 	}
 
 	// Initialize event dispatcher
-	Logger.Trace().Msg("Initializing event dispatcher")
+	Logger.Debug("Initializing event dispatcher")
 	dispatcherLogger := logging.NewDispatcherLogger(Logger)
-	meter := otel.Meter("ocap-recorder")
+	var meter = OTelProvider.Meter("ocap-recorder")
 	eventDispatcher, err = dispatcher.New(dispatcherLogger, meter)
 	if err != nil {
-		Logger.Error().Err(err).Msg("Failed to create event dispatcher")
+		Logger.Error("Failed to create event dispatcher", "error", err)
 		return fmt.Errorf("failed to create dispatcher: %w", err)
 	}
 
@@ -509,16 +532,16 @@ func startGoroutines() (err error) {
 
 	// Set dispatcher on a3interface
 	a3interface.SetDispatcher(eventDispatcher)
-	Logger.Info().Msg("Event dispatcher initialized and registered")
+	Logger.Info("Event dispatcher initialized and registered")
 
 	// Start DB writers (processes queues filled by dispatcher handlers)
-	Logger.Trace().Msg("Starting DB writers")
+	Logger.Debug("Starting DB writers")
 	workerManager.StartDBWriters()
 
 	// Initialize monitor service
 	monitorService = monitor.NewService(monitor.Dependencies{
 		DB:             DB,
-		LogManager:     LogManager,
+		LogManager:     SlogManager,
 		HandlerService: handlerService,
 		WorkerManager:  workerManager,
 		Queues:         queues,
@@ -527,15 +550,13 @@ func startGoroutines() (err error) {
 	})
 
 	if !monitorService.IsRunning() {
-		Logger.Trace().Msg("Status process not running, starting it")
+		Logger.Debug("Status process not running, starting it")
 		monitorService.Start()
 	}
 
 	// goroutine to, every x seconds, pause insert execution and dump memory sqlite db to disk
 	go func() {
-		Logger.Debug().
-			Str("function", functionName).
-			Msg("Starting DB dump goroutine")
+		Logger.Debug("Starting DB dump goroutine", "function", functionName)
 
 		for {
 			time.Sleep(3 * time.Minute)
@@ -547,10 +568,10 @@ func startGoroutines() (err error) {
 			DBInsertsPaused = true
 
 			// dump memory sqlite db to disk
-			LogManager.WriteLog(functionName, "Dumping in-memory SQLite DB to disk", "DEBUG")
+			SlogManager.WriteLog(functionName, "Dumping in-memory SQLite DB to disk", "DEBUG")
 			err = dumpMemoryDBToDisk()
 			if err != nil {
-				LogManager.WriteLog(functionName, fmt.Sprintf(`Error dumping memory db to disk: %v`, err), "ERROR")
+				SlogManager.WriteLog(functionName, fmt.Sprintf(`Error dumping memory db to disk: %v`, err), "ERROR")
 			}
 
 			// resume insert execution
@@ -559,7 +580,7 @@ func startGoroutines() (err error) {
 	}()
 
 	// log post goroutine creation
-	LogManager.WriteLog(functionName, "Goroutines started successfully", "INFO")
+	SlogManager.WriteLog(functionName, "Goroutines started successfully", "INFO")
 	return nil
 }
 
@@ -691,30 +712,24 @@ func migrateBackupsSqlite() (err error) {
 		// remove connections to the databases
 		sqlConnection, err := sqliteDB.DB()
 		if err != nil {
-			Logger.Error().Msgf("Error getting sqlite connection: %v", err)
-			JSONLogger.Error().Msgf("Error getting sqlite connection: %v", err)
+			Logger.Error("Error getting sqlite connection", "error", err)
 			continue
 		}
 		err = sqlConnection.Close()
 		if err != nil {
-			Logger.Error().Msgf("Error closing sqlite connection: %v", err)
+			Logger.Error("Error closing sqlite connection", "error", err)
 		}
 		err = os.Rename(sqlitePath, sqlitePath+".migrated")
 		if err != nil {
-			Logger.Error().Msgf("Error renaming sqlite file: %v", err)
+			Logger.Error("Error renaming sqlite file", "error", err)
 		}
 		successfulMigrations = append(successfulMigrations, sqlitePath)
 	}
 
 	// if we get here, we've successfully migrated all backups
-	successArr := zerolog.Arr()
-	for _, successfulMigration := range successfulMigrations {
-		successArr.Str(successfulMigration)
-	}
-	Logger.Info().Array(
-		"successfulMigrations",
-		successArr,
-	).Msgf("Successfully migrated %d backups, it's recommended to delete these to avoid future data duplication", len(successfulMigrations))
+	Logger.Info("Successfully migrated backups, it's recommended to delete these to avoid future data duplication",
+		"count", len(successfulMigrations),
+		"paths", successfulMigrations)
 
 	return nil
 }
@@ -730,14 +745,13 @@ func migrateTable[M any](
 	sqliteDB.Model(&model).
 		Assign("id", gorm.Expr("NULL")). // remove the id field from the data
 		Find(data)
-	Logger.Info().Msgf("Found %d %s", len(*data), tableName)
-	JSONLogger.Info().Msgf("Found %d %s", len(*data), tableName)
+	Logger.Info("Found records", "count", len(*data), "table", tableName)
 
 	if len(*data) == 0 {
 		return nil
 	}
 
-	Logger.Info().Msgf("Inserting %d %s", len(*data), tableName)
+	Logger.Info("Inserting records", "count", len(*data), "table", tableName)
 
 	// insert into postgres
 	postgresDB.Model(&model).Clauses(
@@ -745,12 +759,7 @@ func migrateTable[M any](
 			DoNothing: true,
 		}).Create(data)
 	if postgresDB.Error != nil {
-		Logger.Error().Err(err).
-			Str("database", sqliteDB.Name()).
-			Msgf("Error migrating %s", tableName)
-		JSONLogger.Error().Err(err).
-			Str("database", sqliteDB.Name()).
-			Msgf("Error migrating %s", tableName)
+		Logger.Error("Error migrating table", "error", err, "database", sqliteDB.Name(), "table", tableName)
 		return err
 	}
 
@@ -791,7 +800,7 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 	d.Register(":ADDON:VERSION:", func(e dispatcher.Event) (any, error) {
 		if len(e.Args) > 0 {
 			addonVersion = util.FixEscapeQuotes(util.TrimQuotes(e.Args[0]))
-			Logger.Info().Str("version", addonVersion).Msg("Addon version")
+			Logger.Info("Addon version", "version", addonVersion)
 		}
 		return "ok", nil
 	})
@@ -804,13 +813,21 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 	})
 
 	d.Register(":SAVE:", func(e dispatcher.Event) (any, error) {
-		Logger.Info().Msg("Received :SAVE: command, ending mission recording")
+		Logger.Info("Received :SAVE: command, ending mission recording")
 		if storageBackend != nil {
 			if err := storageBackend.EndMission(); err != nil {
-				Logger.Error().Err(err).Msg("Failed to end mission in storage backend")
+				Logger.Error("Failed to end mission in storage backend", "error", err)
 				return nil, err
 			}
-			Logger.Info().Msg("Mission recording saved to storage backend")
+			Logger.Info("Mission recording saved to storage backend")
+		}
+		// Flush OTel data if provider is available
+		if OTelProvider != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := OTelProvider.Flush(ctx); err != nil {
+				Logger.Warn("Failed to flush OTel data", "error", err)
+			}
 		}
 		return "ok", nil
 	})
@@ -1083,7 +1100,7 @@ func populateDemoData() {
 		}
 
 		EntityCache.Lock()
-		Logger.Debug().Int("numSoldiersCached", len(EntityCache.Soldiers)).Msg("Soldiers cached")
+		Logger.Debug("Soldiers cached", "numSoldiersCached", len(EntityCache.Soldiers))
 		EntityCache.Unlock()
 
 		// write vehicles
@@ -1549,23 +1566,23 @@ order by s.ocap_id,
 
 func main() {
 	var err error
-	Logger.Info().Msg("Starting up...")
-	Logger.Info().Msg("Connecting to DB...")
+	Logger.Info("Starting up...")
+	Logger.Info("Connecting to DB...")
 	err = initDB()
 	if err != nil {
 		panic(err)
 	}
-	Logger.Info().Msg("DB connect/migrate complete.")
+	Logger.Info("DB connect/migrate complete.")
 	initExtension()
 
 	args := os.Args[1:]
 	if len(args) > 0 {
 		if strings.ToLower(args[0]) == "demo" {
-			Logger.Info().Msg("Populating demo data...")
+			Logger.Info("Populating demo data...")
 			IsDemoData = true
 			demoStart := time.Now()
 			populateDemoData()
-			Logger.Info().Dur("duration", time.Duration(time.Since(demoStart).Seconds())).Msg("Demo data populated.")
+			Logger.Info("Demo data populated.", "duration", time.Since(demoStart))
 			fmt.Println("Press enter to exit.")
 		}
 		if strings.ToLower(args[0]) == "setupdb" {
@@ -1573,7 +1590,7 @@ func main() {
 			if err != nil {
 				panic(err)
 			}
-			Logger.Info().Msg("DB setup complete.")
+			Logger.Info("DB setup complete.")
 		}
 		if strings.ToLower(args[0]) == "getjson" {
 			missionIds := args[1:]
@@ -1603,7 +1620,7 @@ func main() {
 			if err != nil {
 				panic(err)
 			}
-			Logger.Info().Msg("Finished migrating backups.")
+			Logger.Info("Finished migrating backups.")
 		}
 		if strings.ToLower(args[0]) == "testquery" {
 			err = testQuery()

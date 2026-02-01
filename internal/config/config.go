@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/spf13/viper"
 )
@@ -41,6 +42,13 @@ func Load(configDir string) error {
 	viper.SetDefault("storage.memory.outputDir", "./recordings")
 	viper.SetDefault("storage.memory.compressOutput", true)
 
+	// OpenTelemetry defaults
+	viper.SetDefault("otel.enabled", false)
+	viper.SetDefault("otel.serviceName", "ocap-recorder")
+	viper.SetDefault("otel.batchTimeout", "5s")
+	viper.SetDefault("otel.endpoint", "")    // OTLP endpoint (optional)
+	viper.SetDefault("otel.insecure", true)  // Use insecure for OTLP
+
 	viper.SetConfigName("ocap_recorder.cfg.json")
 	viper.AddConfigPath(configDir)
 	viper.SetConfigType("json")
@@ -78,5 +86,21 @@ type StorageConfig struct {
 func GetStorageConfig() StorageConfig {
 	var cfg StorageConfig
 	viper.UnmarshalKey("storage", &cfg)
+	return cfg
+}
+
+// OTelConfig holds OpenTelemetry configuration
+type OTelConfig struct {
+	Enabled      bool          `json:"enabled" mapstructure:"enabled"`
+	ServiceName  string        `json:"serviceName" mapstructure:"serviceName"`
+	BatchTimeout time.Duration `json:"batchTimeout" mapstructure:"batchTimeout"`
+	Endpoint     string        `json:"endpoint" mapstructure:"endpoint"`   // OTLP endpoint (optional)
+	Insecure     bool          `json:"insecure" mapstructure:"insecure"`   // Use insecure for OTLP
+}
+
+// GetOTelConfig returns the OpenTelemetry configuration
+func GetOTelConfig() OTelConfig {
+	var cfg OTelConfig
+	viper.UnmarshalKey("otel", &cfg)
 	return cfg
 }
