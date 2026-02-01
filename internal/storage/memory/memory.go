@@ -103,12 +103,6 @@ func (b *Backend) EndMission() error {
 	return b.exportJSON()
 }
 
-// exportJSON writes the mission data to a JSON file
-func (b *Backend) exportJSON() error {
-	// TODO: implement in Task 4.5
-	return nil
-}
-
 // AddSoldier registers a new soldier
 func (b *Backend) AddSoldier(s *core.Soldier) error {
 	b.mu.Lock()
