@@ -7,6 +7,7 @@ package a3interface
 */
 import "C"
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -112,7 +113,17 @@ func formatDispatchResponse(command string, result any, err error) string {
 	if result == nil {
 		return fmt.Sprintf(`["ok", "%s"]`, command)
 	}
-	return fmt.Sprintf(`["ok", "%s", "%v"]`, command, result)
+	// For complex types (arrays, maps), use JSON encoding to get proper SQF-compatible format
+	switch result.(type) {
+	case string:
+		return fmt.Sprintf(`["ok", "%s", "%s"]`, command, result)
+	default:
+		jsonBytes, jsonErr := json.Marshal(result)
+		if jsonErr != nil {
+			return fmt.Sprintf(`["error", "%s", "failed to encode result: %s"]`, command, jsonErr.Error())
+		}
+		return fmt.Sprintf(`["ok", "%s", %s]`, command, string(jsonBytes))
+	}
 }
 
 // replyToSyncArmaCall will respond to a synchronous extension call from Arma

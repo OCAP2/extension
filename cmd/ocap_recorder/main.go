@@ -46,9 +46,10 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// module defs
+// module defs - BuildDate can be set at build time via ldflags
 var (
 	CurrentExtensionVersion string = "0.0.1"
+	BuildDate               string = "unknown"
 
 	Addon         string = "ocap"
 	ExtensionName string = "ocap_recorder"
@@ -781,7 +782,7 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 
 	// Simple queries - sync return is sufficient, no callback needed
 	d.Register(":VERSION:", func(e dispatcher.Event) (any, error) {
-		return CurrentExtensionVersion, nil
+		return []string{CurrentExtensionVersion, BuildDate}, nil
 	})
 
 	d.Register(":GETDIR:ARMA:", func(e dispatcher.Event) (any, error) {
