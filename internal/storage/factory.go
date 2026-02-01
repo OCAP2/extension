@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/OCAP2/extension/internal/config"
+	"github.com/OCAP2/extension/internal/storage/memory"
 )
 
 // NewBackend creates a storage backend based on configuration
@@ -15,7 +16,7 @@ func NewBackend(cfg config.StorageConfig) (Backend, error) {
 	case "sqlite":
 		return nil, fmt.Errorf("sqlite backend not yet implemented")
 	case "memory":
-		return nil, fmt.Errorf("memory backend not yet implemented")
+		return memory.New(cfg.Memory), nil
 	default:
 		return nil, fmt.Errorf("unknown storage type: %s", cfg.Type)
 	}
