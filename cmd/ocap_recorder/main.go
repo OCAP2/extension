@@ -135,8 +135,6 @@ var (
 	storageBackend storage.Backend
 )
 
-// a3ErrorChan is used to send errors from the a3interface package to the main thread
-var a3ErrorChan = make(chan []string, 50)
 
 // init is run automatically when the module is loaded
 func init() {
@@ -299,18 +297,6 @@ func initDB() (err error) {
 
 func setupA3Interface() (err error) {
 	a3interface.SetVersion(CurrentExtensionVersion)
-	a3interface.RegisterErrorChan(a3ErrorChan)
-
-	// Handle errors from a3interface
-	go func() {
-		for errData := range a3ErrorChan {
-			Logger.Error().
-				Str("command", errData[0]).
-				Str("error", errData[1]).
-				Msg("Error in A3Interface")
-		}
-	}()
-
 	return nil
 }
 

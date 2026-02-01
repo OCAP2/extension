@@ -65,7 +65,6 @@ func RVExtension(output *C.char, outputsize C.size_t, input *C.char) {
 	}
 
 	// No handler found
-	writeErrChan(command, fmt.Errorf("no handler registered"))
 	replyToSyncArmaCall(fmt.Sprintf(`["error", "%s", "no handler registered"]`, command), output, outputsize)
 }
 
@@ -91,7 +90,6 @@ func RVExtensionArgs(output *C.char, outputsize C.size_t, input *C.char, argv **
 	}
 
 	// No handler found
-	writeErrChan(command, fmt.Errorf("no handler registered"))
 	replyToSyncArmaCall(fmt.Sprintf(`["error", "%s", "no handler registered"]`, command), output, outputsize)
 }
 
@@ -126,16 +124,6 @@ func replyToSyncArmaCall(response string, output *C.char, outputsize C.size_t) {
 		size = outputsize
 	}
 	C.memmove(unsafe.Pointer(output), unsafe.Pointer(result), size)
-}
-
-// writeErrChan will write an error to the error channel for a command
-func writeErrChan(command string, err error) {
-	if Config.errChan == nil {
-		return
-	}
-	go func() {
-		Config.errChan <- []string{command, err.Error()}
-	}()
 }
 
 func getTimestamp() string {

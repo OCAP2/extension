@@ -16,9 +16,6 @@ type configStruct struct {
 	// rvExtensionVersion is the value that will be returned when the extension is first called by Arma
 	rvExtensionVersion string
 
-	// errChan is the channel that errors will be sent to
-	errChan chan []string
-
 	// dispatcher handles event routing
 	dispatcher *dispatcher.Dispatcher
 }
@@ -31,11 +28,6 @@ func (c *configStruct) Init() {
 // SetVersion sets the version string that will be returned when the extension is first called by Arma
 func SetVersion(version string) {
 	Config.rvExtensionVersion = version
-}
-
-// RegisterErrorChan sets the channel for error reporting
-func RegisterErrorChan(channel chan []string) {
-	Config.errChan = channel
 }
 
 // SetDispatcher sets the event dispatcher for handling commands
