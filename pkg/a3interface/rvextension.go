@@ -27,6 +27,7 @@ func init() {
 //
 //export RVExtensionVersion
 func RVExtensionVersion(output *C.char, outputsize C.size_t) {
+	defer recoverPanic("RVExtensionVersion", output, outputsize)
 	result := Config.rvExtensionVersion
 	replyToSyncArmaCall(result, output, outputsize)
 }
@@ -35,6 +36,7 @@ func RVExtensionVersion(output *C.char, outputsize C.size_t) {
 //
 //export RVExtension
 func RVExtension(output *C.char, outputsize C.size_t, input *C.char) {
+	defer recoverPanic("RVExtension", output, outputsize)
 	command := C.GoString(input)
 	commandSubstr := strings.Split(command, "|")[0]
 
@@ -73,6 +75,7 @@ func RVExtension(output *C.char, outputsize C.size_t, input *C.char) {
 //
 //export RVExtensionArgs
 func RVExtensionArgs(output *C.char, outputsize C.size_t, input *C.char, argv **C.char, argc C.int) {
+	defer recoverPanic("RVExtensionArgs", output, outputsize)
 	command := C.GoString(input)
 	args := parseArgsFromC(argv, argc)
 
@@ -123,6 +126,15 @@ func formatDispatchResponse(command string, result any, err error) string {
 			return fmt.Sprintf(`["error", "%s", "failed to encode result: %s"]`, command, jsonErr.Error())
 		}
 		return fmt.Sprintf(`["ok", "%s", %s]`, command, string(jsonBytes))
+	}
+}
+
+// recoverPanic catches any panic in the exported functions and returns a safe error response.
+// This prevents the game from crashing due to unhandled Go panics.
+func recoverPanic(funcName string, output *C.char, outputsize C.size_t) {
+	if r := recover(); r != nil {
+		errMsg := fmt.Sprintf(`["error", "%s", "panic recovered: %v"]`, funcName, r)
+		replyToSyncArmaCall(errMsg, output, outputsize)
 	}
 }
 
