@@ -77,7 +77,7 @@ jobs:
 
       - name: Build x64 DLL
         run: |
-          docker run --rm -v "${{ github.workspace }}:/go/work" -w /go/work x1unix/go-mingw:1.20 \
+          docker run --rm -v "${{ github.workspace }}:/go/work" -w /go/work x1unix/go-mingw:1.24 \
             go build -buildvcs=false -o dist/ocap_recorder_x64.dll -buildmode=c-shared ./cmd/ocap_recorder
 
       - name: Upload build artifacts
