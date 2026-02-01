@@ -44,7 +44,7 @@ func Load(configDir string) error {
 	viper.SetDefault("logio.port", "28777")
 
 	// Storage backend defaults
-	viper.SetDefault("storage.type", "postgres")
+	viper.SetDefault("storage.type", "memory")
 	viper.SetDefault("storage.memory.outputDir", "./recordings")
 	viper.SetDefault("storage.memory.compressOutput", true)
 

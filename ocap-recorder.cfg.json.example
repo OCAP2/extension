@@ -22,7 +22,7 @@
     "org": "ocap-metrics"
   },
   "storage": {
-    "type": "postgres",
+    "type": "memory",
     "memory": {
       "outputDir": "./recordings",
       "compressOutput": true
