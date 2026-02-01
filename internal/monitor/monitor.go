@@ -1,7 +1,6 @@
 package monitor
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -14,13 +13,8 @@ import (
 	"github.com/OCAP2/extension/v5/internal/model"
 	"github.com/OCAP2/extension/v5/internal/worker"
 
-	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
-	influxdb2_write "github.com/influxdata/influxdb-client-go/v2/api/write"
 	"gorm.io/gorm"
 )
-
-// InfluxWriter is a function type for writing to InfluxDB
-type InfluxWriter func(ctx context.Context, bucket string, point *influxdb2_write.Point) error
 
 // Dependencies holds all dependencies for the monitor service
 type Dependencies struct {
@@ -39,28 +33,14 @@ type Service struct {
 	isRunning bool
 	mu        sync.RWMutex
 	stopChan  chan struct{}
-
-	// Optional InfluxDB integration
-	influxWriter  InfluxWriter
-	influxEnabled func() bool
-	influxDBURL   func() string
 }
 
 // NewService creates a new monitor service
 func NewService(deps Dependencies) *Service {
 	return &Service{
-		deps:          deps,
-		stopChan:      make(chan struct{}),
-		influxEnabled: func() bool { return false },
-		influxDBURL:   func() string { return "" },
+		deps:     deps,
+		stopChan: make(chan struct{}),
 	}
-}
-
-// SetInfluxIntegration sets up InfluxDB integration
-func (s *Service) SetInfluxIntegration(writer InfluxWriter, enabledFn func() bool, dbURLFn func() string) {
-	s.influxWriter = writer
-	s.influxEnabled = enabledFn
-	s.influxDBURL = dbURLFn
 }
 
 // IsRunning returns whether the status monitor is running
@@ -246,77 +226,6 @@ func (s *Service) Start() error {
 					if err != nil {
 						s.deps.LogManager.Logger.Error().Err(err).Msg("Error writing perf model to Postgres")
 					}
-				}
-
-				// write to influxDB
-				if s.influxEnabled() && s.influxWriter != nil {
-					// write buffer lengths
-					p := influxdb2.NewPointWithMeasurement(
-						"ext_buffer_lengths",
-					).
-						AddTag("db_url", s.influxDBURL()).
-						AddTag("mission_name", perfModel.Mission.MissionName).
-						AddTag("mission_id", fmt.Sprintf("%d", perfModel.Mission.ID)).
-						AddField("soldiers", perfModel.BufferLengths.Soldiers).
-						AddField("vehicles", perfModel.BufferLengths.Vehicles).
-						AddField("soldier_states", perfModel.BufferLengths.SoldierStates).
-						AddField("vehicle_states", perfModel.BufferLengths.VehicleStates).
-						AddField("general_events", perfModel.BufferLengths.GeneralEvents).
-						AddField("hit_events", perfModel.BufferLengths.HitEvents).
-						AddField("kill_events", perfModel.BufferLengths.KillEvents).
-						AddField("fired_events", perfModel.BufferLengths.FiredEvents).
-						AddField("chat_events", perfModel.BufferLengths.ChatEvents).
-						AddField("radio_events", perfModel.BufferLengths.RadioEvents).
-						AddField("server_fps_events", perfModel.BufferLengths.ServerFpsEvents).
-						SetTime(time.Now())
-
-					s.influxWriter(
-						context.Background(),
-						"ocap_performance",
-						p,
-					)
-
-					// write db write queue lengths
-					p = influxdb2.NewPointWithMeasurement(
-						"ext_db_queue_lengths",
-					).
-						AddTag("db_url", s.influxDBURL()).
-						AddTag("mission_name", perfModel.Mission.MissionName).
-						AddTag("mission_id", fmt.Sprintf("%d", perfModel.Mission.ID)).
-						AddField("soldiers", perfModel.WriteQueueLengths.Soldiers).
-						AddField("vehicles", perfModel.WriteQueueLengths.Vehicles).
-						AddField("soldier_states", perfModel.WriteQueueLengths.SoldierStates).
-						AddField("vehicle_states", perfModel.WriteQueueLengths.VehicleStates).
-						AddField("general_events", perfModel.WriteQueueLengths.GeneralEvents).
-						AddField("hit_events", perfModel.WriteQueueLengths.HitEvents).
-						AddField("kill_events", perfModel.WriteQueueLengths.KillEvents).
-						AddField("fired_events", perfModel.WriteQueueLengths.FiredEvents).
-						AddField("chat_events", perfModel.WriteQueueLengths.ChatEvents).
-						AddField("radio_events", perfModel.WriteQueueLengths.RadioEvents).
-						AddField("server_fps_events", perfModel.WriteQueueLengths.ServerFpsEvents).
-						SetTime(time.Now())
-
-					s.influxWriter(
-						context.Background(),
-						"ocap_performance",
-						p,
-					)
-
-					// write last write duration
-					p = influxdb2.NewPointWithMeasurement(
-						"ext_db_lastwrite_duration_ms",
-					).
-						AddTag("db_url", s.influxDBURL()).
-						AddTag("mission_name", perfModel.Mission.MissionName).
-						AddTag("mission_id", fmt.Sprintf("%d", perfModel.Mission.ID)).
-						AddField("value", perfModel.LastWriteDurationMs).
-						SetTime(time.Now())
-
-					s.influxWriter(
-						context.Background(),
-						"ocap_performance",
-						p,
-					)
 				}
 			}
 		}

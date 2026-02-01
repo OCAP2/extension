@@ -1,7 +1,6 @@
 package worker
 
 import (
-	"context"
 	"fmt"
 	"time"
 
@@ -41,9 +40,6 @@ func (m *Manager) RegisterHandlers(d *dispatcher.Dispatcher) {
 	d.Register(":MARKER:CREATE:", m.handleMarkerCreate, dispatcher.Buffered(500))
 	d.Register(":MARKER:MOVE:", m.handleMarkerMove, dispatcher.Buffered(1000))
 	d.Register(":MARKER:DELETE:", m.handleMarkerDelete, dispatcher.Buffered(500))
-
-	// Metrics - buffered
-	d.Register(":METRIC:", m.handleMetric, dispatcher.Buffered(1000))
 }
 
 func (m *Manager) handleNewSoldier(e dispatcher.Event) (any, error) {
@@ -383,24 +379,6 @@ func (m *Manager) handleMarkerDelete(e dispatcher.Event) (any, error) {
 		}
 		m.queues.MarkerStates.Push([]model.MarkerState{deleteState})
 		m.deps.DB.Model(&model.Marker{}).Where("id = ?", markerID).Update("is_deleted", true)
-	}
-
-	return nil, nil
-}
-
-func (m *Manager) handleMetric(e dispatcher.Event) (any, error) {
-	if m.influxWriter == nil || m.metricProcessor == nil || !m.influxEnabled() {
-		return nil, nil
-	}
-
-	bucket, point, err := m.metricProcessor(e.Args)
-	if err != nil {
-		return nil, fmt.Errorf("failed to process metric: %w", err)
-	}
-
-	err = m.influxWriter(context.Background(), bucket, point)
-	if err != nil {
-		return nil, fmt.Errorf("failed to write metric: %w", err)
 	}
 
 	return nil, nil

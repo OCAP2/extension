@@ -29,13 +29,6 @@ func Load(configDir string) error {
 	viper.SetDefault("db.password", "postgres")
 	viper.SetDefault("db.database", "ocap")
 
-	viper.SetDefault("influx.enabled", true)
-	viper.SetDefault("influx.host", "localhost")
-	viper.SetDefault("influx.port", "8086")
-	viper.SetDefault("influx.protocol", "http")
-	viper.SetDefault("influx.token", "supersecrettoken")
-	viper.SetDefault("influx.org", "ocap-metrics")
-
 	viper.SetDefault("graylog.enabled", true)
 	viper.SetDefault("graylog.address", "localhost:12201")
 

@@ -1,7 +1,6 @@
 package worker
 
 import (
-	"context"
 	"fmt"
 	"time"
 
@@ -11,7 +10,6 @@ import (
 	"github.com/OCAP2/extension/v5/internal/queue"
 	"github.com/OCAP2/extension/v5/internal/storage"
 
-	influxdb2_write "github.com/influxdata/influxdb-client-go/v2/api/write"
 	"gorm.io/gorm"
 )
 
@@ -62,32 +60,21 @@ func NewQueues() *Queues {
 
 // Dependencies holds all dependencies for the worker manager
 type Dependencies struct {
-	DB               *gorm.DB
-	EntityCache      *cache.EntityCache
-	MarkerCache      *cache.MarkerCache
-	LogManager       *logging.Manager
-	HandlerService   *handlers.Service
-	IsDatabaseValid  func() bool
-	ShouldSaveLocal  func() bool
-	DBInsertsPaused  func() bool
+	DB              *gorm.DB
+	EntityCache     *cache.EntityCache
+	MarkerCache     *cache.MarkerCache
+	LogManager      *logging.Manager
+	HandlerService  *handlers.Service
+	IsDatabaseValid func() bool
+	ShouldSaveLocal func() bool
+	DBInsertsPaused func() bool
 }
-
-// InfluxWriter is a function type for writing to InfluxDB
-type InfluxWriter func(ctx context.Context, bucket string, point *influxdb2_write.Point) error
-
-// MetricProcessor is a function type for processing metric data
-type MetricProcessor func(data []string) (bucket string, point *influxdb2_write.Point, err error)
 
 // Manager manages worker goroutines
 type Manager struct {
 	deps                Dependencies
 	queues              *Queues
 	lastDBWriteDuration time.Duration
-
-	// Optional InfluxDB integration
-	influxWriter    InfluxWriter
-	metricProcessor MetricProcessor
-	influxEnabled   func() bool
 
 	// Optional storage backend
 	backend storage.Backend
@@ -96,17 +83,9 @@ type Manager struct {
 // NewManager creates a new worker manager
 func NewManager(deps Dependencies, queues *Queues) *Manager {
 	return &Manager{
-		deps:          deps,
-		queues:        queues,
-		influxEnabled: func() bool { return false },
+		deps:   deps,
+		queues: queues,
 	}
-}
-
-// SetInfluxIntegration sets up InfluxDB integration
-func (m *Manager) SetInfluxIntegration(writer InfluxWriter, processor MetricProcessor, enabledFn func() bool) {
-	m.influxWriter = writer
-	m.metricProcessor = processor
-	m.influxEnabled = enabledFn
 }
 
 // SetBackend sets the storage backend (replaces GORM path when set)

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Go native DLL extension for ArmA 3 that records gameplay/mission replay data to PostgreSQL (with SQLite fallback) and optionally sends metrics to InfluxDB.
+Go native DLL extension for ArmA 3 that records gameplay/mission replay data to PostgreSQL (with SQLite fallback).
 
 ## Build Commands
 
@@ -99,14 +99,6 @@ File: `ocap-recorder.cfg.json` (placed alongside DLL)
     "username": "postgres",
     "password": "postgres",
     "database": "ocap"
-  },
-  "influx": {
-    "enabled": true,
-    "host": "127.0.0.1",
-    "port": "8086",
-    "protocol": "http",
-    "token": "token",
-    "org": "ocap-metrics"
   }
 }
 ```
@@ -117,4 +109,3 @@ File: `ocap-recorder.cfg.json` (placed alongside DLL)
 - **peterstace/simplefeatures** - Geometry/GIS support
 - **rs/zerolog** - Structured logging
 - **spf13/viper** - Configuration management
-- **influxdb-client-go** - InfluxDB metrics

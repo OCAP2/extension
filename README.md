@@ -6,8 +6,6 @@
 
 This is a Go implementation of an Arma 3 extension that allows for recording of gameplay to a Postgres database (with local SQLite backup capabilities). It offers extended data capture due to the storage medium for the purposes of playback resolution and analytics.
 
-It includes the ability to send its own performance metrics to InfluxDB for monitoring and alerting.
-
 ## Building using Docker
 
 You will need Docker Engine installed and running. This can be done on Windows or on Linux. However, you will need to use Linux containers if you're on Windows (specified in Docker Desktop settings).

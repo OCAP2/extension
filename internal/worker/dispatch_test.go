@@ -1,7 +1,6 @@
 package worker
 
 import (
-	"context"
 	"errors"
 	"sync"
 	"testing"
@@ -10,7 +9,6 @@ import (
 	"github.com/OCAP2/extension/v5/internal/model"
 	"github.com/OCAP2/extension/v5/internal/model/core"
 
-	influxdb2_write "github.com/influxdata/influxdb-client-go/v2/api/write"
 	"go.opentelemetry.io/otel/metric/noop"
 )
 
@@ -477,7 +475,6 @@ func TestRegisterHandlers_RegistersAllCommands(t *testing.T) {
 		":MARKER:CREATE:",
 		":MARKER:MOVE:",
 		":MARKER:DELETE:",
-		":METRIC:",
 	}
 
 	for _, cmd := range expectedCommands {
@@ -510,72 +507,6 @@ func TestHandler_NoDatabaseNoBackend_ReturnsNil(t *testing.T) {
 	}
 }
 
-func TestHandler_MetricIsBuffered(t *testing.T) {
-	d, _ := newTestDispatcher(t)
-
-	deps := Dependencies{
-		IsDatabaseValid: func() bool { return true },
-		ShouldSaveLocal: func() bool { return false },
-		DBInsertsPaused: func() bool { return false },
-	}
-	queues := NewQueues()
-	manager := NewManager(deps, queues)
-	// Note: influxWriter is nil by default
-	manager.RegisterHandlers(d)
-
-	// The :METRIC: handler is buffered, so it returns "queued" immediately
-	result, err := d.Dispatch(dispatcher.Event{Command: ":METRIC:", Args: []string{}})
-
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-	if result != "queued" {
-		t.Errorf("expected 'queued' for buffered handler, got %v", result)
-	}
-}
-
-func TestHandler_MetricWithInflux_CallsWriter(t *testing.T) {
-	d, _ := newTestDispatcher(t)
-
-	deps := Dependencies{
-		IsDatabaseValid: func() bool { return true },
-		ShouldSaveLocal: func() bool { return false },
-		DBInsertsPaused: func() bool { return false },
-	}
-	queues := NewQueues()
-	manager := NewManager(deps, queues)
-
-	var wg sync.WaitGroup
-	wg.Add(1)
-
-	writerCalled := false
-	manager.SetInfluxIntegration(
-		func(ctx context.Context, bucket string, point *influxdb2_write.Point) error {
-			writerCalled = true
-			wg.Done()
-			return nil
-		},
-		func(data []string) (string, *influxdb2_write.Point, error) {
-			return "test-bucket", influxdb2_write.NewPointWithMeasurement("test"), nil
-		},
-		func() bool { return true },
-	)
-	manager.RegisterHandlers(d)
-
-	_, err := d.Dispatch(dispatcher.Event{Command: ":METRIC:", Args: []string{"test"}})
-
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-
-	// Wait for async processing
-	wg.Wait()
-
-	if !writerCalled {
-		t.Error("expected InfluxDB writer to be called")
-	}
-}
-
 func TestSetBackend(t *testing.T) {
 	deps := Dependencies{
 		IsDatabaseValid: func() bool { return false },
@@ -597,39 +528,3 @@ func TestSetBackend(t *testing.T) {
 	}
 }
 
-func TestSetInfluxIntegration(t *testing.T) {
-	deps := Dependencies{
-		IsDatabaseValid: func() bool { return false },
-		ShouldSaveLocal: func() bool { return false },
-		DBInsertsPaused: func() bool { return false },
-	}
-	queues := NewQueues()
-	manager := NewManager(deps, queues)
-
-	// Initially influx should be disabled
-	if manager.influxEnabled() {
-		t.Error("expected InfluxDB to be disabled initially")
-	}
-
-	writerCalled := false
-	manager.SetInfluxIntegration(
-		func(ctx context.Context, bucket string, point *influxdb2_write.Point) error {
-			writerCalled = true
-			return nil
-		},
-		func(data []string) (string, *influxdb2_write.Point, error) {
-			return "bucket", nil, nil
-		},
-		func() bool { return true },
-	)
-
-	if !manager.influxEnabled() {
-		t.Error("expected InfluxDB to be enabled after setting integration")
-	}
-
-	// Test writer function
-	manager.influxWriter(context.Background(), "test", nil)
-	if !writerCalled {
-		t.Error("expected writer function to be called")
-	}
-}
