@@ -3,7 +3,7 @@ package cache
 import (
 	"sync"
 
-	"github.com/OCAP2/extension/internal/model"
+	"github.com/OCAP2/extension/v5/internal/model"
 )
 
 // EntityCache caches soldiers and vehicles when they are created to avoid subsequent db reads.

@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/OCAP2/extension/internal/dispatcher"
-	"github.com/OCAP2/extension/internal/model"
-	"github.com/OCAP2/extension/internal/model/convert"
+	"github.com/OCAP2/extension/v5/internal/dispatcher"
+	"github.com/OCAP2/extension/v5/internal/model"
+	"github.com/OCAP2/extension/v5/internal/model/convert"
 )
 
 // RegisterHandlers registers all event handlers with the dispatcher.

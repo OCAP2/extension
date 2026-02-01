@@ -6,9 +6,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/OCAP2/extension/internal/dispatcher"
-	"github.com/OCAP2/extension/internal/model"
-	"github.com/OCAP2/extension/internal/model/core"
+	"github.com/OCAP2/extension/v5/internal/dispatcher"
+	"github.com/OCAP2/extension/v5/internal/model"
+	"github.com/OCAP2/extension/v5/internal/model/core"
 
 	influxdb2_write "github.com/influxdata/influxdb-client-go/v2/api/write"
 	"go.opentelemetry.io/otel/metric/noop"

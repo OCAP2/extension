@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/OCAP2/extension/internal/config"
-	"github.com/OCAP2/extension/internal/model/core"
-	"github.com/OCAP2/extension/internal/storage"
+	"github.com/OCAP2/extension/v5/internal/config"
+	"github.com/OCAP2/extension/v5/internal/model/core"
+	"github.com/OCAP2/extension/v5/internal/storage"
 )
 
 // Verify Backend implements storage.Backend interface

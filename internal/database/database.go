@@ -6,7 +6,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/OCAP2/extension/internal/model"
+	"github.com/OCAP2/extension/v5/internal/model"
 	"github.com/glebarez/sqlite"
 	"github.com/rs/zerolog"
 	"github.com/spf13/viper"
