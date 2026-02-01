@@ -6,6 +6,12 @@ import (
 	"github.com/spf13/viper"
 )
 
+// MemoryConfig holds in-memory/JSON storage backend settings
+type MemoryConfig struct {
+	OutputDir      string `json:"outputDir" mapstructure:"outputDir"`
+	CompressOutput bool   `json:"compressOutput" mapstructure:"compressOutput"`
+}
+
 // Load reads configuration from JSON file and sets default values.
 // configDir is the directory containing the config file.
 func Load(configDir string) error {
