@@ -13,14 +13,6 @@
     "password": "postgres",
     "database": "ocap"
   },
-  "influx": {
-    "enabled": true,
-    "host": "127.0.0.1",
-    "port": "8086",
-    "protocol": "http",
-    "token": "supersecrettoken",
-    "org": "ocap-metrics"
-  },
   "storage": {
     "type": "memory",
     "memory": {

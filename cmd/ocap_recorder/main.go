@@ -9,7 +9,6 @@ import "C" // This is required to import the C code
 
 import (
 	"compress/gzip"
-	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -29,7 +28,6 @@ import (
 	"github.com/OCAP2/extension/v5/internal/database"
 	"github.com/OCAP2/extension/v5/internal/dispatcher"
 	"github.com/OCAP2/extension/v5/internal/handlers"
-	"github.com/OCAP2/extension/v5/internal/influx"
 	"github.com/OCAP2/extension/v5/internal/logging"
 	"github.com/OCAP2/extension/v5/internal/model"
 	"github.com/OCAP2/extension/v5/internal/monitor"
@@ -39,7 +37,6 @@ import (
 	"github.com/OCAP2/extension/v5/internal/worker"
 	"github.com/OCAP2/extension/v5/pkg/a3interface"
 
-	influxdb2_write "github.com/influxdata/influxdb-client-go/v2/api/write"
 	"github.com/spf13/viper"
 	"go.opentelemetry.io/otel"
 
@@ -75,9 +72,6 @@ var (
 	OcapLogFilePath string
 	OcapLogFile     *os.File
 
-	// InfluxBackupFilePath is the path to the gzip where influx lineprotocol is stored if InfluxDB is not available
-	InfluxBackupFilePath string
-
 	// SqliteDBFilePath refers to the sqlite database file
 	SqliteDBFilePath string
 )
@@ -95,9 +89,6 @@ var (
 
 	// sqlDB is the native Go SQL interface
 	sqlDB *sql.DB
-
-	// InfluxManager handles InfluxDB connections
-	InfluxManager *influx.Manager
 
 	// LogManager handles all logging
 	LogManager *logging.Manager
@@ -237,7 +228,6 @@ func init() {
 	}
 
 	SqliteDBFilePath = fmt.Sprintf(`%s\%s_%s.db`, AddonFolder, ExtensionName, SessionStartTime.Format("20060102_150405"))
-	InfluxBackupFilePath = AddonFolder + "\\influx_backup.log.gzip"
 	// set up a3interfaces
 	Logger.Info().Msg("Setting up a3interface...")
 	err = setupA3Interface()
@@ -283,14 +273,7 @@ func initDB() (err error) {
 		LogManager.WriteLog(functionName, fmt.Sprintf(`Error connecting to database: %v`, err), "ERROR")
 		a3interface.WriteArmaCallback(ExtensionName, ":DB:ERROR:", err.Error())
 	} else {
-		go func() {
-			err = connectToInflux()
-			if err != nil {
-				LogManager.WriteLog(functionName, fmt.Sprintf(`Error connecting to InfluxDB: %v`, err), "ERROR")
-			}
-			// only if everything worked should we send a callback letting the addon know we're ready to receive the mission data
-			a3interface.WriteArmaCallback(ExtensionName, ":DB:OK:", DB.Dialector.Name())
-		}()
+		a3interface.WriteArmaCallback(ExtensionName, ":DB:OK:", DB.Dialector.Name())
 	}
 	return nil
 }
@@ -315,34 +298,6 @@ func checkServerStatus() {
 	} else {
 		Logger.Info().Msg("OCAP Frontend is online")
 	}
-}
-
-// /////////////////////
-// INFLUXDB OPS //
-// /////////////////////
-
-func connectToInflux() error {
-	InfluxManager = influx.NewManager(Logger, InfluxBackupFilePath)
-	return InfluxManager.Connect()
-}
-
-func writeInfluxPoint(
-	ctx context.Context,
-	bucket string,
-	point *influxdb2_write.Point,
-) error {
-	if InfluxManager == nil {
-		return fmt.Errorf("influx manager not initialized")
-	}
-	return InfluxManager.WritePoint(ctx, bucket, point)
-}
-
-func processMetricData(data []string) (
-	bucket string,
-	point *influxdb2_write.Point,
-	err error,
-) {
-	return influx.ProcessMetricData(data, util.FixEscapeQuotes, util.TrimQuotes)
 }
 
 ///////////////////////
@@ -526,13 +481,6 @@ func startGoroutines() (err error) {
 		DBInsertsPaused: func() bool { return DBInsertsPaused },
 	}, queues)
 
-	// Set up InfluxDB integration for worker
-	workerManager.SetInfluxIntegration(
-		writeInfluxPoint,
-		processMetricData,
-		func() bool { return viper.GetBool("influx.enabled") },
-	)
-
 	// Initialize storage backend if configured for memory mode
 	storageCfg := config.GetStorageConfig()
 	if storageCfg.Type == "memory" {
@@ -577,13 +525,6 @@ func startGoroutines() (err error) {
 		AddonFolder:    AddonFolder,
 		IsDatabaseValid: func() bool { return IsDatabaseValid },
 	})
-
-	// Set up InfluxDB integration for monitor
-	monitorService.SetInfluxIntegration(
-		writeInfluxPoint,
-		func() bool { return viper.GetBool("influx.enabled") },
-		func() string { return viper.GetString("influxdb.url") },
-	)
 
 	if !monitorService.IsRunning() {
 		Logger.Trace().Msg("Status process not running, starting it")
