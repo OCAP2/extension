@@ -7,7 +7,7 @@ require (
 	github.com/glebarez/sqlite v1.9.0
 	github.com/influxdata/influxdb-client-go/v2 v2.12.3
 	github.com/peterstace/simplefeatures v0.44.0
-	github.com/rs/zerolog v1.30.0
+	github.com/rs/zerolog v1.34.0
 	github.com/spf13/viper v1.16.0
 	github.com/wroge/wgs84 v1.1.7
 	gorm.io/datatypes v1.2.0
@@ -66,7 +66,7 @@ require (
 	golang.org/x/arch v0.4.0 // indirect
 	golang.org/x/crypto v0.12.0 // indirect
 	golang.org/x/net v0.14.0 // indirect
-	golang.org/x/sys v0.11.0 // indirect
+	golang.org/x/sys v0.12.0 // indirect
 	golang.org/x/text v0.12.0 // indirect
 	google.golang.org/protobuf v1.31.0 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
