@@ -32,6 +32,8 @@ import (
 	"github.com/OCAP2/extension/internal/logging"
 	"github.com/OCAP2/extension/internal/model"
 	"github.com/OCAP2/extension/internal/monitor"
+	"github.com/OCAP2/extension/internal/storage"
+	"github.com/OCAP2/extension/internal/storage/memory"
 	"github.com/OCAP2/extension/internal/util"
 	"github.com/OCAP2/extension/internal/worker"
 	"github.com/OCAP2/extension/pkg/a3interface"
@@ -125,6 +127,9 @@ var (
 	workerManager  *worker.Manager
 	monitorService *monitor.Service
 	queues         *worker.Queues
+
+	// Storage backend (optional)
+	storageBackend storage.Backend
 )
 
 // channels
@@ -155,6 +160,8 @@ var (
 		":MARKER:DELETE:": make(chan []string, 500),
 		// metric channel
 		":METRIC:": make(chan []string, 1000),
+		// mission end channel
+		":SAVE:": make(chan []string, 1),
 	}
 	// RVExtDataChannels is a map of channels for receiving data from RVExtension
 	RVExtDataChannels = map[string]chan string{
@@ -368,6 +375,17 @@ func setupA3Interface() (err error) {
 				go func() {
 					if handlerService != nil {
 						handlerService.LogNewMission(data)
+					}
+				}()
+			case <-RVExtArgsDataChannels[":SAVE:"]:
+				go func() {
+					Logger.Info().Msg("Received :SAVE: command, ending mission recording")
+					if storageBackend != nil {
+						if err := storageBackend.EndMission(); err != nil {
+							Logger.Error().Err(err).Msg("Failed to end mission in storage backend")
+						} else {
+							Logger.Info().Msg("Mission recording saved to storage backend")
+						}
 					}
 				}()
 			}
@@ -609,6 +627,16 @@ func startGoroutines() (err error) {
 		processMetricData,
 		func() bool { return viper.GetBool("influx.enabled") },
 	)
+
+	// Initialize storage backend if configured for memory mode
+	storageCfg := config.GetStorageConfig()
+	if storageCfg.Type == "memory" {
+		storageBackend = memory.New(storageCfg.Memory)
+		storageBackend.Init()
+		workerManager.SetBackend(storageBackend)
+		handlerService.SetBackend(storageBackend)
+		Logger.Info().Msg("Memory storage backend initialized")
+	}
 
 	Logger.Trace().Msg("Starting async processors")
 	workerManager.StartAsyncProcessors()

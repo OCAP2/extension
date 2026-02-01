@@ -9,7 +9,9 @@ import (
 	"github.com/OCAP2/extension/internal/handlers"
 	"github.com/OCAP2/extension/internal/logging"
 	"github.com/OCAP2/extension/internal/model"
+	"github.com/OCAP2/extension/internal/model/convert"
 	"github.com/OCAP2/extension/internal/queue"
+	"github.com/OCAP2/extension/internal/storage"
 
 	influxdb2_write "github.com/influxdata/influxdb-client-go/v2/api/write"
 	"gorm.io/gorm"
@@ -86,9 +88,12 @@ type Manager struct {
 	lastDBWriteDuration time.Duration
 
 	// Optional InfluxDB integration
-	influxWriter     InfluxWriter
-	metricProcessor  MetricProcessor
-	influxEnabled    func() bool
+	influxWriter    InfluxWriter
+	metricProcessor MetricProcessor
+	influxEnabled   func() bool
+
+	// Optional storage backend
+	backend storage.Backend
 }
 
 // NewManager creates a new worker manager
@@ -108,6 +113,16 @@ func (m *Manager) SetInfluxIntegration(writer InfluxWriter, processor MetricProc
 	m.influxEnabled = enabledFn
 }
 
+// SetBackend sets the storage backend (replaces GORM path when set)
+func (m *Manager) SetBackend(b storage.Backend) {
+	m.backend = b
+}
+
+// hasBackend returns true if a storage backend is configured
+func (m *Manager) hasBackend() bool {
+	return m.backend != nil
+}
+
 // GetLastDBWriteDuration returns the duration of the last DB write cycle
 func (m *Manager) GetLastDBWriteDuration() time.Duration {
 	return m.lastDBWriteDuration
@@ -120,15 +135,21 @@ func (m *Manager) StartAsyncProcessors() {
 	// process new soldiers
 	go func() {
 		for v := range m.channels[":NEW:SOLDIER:"] {
-			if !m.deps.IsDatabaseValid() {
+			if !m.deps.IsDatabaseValid() && !m.hasBackend() {
 				continue
 			}
 
 			obj, err := m.deps.HandlerService.LogNewSoldier(v)
-			if err == nil {
-				m.queues.Soldiers.Push([]model.Soldier{obj})
-			} else {
+			if err != nil {
 				m.deps.LogManager.WriteLog(functionName, fmt.Sprintf(`Failed to log new soldier. Err: %s`, err), "ERROR")
+				continue
+			}
+
+			if m.hasBackend() {
+				coreObj := convert.SoldierToCore(obj)
+				m.backend.AddSoldier(&coreObj)
+			} else {
+				m.queues.Soldiers.Push([]model.Soldier{obj})
 			}
 		}
 	}()
@@ -136,15 +157,21 @@ func (m *Manager) StartAsyncProcessors() {
 	// process new vehicles
 	go func() {
 		for v := range m.channels[":NEW:VEHICLE:"] {
-			if !m.deps.IsDatabaseValid() {
+			if !m.deps.IsDatabaseValid() && !m.hasBackend() {
 				continue
 			}
 
 			obj, err := m.deps.HandlerService.LogNewVehicle(v)
-			if err == nil {
-				m.queues.Vehicles.Push([]model.Vehicle{obj})
-			} else {
+			if err != nil {
 				m.deps.LogManager.WriteLog(functionName, fmt.Sprintf(`Failed to log new vehicle. Err: %s`, err), "ERROR")
+				continue
+			}
+
+			if m.hasBackend() {
+				coreObj := convert.VehicleToCore(obj)
+				m.backend.AddVehicle(&coreObj)
+			} else {
+				m.queues.Vehicles.Push([]model.Vehicle{obj})
 			}
 		}
 	}()
@@ -152,18 +179,24 @@ func (m *Manager) StartAsyncProcessors() {
 	// process soldier states
 	go func() {
 		for v := range m.channels[":NEW:SOLDIER:STATE:"] {
-			if !m.deps.IsDatabaseValid() {
+			if !m.deps.IsDatabaseValid() && !m.hasBackend() {
 				continue
 			}
 
 			obj, err := m.deps.HandlerService.LogSoldierState(v)
-			if err == nil {
-				m.queues.SoldierStates.Push([]model.SoldierState{obj})
-			} else {
+			if err != nil {
 				if err == ErrTooEarlyForStateAssociation {
 					continue
 				}
 				m.deps.LogManager.WriteLog(functionName, fmt.Sprintf(`Failed to log soldier state. Err: %s`, err), "ERROR")
+				continue
+			}
+
+			if m.hasBackend() {
+				coreObj := convert.SoldierStateToCore(obj)
+				m.backend.RecordSoldierState(&coreObj)
+			} else {
+				m.queues.SoldierStates.Push([]model.SoldierState{obj})
 			}
 		}
 	}()
@@ -171,18 +204,24 @@ func (m *Manager) StartAsyncProcessors() {
 	// process vehicle states
 	go func() {
 		for v := range m.channels[":NEW:VEHICLE:STATE:"] {
-			if !m.deps.IsDatabaseValid() {
+			if !m.deps.IsDatabaseValid() && !m.hasBackend() {
 				continue
 			}
 
 			obj, err := m.deps.HandlerService.LogVehicleState(v)
-			if err == nil {
-				m.queues.VehicleStates.Push([]model.VehicleState{obj})
-			} else {
+			if err != nil {
 				if err == ErrTooEarlyForStateAssociation {
 					continue
 				}
 				m.deps.LogManager.WriteLog(functionName, fmt.Sprintf(`Failed to log vehicle state. Err: %s`, err), "ERROR")
+				continue
+			}
+
+			if m.hasBackend() {
+				coreObj := convert.VehicleStateToCore(obj)
+				m.backend.RecordVehicleState(&coreObj)
+			} else {
+				m.queues.VehicleStates.Push([]model.VehicleState{obj})
 			}
 		}
 	}()
@@ -190,18 +229,24 @@ func (m *Manager) StartAsyncProcessors() {
 	// process fired events
 	go func() {
 		for v := range m.channels[":FIRED:"] {
-			if !m.deps.IsDatabaseValid() {
+			if !m.deps.IsDatabaseValid() && !m.hasBackend() {
 				continue
 			}
 
 			obj, err := m.deps.HandlerService.LogFiredEvent(v)
-			if err == nil {
-				m.queues.FiredEvents.Push([]model.FiredEvent{obj})
-			} else {
+			if err != nil {
 				if err == ErrTooEarlyForStateAssociation {
 					continue
 				}
 				m.deps.LogManager.WriteLog(functionName, fmt.Sprintf(`Failed to log fired event. Err: %s`, err), "ERROR")
+				continue
+			}
+
+			if m.hasBackend() {
+				coreObj := convert.FiredEventToCore(obj)
+				m.backend.RecordFiredEvent(&coreObj)
+			} else {
+				m.queues.FiredEvents.Push([]model.FiredEvent{obj})
 			}
 		}
 	}()
@@ -229,15 +274,21 @@ func (m *Manager) StartAsyncProcessors() {
 	// process general events
 	go func() {
 		for v := range m.channels[":EVENT:"] {
-			if !m.deps.IsDatabaseValid() {
+			if !m.deps.IsDatabaseValid() && !m.hasBackend() {
 				continue
 			}
 
 			obj, err := m.deps.HandlerService.LogGeneralEvent(v)
-			if err == nil {
-				m.queues.GeneralEvents.Push([]model.GeneralEvent{obj})
-			} else {
+			if err != nil {
 				m.deps.LogManager.WriteLog(functionName, fmt.Sprintf(`Failed to log general event. Err: %s`, err), "ERROR")
+				continue
+			}
+
+			if m.hasBackend() {
+				coreObj := convert.GeneralEventToCore(obj)
+				m.backend.RecordGeneralEvent(&coreObj)
+			} else {
+				m.queues.GeneralEvents.Push([]model.GeneralEvent{obj})
 			}
 		}
 	}()
@@ -245,18 +296,24 @@ func (m *Manager) StartAsyncProcessors() {
 	// process hit events
 	go func() {
 		for v := range m.channels[":HIT:"] {
-			if !m.deps.IsDatabaseValid() {
+			if !m.deps.IsDatabaseValid() && !m.hasBackend() {
 				continue
 			}
 
 			obj, err := m.deps.HandlerService.LogHitEvent(v)
-			if err == nil {
-				m.queues.HitEvents.Push([]model.HitEvent{obj})
-			} else {
+			if err != nil {
 				if err == ErrTooEarlyForStateAssociation {
 					continue
 				}
 				m.deps.LogManager.WriteLog(functionName, fmt.Sprintf(`Failed to log hit event. Err: %s`, err), "ERROR")
+				continue
+			}
+
+			if m.hasBackend() {
+				coreObj := convert.HitEventToCore(obj)
+				m.backend.RecordHitEvent(&coreObj)
+			} else {
+				m.queues.HitEvents.Push([]model.HitEvent{obj})
 			}
 		}
 	}()
@@ -264,18 +321,24 @@ func (m *Manager) StartAsyncProcessors() {
 	// process kill events
 	go func() {
 		for v := range m.channels[":KILL:"] {
-			if !m.deps.IsDatabaseValid() {
+			if !m.deps.IsDatabaseValid() && !m.hasBackend() {
 				continue
 			}
 
 			obj, err := m.deps.HandlerService.LogKillEvent(v)
-			if err == nil {
-				m.queues.KillEvents.Push([]model.KillEvent{obj})
-			} else {
+			if err != nil {
 				if err == ErrTooEarlyForStateAssociation {
 					continue
 				}
 				m.deps.LogManager.WriteLog(functionName, fmt.Sprintf(`Failed to log kill event. Err: %s`, err), "ERROR")
+				continue
+			}
+
+			if m.hasBackend() {
+				coreObj := convert.KillEventToCore(obj)
+				m.backend.RecordKillEvent(&coreObj)
+			} else {
+				m.queues.KillEvents.Push([]model.KillEvent{obj})
 			}
 		}
 	}()
@@ -283,18 +346,24 @@ func (m *Manager) StartAsyncProcessors() {
 	// process chat events
 	go func() {
 		for v := range m.channels[":CHAT:"] {
-			if !m.deps.IsDatabaseValid() {
+			if !m.deps.IsDatabaseValid() && !m.hasBackend() {
 				continue
 			}
 
 			obj, err := m.deps.HandlerService.LogChatEvent(v)
-			if err == nil {
-				m.queues.ChatEvents.Push([]model.ChatEvent{obj})
-			} else {
+			if err != nil {
 				if err == ErrTooEarlyForStateAssociation {
 					continue
 				}
 				m.deps.LogManager.WriteLog(functionName, fmt.Sprintf(`Failed to log chat event. Err: %s`, err), "ERROR")
+				continue
+			}
+
+			if m.hasBackend() {
+				coreObj := convert.ChatEventToCore(obj)
+				m.backend.RecordChatEvent(&coreObj)
+			} else {
+				m.queues.ChatEvents.Push([]model.ChatEvent{obj})
 			}
 		}
 	}()
@@ -302,18 +371,24 @@ func (m *Manager) StartAsyncProcessors() {
 	// process radio events
 	go func() {
 		for v := range m.channels[":RADIO:"] {
-			if !m.deps.IsDatabaseValid() {
+			if !m.deps.IsDatabaseValid() && !m.hasBackend() {
 				continue
 			}
 
 			obj, err := m.deps.HandlerService.LogRadioEvent(v)
-			if err == nil {
-				m.queues.RadioEvents.Push([]model.RadioEvent{obj})
-			} else {
+			if err != nil {
 				if err == ErrTooEarlyForStateAssociation {
 					continue
 				}
 				m.deps.LogManager.WriteLog(functionName, fmt.Sprintf(`Failed to log radio event. Err: %s`, err), "ERROR")
+				continue
+			}
+
+			if m.hasBackend() {
+				coreObj := convert.RadioEventToCore(obj)
+				m.backend.RecordRadioEvent(&coreObj)
+			} else {
+				m.queues.RadioEvents.Push([]model.RadioEvent{obj})
 			}
 		}
 	}()
@@ -321,18 +396,24 @@ func (m *Manager) StartAsyncProcessors() {
 	// process fps events
 	go func() {
 		for v := range m.channels[":FPS:"] {
-			if !m.deps.IsDatabaseValid() {
+			if !m.deps.IsDatabaseValid() && !m.hasBackend() {
 				continue
 			}
 
 			obj, err := m.deps.HandlerService.LogFpsEvent(v)
-			if err == nil {
-				m.queues.FpsEvents.Push([]model.ServerFpsEvent{obj})
-			} else {
+			if err != nil {
 				if err == ErrTooEarlyForStateAssociation {
 					continue
 				}
 				m.deps.LogManager.WriteLog(functionName, fmt.Sprintf(`Failed to log fps event. Err: %s`, err), "ERROR")
+				continue
+			}
+
+			if m.hasBackend() {
+				coreObj := convert.ServerFpsEventToCore(obj)
+				m.backend.RecordServerFpsEvent(&coreObj)
+			} else {
+				m.queues.FpsEvents.Push([]model.ServerFpsEvent{obj})
 			}
 		}
 	}()
@@ -340,18 +421,24 @@ func (m *Manager) StartAsyncProcessors() {
 	// process ace3 death events
 	go func() {
 		for v := range m.channels[":ACE3:DEATH:"] {
-			if !m.deps.IsDatabaseValid() {
+			if !m.deps.IsDatabaseValid() && !m.hasBackend() {
 				continue
 			}
 
 			obj, err := m.deps.HandlerService.LogAce3DeathEvent(v)
-			if err == nil {
-				m.queues.Ace3DeathEvents.Push([]model.Ace3DeathEvent{obj})
-			} else {
+			if err != nil {
 				if err == ErrTooEarlyForStateAssociation {
 					continue
 				}
 				m.deps.LogManager.WriteLog(functionName, fmt.Sprintf(`Failed to log ace3 death event. Err: %s`, err), "ERROR")
+				continue
+			}
+
+			if m.hasBackend() {
+				coreObj := convert.Ace3DeathEventToCore(obj)
+				m.backend.RecordAce3DeathEvent(&coreObj)
+			} else {
+				m.queues.Ace3DeathEvents.Push([]model.Ace3DeathEvent{obj})
 			}
 		}
 	}()
@@ -359,15 +446,21 @@ func (m *Manager) StartAsyncProcessors() {
 	// process ace3 unconscious events
 	go func() {
 		for v := range m.channels[":ACE3:UNCONSCIOUS:"] {
-			if !m.deps.IsDatabaseValid() {
+			if !m.deps.IsDatabaseValid() && !m.hasBackend() {
 				continue
 			}
 
 			obj, err := m.deps.HandlerService.LogAce3UnconsciousEvent(v)
-			if err == nil {
-				m.queues.Ace3UnconsciousEvents.Push([]model.Ace3UnconsciousEvent{obj})
-			} else {
+			if err != nil {
 				m.deps.LogManager.WriteLog(functionName, fmt.Sprintf(`Failed to log ace3 unconscious event. Err: %s`, err), "ERROR")
+				continue
+			}
+
+			if m.hasBackend() {
+				coreObj := convert.Ace3UnconsciousEventToCore(obj)
+				m.backend.RecordAce3UnconsciousEvent(&coreObj)
+			} else {
+				m.queues.Ace3UnconsciousEvents.Push([]model.Ace3UnconsciousEvent{obj})
 			}
 		}
 	}()
@@ -396,7 +489,7 @@ func (m *Manager) StartAsyncProcessors() {
 	// process marker create events
 	go func() {
 		for data := range m.channels[":MARKER:CREATE:"] {
-			if !m.deps.IsDatabaseValid() {
+			if !m.deps.IsDatabaseValid() && !m.hasBackend() {
 				continue
 			}
 
@@ -405,14 +498,20 @@ func (m *Manager) StartAsyncProcessors() {
 				m.deps.LogManager.Logger.Error().Err(err).Msg("Error processing marker create")
 				continue
 			}
-			m.queues.Markers.Push([]model.Marker{marker})
+
+			if m.hasBackend() {
+				coreObj := convert.MarkerToCore(marker)
+				m.backend.AddMarker(&coreObj)
+			} else {
+				m.queues.Markers.Push([]model.Marker{marker})
+			}
 		}
 	}()
 
 	// process marker move events
 	go func() {
 		for data := range m.channels[":MARKER:MOVE:"] {
-			if !m.deps.IsDatabaseValid() {
+			if !m.deps.IsDatabaseValid() && !m.hasBackend() {
 				continue
 			}
 
@@ -421,7 +520,13 @@ func (m *Manager) StartAsyncProcessors() {
 				m.deps.LogManager.Logger.Warn().Err(err).Msg("Error processing marker move")
 				continue
 			}
-			m.queues.MarkerStates.Push([]model.MarkerState{markerState})
+
+			if m.hasBackend() {
+				coreObj := convert.MarkerStateToCore(markerState)
+				m.backend.RecordMarkerState(&coreObj)
+			} else {
+				m.queues.MarkerStates.Push([]model.MarkerState{markerState})
+			}
 		}
 	}()
 

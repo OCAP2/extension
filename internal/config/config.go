@@ -43,6 +43,11 @@ func Load(configDir string) error {
 	viper.SetDefault("logio.host", "localhost")
 	viper.SetDefault("logio.port", "28777")
 
+	// Storage backend defaults
+	viper.SetDefault("storage.type", "postgres")
+	viper.SetDefault("storage.memory.outputDir", "./recordings")
+	viper.SetDefault("storage.memory.compressOutput", true)
+
 	viper.SetConfigName("ocap_recorder.cfg.json")
 	viper.AddConfigPath(configDir)
 	viper.SetConfigType("json")
@@ -68,4 +73,17 @@ func GetInt(key string) int {
 // GetBool returns a bool config value.
 func GetBool(key string) bool {
 	return viper.GetBool(key)
+}
+
+// StorageConfig holds storage backend configuration
+type StorageConfig struct {
+	Type   string       `json:"type" mapstructure:"type"`
+	Memory MemoryConfig `json:"memory" mapstructure:"memory"`
+}
+
+// GetStorageConfig returns the storage backend configuration
+func GetStorageConfig() StorageConfig {
+	var cfg StorageConfig
+	viper.UnmarshalKey("storage", &cfg)
+	return cfg
 }

@@ -20,5 +20,12 @@
     "protocol": "http",
     "token": "supersecrettoken",
     "org": "ocap-metrics"
+  },
+  "storage": {
+    "type": "postgres",
+    "memory": {
+      "outputDir": "./recordings",
+      "compressOutput": true
+    }
   }
 }
