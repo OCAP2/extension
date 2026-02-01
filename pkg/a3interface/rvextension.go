@@ -68,7 +68,7 @@ func RVExtension(output *C.char, outputsize C.size_t, input *C.char) {
 	}
 
 	// No handler found
-	replyToSyncArmaCall(fmt.Sprintf(`["error", "%s", "no handler registered"]`, command), output, outputsize)
+	replyToSyncArmaCall(fmt.Sprintf(`["error", "no handler registered for %s"]`, command), output, outputsize)
 }
 
 // called by Arma when in the format of: "extensionName" callExtension ["command", ["data"]]
@@ -94,7 +94,7 @@ func RVExtensionArgs(output *C.char, outputsize C.size_t, input *C.char, argv **
 	}
 
 	// No handler found
-	replyToSyncArmaCall(fmt.Sprintf(`["error", "%s", "no handler registered"]`, command), output, outputsize)
+	replyToSyncArmaCall(fmt.Sprintf(`["error", "no handler registered for %s"]`, command), output, outputsize)
 }
 
 // parseArgsFromC converts C argv array to Go string slice
@@ -108,24 +108,25 @@ func parseArgsFromC(argv **C.char, argc C.int) []string {
 	return data
 }
 
-// formatDispatchResponse formats the dispatcher result for ArmA
+// formatDispatchResponse formats the dispatcher result for ArmA.
+// Format: ["ok", result] for success, ["error", "message"] for errors.
+// Uses JSON encoding for proper SQF-compatible array/object formatting.
 func formatDispatchResponse(command string, result any, err error) string {
 	if err != nil {
-		return fmt.Sprintf(`["error", "%s", "%s"]`, command, err.Error())
+		return fmt.Sprintf(`["error", "%s"]`, err.Error())
 	}
 	if result == nil {
-		return fmt.Sprintf(`["ok", "%s"]`, command)
+		return `["ok"]`
 	}
-	// For complex types (arrays, maps), use JSON encoding to get proper SQF-compatible format
-	switch result.(type) {
+	switch v := result.(type) {
 	case string:
-		return fmt.Sprintf(`["ok", "%s", "%s"]`, command, result)
+		return fmt.Sprintf(`["ok", "%s"]`, v)
 	default:
 		jsonBytes, jsonErr := json.Marshal(result)
 		if jsonErr != nil {
-			return fmt.Sprintf(`["error", "%s", "failed to encode result: %s"]`, command, jsonErr.Error())
+			return fmt.Sprintf(`["error", "failed to encode: %s"]`, jsonErr.Error())
 		}
-		return fmt.Sprintf(`["ok", "%s", %s]`, command, string(jsonBytes))
+		return fmt.Sprintf(`["ok", %s]`, string(jsonBytes))
 	}
 }
 
@@ -133,7 +134,7 @@ func formatDispatchResponse(command string, result any, err error) string {
 // This prevents the game from crashing due to unhandled Go panics.
 func recoverPanic(funcName string, output *C.char, outputsize C.size_t) {
 	if r := recover(); r != nil {
-		errMsg := fmt.Sprintf(`["error", "%s", "panic recovered: %v"]`, funcName, r)
+		errMsg := fmt.Sprintf(`["error", "panic in %s: %v"]`, funcName, r)
 		replyToSyncArmaCall(errMsg, output, outputsize)
 	}
 }
