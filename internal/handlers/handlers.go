@@ -21,7 +21,6 @@ import (
 	"github.com/OCAP2/extension/v5/pkg/a3interface"
 
 	geom "github.com/peterstace/simplefeatures/geom"
-	"github.com/rs/zerolog"
 	"gorm.io/gorm"
 )
 
@@ -67,7 +66,7 @@ type Dependencies struct {
 	DB            *gorm.DB
 	EntityCache   *cache.EntityCache
 	MarkerCache   *cache.MarkerCache
-	LogManager    *logging.Manager
+	LogManager    *logging.SlogManager
 	ExtensionName string
 	AddonVersion  string
 }
@@ -98,11 +97,6 @@ func NewService(deps Dependencies, ctx *MissionContext) *Service {
 // GetMissionContext returns the mission context
 func (s *Service) GetMissionContext() *MissionContext {
 	return s.ctx
-}
-
-// SetWriteLogFunc allows setting a custom writeLog function
-func (s *Service) SetWriteLogFunc(fn func(functionName, data, level string)) {
-	s.writeLogFunc = fn
 }
 
 // SetBackend sets the storage backend for mission start/end handling
@@ -214,25 +208,26 @@ func (s *Service) LogNewMission(data []string) error {
 	mission.AddonVersion = s.deps.AddonVersion
 
 	// get or insert world
+	logger := s.deps.LogManager.Logger()
 	created, err := world.GetOrInsert(s.deps.DB)
 	if err != nil {
-		s.deps.LogManager.Logger.Error().Err(err).Msgf("Failed to get or insert world")
+		logger.Error("Failed to get or insert world", "error", err)
 		return err
 	}
 	if created {
-		s.deps.LogManager.Logger.Debug().Msgf("New world inserted: %s", world.WorldName)
+		logger.Debug("New world inserted", "worldName", world.WorldName)
 	} else {
-		s.deps.LogManager.Logger.Debug().Msgf("World already exists: %s", world.WorldName)
+		logger.Debug("World already exists", "worldName", world.WorldName)
 	}
 
 	// always write new mission
 	mission.World = world
 	err = s.deps.DB.Create(&mission).Error
 	if err != nil {
-		s.deps.LogManager.Logger.Error().Err(err).Msgf("Failed to insert new mission")
+		logger.Error("Failed to insert new mission", "error", err)
 		return err
 	} else {
-		s.deps.LogManager.Logger.Debug().Msgf("New mission inserted: %s", mission.MissionName)
+		logger.Debug("New mission inserted", "missionName", mission.MissionName)
 	}
 
 	// set current world and mission
@@ -246,27 +241,24 @@ func (s *Service) LogNewMission(data []string) error {
 		coreMission := convert.MissionToCore(&mission)
 		coreWorld := convert.WorldToCore(&world)
 		if err := s.backend.StartMission(&coreMission, &coreWorld); err != nil {
-			s.deps.LogManager.Logger.Error().Err(err).Msg("Failed to start mission in storage backend")
+			logger.Error("Failed to start mission in storage backend", "error", err)
 		}
 	}
 
 	// write to log
 	s.writeLog(functionName, `New mission logged`, "INFO")
 
-	s.deps.LogManager.Logger.Debug().Dict("worldData", zerolog.Dict().
-		Str("worldName", world.WorldName).
-		Str("displayName", world.DisplayName),
-	).Send()
-	s.deps.LogManager.Logger.Debug().Dict(
-		"missionData", zerolog.Dict().
-			Str("missionName", mission.MissionName).
-			Str("briefingName", mission.BriefingName).
-			Str("serverName", mission.ServerName).
-			Str("serverProfile", mission.ServerProfile).
-			Str("onLoadName", mission.OnLoadName).
-			Str("author", mission.Author).
-			Str("tag", mission.Tag),
-	).Send()
+	logger.Debug("World data",
+		"worldName", world.WorldName,
+		"displayName", world.DisplayName)
+	logger.Debug("Mission data",
+		"missionName", mission.MissionName,
+		"briefingName", mission.BriefingName,
+		"serverName", mission.ServerName,
+		"serverProfile", mission.ServerProfile,
+		"onLoadName", mission.OnLoadName,
+		"author", mission.Author,
+		"tag", mission.Tag)
 
 	// callback to addon to begin sending data
 	a3interface.WriteArmaCallback(s.deps.ExtensionName, `:MISSION:OK:`, "OK")
@@ -701,6 +693,7 @@ func (s *Service) LogFiredEvent(data []string) (model.FiredEvent, error) {
 // LogProjectileEvent parses projectile event data and returns a ProjectileEvent model
 func (s *Service) LogProjectileEvent(data []string) (model.ProjectileEvent, error) {
 	var projectileEvent model.ProjectileEvent
+	logger := s.deps.LogManager.Logger()
 
 	// fix received data
 	for i, v := range data {
@@ -709,7 +702,7 @@ func (s *Service) LogProjectileEvent(data []string) (model.ProjectileEvent, erro
 
 	projectileEvent.MissionID = s.ctx.GetMission().ID
 
-	s.deps.LogManager.Logger.Trace().Msgf("Projectile data: %v", data[0])
+	logger.Debug("Projectile data", "data", data[0])
 
 	var rawJsonData map[string]interface{}
 	err := json.Unmarshal([]byte(data[0]), &rawJsonData)
@@ -717,7 +710,7 @@ func (s *Service) LogProjectileEvent(data []string) (model.ProjectileEvent, erro
 		return projectileEvent, fmt.Errorf(`error unmarshalling json data: %v`, err)
 	}
 
-	s.deps.LogManager.Logger.Trace().Msg("Processing time and frame")
+	logger.Debug("Processing time and frame")
 	firedTime := rawJsonData["firedTime"].(string)
 	firedTimeInt, err := strconv.ParseInt(firedTime, 10, 64)
 	if err != nil {
@@ -726,21 +719,21 @@ func (s *Service) LogProjectileEvent(data []string) (model.ProjectileEvent, erro
 	projectileEvent.Time = time.Unix(0, firedTimeInt)
 	projectileEvent.CaptureFrame = uint(rawJsonData["firedFrame"].(float64))
 
-	s.deps.LogManager.Logger.Trace().Msg("Processing soldierFired")
+	logger.Debug("Processing soldierFired")
 	soldierFired, ok := s.deps.EntityCache.GetSoldier(uint16(rawJsonData["firerID"].(float64)))
 	if !ok {
 		return projectileEvent, fmt.Errorf("soldier %d not found in cache", uint16(rawJsonData["firerID"].(float64)))
 	}
 	projectileEvent.FirerID = soldierFired.ID
 
-	s.deps.LogManager.Logger.Trace().Msg("Processing actualFirer")
+	logger.Debug("Processing actualFirer")
 	actualFirer, ok := s.deps.EntityCache.GetSoldier(uint16(rawJsonData["remoteControllerID"].(float64)))
 	if !ok {
 		return projectileEvent, fmt.Errorf("soldier %d not found in cache", uint16(rawJsonData["remoteControllerID"].(float64)))
 	}
 	projectileEvent.ActualFirerID = actualFirer.ID
 
-	s.deps.LogManager.Logger.Trace().Msg("Processing vehicleID")
+	logger.Debug("Processing vehicleID")
 	vehicleID := rawJsonData["vehicleID"].(float64)
 	vehicle, ok := s.deps.EntityCache.GetVehicle(uint16(vehicleID))
 	if ok {
@@ -756,19 +749,19 @@ func (s *Service) LogProjectileEvent(data []string) (model.ProjectileEvent, erro
 	}
 
 	// for Positions parsing, we need to create a Linestring with XYZM dimensions
-	s.deps.LogManager.Logger.Trace().Msgf("Projectile positions: %v", rawJsonData["positions"])
+	logger.Debug("Projectile positions", "positions", rawJsonData["positions"])
 	positionSequence := []float64{}
 	for _, v := range rawJsonData["positions"].([]interface{}) {
 		posArr := v.([]interface{})
 
-		s.deps.LogManager.Logger.Trace().Msgf("Projectile posArr: %v", posArr)
+		logger.Debug("Projectile posArr", "posArr", posArr)
 
 		// process time as posArr[0]
 		unixTimeNano := posArr[0].(string)
 		unixTimeNanoFloat, err := strconv.ParseFloat(unixTimeNano, 64)
 		if err != nil {
 			jsonData, _ := json.Marshal(posArr)
-			s.deps.LogManager.Logger.Error().Err(err).Str("json", string(jsonData)).Msg("Error converting timestamp to float64")
+			logger.Error("Error converting timestamp to float64", "error", err, "json", string(jsonData))
 			return projectileEvent, err
 		}
 
@@ -777,7 +770,7 @@ func (s *Service) LogProjectileEvent(data []string) (model.ProjectileEvent, erro
 		point, _, err := geo.Coord3857FromString(pos)
 		if err != nil {
 			jsonData, _ := json.Marshal(posArr)
-			s.deps.LogManager.Logger.Error().Err(err).Str("json", string(jsonData)).Msg("Error converting position to Point")
+			logger.Error("Error converting position to Point", "error", err, "json", string(jsonData))
 			return projectileEvent, err
 		}
 		coords, _ := point.Coordinates()
@@ -796,27 +789,26 @@ func (s *Service) LogProjectileEvent(data []string) (model.ProjectileEvent, erro
 	ls, err := geom.NewLineString(posSeq)
 	if err != nil {
 		jsonData, _ := json.Marshal(posSeq)
-		s.deps.LogManager.Logger.Error().Err(err).Str("json", string(jsonData)).Msg("Error creating linestring")
+		logger.Error("Error creating linestring", "error", err, "json", string(jsonData))
 		return projectileEvent, err
 	}
 
-	s.deps.LogManager.Logger.Trace().
-		Interface("sequence", posSeq).
-		Interface("linestring", ls).
-		Interface("wkt", ls.AsText()).
-		Interface("wkb", ls.AsBinary()).
-		Msg("Created linestring")
+	logger.Debug("Created linestring",
+		"sequence", posSeq,
+		"linestring", ls,
+		"wkt", ls.AsText(),
+		"wkb", ls.AsBinary())
 
 	projectileEvent.Positions = ls.AsGeometry()
 
-	s.deps.LogManager.Logger.Trace().Msg("Processing hit events")
+	logger.Debug("Processing hit events")
 	// hit events
 	projectileEvent.HitSoldiers = []model.ProjectileHitsSoldier{}
 	projectileEvent.HitVehicles = []model.ProjectileHitsVehicle{}
 	for _, event := range rawJsonData["hitParts"].([]interface{}) {
 		eventArr := event.([]interface{})
 
-		s.deps.LogManager.Logger.Trace().Interface("eventArr", eventArr).Msg("Processing hit event")
+		logger.Debug("Processing hit event", "eventArr", eventArr)
 
 		// [1] is []string containing hit components
 		hitComponents := []string{}
@@ -829,7 +821,7 @@ func (s *Service) LogProjectileEvent(data []string) (model.ProjectileEvent, erro
 		hitPoint, _, err := geo.Coord3857FromString(hitPos)
 		if err != nil {
 			jsonData, _ := json.Marshal(eventArr)
-			s.deps.LogManager.Logger.Error().Err(err).Str("json", string(jsonData)).Msg("Error converting hit position to Point")
+			logger.Error("Error converting hit position to Point", "error", err, "json", string(jsonData))
 			return projectileEvent, err
 		}
 
@@ -839,11 +831,11 @@ func (s *Service) LogProjectileEvent(data []string) (model.ProjectileEvent, erro
 		// marshal hit components to json array
 		hitComponentsJSON, err := json.Marshal(hitComponents)
 		if err != nil {
-			s.deps.LogManager.Logger.Error().Err(err).Msg("Error marshalling hit components to json")
+			logger.Error("Error marshalling hit components to json", "error", err)
 			return projectileEvent, err
 		}
 
-		s.deps.LogManager.Logger.Trace().Interface("hitComponents", hitComponents).Msg("Processed hit components")
+		logger.Debug("Processed hit components", "hitComponents", hitComponents)
 
 		// [0] is the hit entity ocap id
 		hitEntityID := eventArr[0].(float64)
@@ -871,12 +863,12 @@ func (s *Service) LogProjectileEvent(data []string) (model.ProjectileEvent, erro
 					},
 				)
 			} else {
-				s.deps.LogManager.Logger.Warn().Msgf("Hit entity %d not found in cache", uint16(hitEntityID))
+				logger.Warn("Hit entity not found in cache", "hitEntityID", uint16(hitEntityID))
 			}
 		}
 	}
 
-	s.deps.LogManager.Logger.Trace().Msg("Processing other properties")
+	logger.Debug("Processing other properties")
 
 	projectileEvent.VehicleRole = rawJsonData["vehicleRole"].(string)
 	projectileEvent.Weapon = rawJsonData["weapon"].(string)

@@ -63,7 +63,7 @@ type Dependencies struct {
 	DB              *gorm.DB
 	EntityCache     *cache.EntityCache
 	MarkerCache     *cache.MarkerCache
-	LogManager      *logging.Manager
+	LogManager      *logging.SlogManager
 	HandlerService  *handlers.Service
 	IsDatabaseValid func() bool
 	ShouldSaveLocal func() bool

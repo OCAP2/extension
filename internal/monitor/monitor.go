@@ -19,7 +19,7 @@ import (
 // Dependencies holds all dependencies for the monitor service
 type Dependencies struct {
 	DB              *gorm.DB
-	LogManager      *logging.Manager
+	LogManager      *logging.SlogManager
 	HandlerService  *handlers.Service
 	WorkerManager   *worker.Manager
 	Queues          *worker.Queues
@@ -188,13 +188,12 @@ func (s *Service) Start() error {
 			s.mu.Unlock()
 		}()
 
-		s.deps.LogManager.Logger.Debug().
-			Str("function", "startStatusMonitor").
-			Msg("Starting status monitor goroutine")
+		logger := s.deps.LogManager.Logger()
+		logger.Debug("Starting status monitor goroutine", "function", "startStatusMonitor")
 
 		statusFile, err := os.Create(s.deps.AddonFolder + "/status.txt")
 		if err != nil {
-			s.deps.LogManager.Logger.Error().Err(err).Msg("Error creating status file")
+			logger.Error("Error creating status file", "error", err)
 		}
 		defer statusFile.Close()
 
@@ -224,7 +223,7 @@ func (s *Service) Start() error {
 				if s.deps.IsDatabaseValid() {
 					err = s.deps.DB.Create(&perfModel).Error
 					if err != nil {
-						s.deps.LogManager.Logger.Error().Err(err).Msg("Error writing perf model to Postgres")
+						logger.Error("Error writing perf model to Postgres", "error", err)
 					}
 				}
 			}
