@@ -49,27 +49,3 @@ func TestFixEscapeQuotes(t *testing.T) {
 	}
 }
 
-func TestContains(t *testing.T) {
-	tests := []struct {
-		name     string
-		slice    []string
-		str      string
-		expected bool
-	}{
-		{"empty slice", []string{}, "a", false},
-		{"found first", []string{"a", "b", "c"}, "a", true},
-		{"found middle", []string{"a", "b", "c"}, "b", true},
-		{"found last", []string{"a", "b", "c"}, "c", true},
-		{"not found", []string{"a", "b", "c"}, "d", false},
-		{"empty string in slice", []string{"a", "", "c"}, "", true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := Contains(tt.slice, tt.str)
-			if result != tt.expected {
-				t.Errorf("Contains(%v, %q) = %v, want %v", tt.slice, tt.str, result, tt.expected)
-			}
-		})
-	}
-}

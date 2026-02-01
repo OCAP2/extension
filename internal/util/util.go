@@ -1,10 +1,7 @@
 // Package util provides common utility functions used across the OCAP recorder.
 package util
 
-import (
-	"slices"
-	"strings"
-)
+import "strings"
 
 // TrimQuotes removes leading and trailing double quotes from a string.
 func TrimQuotes(s string) string {
@@ -16,7 +13,3 @@ func FixEscapeQuotes(s string) string {
 	return strings.ReplaceAll(s, `""`, `"`)
 }
 
-// Contains checks if a string slice contains a specific string.
-func Contains(s []string, str string) bool {
-	return slices.Contains(s, str)
-}
