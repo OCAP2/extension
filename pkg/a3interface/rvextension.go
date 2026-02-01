@@ -108,24 +108,25 @@ func parseArgsFromC(argv **C.char, argc C.int) []string {
 	return data
 }
 
-// formatDispatchResponse formats the dispatcher result for ArmA
+// formatDispatchResponse formats the dispatcher result for ArmA.
+// Format: ["ok", result] for success, ["error", "message"] for errors.
+// Uses JSON encoding for proper SQF-compatible array/object formatting.
 func formatDispatchResponse(command string, result any, err error) string {
 	if err != nil {
-		return fmt.Sprintf(`["error", "%s", "%s"]`, command, err.Error())
+		return fmt.Sprintf(`["error", "%s"]`, err.Error())
 	}
 	if result == nil {
-		return fmt.Sprintf(`["ok", "%s"]`, command)
+		return `["ok"]`
 	}
-	// For complex types (arrays, maps), use JSON encoding to get proper SQF-compatible format
-	switch result.(type) {
+	switch v := result.(type) {
 	case string:
-		return fmt.Sprintf(`["ok", "%s", "%s"]`, command, result)
+		return fmt.Sprintf(`["ok", "%s"]`, v)
 	default:
 		jsonBytes, jsonErr := json.Marshal(result)
 		if jsonErr != nil {
-			return fmt.Sprintf(`["error", "%s", "failed to encode result: %s"]`, command, jsonErr.Error())
+			return fmt.Sprintf(`["error", "failed to encode: %s"]`, jsonErr.Error())
 		}
-		return fmt.Sprintf(`["ok", "%s", %s]`, command, string(jsonBytes))
+		return fmt.Sprintf(`["ok", %s]`, string(jsonBytes))
 	}
 }
 
