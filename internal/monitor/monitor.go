@@ -9,10 +9,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/OCAP2/extension/internal/handlers"
-	"github.com/OCAP2/extension/internal/logging"
-	"github.com/OCAP2/extension/internal/model"
-	"github.com/OCAP2/extension/internal/worker"
+	"github.com/OCAP2/extension/v5/internal/handlers"
+	"github.com/OCAP2/extension/v5/internal/logging"
+	"github.com/OCAP2/extension/v5/internal/model"
+	"github.com/OCAP2/extension/v5/internal/worker"
 
 	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
 	influxdb2_write "github.com/influxdata/influxdb-client-go/v2/api/write"

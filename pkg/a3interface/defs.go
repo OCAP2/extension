@@ -8,7 +8,7 @@ package a3interface
 import "C"
 
 import (
-	"github.com/OCAP2/extension/internal/dispatcher"
+	"github.com/OCAP2/extension/v5/internal/dispatcher"
 )
 
 // ConfigStruct is the central configuration used by this library

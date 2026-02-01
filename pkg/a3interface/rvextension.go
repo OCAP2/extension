@@ -12,7 +12,7 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/OCAP2/extension/internal/dispatcher"
+	"github.com/OCAP2/extension/v5/internal/dispatcher"
 )
 
 // Config defines how calls to this extension will be handled

@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/OCAP2/extension/internal/model"
-	"github.com/OCAP2/extension/internal/model/core"
+	"github.com/OCAP2/extension/v5/internal/model"
+	"github.com/OCAP2/extension/v5/internal/model/core"
 	geom "github.com/peterstace/simplefeatures/geom"
 	"gorm.io/datatypes"
 )

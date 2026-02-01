@@ -4,8 +4,8 @@ package memory
 import (
 	"sync"
 
-	"github.com/OCAP2/extension/internal/config"
-	"github.com/OCAP2/extension/internal/model/core"
+	"github.com/OCAP2/extension/v5/internal/config"
+	"github.com/OCAP2/extension/v5/internal/model/core"
 )
 
 // SoldierRecord groups a soldier with all its time-series data

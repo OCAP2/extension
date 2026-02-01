@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/OCAP2/extension/internal/model"
+	"github.com/OCAP2/extension/v5/internal/model"
 )
 
 type ArraysQueue struct {

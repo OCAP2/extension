@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/OCAP2/extension/internal/cache"
-	"github.com/OCAP2/extension/internal/handlers"
-	"github.com/OCAP2/extension/internal/logging"
-	"github.com/OCAP2/extension/internal/queue"
-	"github.com/OCAP2/extension/internal/storage"
+	"github.com/OCAP2/extension/v5/internal/cache"
+	"github.com/OCAP2/extension/v5/internal/handlers"
+	"github.com/OCAP2/extension/v5/internal/logging"
+	"github.com/OCAP2/extension/v5/internal/queue"
+	"github.com/OCAP2/extension/v5/internal/storage"
 
 	influxdb2_write "github.com/influxdata/influxdb-client-go/v2/api/write"
 	"gorm.io/gorm"
