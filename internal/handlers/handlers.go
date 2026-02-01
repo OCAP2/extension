@@ -15,6 +15,8 @@ import (
 	"github.com/OCAP2/extension/internal/geo"
 	"github.com/OCAP2/extension/internal/logging"
 	"github.com/OCAP2/extension/internal/model"
+	"github.com/OCAP2/extension/internal/model/convert"
+	"github.com/OCAP2/extension/internal/storage"
 	"github.com/OCAP2/extension/internal/util"
 	"github.com/OCAP2/extension/pkg/a3interface"
 
@@ -72,9 +74,10 @@ type Dependencies struct {
 
 // Service provides handler methods for processing game data
 type Service struct {
-	deps    Dependencies
-	ctx     *MissionContext
+	deps         Dependencies
+	ctx          *MissionContext
 	writeLogFunc func(functionName, data, level string)
+	backend      storage.Backend
 }
 
 // NewService creates a new handler service
@@ -100,6 +103,11 @@ func (s *Service) GetMissionContext() *MissionContext {
 // SetWriteLogFunc allows setting a custom writeLog function
 func (s *Service) SetWriteLogFunc(fn func(functionName, data, level string)) {
 	s.writeLogFunc = fn
+}
+
+// SetBackend sets the storage backend for mission start/end handling
+func (s *Service) SetBackend(b storage.Backend) {
+	s.backend = b
 }
 
 func (s *Service) writeLog(functionName, data, level string) {
@@ -232,6 +240,15 @@ func (s *Service) LogNewMission(data []string) error {
 
 	// Clear marker cache for new mission
 	s.deps.MarkerCache.Reset()
+
+	// Start mission in storage backend if configured
+	if s.backend != nil {
+		coreMission := convert.MissionToCore(&mission)
+		coreWorld := convert.WorldToCore(&world)
+		if err := s.backend.StartMission(&coreMission, &coreWorld); err != nil {
+			s.deps.LogManager.Logger.Error().Err(err).Msg("Failed to start mission in storage backend")
+		}
+	}
 
 	// write to log
 	s.writeLog(functionName, `New mission logged`, "INFO")
