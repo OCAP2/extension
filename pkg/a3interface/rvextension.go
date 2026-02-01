@@ -16,7 +16,6 @@ import (
 )
 
 // Config defines how calls to this extension will be handled
-// it can be configured using method calls against it
 var Config configStruct = configStruct{}
 
 func init() {
@@ -44,7 +43,7 @@ func RVExtension(output *C.char, outputsize C.size_t, input *C.char) {
 		return
 	}
 
-	// Use dispatcher if configured (check both full command and substring)
+	// Use dispatcher (check both full command and substring)
 	if Config.dispatcher != nil {
 		dispatchCommand := command
 		if !Config.dispatcher.HasHandler(command) && Config.dispatcher.HasHandler(commandSubstr) {
@@ -65,27 +64,9 @@ func RVExtension(output *C.char, outputsize C.size_t, input *C.char) {
 		}
 	}
 
-	// Fall back to legacy channel system
-	replyToSyncArmaCall("OK", output, outputsize)
-
-	desiredCommand := command
-	if _, ok := Config.rvExtensionChannels[command]; !ok {
-		if _, ok := Config.rvExtensionChannels[commandSubstr]; !ok {
-			writeErrChan(command, fmt.Errorf("no channel set"))
-			return
-		}
-		desiredCommand = commandSubstr
-	}
-
-	channel := Config.rvExtensionChannels[desiredCommand]
-	if channel == nil {
-		writeErrChan(command, fmt.Errorf("channel not set"))
-		return
-	}
-
-	go func(channel chan string) {
-		channel <- command
-	}(channel)
+	// No handler found
+	writeErrChan(command, fmt.Errorf("no handler registered"))
+	replyToSyncArmaCall(fmt.Sprintf(`["error", "%s", "no handler registered"]`, command), output, outputsize)
 }
 
 // called by Arma when in the format of: "extensionName" callExtension ["command", ["data"]]
@@ -95,7 +76,7 @@ func RVExtensionArgs(output *C.char, outputsize C.size_t, input *C.char, argv **
 	command := C.GoString(input)
 	args := parseArgsFromC(argv, argc)
 
-	// Use dispatcher if configured
+	// Use dispatcher
 	if Config.dispatcher != nil && Config.dispatcher.HasHandler(command) {
 		event := dispatcher.Event{
 			Command:   command,
@@ -109,22 +90,9 @@ func RVExtensionArgs(output *C.char, outputsize C.size_t, input *C.char, argv **
 		return
 	}
 
-	// Fall back to legacy channel system
-	response := fmt.Sprintf(`["Function: %s", "nb params: %d"]`, command, argc)
-	replyToSyncArmaCall(response, output, outputsize)
-
-	channel := Config.rvExtensionArgsChannels[command]
-	if channel == nil {
-		writeErrChan(command, fmt.Errorf("channel not set"))
-		return
-	}
-
-	// append timestamp in nanoseconds for legacy handlers
-	args = append(args, fmt.Sprintf("%d", time.Now().UnixNano()))
-
-	go func(channel chan []string, data []string) {
-		channel <- data
-	}(channel, args)
+	// No handler found
+	writeErrChan(command, fmt.Errorf("no handler registered"))
+	replyToSyncArmaCall(fmt.Sprintf(`["error", "%s", "no handler registered"]`, command), output, outputsize)
 }
 
 // parseArgsFromC converts C argv array to Go string slice
@@ -150,13 +118,7 @@ func formatDispatchResponse(command string, result any, err error) string {
 }
 
 // replyToSyncArmaCall will respond to a synchronous extension call from Arma
-// it returns a single string and any wait time will block Arma
-func replyToSyncArmaCall(
-	response string,
-	output *C.char,
-	outputsize C.size_t,
-) {
-	// Reply to a synchronous call from Arma with a string response
+func replyToSyncArmaCall(response string, output *C.char, outputsize C.size_t) {
 	result := C.CString(response)
 	defer C.free(unsafe.Pointer(result))
 	var size = C.strlen(result) + 1
@@ -177,7 +139,5 @@ func writeErrChan(command string, err error) {
 }
 
 func getTimestamp() string {
-	// get the current unix timestamp in nanoseconds
 	return fmt.Sprintf("%d", time.Now().UTC().UnixNano())
-	// return time.Now().Format("2006-01-02 15:04:05")
 }

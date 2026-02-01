@@ -135,28 +135,8 @@ var (
 	storageBackend storage.Backend
 )
 
-// channels - only for commands not handled by dispatcher
-var (
-	// RVExtArgsDataChannels for legacy commands (mission lifecycle, addon version)
-	RVExtArgsDataChannels = map[string]chan []string{
-		":ADDON:VERSION:": make(chan []string, 1),
-		":NEW:MISSION:":   make(chan []string, 1),
-		":SAVE:":          make(chan []string, 1),
-	}
-
-	// RVExtDataChannels for simple extension calls
-	RVExtDataChannels = map[string]chan string{
-		":VERSION:":        make(chan string, 1),
-		":INIT:":           make(chan string, 1),
-		":INIT:DB:":        make(chan string, 1),
-		":GETDIR:ARMA:":    make(chan string, 1),
-		":GETDIR:MODULE:":  make(chan string, 1),
-		":GETDIR:OCAPLOG:": make(chan string, 1),
-	}
-
-	// a3ErrorChan is used to send errors from the a3interface package to the main thread
-	a3ErrorChan = make(chan []string, 50)
-)
+// a3ErrorChan is used to send errors from the a3interface package to the main thread
+var a3ErrorChan = make(chan []string, 50)
 
 // init is run automatically when the module is loaded
 func init() {
@@ -318,58 +298,16 @@ func initDB() (err error) {
 }
 
 func setupA3Interface() (err error) {
-
 	a3interface.SetVersion(CurrentExtensionVersion)
 	a3interface.RegisterErrorChan(a3ErrorChan)
 
-	// register channels
-	a3interface.RegisterRvExtensionChannels(RVExtDataChannels)
-	a3interface.RegisterRvExtensionArgsChannels(RVExtArgsDataChannels)
-
-	// in our case, add listeners for things not already handled by startAsyncProcessors
+	// Handle errors from a3interface
 	go func() {
-		for {
-			select {
-			case errData := <-a3ErrorChan:
-				Logger.Error().
-					Str("command", errData[0]).
-					Str("error", errData[1]).
-					Msg("Error in A3Interface")
-				// RVExtDataChannels
-			case <-RVExtDataChannels[":INIT:"]:
-				go initExtension()
-			case <-RVExtDataChannels[":INIT:DB:"]:
-				go initDB()
-			case <-RVExtDataChannels[":VERSION"]:
-				a3interface.WriteArmaCallback(ExtensionName, ":VERSION:", CurrentExtensionVersion)
-			case <-RVExtDataChannels[":GETDIR:ARMA:"]:
-				a3interface.WriteArmaCallback(ExtensionName, ":GETDIR:ARMA:", ArmaDir)
-			case <-RVExtDataChannels[":GETDIR:MODULE:"]:
-				a3interface.WriteArmaCallback(ExtensionName, ":GETDIR:MODULE:", ModulePath)
-			case <-RVExtDataChannels[":GETDIR:OCAPLOG:"]:
-				a3interface.WriteArmaCallback(ExtensionName, ":GETDIR:OCAPLOG:", OcapLogFilePath)
-				// RVExtArgsDataChannels
-			case data := <-RVExtArgsDataChannels[":ADDON:VERSION:"]:
-				addonVersion = util.FixEscapeQuotes(util.TrimQuotes(data[0]))
-				Logger.Info().Str("version", addonVersion).Msg("Addon version")
-			case data := <-RVExtArgsDataChannels[":NEW:MISSION:"]:
-				go func() {
-					if handlerService != nil {
-						handlerService.LogNewMission(data)
-					}
-				}()
-			case <-RVExtArgsDataChannels[":SAVE:"]:
-				go func() {
-					Logger.Info().Msg("Received :SAVE: command, ending mission recording")
-					if storageBackend != nil {
-						if err := storageBackend.EndMission(); err != nil {
-							Logger.Error().Err(err).Msg("Failed to end mission in storage backend")
-						} else {
-							Logger.Info().Msg("Mission recording saved to storage backend")
-						}
-					}
-				}()
-			}
+		for errData := range a3ErrorChan {
+			Logger.Error().
+				Str("command", errData[0]).
+				Str("error", errData[1]).
+				Msg("Error in A3Interface")
 		}
 	}()
 
@@ -632,6 +570,9 @@ func startGoroutines() (err error) {
 	// Register handlers with dispatcher
 	workerManager.RegisterHandlers(eventDispatcher)
 
+	// Register lifecycle/system handlers
+	registerLifecycleHandlers(eventDispatcher)
+
 	// Set dispatcher on a3interface
 	a3interface.SetDispatcher(eventDispatcher)
 	Logger.Info().Msg("Event dispatcher initialized and registered")
@@ -650,9 +591,7 @@ func startGoroutines() (err error) {
 		AddonFolder:    AddonFolder,
 		IsDatabaseValid: func() bool { return IsDatabaseValid },
 		GetChannelLength: func(name string) int {
-			if ch, ok := RVExtArgsDataChannels[name]; ok {
-				return len(ch)
-			}
+			// Legacy channels removed - dispatcher handles all events now
 			return 0
 		},
 	})
@@ -895,6 +834,68 @@ func migrateTable[M any](
 	return nil
 }
 
+// registerLifecycleHandlers registers system/lifecycle command handlers with the dispatcher
+func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
+	// Simple commands (RVExtension style - no args)
+	d.Register(":INIT:", func(e dispatcher.Event) (any, error) {
+		go initExtension()
+		return "ok", nil
+	})
+
+	d.Register(":INIT:DB:", func(e dispatcher.Event) (any, error) {
+		go initDB()
+		return "ok", nil
+	})
+
+	d.Register(":VERSION:", func(e dispatcher.Event) (any, error) {
+		a3interface.WriteArmaCallback(ExtensionName, ":VERSION:", CurrentExtensionVersion)
+		return CurrentExtensionVersion, nil
+	})
+
+	d.Register(":GETDIR:ARMA:", func(e dispatcher.Event) (any, error) {
+		a3interface.WriteArmaCallback(ExtensionName, ":GETDIR:ARMA:", ArmaDir)
+		return ArmaDir, nil
+	})
+
+	d.Register(":GETDIR:MODULE:", func(e dispatcher.Event) (any, error) {
+		a3interface.WriteArmaCallback(ExtensionName, ":GETDIR:MODULE:", ModulePath)
+		return ModulePath, nil
+	})
+
+	d.Register(":GETDIR:OCAPLOG:", func(e dispatcher.Event) (any, error) {
+		a3interface.WriteArmaCallback(ExtensionName, ":GETDIR:OCAPLOG:", OcapLogFilePath)
+		return OcapLogFilePath, nil
+	})
+
+	// Commands with args (RVExtensionArgs style)
+	d.Register(":ADDON:VERSION:", func(e dispatcher.Event) (any, error) {
+		if len(e.Args) > 0 {
+			addonVersion = util.FixEscapeQuotes(util.TrimQuotes(e.Args[0]))
+			Logger.Info().Str("version", addonVersion).Msg("Addon version")
+		}
+		return "ok", nil
+	})
+
+	d.Register(":NEW:MISSION:", func(e dispatcher.Event) (any, error) {
+		if handlerService != nil {
+			handlerService.LogNewMission(e.Args)
+		}
+		return "ok", nil
+	})
+
+	d.Register(":SAVE:", func(e dispatcher.Event) (any, error) {
+		Logger.Info().Msg("Received :SAVE: command, ending mission recording")
+		if storageBackend != nil {
+			if err := storageBackend.EndMission(); err != nil {
+				Logger.Error().Err(err).Msg("Failed to end mission in storage backend")
+				return nil, err
+			}
+			Logger.Info().Msg("Mission recording saved to storage backend")
+		}
+		return "ok", nil
+	})
+}
+
 // dispatchDemoEvent dispatches an event through the dispatcher for demo/test purposes
 func dispatchDemoEvent(command string, args []string) {
 	if eventDispatcher == nil {
@@ -1042,7 +1043,7 @@ func populateDemoData() {
 		}
 		data[1] = string(missionDataJSON)
 
-		RVExtArgsDataChannels[":NEW:MISSION:"] <- data
+		dispatchDemoEvent(":NEW:MISSION:", data)
 
 		time.Sleep(500 * time.Millisecond)
 	}
