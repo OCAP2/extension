@@ -1,5 +1,7 @@
 # OCAP Recorder (Go)
 
+![Coverage](https://raw.githubusercontent.com/OCAP2/extension/badges/.badges/main/coverage.svg)
+
 ## About
 
 This is a Go implementation of an Arma 3 extension that allows for recording of gameplay to a Postgres database (with local SQLite backup capabilities). It offers extended data capture due to the storage medium for the purposes of playback resolution and analytics.
