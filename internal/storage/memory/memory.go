@@ -108,3 +108,81 @@ func (b *Backend) exportJSON() error {
 	// TODO: implement in Task 4.5
 	return nil
 }
+
+// AddSoldier registers a new soldier
+func (b *Backend) AddSoldier(s *core.Soldier) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.idCounter++
+	s.ID = b.idCounter
+
+	b.soldiers[s.OcapID] = &SoldierRecord{
+		Soldier: *s,
+		States:  make([]core.SoldierState, 0),
+	}
+	return nil
+}
+
+// AddVehicle registers a new vehicle
+func (b *Backend) AddVehicle(v *core.Vehicle) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.idCounter++
+	v.ID = b.idCounter
+
+	b.vehicles[v.OcapID] = &VehicleRecord{
+		Vehicle: *v,
+		States:  make([]core.VehicleState, 0),
+	}
+	return nil
+}
+
+// AddMarker registers a new marker
+func (b *Backend) AddMarker(m *core.Marker) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.idCounter++
+	m.ID = b.idCounter
+
+	b.markers[m.MarkerName] = &MarkerRecord{
+		Marker: *m,
+		States: make([]core.MarkerState, 0),
+	}
+	return nil
+}
+
+// GetSoldierByOcapID looks up a soldier by their OcapID
+func (b *Backend) GetSoldierByOcapID(ocapID uint16) (*core.Soldier, bool) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if record, ok := b.soldiers[ocapID]; ok {
+		return &record.Soldier, true
+	}
+	return nil, false
+}
+
+// GetVehicleByOcapID looks up a vehicle by its OcapID
+func (b *Backend) GetVehicleByOcapID(ocapID uint16) (*core.Vehicle, bool) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if record, ok := b.vehicles[ocapID]; ok {
+		return &record.Vehicle, true
+	}
+	return nil, false
+}
+
+// GetMarkerByName looks up a marker by name
+func (b *Backend) GetMarkerByName(name string) (*core.Marker, bool) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if record, ok := b.markers[name]; ok {
+		return &record.Marker, true
+	}
+	return nil, false
+}
