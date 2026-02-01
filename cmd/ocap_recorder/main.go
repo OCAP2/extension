@@ -34,6 +34,7 @@ import (
 	"github.com/OCAP2/extension/internal/influx"
 	"github.com/OCAP2/extension/internal/model"
 	"github.com/OCAP2/extension/internal/queue"
+	"github.com/OCAP2/extension/internal/util"
 	"github.com/OCAP2/extension/pkg/a3interface"
 
 	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
@@ -489,7 +490,7 @@ func setupA3Interface() (err error) {
 				a3interface.WriteArmaCallback(ExtensionName, ":GETDIR:OCAPLOG:", OcapLogFilePath)
 				// RVExtArgsDataChannels
 			case data := <-RVExtArgsDataChannels[":ADDON:VERSION:"]:
-				addonVersion = fixEscapeQuotes(trimQuotes(data[0]))
+				addonVersion = util.FixEscapeQuotes(util.TrimQuotes(data[0]))
 				Logger.Info().Str("version", addonVersion).Msg("Addon version")
 			case data := <-RVExtArgsDataChannels[":NEW:MISSION:"]:
 				go logNewMission(data)
@@ -622,7 +623,7 @@ func processMetricData(data []string) (
 	point *influxdb2_write.Point,
 	err error,
 ) {
-	return influx.ProcessMetricData(data, fixEscapeQuotes, trimQuotes)
+	return influx.ProcessMetricData(data, util.FixEscapeQuotes, util.TrimQuotes)
 }
 
 ///////////////////////
@@ -1032,7 +1033,7 @@ func logNewMission(data []string) (err error) {
 
 	// fix received data
 	for i, v := range data {
-		data[i] = fixEscapeQuotes(trimQuotes(v))
+		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
 	}
 
 	world := model.World{}
@@ -1188,7 +1189,7 @@ func logNewSoldier(data []string) (soldier model.Soldier, err error) {
 
 	// fix received data
 	for i, v := range data {
-		data[i] = fixEscapeQuotes(trimQuotes(v))
+		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
 	}
 
 	// get frame
@@ -1249,7 +1250,7 @@ func logSoldierState(data []string) (soldierState model.SoldierState, err error)
 
 	// fix received data
 	for i, v := range data {
-		data[i] = fixEscapeQuotes(trimQuotes(v))
+		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
 	}
 
 	soldierState.MissionID = CurrentMission.ID
@@ -1375,7 +1376,7 @@ func logNewVehicle(data []string) (vehicle model.Vehicle, err error) {
 
 	// fix received data
 	for i, v := range data {
-		data[i] = fixEscapeQuotes(trimQuotes(v))
+		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
 	}
 
 	// get frame
@@ -1417,7 +1418,7 @@ func logVehicleState(data []string) (vehicleState model.VehicleState, err error)
 
 	// fix received data
 	for i, v := range data {
-		data[i] = fixEscapeQuotes(trimQuotes(v))
+		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
 	}
 
 	vehicleState.MissionID = CurrentMission.ID
@@ -1534,7 +1535,7 @@ func logFiredEvent(data []string) (firedEvent model.FiredEvent, err error) {
 
 	// fix received data
 	for i, v := range data {
-		data[i] = fixEscapeQuotes(trimQuotes(v))
+		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
 	}
 
 	firedEvent.MissionID = CurrentMission.ID
@@ -1607,7 +1608,7 @@ func logProjectileEvent(data []string) (projectileEvent model.ProjectileEvent, e
 
 	// fix received data
 	for i, v := range data {
-		data[i] = fixEscapeQuotes(trimQuotes(v))
+		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
 	}
 
 	projectileEvent.MissionID = CurrentMission.ID
@@ -1806,16 +1807,6 @@ func logProjectileEvent(data []string) (projectileEvent model.ProjectileEvent, e
 	return projectileEvent, nil
 }
 
-func contains(s []string, str string) bool {
-	for _, v := range s {
-		if v == str {
-			return true
-		}
-	}
-
-	return false
-}
-
 // function to process events of different kinds
 func logGeneralEvent(data []string) (thisEvent model.GeneralEvent, err error) {
 
@@ -1823,7 +1814,7 @@ func logGeneralEvent(data []string) (thisEvent model.GeneralEvent, err error) {
 
 	// fix received data
 	for i, v := range data {
-		data[i] = fixEscapeQuotes(trimQuotes(v))
+		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
 	}
 
 	// get frame
@@ -1871,7 +1862,7 @@ func logHitEvent(data []string) (hitEvent model.HitEvent, err error) {
 
 	// fix received data
 	for i, v := range data {
-		data[i] = fixEscapeQuotes(trimQuotes(v))
+		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
 	}
 
 	// get frame
@@ -1949,7 +1940,7 @@ func logKillEvent(data []string) (killEvent model.KillEvent, err error) {
 
 	// fix received data
 	for i, v := range data {
-		data[i] = fixEscapeQuotes(trimQuotes(v))
+		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
 	}
 
 	// get frame
@@ -2031,7 +2022,7 @@ func logChatEvent(data []string) (chatEvent model.ChatEvent, err error) {
 
 	// fix received data
 	for i, v := range data {
-		data[i] = fixEscapeQuotes(trimQuotes(v))
+		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
 	}
 
 	// get frame
@@ -2107,7 +2098,7 @@ func logRadioEvent(data []string) (radioEvent model.RadioEvent, err error) {
 
 	// fix received data
 	for i, v := range data {
-		data[i] = fixEscapeQuotes(trimQuotes(v))
+		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
 	}
 
 	// get frame
@@ -2180,7 +2171,7 @@ func logFpsEvent(data []string) (fpsEvent model.ServerFpsEvent, err error) {
 
 	// fix received data
 	for i, v := range data {
-		data[i] = fixEscapeQuotes(trimQuotes(v))
+		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
 	}
 
 	// get frame
@@ -2221,7 +2212,7 @@ func logAce3DeathEvent(data []string) (deathEvent model.Ace3DeathEvent, err erro
 
 	// fix received data
 	for i, v := range data {
-		data[i] = fixEscapeQuotes(trimQuotes(v))
+		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
 	}
 
 	// get frame
@@ -2279,7 +2270,7 @@ func logAce3DeathEvent(data []string) (deathEvent model.Ace3DeathEvent, err erro
 func logAce3UnconsciousEvent(data []string) (unconsciousEvent model.Ace3UnconsciousEvent, err error) {
 	// fix received data
 	for i, v := range data {
-		data[i] = fixEscapeQuotes(trimQuotes(v))
+		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
 	}
 
 	// get frame
@@ -2321,7 +2312,7 @@ func logMarkerCreate(data []string) (marker model.Marker, err error) {
 
 	// fix received data
 	for i, v := range data {
-		data[i] = fixEscapeQuotes(trimQuotes(v))
+		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
 	}
 
 	marker.MissionID = CurrentMission.ID
@@ -2417,7 +2408,7 @@ func logMarkerMove(data []string) (markerState model.MarkerState, err error) {
 
 	// fix received data
 	for i, v := range data {
-		data[i] = fixEscapeQuotes(trimQuotes(v))
+		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
 	}
 
 	markerState.MissionID = CurrentMission.ID
@@ -2487,7 +2478,7 @@ func logMarkerDelete(data []string) (markerName string, frameNo uint, err error)
 
 	// fix received data
 	for i, v := range data {
-		data[i] = fixEscapeQuotes(trimQuotes(v))
+		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
 	}
 
 	markerName = data[0]
@@ -3144,16 +3135,6 @@ func startDBWriters() {
 // /////////////////////
 // EXPORTED FUNCTIONS //
 // /////////////////////
-
-func trimQuotes(s string) string {
-	// trim the start and end quotes from a string
-	return strings.Trim(s, `"`)
-}
-
-func fixEscapeQuotes(s string) string {
-	// fix the escape quotes in a string
-	return strings.Replace(s, `""`, `"`, -1)
-}
 
 func writeLog(
 	functionName string,
