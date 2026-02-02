@@ -145,11 +145,17 @@ func (b *Backend) buildExport() OcapExport {
 		}
 
 		for _, state := range record.States {
+			// Convert nil InVehicleObjectID to 0 (old C++ extension uses 0 for "not in vehicle")
+			var inVehicleID any = 0
+			if state.InVehicleObjectID != nil {
+				inVehicleID = *state.InVehicleObjectID
+			}
+
 			pos := []any{
 				[]float64{state.Position.X, state.Position.Y},
 				state.Bearing,
 				state.Lifestate,
-				state.InVehicleObjectID,
+				inVehicleID,
 				state.UnitName,
 				boolToInt(state.IsPlayer),
 				state.CurrentRole,

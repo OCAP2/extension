@@ -441,7 +441,7 @@ func TestSoldierWithoutVehicle(t *testing.T) {
 	entity := export.Entities[1]
 	pos := entity.Positions[0]
 
-	assert.Equal(t, (*uint16)(nil), pos[3], "InVehicleObjectID should be nil")
+	assert.Equal(t, 0, pos[3], "InVehicleObjectID should be 0 when not in vehicle")
 	assert.Equal(t, 0, entity.IsPlayer)
 	assert.Equal(t, 0, pos[5])
 }
