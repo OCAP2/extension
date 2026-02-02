@@ -492,6 +492,41 @@ func TestServerFpsEventToCore(t *testing.T) {
 	}
 }
 
+func TestTimeStateToCore(t *testing.T) {
+	now := time.Now()
+
+	gormState := model.TimeState{
+		MissionID:      1,
+		Time:           now,
+		CaptureFrame:   100,
+		SystemTimeUTC:  "2024-01-15T14:30:45.123",
+		MissionDate:    "2035-06-15T06:00:00",
+		TimeMultiplier: 2.0,
+		MissionTime:    3600.5,
+	}
+
+	coreState := TimeStateToCore(gormState)
+
+	if coreState.MissionID != 1 {
+		t.Errorf("expected MissionID=1, got %d", coreState.MissionID)
+	}
+	if coreState.CaptureFrame != 100 {
+		t.Errorf("expected CaptureFrame=100, got %d", coreState.CaptureFrame)
+	}
+	if coreState.SystemTimeUTC != "2024-01-15T14:30:45.123" {
+		t.Errorf("expected SystemTimeUTC=2024-01-15T14:30:45.123, got %s", coreState.SystemTimeUTC)
+	}
+	if coreState.MissionDate != "2035-06-15T06:00:00" {
+		t.Errorf("expected MissionDate=2035-06-15T06:00:00, got %s", coreState.MissionDate)
+	}
+	if coreState.TimeMultiplier != 2.0 {
+		t.Errorf("expected TimeMultiplier=2.0, got %f", coreState.TimeMultiplier)
+	}
+	if coreState.MissionTime != 3600.5 {
+		t.Errorf("expected MissionTime=3600.5, got %f", coreState.MissionTime)
+	}
+}
+
 func TestAce3DeathEventToCore(t *testing.T) {
 	now := time.Now()
 
@@ -606,6 +641,7 @@ var (
 	_ core.ChatEvent            = ChatEventToCore(model.ChatEvent{})
 	_ core.RadioEvent           = RadioEventToCore(model.RadioEvent{})
 	_ core.ServerFpsEvent       = ServerFpsEventToCore(model.ServerFpsEvent{})
+	_ core.TimeState            = TimeStateToCore(model.TimeState{})
 	_ core.Ace3DeathEvent       = Ace3DeathEventToCore(model.Ace3DeathEvent{})
 	_ core.Ace3UnconsciousEvent = Ace3UnconsciousEventToCore(model.Ace3UnconsciousEvent{})
 	_ core.Marker               = MarkerToCore(model.Marker{})

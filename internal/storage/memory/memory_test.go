@@ -549,6 +549,35 @@ func TestRecordServerFpsEvent(t *testing.T) {
 	}
 }
 
+func TestRecordTimeState(t *testing.T) {
+	b := New(config.MemoryConfig{})
+
+	now := time.Now()
+	state := &core.TimeState{
+		MissionID:      1,
+		Time:           now,
+		CaptureFrame:   100,
+		SystemTimeUTC:  "2024-01-15T14:30:45.123",
+		MissionDate:    "2035-06-15T06:00:00",
+		TimeMultiplier: 2.0,
+		MissionTime:    3600.5,
+	}
+
+	if err := b.RecordTimeState(state); err != nil {
+		t.Fatalf("RecordTimeState failed: %v", err)
+	}
+
+	if len(b.timeStates) != 1 {
+		t.Errorf("expected 1 state, got %d", len(b.timeStates))
+	}
+	if b.timeStates[0].CaptureFrame != 100 {
+		t.Errorf("expected CaptureFrame=100, got %d", b.timeStates[0].CaptureFrame)
+	}
+	if b.timeStates[0].TimeMultiplier != 2.0 {
+		t.Errorf("expected TimeMultiplier=2.0, got %f", b.timeStates[0].TimeMultiplier)
+	}
+}
+
 func TestRecordAce3DeathEvent(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
@@ -664,6 +693,7 @@ func TestStartMissionResetsEverything(t *testing.T) {
 	_ = b.RecordChatEvent(&core.ChatEvent{})
 	_ = b.RecordRadioEvent(&core.RadioEvent{})
 	_ = b.RecordServerFpsEvent(&core.ServerFpsEvent{})
+	_ = b.RecordTimeState(&core.TimeState{})
 	_ = b.RecordAce3DeathEvent(&core.Ace3DeathEvent{})
 	_ = b.RecordAce3UnconsciousEvent(&core.Ace3UnconsciousEvent{})
 
@@ -698,6 +728,9 @@ func TestStartMissionResetsEverything(t *testing.T) {
 	}
 	if len(b.serverFpsEvents) != 0 {
 		t.Error("serverFpsEvents not reset")
+	}
+	if len(b.timeStates) != 0 {
+		t.Error("timeStates not reset")
 	}
 	if len(b.ace3DeathEvents) != 0 {
 		t.Error("ace3DeathEvents not reset")

@@ -116,3 +116,15 @@ type Ace3UnconsciousEvent struct {
 	CaptureFrame uint
 	IsAwake      bool
 }
+
+// TimeState represents mission time synchronization data
+type TimeState struct {
+	ID             uint
+	MissionID      uint
+	Time           time.Time
+	CaptureFrame   uint
+	SystemTimeUTC  string
+	MissionDate    string
+	TimeMultiplier float32
+	MissionTime    float32
+}

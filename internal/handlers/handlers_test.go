@@ -32,6 +32,7 @@ func (b *mockBackend) RecordKillEvent(e *core.KillEvent) error             { ret
 func (b *mockBackend) RecordChatEvent(e *core.ChatEvent) error             { return nil }
 func (b *mockBackend) RecordRadioEvent(e *core.RadioEvent) error           { return nil }
 func (b *mockBackend) RecordServerFpsEvent(e *core.ServerFpsEvent) error   { return nil }
+func (b *mockBackend) RecordTimeState(t *core.TimeState) error             { return nil }
 func (b *mockBackend) RecordAce3DeathEvent(e *core.Ace3DeathEvent) error   { return nil }
 func (b *mockBackend) RecordAce3UnconsciousEvent(e *core.Ace3UnconsciousEvent) error {
 	return nil

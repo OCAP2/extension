@@ -31,6 +31,7 @@ type Backend interface {
 	RecordChatEvent(e *core.ChatEvent) error
 	RecordRadioEvent(e *core.RadioEvent) error
 	RecordServerFpsEvent(e *core.ServerFpsEvent) error
+	RecordTimeState(t *core.TimeState) error
 	RecordAce3DeathEvent(e *core.Ace3DeathEvent) error
 	RecordAce3UnconsciousEvent(e *core.Ace3UnconsciousEvent) error
 

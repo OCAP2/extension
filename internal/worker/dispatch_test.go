@@ -53,6 +53,7 @@ type mockBackend struct {
 	chatEvents     []*core.ChatEvent
 	radioEvents    []*core.RadioEvent
 	fpsEvents      []*core.ServerFpsEvent
+	timeStates     []*core.TimeState
 	ace3Deaths     []*core.Ace3DeathEvent
 	ace3Uncon      []*core.Ace3UnconsciousEvent
 	initCalled     bool
@@ -183,6 +184,13 @@ func (b *mockBackend) RecordServerFpsEvent(e *core.ServerFpsEvent) error {
 	return nil
 }
 
+func (b *mockBackend) RecordTimeState(t *core.TimeState) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.timeStates = append(b.timeStates, t)
+	return nil
+}
+
 func (b *mockBackend) RecordAce3DeathEvent(e *core.Ace3DeathEvent) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -247,6 +255,7 @@ type mockHandlerService struct {
 	chatEvent     model.ChatEvent
 	radioEvent    model.RadioEvent
 	fpsEvent      model.ServerFpsEvent
+	timeState     model.TimeState
 	ace3Death     model.Ace3DeathEvent
 	ace3Uncon     model.Ace3UnconsciousEvent
 	marker        model.Marker
@@ -380,6 +389,16 @@ func (h *mockHandlerService) LogFpsEvent(args []string) (model.ServerFpsEvent, e
 		return model.ServerFpsEvent{}, errors.New(h.errorMsg)
 	}
 	return h.fpsEvent, nil
+}
+
+func (h *mockHandlerService) LogTimeState(args []string) (model.TimeState, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.calls = append(h.calls, "LogTimeState")
+	if h.returnError {
+		return model.TimeState{}, errors.New(h.errorMsg)
+	}
+	return h.timeState, nil
 }
 
 func (h *mockHandlerService) LogAce3DeathEvent(args []string) (model.Ace3DeathEvent, error) {
