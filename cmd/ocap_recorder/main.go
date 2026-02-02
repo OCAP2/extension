@@ -1376,7 +1376,7 @@ func getOcapRecording(missionIDs []string) (err error) {
 		entities := []map[string]any{}
 		for _, soldier := range soldiers {
 			entity := map[string]any{}
-			entity["id"] = soldier.OcapID
+			entity["id"] = soldier.ObjectID
 			entity["name"] = soldier.UnitName
 			entity["group"] = soldier.GroupID
 			entity["side"] = soldier.Side
@@ -1389,7 +1389,7 @@ func getOcapRecording(missionIDs []string) (err error) {
 
 			soldierStates := []model.SoldierState{}
 			err = DB.Model(&model.SoldierState{}).
-				Where("mission_id = ? AND soldier_id = ?", missionIDInt, soldier.ID).
+				Where("mission_id = ? AND soldier_ocap_id = ?", missionIDInt, soldier.ObjectID).
 				Order("capture_frame ASC").
 				Find(&soldierStates).Error
 			if err != nil {
@@ -1414,7 +1414,7 @@ func getOcapRecording(missionIDs []string) (err error) {
 
 			firedEvents := []model.FiredEvent{}
 			err = DB.Model(&model.FiredEvent{}).
-				Where("mission_id = ? AND soldier_id = ?", missionIDInt, soldier.ID).
+				Where("mission_id = ? AND soldier_ocap_id = ?", missionIDInt, soldier.ObjectID).
 				Order("capture_frame ASC").
 				Find(&firedEvents).Error
 			if err != nil {
@@ -1447,7 +1447,7 @@ func getOcapRecording(missionIDs []string) (err error) {
 		}
 		for _, vehicle := range vehicles {
 			entity := map[string]any{}
-			entity["id"] = vehicle.OcapID
+			entity["id"] = vehicle.ObjectID
 			entity["name"] = vehicle.DisplayName
 			entity["class"] = vehicle.ClassName
 			entity["side"] = "UNKNOWN"
@@ -1456,7 +1456,7 @@ func getOcapRecording(missionIDs []string) (err error) {
 
 			vehicleStates := []model.VehicleState{}
 			err = DB.Model(&model.VehicleState{}).
-				Where("mission_id = ? AND vehicle_id = ?", missionIDInt, vehicle.ID).
+				Where("mission_id = ? AND vehicle_ocap_id = ?", missionIDInt, vehicle.ObjectID).
 				Order("capture_frame ASC").
 				Find(&vehicleStates).Error
 			if err != nil {

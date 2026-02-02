@@ -93,7 +93,7 @@ func (b *mockBackend) EndMission() error {
 func (b *mockBackend) AddSoldier(s *core.Soldier) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	s.ID = uint(len(b.soldiers) + 1)
+	// ID is the ObjectID, already set by caller
 	b.soldiers = append(b.soldiers, s)
 	return nil
 }
@@ -101,7 +101,7 @@ func (b *mockBackend) AddSoldier(s *core.Soldier) error {
 func (b *mockBackend) AddVehicle(v *core.Vehicle) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	v.ID = uint(len(b.vehicles) + 1)
+	// ID is the ObjectID, already set by caller
 	b.vehicles = append(b.vehicles, v)
 	return nil
 }
@@ -205,22 +205,22 @@ func (b *mockBackend) RecordAce3UnconsciousEvent(e *core.Ace3UnconsciousEvent) e
 	return nil
 }
 
-func (b *mockBackend) GetSoldierByOcapID(ocapID uint16) (*core.Soldier, bool) {
+func (b *mockBackend) GetSoldierByObjectID(ocapID uint16) (*core.Soldier, bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for _, s := range b.soldiers {
-		if s.OcapID == ocapID {
+		if s.ID == ocapID { // ID is the ObjectID
 			return s, true
 		}
 	}
 	return nil, false
 }
 
-func (b *mockBackend) GetVehicleByOcapID(ocapID uint16) (*core.Vehicle, bool) {
+func (b *mockBackend) GetVehicleByObjectID(ocapID uint16) (*core.Vehicle, bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for _, v := range b.vehicles {
-		if v.OcapID == ocapID {
+		if v.ID == ocapID { // ID is the ObjectID
 			return v, true
 		}
 	}
@@ -629,7 +629,7 @@ func TestHandleNewSoldier_CachesEntityWithBackend(t *testing.T) {
 	entityCache := cache.NewEntityCache()
 
 	handlerService := &mockHandlerService{
-		soldier: model.Soldier{OcapID: 42, UnitName: "Test Soldier"},
+		soldier: model.Soldier{ObjectID: 42, UnitName: "Test Soldier"},
 	}
 
 	deps := Dependencies{
@@ -676,7 +676,7 @@ func TestHandleNewVehicle_CachesEntityWithBackend(t *testing.T) {
 	entityCache := cache.NewEntityCache()
 
 	handlerService := &mockHandlerService{
-		vehicle: model.Vehicle{OcapID: 99, OcapType: "car"},
+		vehicle: model.Vehicle{ObjectID: 99, OcapType: "car"},
 	}
 
 	deps := Dependencies{
@@ -723,7 +723,7 @@ func TestHandleNewSoldier_CachesEntityWithoutBackend(t *testing.T) {
 	entityCache := cache.NewEntityCache()
 
 	handlerService := &mockHandlerService{
-		soldier: model.Soldier{OcapID: 55, UnitName: "Queue Soldier"},
+		soldier: model.Soldier{ObjectID: 55, UnitName: "Queue Soldier"},
 	}
 
 	deps := Dependencies{

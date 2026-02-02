@@ -3,24 +3,24 @@ package core
 
 import "time"
 
-// Vehicle represents a vehicle or static weapon
+// Vehicle represents a vehicle or static weapon.
+// ID is the ObjectID - the game's identifier for this entity.
 type Vehicle struct {
-	ID            uint
+	ID            uint16 // ObjectID - game identifier
 	MissionID     uint
 	JoinTime      time.Time
 	JoinFrame     uint
-	OcapID        uint16
 	OcapType      string
 	ClassName     string
 	DisplayName   string
 	Customization string
 }
 
-// VehicleState represents vehicle state at a point in time
+// VehicleState represents vehicle state at a point in time.
+// VehicleID references the Vehicle's ID (ObjectID).
 type VehicleState struct {
-	ID              uint
+	VehicleID       uint16 // References Vehicle.ID (ObjectID)
 	MissionID       uint
-	VehicleID       uint
 	Time            time.Time
 	CaptureFrame    uint
 	Position        Position3D

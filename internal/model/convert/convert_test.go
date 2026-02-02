@@ -42,7 +42,7 @@ func TestSoldierToCore(t *testing.T) {
 		MissionID:       1,
 		JoinTime:        now,
 		JoinFrame:       10,
-		OcapID:          42,
+		ObjectID:          42,
 		OcapType:        "man",
 		UnitName:        "TestUnit",
 		GroupID:         "Alpha",
@@ -54,18 +54,15 @@ func TestSoldierToCore(t *testing.T) {
 		PlayerUID:       "12345678",
 		SquadParams:     datatypes.JSON(squadParams),
 	}
-	gormSoldier.ID = 1
 
 	coreSoldier := SoldierToCore(gormSoldier)
 
-	if coreSoldier.ID != 1 {
-		t.Errorf("expected ID=1, got %d", coreSoldier.ID)
+	// Core ID = GORM ObjectID (not GORM ID)
+	if coreSoldier.ID != 42 {
+		t.Errorf("expected ID=42 (ObjectID), got %d", coreSoldier.ID)
 	}
 	if coreSoldier.MissionID != 1 {
 		t.Errorf("expected MissionID=1, got %d", coreSoldier.MissionID)
-	}
-	if coreSoldier.OcapID != 42 {
-		t.Errorf("expected OcapID=42, got %d", coreSoldier.OcapID)
 	}
 	if coreSoldier.UnitName != "TestUnit" {
 		t.Errorf("expected UnitName=TestUnit, got %s", coreSoldier.UnitName)
@@ -83,24 +80,24 @@ func TestSoldierStateToCore(t *testing.T) {
 	inVehicleID := sql.NullInt32{Int32: 5, Valid: true}
 
 	gormState := model.SoldierState{
-		ID:                1,
-		MissionID:         1,
-		SoldierID:         2,
-		Time:              now,
-		CaptureFrame:      100,
-		Position:          makePoint(1000.0, 2000.0, 10.0),
-		ElevationASL:      10.0,
-		Bearing:           90,
-		Lifestate:         1,
-		InVehicle:         true,
+		ID:              1,
+		MissionID:       1,
+		SoldierObjectID:   2,
+		Time:            now,
+		CaptureFrame:    100,
+		Position:        makePoint(1000.0, 2000.0, 10.0),
+		ElevationASL:    10.0,
+		Bearing:         90,
+		Lifestate:       1,
+		InVehicle:       true,
 		InVehicleObjectID: inVehicleID,
-		VehicleRole:       "driver",
-		UnitName:          "TestUnit",
-		IsPlayer:          true,
-		CurrentRole:       "Rifleman",
-		HasStableVitals:   true,
-		IsDraggedCarried:  false,
-		Stance:            "Up",
+		VehicleRole:     "driver",
+		UnitName:        "TestUnit",
+		IsPlayer:        true,
+		CurrentRole:     "Rifleman",
+		HasStableVitals: true,
+		IsDraggedCarried: false,
+		Stance:          "Up",
 		Scores: model.SoldierScores{
 			InfantryKills: 5,
 			VehicleKills:  2,
@@ -113,8 +110,9 @@ func TestSoldierStateToCore(t *testing.T) {
 
 	coreState := SoldierStateToCore(gormState)
 
-	if coreState.ID != 1 {
-		t.Errorf("expected ID=1, got %d", coreState.ID)
+	// SoldierID maps from SoldierObjectID
+	if coreState.SoldierID != 2 {
+		t.Errorf("expected SoldierID=2 (from SoldierObjectID), got %d", coreState.SoldierID)
 	}
 	if coreState.CaptureFrame != 100 {
 		t.Errorf("expected CaptureFrame=100, got %d", coreState.CaptureFrame)
@@ -140,21 +138,18 @@ func TestVehicleToCore(t *testing.T) {
 		MissionID:     1,
 		JoinTime:      now,
 		JoinFrame:     20,
-		OcapID:        10,
+		ObjectID:        10,
 		OcapType:      "car",
 		ClassName:     "B_MRAP_01_F",
 		DisplayName:   "Hunter",
 		Customization: "default",
 	}
-	gormVehicle.ID = 5
 
 	coreVehicle := VehicleToCore(gormVehicle)
 
-	if coreVehicle.ID != 5 {
-		t.Errorf("expected ID=5, got %d", coreVehicle.ID)
-	}
-	if coreVehicle.OcapID != 10 {
-		t.Errorf("expected OcapID=10, got %d", coreVehicle.OcapID)
+	// Core ID = GORM ObjectID (not GORM ID)
+	if coreVehicle.ID != 10 {
+		t.Errorf("expected ID=10 (ObjectID), got %d", coreVehicle.ID)
 	}
 	if coreVehicle.OcapType != "car" {
 		t.Errorf("expected OcapType=car, got %s", coreVehicle.OcapType)
@@ -170,7 +165,7 @@ func TestVehicleStateToCore(t *testing.T) {
 	gormState := model.VehicleState{
 		ID:              1,
 		MissionID:       1,
-		VehicleID:       5,
+		VehicleObjectID:   5,
 		Time:            now,
 		CaptureFrame:    50,
 		Position:        makePoint(500.0, 600.0, 0.0),
@@ -191,8 +186,9 @@ func TestVehicleStateToCore(t *testing.T) {
 
 	coreState := VehicleStateToCore(gormState)
 
+	// VehicleID maps from VehicleObjectID
 	if coreState.VehicleID != 5 {
-		t.Errorf("expected VehicleID=5, got %d", coreState.VehicleID)
+		t.Errorf("expected VehicleID=5 (from VehicleObjectID), got %d", coreState.VehicleID)
 	}
 	if coreState.Position.X != 500.0 {
 		t.Errorf("expected Position.X=500.0, got %f", coreState.Position.X)
@@ -211,7 +207,7 @@ func TestFiredEventToCore(t *testing.T) {
 	gormEvent := model.FiredEvent{
 		ID:                1,
 		MissionID:         1,
-		SoldierID:         2,
+		SoldierObjectID:     2,
 		Time:              now,
 		CaptureFrame:      100,
 		Weapon:            "arifle_MX_F",
@@ -225,8 +221,9 @@ func TestFiredEventToCore(t *testing.T) {
 
 	coreEvent := FiredEventToCore(gormEvent)
 
+	// SoldierID maps from SoldierObjectID
 	if coreEvent.SoldierID != 2 {
-		t.Errorf("expected SoldierID=2, got %d", coreEvent.SoldierID)
+		t.Errorf("expected SoldierID=2 (from SoldierObjectID), got %d", coreEvent.SoldierID)
 	}
 	if coreEvent.Weapon != "arifle_MX_F" {
 		t.Errorf("expected Weapon=arifle_MX_F, got %s", coreEvent.Weapon)
@@ -243,14 +240,14 @@ func TestHitEventToCore(t *testing.T) {
 	now := time.Now()
 
 	gormEvent := model.HitEvent{
-		ID:               1,
-		MissionID:        1,
-		Time:             now,
-		CaptureFrame:     100,
-		VictimSoldierID:  sql.NullInt32{Int32: 5, Valid: true},
-		ShooterSoldierID: sql.NullInt32{Int32: 10, Valid: true},
-		EventText:        "Hit event",
-		Distance:         50.5,
+		ID:                   1,
+		MissionID:            1,
+		Time:                 now,
+		CaptureFrame:         100,
+		VictimSoldierObjectID:  sql.NullInt32{Int32: 5, Valid: true},
+		ShooterSoldierObjectID: sql.NullInt32{Int32: 10, Valid: true},
+		EventText:            "Hit event",
+		Distance:             50.5,
 	}
 
 	coreEvent := HitEventToCore(gormEvent)
@@ -270,14 +267,14 @@ func TestKillEventToCore(t *testing.T) {
 	now := time.Now()
 
 	gormEvent := model.KillEvent{
-		ID:              1,
-		MissionID:       1,
-		Time:            now,
-		CaptureFrame:    100,
-		VictimIDSoldier: sql.NullInt32{Int32: 5, Valid: true},
-		KillerIDSoldier: sql.NullInt32{Int32: 10, Valid: true},
-		EventText:       "Kill event",
-		Distance:        100.0,
+		ID:                  1,
+		MissionID:           1,
+		Time:                now,
+		CaptureFrame:        100,
+		VictimSoldierObjectID: sql.NullInt32{Int32: 5, Valid: true},
+		KillerSoldierObjectID: sql.NullInt32{Int32: 10, Valid: true},
+		EventText:           "Kill event",
+		Distance:            100.0,
 	}
 
 	coreEvent := KillEventToCore(gormEvent)
@@ -418,16 +415,16 @@ func TestChatEventToCore(t *testing.T) {
 	now := time.Now()
 
 	gormEvent := model.ChatEvent{
-		ID:           1,
-		MissionID:    1,
-		SoldierID:    sql.NullInt32{Int32: 5, Valid: true},
-		Time:         now,
-		CaptureFrame: 100,
-		Channel:      "Global",
-		FromName:     "Player1",
-		SenderName:   "John",
-		Message:      "Hello world",
-		PlayerUID:    "12345678",
+		ID:            1,
+		MissionID:     1,
+		SoldierObjectID: sql.NullInt32{Int32: 5, Valid: true},
+		Time:          now,
+		CaptureFrame:  100,
+		Channel:       "Global",
+		FromName:      "Player1",
+		SenderName:    "John",
+		Message:       "Hello world",
+		PlayerUID:     "12345678",
 	}
 
 	coreEvent := ChatEventToCore(gormEvent)
@@ -447,18 +444,18 @@ func TestRadioEventToCore(t *testing.T) {
 	now := time.Now()
 
 	gormEvent := model.RadioEvent{
-		ID:           1,
-		MissionID:    1,
-		SoldierID:    sql.NullInt32{Int32: 5, Valid: true},
-		Time:         now,
-		CaptureFrame: 100,
-		Radio:        "AN/PRC-152",
-		RadioType:    "SW",
-		StartEnd:     "start",
-		Channel:      1,
-		IsAdditional: false,
-		Frequency:    100.0,
-		Code:         "ABC",
+		ID:            1,
+		MissionID:     1,
+		SoldierObjectID: sql.NullInt32{Int32: 5, Valid: true},
+		Time:          now,
+		CaptureFrame:  100,
+		Radio:         "AN/PRC-152",
+		RadioType:     "SW",
+		StartEnd:      "start",
+		Channel:       1,
+		IsAdditional:  false,
+		Frequency:     100.0,
+		Code:          "ABC",
 	}
 
 	coreEvent := RadioEventToCore(gormEvent)
@@ -531,13 +528,13 @@ func TestAce3DeathEventToCore(t *testing.T) {
 	now := time.Now()
 
 	gormEvent := model.Ace3DeathEvent{
-		ID:                 1,
-		MissionID:          1,
-		SoldierID:          5,
-		Time:               now,
-		CaptureFrame:       100,
-		Reason:             "BLOODLOSS",
-		LastDamageSourceID: sql.NullInt32{Int32: 10, Valid: true},
+		ID:                     1,
+		MissionID:              1,
+		SoldierObjectID:          5,
+		Time:                   now,
+		CaptureFrame:           100,
+		Reason:                 "BLOODLOSS",
+		LastDamageSourceObjectID: sql.NullInt32{Int32: 10, Valid: true},
 	}
 
 	coreEvent := Ace3DeathEventToCore(gormEvent)
@@ -554,12 +551,12 @@ func TestAce3UnconsciousEventToCore(t *testing.T) {
 	now := time.Now()
 
 	gormEvent := model.Ace3UnconsciousEvent{
-		ID:           1,
-		MissionID:    1,
-		SoldierID:    5,
-		Time:         now,
-		CaptureFrame: 100,
-		IsAwake:      false,
+		ID:            1,
+		MissionID:     1,
+		SoldierObjectID: 5,
+		Time:          now,
+		CaptureFrame:  100,
+		IsAwake:       false,
 	}
 
 	coreEvent := Ace3UnconsciousEventToCore(gormEvent)
@@ -614,8 +611,8 @@ func TestSoldierStateToCore_NilInVehicleID(t *testing.T) {
 
 func TestHitEventToCore_NilIDs(t *testing.T) {
 	gormEvent := model.HitEvent{
-		VictimSoldierID:  sql.NullInt32{Valid: false},
-		ShooterSoldierID: sql.NullInt32{Valid: false},
+		VictimSoldierObjectID:  sql.NullInt32{Valid: false},
+		ShooterSoldierObjectID: sql.NullInt32{Valid: false},
 	}
 
 	coreEvent := HitEventToCore(gormEvent)

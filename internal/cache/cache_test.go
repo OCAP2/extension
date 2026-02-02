@@ -31,7 +31,7 @@ func TestEntityCache_AddAndGetSoldier(t *testing.T) {
 	cache := NewEntityCache()
 
 	soldier := model.Soldier{
-		OcapID:   42,
+		ObjectID:   42,
 		UnitName: "Test Soldier",
 	}
 
@@ -39,10 +39,10 @@ func TestEntityCache_AddAndGetSoldier(t *testing.T) {
 
 	got, ok := cache.GetSoldier(42)
 	if !ok {
-		t.Fatal("expected to find soldier with OcapID 42")
+		t.Fatal("expected to find soldier with ObjectID 42")
 	}
-	if got.OcapID != 42 {
-		t.Errorf("expected OcapID 42, got %d", got.OcapID)
+	if got.ObjectID != 42 {
+		t.Errorf("expected ObjectID 42, got %d", got.ObjectID)
 	}
 	if got.UnitName != "Test Soldier" {
 		t.Errorf("expected UnitName 'Test Soldier', got %s", got.UnitName)
@@ -54,7 +54,7 @@ func TestEntityCache_GetSoldier_NotFound(t *testing.T) {
 
 	_, ok := cache.GetSoldier(999)
 	if ok {
-		t.Error("expected not to find soldier with OcapID 999")
+		t.Error("expected not to find soldier with ObjectID 999")
 	}
 }
 
@@ -62,7 +62,7 @@ func TestEntityCache_AddAndGetVehicle(t *testing.T) {
 	cache := NewEntityCache()
 
 	vehicle := model.Vehicle{
-		OcapID:    99,
+		ObjectID:    99,
 		ClassName: "Test_Vehicle",
 	}
 
@@ -70,10 +70,10 @@ func TestEntityCache_AddAndGetVehicle(t *testing.T) {
 
 	got, ok := cache.GetVehicle(99)
 	if !ok {
-		t.Fatal("expected to find vehicle with OcapID 99")
+		t.Fatal("expected to find vehicle with ObjectID 99")
 	}
-	if got.OcapID != 99 {
-		t.Errorf("expected OcapID 99, got %d", got.OcapID)
+	if got.ObjectID != 99 {
+		t.Errorf("expected ObjectID 99, got %d", got.ObjectID)
 	}
 	if got.ClassName != "Test_Vehicle" {
 		t.Errorf("expected className 'Test_Vehicle', got %s", got.ClassName)
@@ -85,7 +85,7 @@ func TestEntityCache_GetVehicle_NotFound(t *testing.T) {
 
 	_, ok := cache.GetVehicle(999)
 	if ok {
-		t.Error("expected not to find vehicle with OcapID 999")
+		t.Error("expected not to find vehicle with ObjectID 999")
 	}
 }
 
@@ -93,9 +93,9 @@ func TestEntityCache_Reset(t *testing.T) {
 	cache := NewEntityCache()
 
 	// Add some data
-	cache.AddSoldier(model.Soldier{OcapID: 1, UnitName: "Soldier 1"})
-	cache.AddSoldier(model.Soldier{OcapID: 2, UnitName: "Soldier 2"})
-	cache.AddVehicle(model.Vehicle{OcapID: 10, ClassName: "Vehicle 1"})
+	cache.AddSoldier(model.Soldier{ObjectID: 1, UnitName: "Soldier 1"})
+	cache.AddSoldier(model.Soldier{ObjectID: 2, UnitName: "Soldier 2"})
+	cache.AddVehicle(model.Vehicle{ObjectID: 10, ClassName: "Vehicle 1"})
 
 	// Verify data exists
 	if len(cache.Soldiers) != 2 {
@@ -117,7 +117,7 @@ func TestEntityCache_Reset(t *testing.T) {
 	}
 
 	// Verify we can still add data after reset
-	cache.AddSoldier(model.Soldier{OcapID: 3, UnitName: "Soldier 3"})
+	cache.AddSoldier(model.Soldier{ObjectID: 3, UnitName: "Soldier 3"})
 	_, ok := cache.GetSoldier(3)
 	if !ok {
 		t.Error("expected to find soldier added after reset")
@@ -130,7 +130,7 @@ func TestEntityCache_LockUnlock(t *testing.T) {
 	// Test Lock/Unlock don't cause deadlock
 	cache.Lock()
 	// Directly modify the map while holding the lock
-	cache.Soldiers[1] = model.Soldier{OcapID: 1, UnitName: "Direct Add"}
+	cache.Soldiers[1] = model.Soldier{ObjectID: 1, UnitName: "Direct Add"}
 	cache.Unlock()
 
 	// Verify the data was added
@@ -152,11 +152,11 @@ func TestEntityCache_Concurrent(t *testing.T) {
 		wg.Add(2)
 		go func(id uint16) {
 			defer wg.Done()
-			cache.AddSoldier(model.Soldier{OcapID: id, UnitName: "Soldier"})
+			cache.AddSoldier(model.Soldier{ObjectID: id, UnitName: "Soldier"})
 		}(i)
 		go func(id uint16) {
 			defer wg.Done()
-			cache.AddVehicle(model.Vehicle{OcapID: id, ClassName: "Vehicle"})
+			cache.AddVehicle(model.Vehicle{ObjectID: id, ClassName: "Vehicle"})
 		}(i)
 	}
 	wg.Wait()

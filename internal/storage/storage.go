@@ -35,9 +35,9 @@ type Backend interface {
 	RecordAce3DeathEvent(e *core.Ace3DeathEvent) error
 	RecordAce3UnconsciousEvent(e *core.Ace3UnconsciousEvent) error
 
-	// Cache lookups (needed by handlers to resolve OcapID -> internal ID)
-	GetSoldierByOcapID(ocapID uint16) (*core.Soldier, bool)
-	GetVehicleByOcapID(ocapID uint16) (*core.Vehicle, bool)
+	// Cache lookups (needed by handlers to resolve ObjectID -> internal ID)
+	GetSoldierByObjectID(ocapID uint16) (*core.Soldier, bool)
+	GetVehicleByObjectID(ocapID uint16) (*core.Vehicle, bool)
 	GetMarkerByName(name string) (*core.Marker, bool)
 }
 
