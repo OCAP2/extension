@@ -158,23 +158,23 @@ func (s *Service) LogNewMission(data []string) error {
 			thisAddon.WorkshopID = addon.([]interface{})[1].(string)
 		}
 
-		// if addon doesn't exist, insert it
-		err = s.deps.DB.Where("name = ?", thisAddon.Name).First(&thisAddon).Error
-		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-			s.writeLog(functionName, fmt.Sprintf(`Error checking if addon exists: %v`, err), "ERROR")
-			return err
-		}
-		if thisAddon.ID == 0 {
-			// addon does not exist, create it
-			if err = s.deps.DB.Create(&thisAddon).Error; err != nil {
-				s.writeLog(functionName, fmt.Sprintf(`Error creating addon: %v`, err), "ERROR")
+		// Only use DB for addon lookup/create if DB is available
+		if s.deps.DB != nil {
+			// if addon doesn't exist, insert it
+			err = s.deps.DB.Where("name = ?", thisAddon.Name).First(&thisAddon).Error
+			if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+				s.writeLog(functionName, fmt.Sprintf(`Error checking if addon exists: %v`, err), "ERROR")
 				return err
 			}
-			addons = append(addons, thisAddon)
-		} else {
-			// addon exists, append it
-			addons = append(addons, thisAddon)
+			if thisAddon.ID == 0 {
+				// addon does not exist, create it
+				if err = s.deps.DB.Create(&thisAddon).Error; err != nil {
+					s.writeLog(functionName, fmt.Sprintf(`Error creating addon: %v`, err), "ERROR")
+					return err
+				}
+			}
 		}
+		addons = append(addons, thisAddon)
 	}
 	mission.Addons = addons
 
@@ -207,27 +207,35 @@ func (s *Service) LogNewMission(data []string) error {
 	// received at extension init and saved to local memory
 	mission.AddonVersion = s.deps.AddonVersion
 
-	// get or insert world
 	logger := s.deps.LogManager.Logger()
-	created, err := world.GetOrInsert(s.deps.DB)
-	if err != nil {
-		logger.Error("Failed to get or insert world", "error", err)
-		return err
-	}
-	if created {
-		logger.Debug("New world inserted", "worldName", world.WorldName)
-	} else {
-		logger.Debug("World already exists", "worldName", world.WorldName)
-	}
 
-	// always write new mission
-	mission.World = world
-	err = s.deps.DB.Create(&mission).Error
-	if err != nil {
-		logger.Error("Failed to insert new mission", "error", err)
-		return err
+	// Only use DB for world/mission persistence if DB is available
+	if s.deps.DB != nil {
+		// get or insert world
+		created, err := world.GetOrInsert(s.deps.DB)
+		if err != nil {
+			logger.Error("Failed to get or insert world", "error", err)
+			return err
+		}
+		if created {
+			logger.Debug("New world inserted", "worldName", world.WorldName)
+		} else {
+			logger.Debug("World already exists", "worldName", world.WorldName)
+		}
+
+		// always write new mission
+		mission.World = world
+		err = s.deps.DB.Create(&mission).Error
+		if err != nil {
+			logger.Error("Failed to insert new mission", "error", err)
+			return err
+		} else {
+			logger.Debug("New mission inserted", "missionName", mission.MissionName)
+		}
 	} else {
-		logger.Debug("New mission inserted", "missionName", mission.MissionName)
+		// Memory-only mode: just set the world reference
+		mission.World = world
+		logger.Debug("Memory-only mode: mission context set without DB persistence", "missionName", mission.MissionName)
 	}
 
 	// set current world and mission
