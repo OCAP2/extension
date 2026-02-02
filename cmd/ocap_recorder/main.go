@@ -300,20 +300,35 @@ func initExtension() {
 	a3interface.WriteArmaCallback(ExtensionName, ":VERSION:", CurrentExtensionVersion)
 }
 
-func initDB() (err error) {
-	Logger.Debug("Received :INIT:DB: call")
-	loadConfig()
-	functionName := ":INIT:DB:"
-	DB, err = getDB()
-	if err != nil || DB == nil {
-		// if we couldn't connect to the database, send a callback to the addon to let it know
-		SlogManager.WriteLog(functionName, fmt.Sprintf(`Error connecting to database: %v`, err), "ERROR")
-		a3interface.WriteArmaCallback(ExtensionName, ":DB:ERROR:", err.Error())
-	} else {
-		a3interface.WriteArmaCallback(ExtensionName, ":DB:OK:", DB.Dialector.Name())
-		// Process any commands that were queued while waiting for DB
-		go processPendingDBCommands()
+func initStorage() error {
+	Logger.Debug("Received :INIT:STORAGE: call")
+	// Config is already loaded in init()
+	functionName := ":INIT:STORAGE:"
+
+	storageCfg := config.GetStorageConfig()
+	if storageCfg.Type == "memory" {
+		Logger.Info("Memory storage mode initialized")
+		a3interface.WriteArmaCallback(ExtensionName, ":STORAGE:OK:", "memory")
+		return nil
 	}
+
+	// Database storage mode
+	var err error
+	DB, err = getDB()
+	if err != nil {
+		SlogManager.WriteLog(functionName, fmt.Sprintf(`Error connecting to database: %v`, err), "ERROR")
+		a3interface.WriteArmaCallback(ExtensionName, ":STORAGE:ERROR:", err.Error())
+		return err
+	}
+	if DB == nil {
+		err = fmt.Errorf("database connection is nil")
+		SlogManager.WriteLog(functionName, err.Error(), "ERROR")
+		a3interface.WriteArmaCallback(ExtensionName, ":STORAGE:ERROR:", err.Error())
+		return err
+	}
+	a3interface.WriteArmaCallback(ExtensionName, ":STORAGE:OK:", DB.Dialector.Name())
+	// Process any commands that were queued while waiting for DB
+	go processPendingDBCommands()
 	return nil
 }
 
@@ -817,8 +832,12 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 		return "ok", nil
 	})
 
-	d.Register(":INIT:DB:", func(e dispatcher.Event) (any, error) {
-		go initDB()
+	d.Register(":INIT:STORAGE:", func(e dispatcher.Event) (any, error) {
+		go func() {
+			if err := initStorage(); err != nil {
+				Logger.Error("Storage initialization failed", "error", err)
+			}
+		}()
 		return "ok", nil
 	})
 
@@ -1623,12 +1642,13 @@ order by s.ocap_id,
 func main() {
 	var err error
 	Logger.Info("Starting up...")
-	Logger.Info("Connecting to DB...")
-	err = initDB()
+
+	Logger.Info("Initializing storage...")
+	err = initStorage()
 	if err != nil {
 		panic(err)
 	}
-	Logger.Info("DB connect/migrate complete.")
+	Logger.Info("Storage initialization complete.")
 	initExtension()
 
 	args := os.Args[1:]

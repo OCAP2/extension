@@ -378,7 +378,9 @@ func (m *Manager) handleMarkerDelete(e dispatcher.Event) (any, error) {
 			Alpha:        0,
 		}
 		m.queues.MarkerStates.Push([]model.MarkerState{deleteState})
-		m.deps.DB.Model(&model.Marker{}).Where("id = ?", markerID).Update("is_deleted", true)
+		if m.deps.DB != nil {
+			m.deps.DB.Model(&model.Marker{}).Where("id = ?", markerID).Update("is_deleted", true)
+		}
 	}
 
 	return nil, nil
