@@ -475,9 +475,9 @@ func TestRegisterHandlers_RegistersAllCommands(t *testing.T) {
 		":FPS:",
 		":ACE3:DEATH:",
 		":ACE3:UNCONSCIOUS:",
-		":MARKER:CREATE:",
-		":MARKER:MOVE:",
-		":MARKER:DELETE:",
+		":NEW:MARKER:",
+		":NEW:MARKER:STATE:",
+		":DELETE:MARKER:",
 	}
 
 	for _, cmd := range expectedCommands {
