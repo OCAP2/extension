@@ -84,7 +84,7 @@ File: `ocap_recorder.cfg.json` (placed alongside DLL)
 ```json
 {
   "logLevel": "info",
-  "logsDir": "./OCAPLOG",
+  "logsDir": "./ocaplogs",
   "defaultTag": "TvT",
   "api": {
     "serverUrl": "http://127.0.0.1:5000",
