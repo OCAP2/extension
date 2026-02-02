@@ -191,7 +191,10 @@ func (d *Dispatcher) withBuffer(command string, cfg *config, h HandlerFunc) Hand
 		}
 
 		for e := range buffer {
-			h(e)
+			_, err := h(e)
+			if err != nil {
+				d.logger.Error("buffered handler failed", "command", command, "error", err)
+			}
 			d.processed.Add(context.Background(), 1, metric.WithAttributes(cmdAttr))
 		}
 	}()
