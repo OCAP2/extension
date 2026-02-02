@@ -104,9 +104,30 @@ func (m *Manager) GetLastDBWriteDuration() time.Duration {
 	return m.lastDBWriteDuration
 }
 
+// writeQueue writes all items from a queue to the database in a transaction.
+// If onSuccess is provided, it's called with the written items after successful commit.
+func writeQueue[T any](db *gorm.DB, q *queue.Queue[T], name string, log func(string, string, string), onSuccess func([]T)) {
+	if q.Empty() {
+		return
+	}
+
+	tx := db.Begin()
+	items := q.GetAndEmpty()
+	if err := tx.Create(&items).Error; err != nil {
+		log(":DB:WRITER:", fmt.Sprintf("Error creating %s: %v", name, err), "ERROR")
+		tx.Rollback()
+		return
+	}
+
+	tx.Commit()
+	if onSuccess != nil {
+		onSuccess(items)
+	}
+}
+
 // StartDBWriters starts the database writer goroutine
 func (m *Manager) StartDBWriters() {
-	functionName := ":DB:WRITER:"
+	log := m.deps.LogManager.WriteLog
 
 	go func() {
 		for {
@@ -122,234 +143,43 @@ func (m *Manager) StartDBWriters() {
 
 			writeStart := time.Now()
 
-			// write new soldiers
-			if !m.queues.Soldiers.Empty() {
-				tx := m.deps.DB.Begin()
-				toWrite := m.queues.Soldiers.GetAndEmpty()
-				err := tx.Create(&toWrite).Error
-				if err != nil {
-					m.deps.LogManager.WriteLog(functionName, fmt.Sprintf(`Error creating soldiers: %v`, err), "ERROR")
-					tx.Rollback()
-				} else {
-					tx.Commit()
-					for _, v := range toWrite {
-						m.deps.EntityCache.AddSoldier(v)
+			// Entities with cache updates
+			writeQueue(m.deps.DB, m.queues.Soldiers, "soldiers", log, func(items []model.Soldier) {
+				for _, v := range items {
+					m.deps.EntityCache.AddSoldier(v)
+				}
+			})
+			writeQueue(m.deps.DB, m.queues.Vehicles, "vehicles", log, func(items []model.Vehicle) {
+				for _, v := range items {
+					m.deps.EntityCache.AddVehicle(v)
+				}
+			})
+			writeQueue(m.deps.DB, m.queues.Markers, "markers", log, func(items []model.Marker) {
+				for _, marker := range items {
+					if marker.ID != 0 {
+						m.deps.MarkerCache.Set(marker.MarkerName, marker.ID)
 					}
 				}
-			}
+			})
 
-			// write soldier states
-			if !m.queues.SoldierStates.Empty() {
-				tx := m.deps.DB.Begin()
-				toWrite := m.queues.SoldierStates.GetAndEmpty()
-				err := tx.Create(&toWrite).Error
-				if err != nil {
-					m.deps.LogManager.WriteLog(functionName, fmt.Sprintf(`Error creating soldier states: %v`, err), "ERROR")
-					tx.Rollback()
-				} else {
-					tx.Commit()
-				}
-			}
+			// State updates (no post-processing)
+			writeQueue(m.deps.DB, m.queues.SoldierStates, "soldier states", log, nil)
+			writeQueue(m.deps.DB, m.queues.VehicleStates, "vehicle states", log, nil)
+			writeQueue(m.deps.DB, m.queues.MarkerStates, "marker states", log, nil)
 
-			// write new vehicles
-			if !m.queues.Vehicles.Empty() {
-				tx := m.deps.DB.Begin()
-				toWrite := m.queues.Vehicles.GetAndEmpty()
-				err := tx.Create(&toWrite).Error
-				if err != nil {
-					m.deps.LogManager.WriteLog(functionName, fmt.Sprintf(`Error creating vehicles: %v`, err), "ERROR")
-					tx.Rollback()
-				} else {
-					tx.Commit()
-					for _, v := range toWrite {
-						m.deps.EntityCache.AddVehicle(v)
-					}
-				}
-			}
-
-			// write vehicle states
-			if !m.queues.VehicleStates.Empty() {
-				tx := m.deps.DB.Begin()
-				toWrite := m.queues.VehicleStates.GetAndEmpty()
-				err := tx.Create(&toWrite).Error
-				if err != nil {
-					m.deps.LogManager.WriteLog(functionName, fmt.Sprintf(`Error creating vehicle states: %v`, err), "ERROR")
-					stmt := tx.Statement.SQL.String()
-					m.deps.LogManager.WriteLog(functionName, stmt, "ERROR")
-					tx.Rollback()
-				} else {
-					tx.Commit()
-				}
-			}
-
-			// write fired events
-			if !m.queues.FiredEvents.Empty() {
-				tx := m.deps.DB.Begin()
-				toWrite := m.queues.FiredEvents.GetAndEmpty()
-				err := tx.Create(&toWrite).Error
-				if err != nil {
-					m.deps.LogManager.WriteLog(functionName, fmt.Sprintf(`Error creating fired events: %v`, err), "ERROR")
-					stmt := tx.Statement.SQL.String()
-					m.deps.LogManager.WriteLog(functionName, stmt, "ERROR")
-					tx.Rollback()
-				} else {
-					tx.Commit()
-				}
-			}
-
-			// write projectile events
-			if !m.queues.ProjectileEvents.Empty() {
-				tx := m.deps.DB.Begin()
-				toWrite := m.queues.ProjectileEvents.GetAndEmpty()
-				err := tx.Create(&toWrite).Error
-				if err != nil {
-					m.deps.LogManager.WriteLog(functionName, fmt.Sprintf(`Error creating projectile events: %v`, err), "ERROR")
-					stmt := tx.Statement.SQL.String()
-					m.deps.LogManager.WriteLog(functionName, stmt, "ERROR")
-					tx.Rollback()
-				} else {
-					tx.Commit()
-				}
-			}
-
-			// write general events
-			if !m.queues.GeneralEvents.Empty() {
-				tx := m.deps.DB.Begin()
-				toWrite := m.queues.GeneralEvents.GetAndEmpty()
-				err := tx.Create(&toWrite).Error
-				if err != nil {
-					m.deps.LogManager.WriteLog(functionName, fmt.Sprintf(`Error creating general events: %v`, err), "ERROR")
-					tx.Rollback()
-				} else {
-					tx.Commit()
-				}
-			}
-
-			// write hit events
-			if !m.queues.HitEvents.Empty() {
-				tx := m.deps.DB.Begin()
-				toWrite := m.queues.HitEvents.GetAndEmpty()
-				err := tx.Create(&toWrite).Error
-				if err != nil {
-					m.deps.LogManager.WriteLog(functionName, fmt.Sprintf(`Error creating hit events: %v`, err), "ERROR")
-					tx.Rollback()
-				} else {
-					tx.Commit()
-				}
-			}
-
-			// write kill events
-			if !m.queues.KillEvents.Empty() {
-				tx := m.deps.DB.Begin()
-				toWrite := m.queues.KillEvents.GetAndEmpty()
-				err := tx.Create(&toWrite).Error
-				if err != nil {
-					m.deps.LogManager.WriteLog(functionName, fmt.Sprintf(`Error creating killed events: %v`, err), "ERROR")
-					tx.Rollback()
-				} else {
-					tx.Commit()
-				}
-			}
-
-			// write chat events
-			if !m.queues.ChatEvents.Empty() {
-				tx := m.deps.DB.Begin()
-				toWrite := m.queues.ChatEvents.GetAndEmpty()
-				err := tx.Create(&toWrite).Error
-				if err != nil {
-					m.deps.LogManager.WriteLog(functionName, fmt.Sprintf(`Error creating chat events: %v`, err), "ERROR")
-					tx.Rollback()
-				} else {
-					tx.Commit()
-				}
-			}
-
-			// write radio events
-			if !m.queues.RadioEvents.Empty() {
-				tx := m.deps.DB.Begin()
-				toWrite := m.queues.RadioEvents.GetAndEmpty()
-				err := tx.Create(&toWrite).Error
-				if err != nil {
-					m.deps.LogManager.WriteLog(functionName, fmt.Sprintf(`Error creating radio events: %v`, err), "ERROR")
-					tx.Rollback()
-				} else {
-					tx.Commit()
-				}
-			}
-
-			// write serverfps events
-			if !m.queues.FpsEvents.Empty() {
-				tx := m.deps.DB.Begin()
-				toWrite := m.queues.FpsEvents.GetAndEmpty()
-				err := tx.Create(&toWrite).Error
-				if err != nil {
-					m.deps.LogManager.WriteLog(functionName, fmt.Sprintf(`Error creating serverfps events: %v`, err), "ERROR")
-					tx.Rollback()
-				} else {
-					tx.Commit()
-				}
-			}
-
-			// write ace3 death events
-			if !m.queues.Ace3DeathEvents.Empty() {
-				tx := m.deps.DB.Begin()
-				toWrite := m.queues.Ace3DeathEvents.GetAndEmpty()
-				err := tx.Create(&toWrite).Error
-				if err != nil {
-					m.deps.LogManager.WriteLog(functionName, fmt.Sprintf(`Error creating ace3 death events: %v`, err), "ERROR")
-					tx.Rollback()
-				} else {
-					tx.Commit()
-				}
-			}
-
-			// write ace3 unconscious events
-			if !m.queues.Ace3UnconsciousEvents.Empty() {
-				tx := m.deps.DB.Begin()
-				toWrite := m.queues.Ace3UnconsciousEvents.GetAndEmpty()
-				err := tx.Create(&toWrite).Error
-				if err != nil {
-					m.deps.LogManager.WriteLog(functionName, fmt.Sprintf(`Error creating ace3 unconscious events: %v`, err), "ERROR")
-					tx.Rollback()
-				} else {
-					tx.Commit()
-				}
-			}
-
-			// write markers
-			if !m.queues.Markers.Empty() {
-				tx := m.deps.DB.Begin()
-				toWrite := m.queues.Markers.GetAndEmpty()
-				err := tx.Create(&toWrite).Error
-				if err != nil {
-					m.deps.LogManager.WriteLog(functionName, fmt.Sprintf(`Error creating markers: %v`, err), "ERROR")
-					tx.Rollback()
-				} else {
-					tx.Commit()
-					for _, marker := range toWrite {
-						if marker.ID != 0 {
-							m.deps.MarkerCache.Set(marker.MarkerName, marker.ID)
-						}
-					}
-				}
-			}
-
-			// write marker states
-			if !m.queues.MarkerStates.Empty() {
-				tx := m.deps.DB.Begin()
-				toWrite := m.queues.MarkerStates.GetAndEmpty()
-				err := tx.Create(&toWrite).Error
-				if err != nil {
-					m.deps.LogManager.WriteLog(functionName, fmt.Sprintf(`Error creating marker states: %v`, err), "ERROR")
-					tx.Rollback()
-				} else {
-					tx.Commit()
-				}
-			}
+			// Events (no post-processing)
+			writeQueue(m.deps.DB, m.queues.FiredEvents, "fired events", log, nil)
+			writeQueue(m.deps.DB, m.queues.ProjectileEvents, "projectile events", log, nil)
+			writeQueue(m.deps.DB, m.queues.GeneralEvents, "general events", log, nil)
+			writeQueue(m.deps.DB, m.queues.HitEvents, "hit events", log, nil)
+			writeQueue(m.deps.DB, m.queues.KillEvents, "kill events", log, nil)
+			writeQueue(m.deps.DB, m.queues.ChatEvents, "chat events", log, nil)
+			writeQueue(m.deps.DB, m.queues.RadioEvents, "radio events", log, nil)
+			writeQueue(m.deps.DB, m.queues.FpsEvents, "serverfps events", log, nil)
+			writeQueue(m.deps.DB, m.queues.Ace3DeathEvents, "ace3 death events", log, nil)
+			writeQueue(m.deps.DB, m.queues.Ace3UnconsciousEvents, "ace3 unconscious events", log, nil)
 
 			m.lastDBWriteDuration = time.Since(writeStart)
-
-			// sleep
 			time.Sleep(2 * time.Second)
 		}
 	}()
