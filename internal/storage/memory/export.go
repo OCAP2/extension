@@ -11,6 +11,7 @@ import (
 )
 
 // OcapExport is the root JSON structure
+// Note: Markers uses capital M for compatibility with ocap2-web
 type OcapExport struct {
 	AddonVersion     string       `json:"addonVersion"`
 	ExtensionVersion string       `json:"extensionVersion"`
@@ -20,8 +21,8 @@ type OcapExport struct {
 	EndFrame         uint         `json:"endFrame"`
 	CaptureDelay     float32      `json:"captureDelay"`
 	Entities         []EntityJSON `json:"entities"`
-	Events           []EventJSON  `json:"events"`
-	Markers          []MarkerJSON `json:"markers"`
+	Events           [][]any      `json:"events"`
+	Markers          [][]any      `json:"Markers"` // Capital M for ocap2-web compatibility
 }
 
 // EntityJSON represents a soldier or vehicle
@@ -38,40 +39,21 @@ type EntityJSON struct {
 	FramesFired   [][]any `json:"framesFired"`
 }
 
-// EventJSON represents a general event
-type EventJSON struct {
-	FrameNum uint    `json:"frameNum"`
-	Type     string  `json:"type"`
-	SourceID *uint   `json:"sourceId,omitempty"`
-	TargetID *uint   `json:"targetId,omitempty"`
-	Message  string  `json:"message,omitempty"`
-	Distance float32 `json:"distance,omitempty"`
-	Weapon   string  `json:"weapon,omitempty"`
-}
-
-// MarkerJSON represents a marker
-type MarkerJSON struct {
-	Type       string              `json:"type"`
-	Text       string              `json:"text"`
-	StartFrame uint                `json:"startFrame"`
-	EndFrame   int                 `json:"endFrame"` // -1 means marker persists until end
-	PlayerID   int                 `json:"playerId"` // -1 means no player
-	Color      string              `json:"color"`
-	Side       string              `json:"side"`
-	Positions  []MarkerPositionJSON `json:"positions"`
-	Size       []float32           `json:"size"`
-	Shape      string              `json:"shape"`
-	Brush      string              `json:"brush"`
-}
-
-// MarkerPositionJSON represents a marker position at a specific frame
-type MarkerPositionJSON struct {
-	FrameNum  uint    `json:"frameNum"`
-	PosX      float64 `json:"posX"`
-	PosY      float64 `json:"posY"`
-	PosZ      float64 `json:"posZ"`
-	Direction float32 `json:"direction"`
-	Alpha     float32 `json:"alpha"`
+// sideToIndex converts side string to numeric index for markers
+// -1=GLOBAL, 0=EAST, 1=WEST, 2=GUER, 3=CIV
+func sideToIndex(side string) int {
+	switch strings.ToUpper(side) {
+	case "EAST", "OPFOR":
+		return 0
+	case "WEST", "BLUFOR":
+		return 1
+	case "GUER", "INDEPENDENT":
+		return 2
+	case "CIV", "CIVILIAN":
+		return 3
+	default:
+		return -1 // GLOBAL
+	}
 }
 
 // exportJSON writes the mission data to a gzipped JSON file
@@ -121,8 +103,8 @@ func (b *Backend) buildExport() OcapExport {
 		WorldName:        b.world.WorldName,
 		CaptureDelay:     b.mission.CaptureDelay,
 		Entities:         make([]EntityJSON, 0),
-		Events:           make([]EventJSON, 0),
-		Markers:          make([]MarkerJSON, 0),
+		Events:           make([][]any, 0),
+		Markers:          make([][]any, 0),
 	}
 
 	var maxFrame uint = 0
@@ -205,99 +187,103 @@ func (b *Backend) buildExport() OcapExport {
 	export.EndFrame = maxFrame
 
 	// Convert general events
+	// Format: [frameNum, "type", message]
 	for _, evt := range b.generalEvents {
-		export.Events = append(export.Events, EventJSON{
-			FrameNum: evt.CaptureFrame,
-			Type:     evt.Name,
-			Message:  evt.Message,
+		export.Events = append(export.Events, []any{
+			evt.CaptureFrame,
+			evt.Name,
+			evt.Message,
 		})
 	}
 
 	// Convert hit events
+	// Format: [frameNum, "hit", victimId, [causedById, weapon], distance]
 	for _, evt := range b.hitEvents {
-		event := EventJSON{
-			FrameNum: evt.CaptureFrame,
-			Type:     "hit",
-			Message:  evt.EventText,
-			Distance: evt.Distance,
-		}
-		// Set source (shooter) ID
-		if evt.ShooterVehicleID != nil {
-			event.SourceID = evt.ShooterVehicleID
-		} else if evt.ShooterSoldierID != nil {
-			event.SourceID = evt.ShooterSoldierID
-		}
-		// Set target (victim) ID
+		var victimID uint
 		if evt.VictimVehicleID != nil {
-			event.TargetID = evt.VictimVehicleID
+			victimID = *evt.VictimVehicleID
 		} else if evt.VictimSoldierID != nil {
-			event.TargetID = evt.VictimSoldierID
+			victimID = *evt.VictimSoldierID
 		}
-		export.Events = append(export.Events, event)
+
+		var sourceID uint
+		if evt.ShooterVehicleID != nil {
+			sourceID = *evt.ShooterVehicleID
+		} else if evt.ShooterSoldierID != nil {
+			sourceID = *evt.ShooterSoldierID
+		}
+
+		export.Events = append(export.Events, []any{
+			evt.CaptureFrame,
+			"hit",
+			victimID,
+			[]any{sourceID, evt.EventText}, // [causedById, weapon]
+			evt.Distance,
+		})
 	}
 
 	// Convert kill events
+	// Format: [frameNum, "killed", victimId, [causedById, weapon], distance]
 	for _, evt := range b.killEvents {
-		event := EventJSON{
-			FrameNum: evt.CaptureFrame,
-			Type:     "killed",
-			Message:  evt.EventText,
-			Distance: evt.Distance,
-		}
-		// Set source (killer) ID
-		if evt.KillerVehicleID != nil {
-			event.SourceID = evt.KillerVehicleID
-		} else if evt.KillerSoldierID != nil {
-			event.SourceID = evt.KillerSoldierID
-		}
-		// Set target (victim) ID
+		var victimID uint
 		if evt.VictimVehicleID != nil {
-			event.TargetID = evt.VictimVehicleID
+			victimID = *evt.VictimVehicleID
 		} else if evt.VictimSoldierID != nil {
-			event.TargetID = evt.VictimSoldierID
+			victimID = *evt.VictimSoldierID
 		}
-		export.Events = append(export.Events, event)
+
+		var killerID uint
+		if evt.KillerVehicleID != nil {
+			killerID = *evt.KillerVehicleID
+		} else if evt.KillerSoldierID != nil {
+			killerID = *evt.KillerSoldierID
+		}
+
+		export.Events = append(export.Events, []any{
+			evt.CaptureFrame,
+			"killed",
+			victimID,
+			[]any{killerID, evt.EventText}, // [causedById, weapon]
+			evt.Distance,
+		})
 	}
 
 	// Convert markers
+	// Format: [type, text, startFrame, endFrame, playerId, color, sideIndex, positions, size, shape, brush]
+	// Where positions is: [[frameNum, [x, y, z], direction, alpha], ...]
 	for _, record := range b.markers {
-		// Determine end frame (use max frame if marker persists)
-		endFrame := -1 // -1 means marker persists until mission end
-
-		marker := MarkerJSON{
-			Type:       record.Marker.MarkerType,
-			Text:       record.Marker.Text,
-			StartFrame: record.Marker.CaptureFrame,
-			EndFrame:   endFrame,
-			PlayerID:   -1, // -1 means no player owner
-			Color:      record.Marker.Color,
-			Side:       record.Marker.Side,
-			Positions:  make([]MarkerPositionJSON, 0),
-			Size:       []float32{1.0, 1.0}, // Default size
-			Shape:      record.Marker.Shape,
-			Brush:      "Solid", // Default brush
-		}
+		positions := make([][]any, 0)
 
 		// Initial position
-		marker.Positions = append(marker.Positions, MarkerPositionJSON{
-			FrameNum:  record.Marker.CaptureFrame,
-			PosX:      record.Marker.Position.X,
-			PosY:      record.Marker.Position.Y,
-			PosZ:      0,
-			Direction: record.Marker.Direction,
-			Alpha:     record.Marker.Alpha,
+		positions = append(positions, []any{
+			record.Marker.CaptureFrame,
+			[]float64{record.Marker.Position.X, record.Marker.Position.Y, 0},
+			record.Marker.Direction,
+			record.Marker.Alpha,
 		})
 
 		// State changes
 		for _, state := range record.States {
-			marker.Positions = append(marker.Positions, MarkerPositionJSON{
-				FrameNum:  state.CaptureFrame,
-				PosX:      state.Position.X,
-				PosY:      state.Position.Y,
-				PosZ:      0,
-				Direction: state.Direction,
-				Alpha:     state.Alpha,
+			positions = append(positions, []any{
+				state.CaptureFrame,
+				[]float64{state.Position.X, state.Position.Y, 0},
+				state.Direction,
+				state.Alpha,
 			})
+		}
+
+		marker := []any{
+			record.Marker.MarkerType,          // [0] type
+			record.Marker.Text,                // [1] text
+			record.Marker.CaptureFrame,        // [2] startFrame
+			-1,                                // [3] endFrame (-1 = persists until end)
+			-1,                                // [4] playerId (-1 = no player)
+			record.Marker.Color,               // [5] color
+			sideToIndex(record.Marker.Side),   // [6] sideIndex
+			positions,                         // [7] positions
+			[]float32{1.0, 1.0},               // [8] size
+			record.Marker.Shape,               // [9] shape
+			"Solid",                           // [10] brush
 		}
 
 		export.Markers = append(export.Markers, marker)

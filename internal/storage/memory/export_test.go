@@ -142,19 +142,22 @@ func TestIntegrationFullExport(t *testing.T) {
 	assert.Equal(t, "B_MRAP_01_F", vehicleEntity.Class)
 	require.Len(t, vehicleEntity.Positions, 1)
 
-	// Verify events
+	// Verify events (array format: [frameNum, type, message])
 	require.Len(t, export.Events, 1)
-	assert.Equal(t, "connected", export.Events[0].Type)
-	assert.Equal(t, uint(15), export.Events[0].FrameNum)
-	assert.Equal(t, "Player1 connected", export.Events[0].Message)
+	assert.Equal(t, "connected", export.Events[0][1])         // type
+	assert.EqualValues(t, 15, export.Events[0][0])            // frameNum
+	assert.Equal(t, "Player1 connected", export.Events[0][2]) // message
 
-	// Verify markers
+	// Verify markers (array format: [type, text, startFrame, endFrame, playerId, color, sideIndex, positions, size, shape, brush])
 	require.Len(t, export.Markers, 1)
-	assert.Equal(t, "Objective Alpha", export.Markers[0].Text)
-	assert.Equal(t, "mil_objective", export.Markers[0].Type)
-	assert.Equal(t, "ColorBLUFOR", export.Markers[0].Color)
-	assert.Equal(t, "WEST", export.Markers[0].Side)
-	assert.Len(t, export.Markers[0].Positions, 2, "initial position + 1 state change")
+	assert.Equal(t, "Objective Alpha", export.Markers[0][1]) // text
+	assert.Equal(t, "mil_objective", export.Markers[0][0])   // type
+	assert.Equal(t, "ColorBLUFOR", export.Markers[0][5])     // color
+	assert.EqualValues(t, 1, export.Markers[0][6])           // sideIndex (WEST = 1)
+	// JSON decodes nested arrays as []interface{}, not [][]any
+	positions, ok := export.Markers[0][7].([]interface{})
+	require.True(t, ok, "positions should be []interface{}")
+	assert.Len(t, positions, 2, "initial position + 1 state change")
 }
 
 func TestExportJSON(t *testing.T) {
@@ -372,14 +375,16 @@ func TestMarkerPositionFormat(t *testing.T) {
 	export := b.buildExport()
 
 	require.Len(t, export.Markers, 1)
-	require.Len(t, export.Markers[0].Positions, 2) // initial + 1 state
+	positions := export.Markers[0][7].([][]any) // positions at index 7
+	require.Len(t, positions, 2)                // initial + 1 state
 
-	initialPos := export.Markers[0].Positions[0]
-	assert.Equal(t, uint(0), initialPos.FrameNum)
-	assert.Equal(t, 1000.0, initialPos.PosX)
-	assert.Equal(t, 2000.0, initialPos.PosY)
+	initialPos := positions[0]
+	assert.Equal(t, uint(0), initialPos[0])                  // frameNum
+	coords := initialPos[1].([]float64)
+	assert.Equal(t, 1000.0, coords[0])                       // posX
+	assert.Equal(t, 2000.0, coords[1])                       // posY
 
-	assert.Equal(t, uint(50), export.Markers[0].Positions[1].FrameNum)
+	assert.Equal(t, uint(50), positions[1][0])               // second position frameNum
 }
 
 func TestEmptyExport(t *testing.T) {
@@ -497,9 +502,9 @@ func TestEventWithoutExtraData(t *testing.T) {
 	export := b.buildExport()
 
 	require.Len(t, export.Events, 1)
-	assert.Equal(t, "endMission", export.Events[0].Type)
-	assert.Equal(t, uint(100), export.Events[0].FrameNum)
-	assert.Equal(t, "Mission ended", export.Events[0].Message)
+	assert.Equal(t, "endMission", export.Events[0][1])       // type at index 1
+	assert.Equal(t, uint(100), export.Events[0][0])          // frameNum at index 0
+	assert.Equal(t, "Mission ended", export.Events[0][2])    // message at index 2
 }
 
 func TestMultipleMarkersExport(t *testing.T) {
@@ -521,22 +526,26 @@ func TestMultipleMarkersExport(t *testing.T) {
 
 	require.Len(t, export.Markers, 2)
 
-	var m1, m2 *MarkerJSON
+	// Markers are now arrays: [type, text, startFrame, endFrame, playerId, color, sideIndex, positions, size, shape, brush]
+	var m1, m2 []any
 	for i := range export.Markers {
-		switch export.Markers[i].Text {
+		text := export.Markers[i][1].(string) // text at index 1
+		switch text {
 		case "Alpha":
-			m1 = &export.Markers[i]
+			m1 = export.Markers[i]
 		case "Bravo":
-			m2 = &export.Markers[i]
+			m2 = export.Markers[i]
 		}
 	}
 
 	require.NotNil(t, m1, "marker Alpha not found")
 	require.NotNil(t, m2, "marker Bravo not found")
-	assert.Len(t, m1.Positions, 3, "marker1 should have initial + 2 states")
-	assert.Len(t, m2.Positions, 1, "marker2 should have only initial position")
-	assert.Equal(t, "ColorBLUFOR", m1.Color)
-	assert.Equal(t, "EAST", m2.Side)
+	m1Positions := m1[7].([][]any)
+	m2Positions := m2[7].([][]any)
+	assert.Len(t, m1Positions, 3, "marker1 should have initial + 2 states")
+	assert.Len(t, m2Positions, 1, "marker2 should have only initial position")
+	assert.Equal(t, "ColorBLUFOR", m1[5]) // color at index 5
+	assert.Equal(t, 0, m2[6])             // sideIndex at index 6 (EAST = 0)
 }
 
 func TestMultipleFiredEvents(t *testing.T) {
