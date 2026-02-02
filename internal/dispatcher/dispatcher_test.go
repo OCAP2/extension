@@ -167,7 +167,7 @@ func TestDispatcher_LoggedHandler(t *testing.T) {
 	d, logger := newTestDispatcher(t)
 
 	d.Register(":LOGGED:", func(e Event) (any, error) {
-		return "ok", nil
+		return nil, nil
 	}, Logged())
 
 	d.Dispatch(Event{Command: ":LOGGED:", Args: []string{"a", "b"}})
