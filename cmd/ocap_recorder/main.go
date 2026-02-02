@@ -117,6 +117,10 @@ var (
 
 	addonVersion string = "unknown"
 
+	// pendingDBCommands holds commands that require DB but were received before DB was ready
+	pendingDBCommands   []pendingCommand
+	pendingDBCommandsMu sync.Mutex
+
 	// Services
 	handlerService  *handlers.Service
 	workerManager   *worker.Manager
@@ -128,6 +132,11 @@ var (
 	storageBackend storage.Backend
 )
 
+// pendingCommand represents a command that was received before DB was ready
+type pendingCommand struct {
+	command string
+	args    []string
+}
 
 // init is run automatically when the module is loaded
 func init() {
@@ -302,8 +311,41 @@ func initDB() (err error) {
 		a3interface.WriteArmaCallback(ExtensionName, ":DB:ERROR:", err.Error())
 	} else {
 		a3interface.WriteArmaCallback(ExtensionName, ":DB:OK:", DB.Dialector.Name())
+		// Process any commands that were queued while waiting for DB
+		go processPendingDBCommands()
 	}
 	return nil
+}
+
+// processPendingDBCommands processes commands that were queued before DB was ready
+func processPendingDBCommands() {
+	pendingDBCommandsMu.Lock()
+	commands := pendingDBCommands
+	pendingDBCommands = nil // Clear the queue
+	pendingDBCommandsMu.Unlock()
+
+	if len(commands) == 0 {
+		return
+	}
+
+	Logger.Info("Processing pending DB commands", "count", len(commands))
+
+	for _, cmd := range commands {
+		switch cmd.command {
+		case ":NEW:MISSION:":
+			if handlerService != nil {
+				if err := handlerService.LogNewMission(cmd.args); err != nil {
+					Logger.Error("Failed to process queued :NEW:MISSION:", "error", err)
+					a3interface.WriteArmaCallback(ExtensionName, ":NEW:MISSION:ERROR:", err.Error())
+				} else {
+					Logger.Info("Processed queued :NEW:MISSION: successfully")
+					a3interface.WriteArmaCallback(ExtensionName, ":NEW:MISSION:OK:", "")
+				}
+			}
+		default:
+			Logger.Warn("Unknown pending command", "command", cmd.command)
+		}
+	}
 }
 
 func setupA3Interface() (err error) {
@@ -807,8 +849,21 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 	})
 
 	d.Register(":NEW:MISSION:", func(e dispatcher.Event) (any, error) {
+		if !IsDatabaseValid {
+			// Queue command for later processing when DB is ready
+			pendingDBCommandsMu.Lock()
+			pendingDBCommands = append(pendingDBCommands, pendingCommand{
+				command: ":NEW:MISSION:",
+				args:    e.Args,
+			})
+			pendingDBCommandsMu.Unlock()
+			Logger.Info("Queued :NEW:MISSION: - waiting for database")
+			return "queued", nil
+		}
 		if handlerService != nil {
-			handlerService.LogNewMission(e.Args)
+			if err := handlerService.LogNewMission(e.Args); err != nil {
+				return nil, err
+			}
 		}
 		return "ok", nil
 	})
