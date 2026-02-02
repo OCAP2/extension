@@ -89,8 +89,7 @@ func (m *Manager) handleSoldierState(e dispatcher.Event) (any, error) {
 
 	obj, err := m.deps.HandlerService.LogSoldierState(e.Args)
 	if err != nil {
-		// Silent skip for early state (before entity registered)
-		return nil, nil
+		return nil, fmt.Errorf("failed to log soldier state: %w", err)
 	}
 
 	if m.hasBackend() {
@@ -110,7 +109,7 @@ func (m *Manager) handleVehicleState(e dispatcher.Event) (any, error) {
 
 	obj, err := m.deps.HandlerService.LogVehicleState(e.Args)
 	if err != nil {
-		return nil, nil
+		return nil, fmt.Errorf("failed to log vehicle state: %w", err)
 	}
 
 	if m.hasBackend() {
@@ -130,7 +129,7 @@ func (m *Manager) handleFiredEvent(e dispatcher.Event) (any, error) {
 
 	obj, err := m.deps.HandlerService.LogFiredEvent(e.Args)
 	if err != nil {
-		return nil, nil
+		return nil, fmt.Errorf("failed to log fired event: %w", err)
 	}
 
 	if m.hasBackend() {
@@ -151,7 +150,7 @@ func (m *Manager) handleProjectileEvent(e dispatcher.Event) (any, error) {
 
 	obj, err := m.deps.HandlerService.LogProjectileEvent(e.Args)
 	if err != nil {
-		return nil, nil
+		return nil, fmt.Errorf("failed to log projectile event: %w", err)
 	}
 
 	m.queues.ProjectileEvents.Push(obj)
@@ -185,7 +184,7 @@ func (m *Manager) handleHitEvent(e dispatcher.Event) (any, error) {
 
 	obj, err := m.deps.HandlerService.LogHitEvent(e.Args)
 	if err != nil {
-		return nil, nil
+		return nil, fmt.Errorf("failed to log hit event: %w", err)
 	}
 
 	if m.hasBackend() {
@@ -205,7 +204,7 @@ func (m *Manager) handleKillEvent(e dispatcher.Event) (any, error) {
 
 	obj, err := m.deps.HandlerService.LogKillEvent(e.Args)
 	if err != nil {
-		return nil, nil
+		return nil, fmt.Errorf("failed to log kill event: %w", err)
 	}
 
 	if m.hasBackend() {
@@ -225,7 +224,7 @@ func (m *Manager) handleChatEvent(e dispatcher.Event) (any, error) {
 
 	obj, err := m.deps.HandlerService.LogChatEvent(e.Args)
 	if err != nil {
-		return nil, nil
+		return nil, fmt.Errorf("failed to log chat event: %w", err)
 	}
 
 	if m.hasBackend() {
@@ -245,7 +244,7 @@ func (m *Manager) handleRadioEvent(e dispatcher.Event) (any, error) {
 
 	obj, err := m.deps.HandlerService.LogRadioEvent(e.Args)
 	if err != nil {
-		return nil, nil
+		return nil, fmt.Errorf("failed to log radio event: %w", err)
 	}
 
 	if m.hasBackend() {
@@ -265,7 +264,7 @@ func (m *Manager) handleFpsEvent(e dispatcher.Event) (any, error) {
 
 	obj, err := m.deps.HandlerService.LogFpsEvent(e.Args)
 	if err != nil {
-		return nil, nil
+		return nil, fmt.Errorf("failed to log fps event: %w", err)
 	}
 
 	if m.hasBackend() {
@@ -285,7 +284,7 @@ func (m *Manager) handleAce3DeathEvent(e dispatcher.Event) (any, error) {
 
 	obj, err := m.deps.HandlerService.LogAce3DeathEvent(e.Args)
 	if err != nil {
-		return nil, nil
+		return nil, fmt.Errorf("failed to log ace3 death event: %w", err)
 	}
 
 	if m.hasBackend() {
@@ -305,7 +304,7 @@ func (m *Manager) handleAce3UnconsciousEvent(e dispatcher.Event) (any, error) {
 
 	obj, err := m.deps.HandlerService.LogAce3UnconsciousEvent(e.Args)
 	if err != nil {
-		return nil, nil
+		return nil, fmt.Errorf("failed to log ace3 unconscious event: %w", err)
 	}
 
 	if m.hasBackend() {
@@ -345,7 +344,7 @@ func (m *Manager) handleMarkerMove(e dispatcher.Event) (any, error) {
 
 	markerState, err := m.deps.HandlerService.LogMarkerMove(e.Args)
 	if err != nil {
-		return nil, nil
+		return nil, fmt.Errorf("failed to log marker move: %w", err)
 	}
 
 	if m.hasBackend() {
