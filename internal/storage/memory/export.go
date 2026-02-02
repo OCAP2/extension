@@ -109,10 +109,31 @@ func (b *Backend) buildExport() OcapExport {
 
 	var maxFrame uint = 0
 
-	// Convert soldiers
+	// Find max entity ID to size the entities array correctly
+	// The JS frontend uses entities[id] to look up entities, so array index must equal entity ID
+	var maxEntityID uint16 = 0
+	hasEntities := len(b.soldiers) > 0 || len(b.vehicles) > 0
+	for _, record := range b.soldiers {
+		if record.Soldier.ID > maxEntityID {
+			maxEntityID = record.Soldier.ID
+		}
+	}
+	for _, record := range b.vehicles {
+		if record.Vehicle.ID > maxEntityID {
+			maxEntityID = record.Vehicle.ID
+		}
+	}
+
+	// Create entities array with placeholder entries
+	// Index N will contain entity with ID=N
+	if hasEntities {
+		export.Entities = make([]EntityJSON, maxEntityID+1)
+	}
+
+	// Convert soldiers - place at index matching their ID
 	for _, record := range b.soldiers {
 		entity := EntityJSON{
-			ID:            record.Soldier.ID, // ID is the ObjectID
+			ID:            record.Soldier.ID,
 			Name:          record.Soldier.UnitName,
 			Group:         record.Soldier.GroupID,
 			Side:          record.Soldier.Side,
@@ -151,13 +172,13 @@ func (b *Backend) buildExport() OcapExport {
 			entity.FramesFired = append(entity.FramesFired, ff)
 		}
 
-		export.Entities = append(export.Entities, entity)
+		export.Entities[record.Soldier.ID] = entity
 	}
 
-	// Convert vehicles
+	// Convert vehicles - place at index matching their ID
 	for _, record := range b.vehicles {
 		entity := EntityJSON{
-			ID:            record.Vehicle.ID, // ID is the ObjectID
+			ID:            record.Vehicle.ID,
 			Name:          record.Vehicle.DisplayName,
 			Side:          "UNKNOWN",
 			IsPlayer:      0,
@@ -169,11 +190,21 @@ func (b *Backend) buildExport() OcapExport {
 		}
 
 		for _, state := range record.States {
+			// Parse crew JSON string into actual JSON array
+			var crew any
+			if state.Crew != "" {
+				if err := json.Unmarshal([]byte(state.Crew), &crew); err != nil {
+					crew = []any{} // Fallback to empty array on parse error
+				}
+			} else {
+				crew = []any{}
+			}
+
 			pos := []any{
 				[]float64{state.Position.X, state.Position.Y},
 				state.Bearing,
 				boolToInt(state.IsAlive),
-				state.Crew,
+				crew,
 			}
 			entity.Positions = append(entity.Positions, pos)
 			if state.CaptureFrame > maxFrame {
@@ -181,7 +212,7 @@ func (b *Backend) buildExport() OcapExport {
 			}
 		}
 
-		export.Entities = append(export.Entities, entity)
+		export.Entities[record.Vehicle.ID] = entity
 	}
 
 	export.EndFrame = maxFrame
@@ -250,14 +281,14 @@ func (b *Backend) buildExport() OcapExport {
 
 	// Convert markers
 	// Format: [type, text, startFrame, endFrame, playerId, color, sideIndex, positions, size, shape, brush]
-	// Where positions is: [[frameNum, [x, y, z], direction, alpha], ...]
+	// Where positions is: [[frameNum, [x, y], direction, alpha], ...]
 	for _, record := range b.markers {
 		positions := make([][]any, 0)
 
-		// Initial position
+		// Initial position: [frameNum, [x, y], direction, alpha]
 		positions = append(positions, []any{
 			record.Marker.CaptureFrame,
-			[]float64{record.Marker.Position.X, record.Marker.Position.Y, 0},
+			[]float64{record.Marker.Position.X, record.Marker.Position.Y},
 			record.Marker.Direction,
 			record.Marker.Alpha,
 		})
@@ -266,7 +297,7 @@ func (b *Backend) buildExport() OcapExport {
 		for _, state := range record.States {
 			positions = append(positions, []any{
 				state.CaptureFrame,
-				[]float64{state.Position.X, state.Position.Y, 0},
+				[]float64{state.Position.X, state.Position.Y},
 				state.Direction,
 				state.Alpha,
 			})
