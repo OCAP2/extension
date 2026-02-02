@@ -3,13 +3,13 @@ package core
 
 import "time"
 
-// Soldier represents a player or AI unit
+// Soldier represents a player or AI unit.
+// ID is the OcapID - the game's identifier for this entity.
 type Soldier struct {
-	ID              uint
+	ID              uint16 // OcapID - game identifier
 	MissionID       uint
 	JoinTime        time.Time
 	JoinFrame       uint
-	OcapID          uint16
 	OcapType        string
 	UnitName        string
 	GroupID         string
@@ -22,18 +22,18 @@ type Soldier struct {
 	SquadParams     []any
 }
 
-// SoldierState represents soldier state at a point in time
+// SoldierState represents soldier state at a point in time.
+// SoldierID references the Soldier's ID (OcapID).
 type SoldierState struct {
-	ID                uint
+	SoldierID         uint16 // References Soldier.ID (OcapID)
 	MissionID         uint
-	SoldierID         uint
 	Time              time.Time
 	CaptureFrame      uint
 	Position          Position3D
 	Bearing           uint16
 	Lifestate         uint8
 	InVehicle         bool
-	InVehicleObjectID *uint
+	InVehicleObjectID *uint16 // OcapID of vehicle, if in one
 	VehicleRole       string
 	UnitName          string
 	IsPlayer          bool

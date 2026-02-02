@@ -93,7 +93,7 @@ func (b *mockBackend) EndMission() error {
 func (b *mockBackend) AddSoldier(s *core.Soldier) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	s.ID = uint(len(b.soldiers) + 1)
+	// ID is the OcapID, already set by caller
 	b.soldiers = append(b.soldiers, s)
 	return nil
 }
@@ -101,7 +101,7 @@ func (b *mockBackend) AddSoldier(s *core.Soldier) error {
 func (b *mockBackend) AddVehicle(v *core.Vehicle) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	v.ID = uint(len(b.vehicles) + 1)
+	// ID is the OcapID, already set by caller
 	b.vehicles = append(b.vehicles, v)
 	return nil
 }
@@ -209,7 +209,7 @@ func (b *mockBackend) GetSoldierByOcapID(ocapID uint16) (*core.Soldier, bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for _, s := range b.soldiers {
-		if s.OcapID == ocapID {
+		if s.ID == ocapID { // ID is the OcapID
 			return s, true
 		}
 	}
@@ -220,7 +220,7 @@ func (b *mockBackend) GetVehicleByOcapID(ocapID uint16) (*core.Vehicle, bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for _, v := range b.vehicles {
-		if v.OcapID == ocapID {
+		if v.ID == ocapID { // ID is the OcapID
 			return v, true
 		}
 	}

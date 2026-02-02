@@ -1389,7 +1389,7 @@ func getOcapRecording(missionIDs []string) (err error) {
 
 			soldierStates := []model.SoldierState{}
 			err = DB.Model(&model.SoldierState{}).
-				Where("mission_id = ? AND soldier_id = ?", missionIDInt, soldier.ID).
+				Where("mission_id = ? AND soldier_ocap_id = ?", missionIDInt, soldier.OcapID).
 				Order("capture_frame ASC").
 				Find(&soldierStates).Error
 			if err != nil {
@@ -1403,7 +1403,7 @@ func getOcapRecording(missionIDs []string) (err error) {
 					[]float64{coord.XY.X, coord.XY.Y},
 					state.Bearing,
 					state.Lifestate,
-					state.InVehicleObjectID,
+					state.InVehicleOcapID,
 					state.UnitName,
 					state.IsPlayer,
 					state.CurrentRole,
@@ -1414,7 +1414,7 @@ func getOcapRecording(missionIDs []string) (err error) {
 
 			firedEvents := []model.FiredEvent{}
 			err = DB.Model(&model.FiredEvent{}).
-				Where("mission_id = ? AND soldier_id = ?", missionIDInt, soldier.ID).
+				Where("mission_id = ? AND soldier_ocap_id = ?", missionIDInt, soldier.OcapID).
 				Order("capture_frame ASC").
 				Find(&firedEvents).Error
 			if err != nil {
@@ -1456,7 +1456,7 @@ func getOcapRecording(missionIDs []string) (err error) {
 
 			vehicleStates := []model.VehicleState{}
 			err = DB.Model(&model.VehicleState{}).
-				Where("mission_id = ? AND vehicle_id = ?", missionIDInt, vehicle.ID).
+				Where("mission_id = ? AND vehicle_ocap_id = ?", missionIDInt, vehicle.OcapID).
 				Order("capture_frame ASC").
 				Find(&vehicleStates).Error
 			if err != nil {

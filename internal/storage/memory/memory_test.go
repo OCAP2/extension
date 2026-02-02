@@ -70,7 +70,7 @@ func TestStartMission(t *testing.T) {
 	}
 
 	// Add some data before starting
-	soldier := &core.Soldier{OcapID: 1, UnitName: "Old Soldier"}
+	soldier := &core.Soldier{ID: 1, UnitName: "Old Soldier"}
 	_ = b.AddSoldier(soldier)
 
 	// Start a new mission - should reset collections
@@ -87,22 +87,19 @@ func TestStartMission(t *testing.T) {
 	if len(b.soldiers) != 0 {
 		t.Error("soldiers not reset")
 	}
-	if b.idCounter != 0 {
-		t.Error("idCounter not reset")
-	}
 }
 
 func TestAddSoldier(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
 	s1 := &core.Soldier{
-		OcapID:   1,
+		ID:   1,
 		UnitName: "Soldier One",
 		Side:     "WEST",
 		IsPlayer: true,
 	}
 	s2 := &core.Soldier{
-		OcapID:   2,
+		ID:   2,
 		UnitName: "Soldier Two",
 		Side:     "EAST",
 		IsPlayer: false,
@@ -115,12 +112,12 @@ func TestAddSoldier(t *testing.T) {
 		t.Fatalf("AddSoldier failed: %v", err)
 	}
 
-	// Check IDs assigned
+	// IDs are OcapIDs set by caller, not auto-assigned
 	if s1.ID != 1 {
-		t.Errorf("expected s1.ID=1, got %d", s1.ID)
+		t.Errorf("expected s1.ID=1 (OcapID), got %d", s1.ID)
 	}
 	if s2.ID != 2 {
-		t.Errorf("expected s2.ID=2, got %d", s2.ID)
+		t.Errorf("expected s2.ID=2 (OcapID), got %d", s2.ID)
 	}
 
 	// Check storage
@@ -139,12 +136,12 @@ func TestAddVehicle(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
 	v1 := &core.Vehicle{
-		OcapID:      10,
+		ID:      10,
 		ClassName:   "B_MRAP_01_F",
 		DisplayName: "Hunter",
 	}
 	v2 := &core.Vehicle{
-		OcapID:      20,
+		ID:      20,
 		ClassName:   "B_Heli_Light_01_F",
 		DisplayName: "MH-9 Hummingbird",
 	}
@@ -156,11 +153,12 @@ func TestAddVehicle(t *testing.T) {
 		t.Fatalf("AddVehicle failed: %v", err)
 	}
 
-	if v1.ID != 1 {
-		t.Errorf("expected v1.ID=1, got %d", v1.ID)
+	// IDs are OcapIDs set by caller, not auto-assigned
+	if v1.ID != 10 {
+		t.Errorf("expected v1.ID=10 (OcapID), got %d", v1.ID)
 	}
-	if v2.ID != 2 {
-		t.Errorf("expected v2.ID=2, got %d", v2.ID)
+	if v2.ID != 20 {
+		t.Errorf("expected v2.ID=20 (OcapID), got %d", v2.ID)
 	}
 
 	if len(b.vehicles) != 2 {
@@ -191,12 +189,8 @@ func TestAddMarker(t *testing.T) {
 		t.Fatalf("AddMarker failed: %v", err)
 	}
 
-	if m1.ID != 1 {
-		t.Errorf("expected m1.ID=1, got %d", m1.ID)
-	}
-	if m2.ID != 2 {
-		t.Errorf("expected m2.ID=2, got %d", m2.ID)
-	}
+	// Markers don't have OcapIDs; ID is not auto-assigned
+	// Just verify storage works
 
 	if len(b.markers) != 2 {
 		t.Errorf("expected 2 markers, got %d", len(b.markers))
@@ -210,7 +204,7 @@ func TestGetSoldierByOcapID(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
 	s := &core.Soldier{
-		OcapID:   42,
+		ID:   42,
 		UnitName: "Test Soldier",
 	}
 	_ = b.AddSoldier(s)
@@ -235,7 +229,7 @@ func TestGetVehicleByOcapID(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
 	v := &core.Vehicle{
-		OcapID:    100,
+		ID:    100,
 		ClassName: "B_Truck_01_transport_F",
 	}
 	_ = b.AddVehicle(v)
@@ -284,22 +278,22 @@ func TestGetMarkerByName(t *testing.T) {
 func TestRecordSoldierState(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
-	s := &core.Soldier{OcapID: 1, UnitName: "Test"}
+	s := &core.Soldier{ID: 1, UnitName: "Test"}
 	_ = b.AddSoldier(s)
 
 	state1 := &core.SoldierState{
-		SoldierID:    s.ID,
-		CaptureFrame: 0,
-		Position:     core.Position3D{X: 100, Y: 200, Z: 0},
-		Bearing:      90,
-		Lifestate:    1,
+		SoldierID:     s.ID,
+				CaptureFrame:  0,
+		Position:      core.Position3D{X: 100, Y: 200, Z: 0},
+		Bearing:       90,
+		Lifestate:     1,
 	}
 	state2 := &core.SoldierState{
-		SoldierID:    s.ID,
-		CaptureFrame: 1,
-		Position:     core.Position3D{X: 105, Y: 205, Z: 0},
-		Bearing:      95,
-		Lifestate:    1,
+		SoldierID:     s.ID,
+				CaptureFrame:  1,
+		Position:      core.Position3D{X: 105, Y: 205, Z: 0},
+		Bearing:       95,
+		Lifestate:     1,
 	}
 
 	if err := b.RecordSoldierState(state1); err != nil {
@@ -309,7 +303,7 @@ func TestRecordSoldierState(t *testing.T) {
 		t.Fatalf("RecordSoldierState failed: %v", err)
 	}
 
-	record := b.soldiers[1]
+	record := b.soldiers[s.ID]
 	if len(record.States) != 2 {
 		t.Errorf("expected 2 states, got %d", len(record.States))
 	}
@@ -330,21 +324,21 @@ func TestRecordSoldierState(t *testing.T) {
 func TestRecordVehicleState(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
-	v := &core.Vehicle{OcapID: 10, ClassName: "Car"}
+	v := &core.Vehicle{ID: 10, ClassName: "Car"}
 	_ = b.AddVehicle(v)
 
 	state := &core.VehicleState{
-		VehicleID:    v.ID,
-		CaptureFrame: 5,
-		Position:     core.Position3D{X: 500, Y: 600, Z: 10},
-		IsAlive:      true,
+		VehicleID:     v.ID,
+				CaptureFrame:  5,
+		Position:      core.Position3D{X: 500, Y: 600, Z: 10},
+		IsAlive:       true,
 	}
 
 	if err := b.RecordVehicleState(state); err != nil {
 		t.Fatalf("RecordVehicleState failed: %v", err)
 	}
 
-	record := b.vehicles[10]
+	record := b.vehicles[v.ID]
 	if len(record.States) != 1 {
 		t.Errorf("expected 1 state, got %d", len(record.States))
 	}
@@ -389,24 +383,24 @@ func TestRecordMarkerState(t *testing.T) {
 func TestRecordFiredEvent(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
-	s := &core.Soldier{OcapID: 1}
+	s := &core.Soldier{ID: 1}
 	_ = b.AddSoldier(s)
 
 	fired := &core.FiredEvent{
-		SoldierID:    s.ID,
-		CaptureFrame: 100,
-		Weapon:       "arifle_MX_F",
-		Magazine:     "30Rnd_65x39_caseless_mag",
-		FiringMode:   "Single",
-		StartPos:     core.Position3D{X: 100, Y: 100, Z: 1},
-		EndPos:       core.Position3D{X: 200, Y: 200, Z: 1},
+		SoldierID:     s.ID,
+				CaptureFrame:  100,
+		Weapon:        "arifle_MX_F",
+		Magazine:      "30Rnd_65x39_caseless_mag",
+		FiringMode:    "Single",
+		StartPos:      core.Position3D{X: 100, Y: 100, Z: 1},
+		EndPos:        core.Position3D{X: 200, Y: 200, Z: 1},
 	}
 
 	if err := b.RecordFiredEvent(fired); err != nil {
 		t.Fatalf("RecordFiredEvent failed: %v", err)
 	}
 
-	record := b.soldiers[1]
+	record := b.soldiers[s.ID]
 	if len(record.FiredEvents) != 1 {
 		t.Errorf("expected 1 fired event, got %d", len(record.FiredEvents))
 	}
@@ -630,7 +624,7 @@ func TestConcurrentAccess(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < numOperationsPerGoroutine; j++ {
 				ocapID := uint16(id*1000 + j)
-				s := &core.Soldier{OcapID: ocapID, UnitName: "Concurrent"}
+				s := &core.Soldier{ID: ocapID, UnitName: "Concurrent"}
 				_ = b.AddSoldier(s)
 			}
 		}(i)
@@ -657,26 +651,28 @@ func TestConcurrentAccess(t *testing.T) {
 	}
 }
 
-func TestIDCounter(t *testing.T) {
+func TestIDsPreserved(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
-	// Add soldier, vehicle, marker - all should increment same counter
-	s := &core.Soldier{OcapID: 1}
-	v := &core.Vehicle{OcapID: 10}
+	// IDs are OcapIDs set by caller, not auto-assigned
+	s := &core.Soldier{ID: 1}
+	v := &core.Vehicle{ID: 10}
 	m := &core.Marker{MarkerName: "test"}
 
 	_ = b.AddSoldier(s)
 	_ = b.AddVehicle(v)
 	_ = b.AddMarker(m)
 
+	// IDs should be preserved as set
 	if s.ID != 1 {
 		t.Errorf("expected soldier ID=1, got %d", s.ID)
 	}
-	if v.ID != 2 {
-		t.Errorf("expected vehicle ID=2, got %d", v.ID)
+	if v.ID != 10 {
+		t.Errorf("expected vehicle ID=10, got %d", v.ID)
 	}
-	if m.ID != 3 {
-		t.Errorf("expected marker ID=3, got %d", m.ID)
+	// Markers are keyed by name, not ID
+	if b.markers["test"] == nil {
+		t.Error("marker not stored")
 	}
 }
 
@@ -684,8 +680,8 @@ func TestStartMissionResetsEverything(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
 	// Populate with data
-	_ = b.AddSoldier(&core.Soldier{OcapID: 1})
-	_ = b.AddVehicle(&core.Vehicle{OcapID: 10})
+	_ = b.AddSoldier(&core.Soldier{ID: 1})
+	_ = b.AddVehicle(&core.Vehicle{ID: 10})
 	_ = b.AddMarker(&core.Marker{MarkerName: "m1"})
 	_ = b.RecordGeneralEvent(&core.GeneralEvent{Name: "test"})
 	_ = b.RecordHitEvent(&core.HitEvent{})
@@ -737,9 +733,6 @@ func TestStartMissionResetsEverything(t *testing.T) {
 	}
 	if len(b.ace3UnconsciousEvents) != 0 {
 		t.Error("ace3UnconsciousEvents not reset")
-	}
-	if b.idCounter != 0 {
-		t.Error("idCounter not reset")
 	}
 }
 
@@ -826,11 +819,11 @@ func TestGetExportMetadata(t *testing.T) {
 	_ = b.StartMission(mission, world)
 
 	// Add some frames
-	s := &core.Soldier{OcapID: 1}
+	s := &core.Soldier{ID: 1}
 	_ = b.AddSoldier(s)
 	_ = b.RecordSoldierState(&core.SoldierState{
-		SoldierID:    s.ID,
-		CaptureFrame: 100,
+		SoldierID:     s.ID,
+				CaptureFrame:  100,
 	})
 
 	meta := b.GetExportMetadata()
@@ -863,19 +856,19 @@ func TestGetExportMetadata_VehicleEndFrame(t *testing.T) {
 	_ = b.StartMission(mission, world)
 
 	// Add soldier with lower frame
-	s := &core.Soldier{OcapID: 1}
+	s := &core.Soldier{ID: 1}
 	_ = b.AddSoldier(s)
 	_ = b.RecordSoldierState(&core.SoldierState{
-		SoldierID:    s.ID,
-		CaptureFrame: 50,
+		SoldierID:     s.ID,
+				CaptureFrame:  50,
 	})
 
 	// Add vehicle with higher frame - this should determine endFrame
-	v := &core.Vehicle{OcapID: 10}
+	v := &core.Vehicle{ID: 10}
 	_ = b.AddVehicle(v)
 	_ = b.RecordVehicleState(&core.VehicleState{
-		VehicleID:    v.ID,
-		CaptureFrame: 200,
+		VehicleID:     v.ID,
+				CaptureFrame:  200,
 	})
 
 	meta := b.GetExportMetadata()

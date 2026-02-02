@@ -50,7 +50,7 @@ func TestBuildExport(t *testing.T) {
 
 	// Add soldier with states and fired events
 	soldier := &core.Soldier{
-		OcapID:    1,
+		ID:    1,
 		UnitName:  "Player1",
 		GroupID:   "Alpha",
 		Side:      "WEST",
@@ -60,42 +60,42 @@ func TestBuildExport(t *testing.T) {
 	_ = b.AddSoldier(soldier)
 
 	state1 := &core.SoldierState{
-		SoldierID:    soldier.ID,
-		CaptureFrame: 0,
-		Position:     core.Position3D{X: 1000, Y: 2000, Z: 100},
-		Bearing:      90,
-		Lifestate:    1,
-		UnitName:     "Player1",
-		IsPlayer:     true,
-		CurrentRole:  "Rifleman",
+		SoldierID:     soldier.ID,
+				CaptureFrame:  0,
+		Position:      core.Position3D{X: 1000, Y: 2000, Z: 100},
+		Bearing:       90,
+		Lifestate:     1,
+		UnitName:      "Player1",
+		IsPlayer:      true,
+		CurrentRole:   "Rifleman",
 	}
 	state2 := &core.SoldierState{
-		SoldierID:    soldier.ID,
-		CaptureFrame: 10,
-		Position:     core.Position3D{X: 1050, Y: 2050, Z: 100},
-		Bearing:      95,
-		Lifestate:    1,
-		UnitName:     "Player1",
-		IsPlayer:     true,
-		CurrentRole:  "Rifleman",
+		SoldierID:     soldier.ID,
+				CaptureFrame:  10,
+		Position:      core.Position3D{X: 1050, Y: 2050, Z: 100},
+		Bearing:       95,
+		Lifestate:     1,
+		UnitName:      "Player1",
+		IsPlayer:      true,
+		CurrentRole:   "Rifleman",
 	}
 	_ = b.RecordSoldierState(state1)
 	_ = b.RecordSoldierState(state2)
 
 	fired := &core.FiredEvent{
-		SoldierID:    soldier.ID,
-		CaptureFrame: 5,
-		Weapon:       "arifle_MX_F",
-		Magazine:     "30Rnd_65x39_caseless_mag",
-		FiringMode:   "Single",
-		StartPos:     core.Position3D{X: 1000, Y: 2000, Z: 1.5},
-		EndPos:       core.Position3D{X: 1100, Y: 2100, Z: 1.5},
+		SoldierID:     soldier.ID,
+				CaptureFrame:  5,
+		Weapon:        "arifle_MX_F",
+		Magazine:      "30Rnd_65x39_caseless_mag",
+		FiringMode:    "Single",
+		StartPos:      core.Position3D{X: 1000, Y: 2000, Z: 1.5},
+		EndPos:        core.Position3D{X: 1100, Y: 2100, Z: 1.5},
 	}
 	_ = b.RecordFiredEvent(fired)
 
 	// Add vehicle with states
 	vehicle := &core.Vehicle{
-		OcapID:      10,
+		ID:      10,
 		ClassName:   "B_MRAP_01_F",
 		DisplayName: "Hunter",
 		OcapType:    "car",
@@ -104,12 +104,12 @@ func TestBuildExport(t *testing.T) {
 	_ = b.AddVehicle(vehicle)
 
 	vState := &core.VehicleState{
-		VehicleID:    vehicle.ID,
-		CaptureFrame: 5,
-		Position:     core.Position3D{X: 3000, Y: 4000, Z: 50},
-		Bearing:      180,
-		IsAlive:      true,
-		Crew:         "[[1,\"driver\"]]",
+		VehicleID:     vehicle.ID,
+				CaptureFrame:  5,
+		Position:      core.Position3D{X: 3000, Y: 4000, Z: 50},
+		Bearing:       180,
+		IsAlive:       true,
+		Crew:          "[[1,\"driver\"]]",
 	}
 	_ = b.RecordVehicleState(vState)
 
@@ -276,7 +276,7 @@ func TestExportJSON(t *testing.T) {
 	world := &core.World{WorldName: "Tanoa"}
 
 	_ = b.StartMission(mission, world)
-	_ = b.AddSoldier(&core.Soldier{OcapID: 1, UnitName: "Test"})
+	_ = b.AddSoldier(&core.Soldier{ID: 1, UnitName: "Test"})
 
 	// EndMission triggers export
 	if err := b.EndMission(); err != nil {
@@ -325,7 +325,7 @@ func TestExportGzipJSON(t *testing.T) {
 	world := &core.World{WorldName: "Livonia"}
 
 	_ = b.StartMission(mission, world)
-	_ = b.AddSoldier(&core.Soldier{OcapID: 1, UnitName: "Test"})
+	_ = b.AddSoldier(&core.Soldier{ID: 1, UnitName: "Test"})
 
 	if err := b.EndMission(); err != nil {
 		t.Fatalf("EndMission failed: %v", err)
@@ -452,10 +452,10 @@ func TestSoldierPositionFormat(t *testing.T) {
 	world := &core.World{WorldName: "Test"}
 	_ = b.StartMission(mission, world)
 
-	soldier := &core.Soldier{OcapID: 1, UnitName: "Player1", IsPlayer: true}
+	soldier := &core.Soldier{ID: 1, UnitName: "Player1", IsPlayer: true}
 	_ = b.AddSoldier(soldier)
 
-	inVehicleID := uint(100)
+	inVehicleID := uint16(100)
 	state := &core.SoldierState{
 		SoldierID:         soldier.ID,
 		CaptureFrame:      5,
@@ -518,16 +518,16 @@ func TestVehiclePositionFormat(t *testing.T) {
 	world := &core.World{WorldName: "Test"}
 	_ = b.StartMission(mission, world)
 
-	vehicle := &core.Vehicle{OcapID: 10, DisplayName: "Hunter", OcapType: "car"}
+	vehicle := &core.Vehicle{ID: 10, DisplayName: "Hunter", OcapType: "car"}
 	_ = b.AddVehicle(vehicle)
 
 	state := &core.VehicleState{
-		VehicleID:    vehicle.ID,
-		CaptureFrame: 3,
-		Position:     core.Position3D{X: 5000, Y: 6000, Z: 25},
-		Bearing:      45,
-		IsAlive:      true,
-		Crew:         "[[1,\"driver\"],[2,\"gunner\"]]",
+		VehicleID:     vehicle.ID,
+				CaptureFrame:  3,
+		Position:      core.Position3D{X: 5000, Y: 6000, Z: 25},
+		Bearing:       45,
+		IsAlive:       true,
+		Crew:          "[[1,\"driver\"],[2,\"gunner\"]]",
 	}
 	_ = b.RecordVehicleState(state)
 
@@ -570,17 +570,17 @@ func TestFiredEventFormat(t *testing.T) {
 	world := &core.World{WorldName: "Test"}
 	_ = b.StartMission(mission, world)
 
-	soldier := &core.Soldier{OcapID: 1}
+	soldier := &core.Soldier{ID: 1}
 	_ = b.AddSoldier(soldier)
 
 	fired := &core.FiredEvent{
-		SoldierID:    soldier.ID,
-		CaptureFrame: 100,
-		Weapon:       "arifle_MX_F",
-		Magazine:     "30Rnd_65x39_caseless_mag",
-		FiringMode:   "FullAuto",
-		StartPos:     core.Position3D{X: 100, Y: 200, Z: 1.5},
-		EndPos:       core.Position3D{X: 300, Y: 400, Z: 1.8},
+		SoldierID:     soldier.ID,
+				CaptureFrame:  100,
+		Weapon:        "arifle_MX_F",
+		Magazine:      "30Rnd_65x39_caseless_mag",
+		FiringMode:    "FullAuto",
+		StartPos:      core.Position3D{X: 100, Y: 200, Z: 1.5},
+		EndPos:        core.Position3D{X: 300, Y: 400, Z: 1.8},
 	}
 	_ = b.RecordFiredEvent(fired)
 
@@ -750,7 +750,7 @@ func TestMaxFrameCalculation(t *testing.T) {
 	_ = b.StartMission(mission, world)
 
 	// Add soldier with states at different frames
-	soldier := &core.Soldier{OcapID: 1}
+	soldier := &core.Soldier{ID: 1}
 	_ = b.AddSoldier(soldier)
 
 	_ = b.RecordSoldierState(&core.SoldierState{SoldierID: soldier.ID, CaptureFrame: 10})
@@ -758,7 +758,7 @@ func TestMaxFrameCalculation(t *testing.T) {
 	_ = b.RecordSoldierState(&core.SoldierState{SoldierID: soldier.ID, CaptureFrame: 30})
 
 	// Add vehicle with states at higher frames
-	vehicle := &core.Vehicle{OcapID: 10}
+	vehicle := &core.Vehicle{ID: 10}
 	_ = b.AddVehicle(vehicle)
 
 	_ = b.RecordVehicleState(&core.VehicleState{VehicleID: vehicle.ID, CaptureFrame: 100})
@@ -779,7 +779,7 @@ func TestSoldierWithoutVehicle(t *testing.T) {
 	world := &core.World{WorldName: "Test"}
 	_ = b.StartMission(mission, world)
 
-	soldier := &core.Soldier{OcapID: 1, UnitName: "Infantry", IsPlayer: false}
+	soldier := &core.Soldier{ID: 1, UnitName: "Infantry", IsPlayer: false}
 	_ = b.AddSoldier(soldier)
 
 	// State with nil InVehicleObjectID (soldier on foot)
@@ -805,8 +805,8 @@ func TestSoldierWithoutVehicle(t *testing.T) {
 	entity := export.Entities[0]
 	pos := entity.Positions[0]
 
-	// InVehicleObjectID should be nil (typed nil shows as <nil>)
-	if pos[3] != (*uint)(nil) {
+	// InVehicleObjectID should be nil (*uint16 nil stored in any)
+	if pos[3] != (*uint16)(nil) {
 		t.Errorf("expected InVehicleObjectID=nil, got %v", pos[3])
 	}
 
@@ -826,16 +826,16 @@ func TestDeadVehicle(t *testing.T) {
 	world := &core.World{WorldName: "Test"}
 	_ = b.StartMission(mission, world)
 
-	vehicle := &core.Vehicle{OcapID: 5, DisplayName: "Destroyed Tank", OcapType: "tank", ClassName: "B_MBT_01_cannon_F"}
+	vehicle := &core.Vehicle{ID: 5, DisplayName: "Destroyed Tank", OcapType: "tank", ClassName: "B_MBT_01_cannon_F"}
 	_ = b.AddVehicle(vehicle)
 
 	state := &core.VehicleState{
-		VehicleID:    vehicle.ID,
-		CaptureFrame: 50,
-		Position:     core.Position3D{X: 2000, Y: 3000, Z: 0},
-		Bearing:      90,
-		IsAlive:      false, // Destroyed
-		Crew:         "[]",  // Empty crew (everyone dead/bailed)
+		VehicleID:     vehicle.ID,
+				CaptureFrame:  50,
+		Position:      core.Position3D{X: 2000, Y: 3000, Z: 0},
+		Bearing:       90,
+		IsAlive:       false, // Destroyed
+		Crew:          "[]",  // Empty crew (everyone dead/bailed)
 	}
 	_ = b.RecordVehicleState(state)
 
@@ -868,9 +868,9 @@ func TestMultipleEntitiesExport(t *testing.T) {
 	_ = b.StartMission(mission, world)
 
 	// Add multiple soldiers
-	soldier1 := &core.Soldier{OcapID: 1, UnitName: "Alpha1", GroupID: "Alpha", Side: "WEST", IsPlayer: true, JoinFrame: 0}
-	soldier2 := &core.Soldier{OcapID: 2, UnitName: "Alpha2", GroupID: "Alpha", Side: "WEST", IsPlayer: false, JoinFrame: 5}
-	soldier3 := &core.Soldier{OcapID: 3, UnitName: "Bravo1", GroupID: "Bravo", Side: "EAST", IsPlayer: false, JoinFrame: 10}
+	soldier1 := &core.Soldier{ID: 1, UnitName: "Alpha1", GroupID: "Alpha", Side: "WEST", IsPlayer: true, JoinFrame: 0}
+	soldier2 := &core.Soldier{ID: 2, UnitName: "Alpha2", GroupID: "Alpha", Side: "WEST", IsPlayer: false, JoinFrame: 5}
+	soldier3 := &core.Soldier{ID: 3, UnitName: "Bravo1", GroupID: "Bravo", Side: "EAST", IsPlayer: false, JoinFrame: 10}
 	_ = b.AddSoldier(soldier1)
 	_ = b.AddSoldier(soldier2)
 	_ = b.AddSoldier(soldier3)
@@ -881,8 +881,8 @@ func TestMultipleEntitiesExport(t *testing.T) {
 	_ = b.RecordSoldierState(&core.SoldierState{SoldierID: soldier3.ID, CaptureFrame: 10, Position: core.Position3D{X: 500, Y: 500}, Lifestate: 1})
 
 	// Add multiple vehicles
-	vehicle1 := &core.Vehicle{OcapID: 10, DisplayName: "Hunter", OcapType: "car", JoinFrame: 0}
-	vehicle2 := &core.Vehicle{OcapID: 11, DisplayName: "Heli", OcapType: "heli", JoinFrame: 20}
+	vehicle1 := &core.Vehicle{ID: 10, DisplayName: "Hunter", OcapType: "car", JoinFrame: 0}
+	vehicle2 := &core.Vehicle{ID: 11, DisplayName: "Heli", OcapType: "heli", JoinFrame: 20}
 	_ = b.AddVehicle(vehicle1)
 	_ = b.AddVehicle(vehicle2)
 
@@ -1016,7 +1016,7 @@ func TestMultipleFiredEvents(t *testing.T) {
 	world := &core.World{WorldName: "Test"}
 	_ = b.StartMission(mission, world)
 
-	soldier := &core.Soldier{OcapID: 1, UnitName: "Shooter"}
+	soldier := &core.Soldier{ID: 1, UnitName: "Shooter"}
 	_ = b.AddSoldier(soldier)
 
 	// Multiple fired events for same soldier
@@ -1062,7 +1062,7 @@ func TestVehicleWithJoinFrame(t *testing.T) {
 	_ = b.StartMission(mission, world)
 
 	vehicle := &core.Vehicle{
-		OcapID:      20,
+		ID:      20,
 		DisplayName: "Late Arrival",
 		OcapType:    "plane",
 		ClassName:   "B_Plane_Fighter_01_F",

@@ -359,7 +359,7 @@ func (s *Service) LogSoldierState(data []string) (model.SoldierState, error) {
 		return soldierState, fmt.Errorf("soldier %d not found in cache", ocapID)
 	}
 
-	soldierState.SoldierID = soldier.ID
+	soldierState.SoldierOcapID = soldier.OcapID
 
 	soldierState.Time = time.Now()
 
@@ -427,15 +427,15 @@ func (s *Service) LogSoldierState(data []string) (model.SoldierState, error) {
 	// seat in vehicle
 	soldierState.VehicleRole = data[12]
 
-	// InVehicleObjectID, if -1 not in a vehicle
+	// InVehicleOcapID, if -1 not in a vehicle
 	inVehicleID, _ := strconv.Atoi(data[13])
 	if inVehicleID == -1 {
-		soldierState.InVehicleObjectID = sql.NullInt32{
+		soldierState.InVehicleOcapID = sql.NullInt32{
 			Int32: 0,
 			Valid: false,
 		}
 	} else {
-		soldierState.InVehicleObjectID = sql.NullInt32{
+		soldierState.InVehicleOcapID = sql.NullInt32{
 			Int32: int32(inVehicleID),
 			Valid: true,
 		}
@@ -517,7 +517,7 @@ func (s *Service) LogVehicleState(data []string) (model.VehicleState, error) {
 	if !ok {
 		return vehicleState, fmt.Errorf("vehicle %d not found in cache", ocapID)
 	}
-	vehicleState.VehicleID = vehicle.ID
+	vehicleState.VehicleOcapID = vehicle.OcapID
 
 	vehicleState.Time = time.Now()
 
@@ -627,7 +627,7 @@ func (s *Service) LogFiredEvent(data []string) (model.FiredEvent, error) {
 	if !ok {
 		return firedEvent, fmt.Errorf("soldier %d not found in cache", ocapID)
 	}
-	firedEvent.SoldierID = soldier.ID
+	firedEvent.SoldierOcapID = soldier.OcapID
 
 	firedEvent.Time = time.Now()
 
@@ -697,25 +697,25 @@ func (s *Service) LogProjectileEvent(data []string) (model.ProjectileEvent, erro
 	if !ok {
 		return projectileEvent, fmt.Errorf("soldier %d not found in cache", uint16(rawJsonData["firerID"].(float64)))
 	}
-	projectileEvent.FirerID = soldierFired.ID
+	projectileEvent.FirerOcapID = soldierFired.OcapID
 
 	logger.Debug("Processing actualFirer")
 	actualFirer, ok := s.deps.EntityCache.GetSoldier(uint16(rawJsonData["remoteControllerID"].(float64)))
 	if !ok {
 		return projectileEvent, fmt.Errorf("soldier %d not found in cache", uint16(rawJsonData["remoteControllerID"].(float64)))
 	}
-	projectileEvent.ActualFirerID = actualFirer.ID
+	projectileEvent.ActualFirerOcapID = actualFirer.OcapID
 
 	logger.Debug("Processing vehicleID")
 	vehicleID := rawJsonData["vehicleID"].(float64)
 	vehicle, ok := s.deps.EntityCache.GetVehicle(uint16(vehicleID))
 	if ok {
-		projectileEvent.VehicleID = sql.NullInt32{
-			Int32: int32(vehicle.ID),
+		projectileEvent.VehicleOcapID = sql.NullInt32{
+			Int32: int32(vehicle.OcapID),
 			Valid: true,
 		}
 	} else {
-		projectileEvent.VehicleID = sql.NullInt32{
+		projectileEvent.VehicleOcapID = sql.NullInt32{
 			Int32: 0,
 			Valid: false,
 		}
@@ -817,7 +817,7 @@ func (s *Service) LogProjectileEvent(data []string) (model.ProjectileEvent, erro
 			projectileEvent.HitSoldiers = append(
 				projectileEvent.HitSoldiers,
 				model.ProjectileHitsSoldier{
-					SoldierID:     hitEntity.ID,
+					SoldierOcapID: hitEntity.OcapID,
 					ComponentsHit: hitComponentsJSON,
 					CaptureFrame:  uint(hitFrame),
 					Position:      hitPoint,
@@ -829,7 +829,7 @@ func (s *Service) LogProjectileEvent(data []string) (model.ProjectileEvent, erro
 				projectileEvent.HitVehicles = append(
 					projectileEvent.HitVehicles,
 					model.ProjectileHitsVehicle{
-						VehicleID:     hitVehicle.ID,
+						VehicleOcapID: hitVehicle.OcapID,
 						ComponentsHit: hitComponentsJSON,
 						CaptureFrame:  uint(hitFrame),
 						Position:      hitPoint,
@@ -927,36 +927,28 @@ func (s *Service) LogHitEvent(data []string) (model.HitEvent, error) {
 		return hitEvent, fmt.Errorf(`error converting victim ocap id to uint: %v`, err)
 	}
 
-	// try and find victim in DB to associate
-	victimSoldier, ok := s.deps.EntityCache.GetSoldier(uint16(victimOcapID))
-	if ok {
-		hitEvent.VictimSoldier = victimSoldier
+	// Set victim OcapID - check if soldier or vehicle
+	if _, ok := s.deps.EntityCache.GetSoldier(uint16(victimOcapID)); ok {
+		hitEvent.VictimSoldierOcapID = sql.NullInt32{Int32: int32(victimOcapID), Valid: true}
+	} else if _, ok := s.deps.EntityCache.GetVehicle(uint16(victimOcapID)); ok {
+		hitEvent.VictimVehicleOcapID = sql.NullInt32{Int32: int32(victimOcapID), Valid: true}
 	} else {
-		victimVehicle, ok := s.deps.EntityCache.GetVehicle(uint16(victimOcapID))
-		if ok {
-			hitEvent.VictimVehicle = victimVehicle
-		} else {
-			return hitEvent, fmt.Errorf(`victim ocap id not found in cache: %d`, victimOcapID)
-		}
+		return hitEvent, fmt.Errorf(`victim ocap id not found in cache: %d`, victimOcapID)
 	}
 
-	// now look for the shooter
+	// parse shooter OcapID
 	shooterOcapID, err := strconv.ParseUint(data[2], 10, 64)
 	if err != nil {
 		return hitEvent, fmt.Errorf(`error converting shooter ocap id to uint: %v`, err)
 	}
 
-	// try and find shooter in DB to associate
-	shooterSoldier, ok := s.deps.EntityCache.GetSoldier(uint16(shooterOcapID))
-	if ok {
-		hitEvent.ShooterSoldier = shooterSoldier
+	// Set shooter OcapID - check if soldier or vehicle
+	if _, ok := s.deps.EntityCache.GetSoldier(uint16(shooterOcapID)); ok {
+		hitEvent.ShooterSoldierOcapID = sql.NullInt32{Int32: int32(shooterOcapID), Valid: true}
+	} else if _, ok := s.deps.EntityCache.GetVehicle(uint16(shooterOcapID)); ok {
+		hitEvent.ShooterVehicleOcapID = sql.NullInt32{Int32: int32(shooterOcapID), Valid: true}
 	} else {
-		shooterVehicle, ok := s.deps.EntityCache.GetVehicle(uint16(shooterOcapID))
-		if ok {
-			hitEvent.ShooterVehicle = shooterVehicle
-		} else {
-			return hitEvent, fmt.Errorf(`shooter ocap id not found in cache: %d`, shooterOcapID)
-		}
+		return hitEvent, fmt.Errorf(`shooter ocap id not found in cache: %d`, shooterOcapID)
 	}
 
 	// get event text
@@ -999,36 +991,28 @@ func (s *Service) LogKillEvent(data []string) (model.KillEvent, error) {
 		return killEvent, fmt.Errorf(`error converting victim ocap id to uint: %v`, err)
 	}
 
-	// try and find victim in DB to associate
-	victimSoldier, ok := s.deps.EntityCache.GetSoldier(uint16(victimOcapID))
-	if ok {
-		killEvent.VictimSoldier = victimSoldier
+	// Set victim OcapID - check if soldier or vehicle
+	if _, ok := s.deps.EntityCache.GetSoldier(uint16(victimOcapID)); ok {
+		killEvent.VictimSoldierOcapID = sql.NullInt32{Int32: int32(victimOcapID), Valid: true}
+	} else if _, ok := s.deps.EntityCache.GetVehicle(uint16(victimOcapID)); ok {
+		killEvent.VictimVehicleOcapID = sql.NullInt32{Int32: int32(victimOcapID), Valid: true}
 	} else {
-		victimVehicle, ok := s.deps.EntityCache.GetVehicle(uint16(victimOcapID))
-		if ok {
-			killEvent.VictimVehicle = victimVehicle
-		} else {
-			return killEvent, fmt.Errorf(`victim ocap id not found in cache: %d`, victimOcapID)
-		}
+		return killEvent, fmt.Errorf(`victim ocap id not found in cache: %d`, victimOcapID)
 	}
 
-	// now look for the killer
+	// parse killer OcapID
 	killerOcapID, err := strconv.ParseUint(data[2], 10, 64)
 	if err != nil {
 		return killEvent, fmt.Errorf(`error converting killer ocap id to uint: %v`, err)
 	}
 
-	// try and find killer in DB to associate
-	killerSoldier, ok := s.deps.EntityCache.GetSoldier(uint16(killerOcapID))
-	if ok {
-		killEvent.KillerSoldier = killerSoldier
+	// Set killer OcapID - check if soldier or vehicle
+	if _, ok := s.deps.EntityCache.GetSoldier(uint16(killerOcapID)); ok {
+		killEvent.KillerSoldierOcapID = sql.NullInt32{Int32: int32(killerOcapID), Valid: true}
+	} else if _, ok := s.deps.EntityCache.GetVehicle(uint16(killerOcapID)); ok {
+		killEvent.KillerVehicleOcapID = sql.NullInt32{Int32: int32(killerOcapID), Valid: true}
 	} else {
-		killerVehicle, ok := s.deps.EntityCache.GetVehicle(uint16(killerOcapID))
-		if ok {
-			killEvent.KillerVehicle = killerVehicle
-		} else {
-			return killEvent, fmt.Errorf(`killer ocap id not found in cache: %d`, killerOcapID)
-		}
+		return killEvent, fmt.Errorf(`killer ocap id not found in cache: %d`, killerOcapID)
 	}
 
 	// get event text
@@ -1071,14 +1055,12 @@ func (s *Service) LogChatEvent(data []string) (model.ChatEvent, error) {
 		return chatEvent, fmt.Errorf(`error converting sender ocap id to uint: %v`, err)
 	}
 
-	// try and find sender soldier in DB to associate if not -1
+	// Set sender OcapID if not -1
 	if senderOcapID > -1 {
-		sendSoldier, ok := s.deps.EntityCache.GetSoldier(uint16(senderOcapID))
-		if ok {
-			chatEvent.Soldier = sendSoldier
-		} else {
+		if _, ok := s.deps.EntityCache.GetSoldier(uint16(senderOcapID)); !ok {
 			return chatEvent, fmt.Errorf(`sender ocap id not found in cache: %d`, senderOcapID)
 		}
+		chatEvent.SoldierOcapID = sql.NullInt32{Int32: int32(senderOcapID), Valid: true}
 	}
 
 	// channel is the 3rd element, compare against map
@@ -1139,13 +1121,12 @@ func (s *Service) LogRadioEvent(data []string) (model.RadioEvent, error) {
 		return radioEvent, fmt.Errorf(`error converting sender ocap id to uint: %v`, err)
 	}
 
-	// try and find sender soldier in DB to associate if not -1
+	// Set sender OcapID if not -1
 	if senderOcapID > -1 {
-		senderSoldier, ok := s.deps.EntityCache.GetSoldier(uint16(senderOcapID))
-		if !ok {
+		if _, ok := s.deps.EntityCache.GetSoldier(uint16(senderOcapID)); !ok {
 			return radioEvent, fmt.Errorf(`sender ocap id not found in cache: %d`, senderOcapID)
 		}
-		radioEvent.Soldier = senderSoldier
+		radioEvent.SoldierOcapID = sql.NullInt32{Int32: int32(senderOcapID), Valid: true}
 	}
 
 	// radio
@@ -1286,13 +1267,11 @@ func (s *Service) LogAce3DeathEvent(data []string) (model.Ace3DeathEvent, error)
 		return deathEvent, fmt.Errorf(`error converting victim ocap id to uint: %v`, err)
 	}
 
-	// try and find victim in DB to associate
-	soldier, ok := s.deps.EntityCache.GetSoldier(uint16(victimOcapID))
-	if ok {
-		deathEvent.Soldier = soldier
-	} else {
+	// Set victim OcapID
+	if _, ok := s.deps.EntityCache.GetSoldier(uint16(victimOcapID)); !ok {
 		return deathEvent, fmt.Errorf(`victim ocap id not found in cache: %d`, victimOcapID)
 	}
+	deathEvent.SoldierOcapID = uint16(victimOcapID)
 
 	deathEvent.Reason = data[2]
 
@@ -1307,7 +1286,7 @@ func (s *Service) LogAce3DeathEvent(data []string) (model.Ace3DeathEvent, error)
 		if !ok {
 			return deathEvent, fmt.Errorf(`last damage source id not found in cache: %d`, lastDamageSourceID)
 		}
-		deathEvent.LastDamageSourceID = sql.NullInt32{Int32: int32(lastDamageSource.ID), Valid: true}
+		deathEvent.LastDamageSourceOcapID = sql.NullInt32{Int32: int32(lastDamageSource.OcapID), Valid: true}
 	}
 
 	return deathEvent, nil
@@ -1338,12 +1317,11 @@ func (s *Service) LogAce3UnconsciousEvent(data []string) (model.Ace3UnconsciousE
 		return unconsciousEvent, fmt.Errorf(`error converting ocap id to uint: %v`, err)
 	}
 
-	// try and find soldier in DB to associate
-	soldier, ok := s.deps.EntityCache.GetSoldier(uint16(ocapID))
-	if !ok {
+	// Set soldier OcapID
+	if _, ok := s.deps.EntityCache.GetSoldier(uint16(ocapID)); !ok {
 		return unconsciousEvent, fmt.Errorf("soldier %d not found in cache", ocapID)
 	}
-	unconsciousEvent.Soldier = soldier
+	unconsciousEvent.SoldierOcapID = uint16(ocapID)
 
 	isAwake, err := strconv.ParseBool(data[2])
 	if err != nil {
