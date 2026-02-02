@@ -63,12 +63,13 @@ func (mc *MissionContext) SetMission(mission *model.Mission, world *model.World)
 
 // Dependencies holds all dependencies needed by handlers
 type Dependencies struct {
-	DB            *gorm.DB
-	EntityCache   *cache.EntityCache
-	MarkerCache   *cache.MarkerCache
-	LogManager    *logging.SlogManager
-	ExtensionName string
-	AddonVersion  string
+	DB               *gorm.DB
+	EntityCache      *cache.EntityCache
+	MarkerCache      *cache.MarkerCache
+	LogManager       *logging.SlogManager
+	ExtensionName    string
+	AddonVersion     string
+	ExtensionVersion string
 }
 
 // Service provides handler methods for processing game data
@@ -206,6 +207,7 @@ func (s *Service) LogNewMission(data []string) error {
 
 	// received at extension init and saved to local memory
 	mission.AddonVersion = s.deps.AddonVersion
+	mission.ExtensionVersion = s.deps.ExtensionVersion
 
 	logger := s.deps.LogManager.Logger()
 

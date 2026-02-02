@@ -60,12 +60,13 @@ func newTestService() *Service {
 	logManager.Setup(nil, "info", nil)
 
 	deps := Dependencies{
-		DB:            nil, // memory-only mode
-		EntityCache:   cache.NewEntityCache(),
-		MarkerCache:   cache.NewMarkerCache(),
-		LogManager:    logManager,
-		ExtensionName: "test",
-		AddonVersion:  "1.0.0",
+		DB:               nil, // memory-only mode
+		EntityCache:      cache.NewEntityCache(),
+		MarkerCache:      cache.NewMarkerCache(),
+		LogManager:       logManager,
+		ExtensionName:    "test",
+		AddonVersion:     "1.0.0",
+		ExtensionVersion: "2.0.0",
 	}
 
 	ctx := NewMissionContext()
