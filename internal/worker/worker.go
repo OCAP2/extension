@@ -17,6 +17,28 @@ import (
 // ErrTooEarlyForStateAssociation is returned when state data arrives before entity is registered
 var ErrTooEarlyForStateAssociation = fmt.Errorf("too early for state association")
 
+// HandlerService defines the interface for event handlers
+type HandlerService interface {
+	LogNewSoldier(args []string) (model.Soldier, error)
+	LogNewVehicle(args []string) (model.Vehicle, error)
+	LogSoldierState(args []string) (model.SoldierState, error)
+	LogVehicleState(args []string) (model.VehicleState, error)
+	LogFiredEvent(args []string) (model.FiredEvent, error)
+	LogProjectileEvent(args []string) (model.ProjectileEvent, error)
+	LogGeneralEvent(args []string) (model.GeneralEvent, error)
+	LogHitEvent(args []string) (model.HitEvent, error)
+	LogKillEvent(args []string) (model.KillEvent, error)
+	LogChatEvent(args []string) (model.ChatEvent, error)
+	LogRadioEvent(args []string) (model.RadioEvent, error)
+	LogFpsEvent(args []string) (model.ServerFpsEvent, error)
+	LogAce3DeathEvent(args []string) (model.Ace3DeathEvent, error)
+	LogAce3UnconsciousEvent(args []string) (model.Ace3UnconsciousEvent, error)
+	LogMarkerCreate(args []string) (model.Marker, error)
+	LogMarkerMove(args []string) (model.MarkerState, error)
+	LogMarkerDelete(args []string) (string, uint, error)
+	GetMissionContext() *handlers.MissionContext
+}
+
 // Queues holds all the write queues
 type Queues struct {
 	Soldiers              *queue.Queue[model.Soldier]
@@ -65,7 +87,7 @@ type Dependencies struct {
 	EntityCache     *cache.EntityCache
 	MarkerCache     *cache.MarkerCache
 	LogManager      *logging.SlogManager
-	HandlerService  *handlers.Service
+	HandlerService  HandlerService
 	IsDatabaseValid func() bool
 	ShouldSaveLocal func() bool
 	DBInsertsPaused func() bool

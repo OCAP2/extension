@@ -5,7 +5,9 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/OCAP2/extension/v5/internal/cache"
 	"github.com/OCAP2/extension/v5/internal/dispatcher"
+	"github.com/OCAP2/extension/v5/internal/handlers"
 	"github.com/OCAP2/extension/v5/internal/model"
 	"github.com/OCAP2/extension/v5/internal/model/core"
 )
@@ -250,7 +252,7 @@ type mockHandlerService struct {
 	marker        model.Marker
 	markerState   model.MarkerState
 	deletedMarker string
-	deleteFrame   int
+	deleteFrame   uint
 
 	// Error simulation
 	returnError bool
@@ -420,7 +422,7 @@ func (h *mockHandlerService) LogMarkerMove(args []string) (model.MarkerState, er
 	return h.markerState, nil
 }
 
-func (h *mockHandlerService) LogMarkerDelete(args []string) (string, int, error) {
+func (h *mockHandlerService) LogMarkerDelete(args []string) (string, uint, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.calls = append(h.calls, "LogMarkerDelete")
@@ -428,6 +430,10 @@ func (h *mockHandlerService) LogMarkerDelete(args []string) (string, int, error)
 		return "", 0, errors.New(h.errorMsg)
 	}
 	return h.deletedMarker, h.deleteFrame, nil
+}
+
+func (h *mockHandlerService) GetMissionContext() *handlers.MissionContext {
+	return nil
 }
 
 func newTestDispatcher(t *testing.T) (*dispatcher.Dispatcher, *mockLogger) {
@@ -596,6 +602,142 @@ func TestNewManager(t *testing.T) {
 	}
 	if manager.hasBackend() {
 		t.Error("expected no backend initially")
+	}
+}
+
+func TestHandleNewSoldier_CachesEntityWithBackend(t *testing.T) {
+	d, _ := newTestDispatcher(t)
+	entityCache := cache.NewEntityCache()
+
+	handlerService := &mockHandlerService{
+		soldier: model.Soldier{OcapID: 42, UnitName: "Test Soldier"},
+	}
+
+	deps := Dependencies{
+		IsDatabaseValid:  func() bool { return false },
+		ShouldSaveLocal:  func() bool { return false },
+		DBInsertsPaused:  func() bool { return false },
+		HandlerService:   handlerService,
+		EntityCache:      entityCache,
+	}
+	queues := NewQueues()
+	manager := NewManager(deps, queues)
+
+	backend := &mockBackend{}
+	manager.SetBackend(backend)
+	manager.RegisterHandlers(d)
+
+	// Dispatch new soldier event
+	result, err := d.Dispatch(dispatcher.Event{Command: ":NEW:SOLDIER:", Args: []string{}})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "ok" {
+		t.Errorf("expected 'ok' result, got %v", result)
+	}
+
+	// Verify soldier is in backend
+	if len(backend.soldiers) != 1 {
+		t.Errorf("expected 1 soldier in backend, got %d", len(backend.soldiers))
+	}
+
+	// Verify soldier is also in EntityCache
+	cachedSoldier, found := entityCache.GetSoldier(42)
+	if !found {
+		t.Error("expected soldier to be cached in EntityCache")
+	}
+	if cachedSoldier.UnitName != "Test Soldier" {
+		t.Errorf("expected cached soldier name 'Test Soldier', got '%s'", cachedSoldier.UnitName)
+	}
+}
+
+func TestHandleNewVehicle_CachesEntityWithBackend(t *testing.T) {
+	d, _ := newTestDispatcher(t)
+	entityCache := cache.NewEntityCache()
+
+	handlerService := &mockHandlerService{
+		vehicle: model.Vehicle{OcapID: 99, OcapType: "car"},
+	}
+
+	deps := Dependencies{
+		IsDatabaseValid:  func() bool { return false },
+		ShouldSaveLocal:  func() bool { return false },
+		DBInsertsPaused:  func() bool { return false },
+		HandlerService:   handlerService,
+		EntityCache:      entityCache,
+	}
+	queues := NewQueues()
+	manager := NewManager(deps, queues)
+
+	backend := &mockBackend{}
+	manager.SetBackend(backend)
+	manager.RegisterHandlers(d)
+
+	// Dispatch new vehicle event
+	result, err := d.Dispatch(dispatcher.Event{Command: ":NEW:VEHICLE:", Args: []string{}})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "ok" {
+		t.Errorf("expected 'ok' result, got %v", result)
+	}
+
+	// Verify vehicle is in backend
+	if len(backend.vehicles) != 1 {
+		t.Errorf("expected 1 vehicle in backend, got %d", len(backend.vehicles))
+	}
+
+	// Verify vehicle is also in EntityCache
+	cachedVehicle, found := entityCache.GetVehicle(99)
+	if !found {
+		t.Error("expected vehicle to be cached in EntityCache")
+	}
+	if cachedVehicle.OcapType != "car" {
+		t.Errorf("expected cached vehicle type 'car', got '%s'", cachedVehicle.OcapType)
+	}
+}
+
+func TestHandleNewSoldier_CachesEntityWithoutBackend(t *testing.T) {
+	d, _ := newTestDispatcher(t)
+	entityCache := cache.NewEntityCache()
+
+	handlerService := &mockHandlerService{
+		soldier: model.Soldier{OcapID: 55, UnitName: "Queue Soldier"},
+	}
+
+	deps := Dependencies{
+		IsDatabaseValid:  func() bool { return true }, // DB valid, no backend
+		ShouldSaveLocal:  func() bool { return false },
+		DBInsertsPaused:  func() bool { return false },
+		HandlerService:   handlerService,
+		EntityCache:      entityCache,
+	}
+	queues := NewQueues()
+	manager := NewManager(deps, queues)
+	// No backend set - should use queues
+	manager.RegisterHandlers(d)
+
+	// Dispatch new soldier event
+	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:SOLDIER:", Args: []string{}})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify soldier is in queue
+	if queues.Soldiers.Len() != 1 {
+		t.Errorf("expected 1 soldier in queue, got %d", queues.Soldiers.Len())
+	}
+
+	// Verify soldier is also in EntityCache
+	cachedSoldier, found := entityCache.GetSoldier(55)
+	if !found {
+		t.Error("expected soldier to be cached in EntityCache even when using queue")
+	}
+	if cachedSoldier.UnitName != "Queue Soldier" {
+		t.Errorf("expected cached soldier name 'Queue Soldier', got '%s'", cachedSoldier.UnitName)
 	}
 }
 
