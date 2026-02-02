@@ -32,6 +32,7 @@ import (
 	"github.com/OCAP2/extension/v5/internal/handlers"
 	"github.com/OCAP2/extension/v5/internal/logging"
 	"github.com/OCAP2/extension/v5/internal/model"
+	"github.com/OCAP2/extension/v5/internal/model/convert"
 	"github.com/OCAP2/extension/v5/internal/monitor"
 	intOtel "github.com/OCAP2/extension/v5/internal/otel"
 	"github.com/OCAP2/extension/v5/internal/storage"
@@ -863,10 +864,22 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 
 	// Time state tracking - records mission time sync data
 	d.Register(":NEW:TIME:STATE:", func(e dispatcher.Event) (any, error) {
-		// Time state is currently not stored, just acknowledged
-		// Args: [frameNo, systemTimeUTC, missionDateTime, timeMultiplier, missionTime]
+		if handlerService == nil {
+			return nil, nil
+		}
+
+		obj, err := handlerService.LogTimeState(e.Args)
+		if err != nil {
+			return nil, fmt.Errorf("failed to log time state: %w", err)
+		}
+
+		if storageBackend != nil {
+			coreObj := convert.TimeStateToCore(obj)
+			storageBackend.RecordTimeState(&coreObj)
+		}
+
 		return "ok", nil
-	})
+	}, dispatcher.Buffered(100))
 
 	d.Register(":SAVE:MISSION:", func(e dispatcher.Event) (any, error) {
 		Logger.Info("Received :SAVE:MISSION: command, ending mission recording")

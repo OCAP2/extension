@@ -677,6 +677,22 @@ func (s *ServerFpsEvent) TableName() string {
 	return "server_fps_events"
 }
 
+// TimeState represents mission time synchronization data
+type TimeState struct {
+	Time           time.Time `json:"time" gorm:"type:timestamptz;"`
+	MissionID      uint      `json:"missionId" gorm:"index:idx_timestate_mission_id"`
+	Mission        Mission   `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:MissionID;"`
+	CaptureFrame   uint      `json:"captureFrame" gorm:"index:idx_timestate_capture_frame;"`
+	SystemTimeUTC  string    `json:"systemTimeUtc" gorm:"size:64"`
+	MissionDate    string    `json:"missionDate" gorm:"size:64"`
+	TimeMultiplier float32   `json:"timeMultiplier"`
+	MissionTime    float32   `json:"missionTime"`
+}
+
+func (t *TimeState) TableName() string {
+	return "time_states"
+}
+
 // Marker represents a map marker
 type Marker struct {
 	ID           uint      `json:"id" gorm:"primarykey;autoIncrement;"`

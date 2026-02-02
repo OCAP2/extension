@@ -273,6 +273,19 @@ func ServerFpsEventToCore(e model.ServerFpsEvent) core.ServerFpsEvent {
 	}
 }
 
+// TimeStateToCore converts a GORM TimeState to a core.TimeState
+func TimeStateToCore(t model.TimeState) core.TimeState {
+	return core.TimeState{
+		MissionID:      t.MissionID,
+		Time:           t.Time,
+		CaptureFrame:   t.CaptureFrame,
+		SystemTimeUTC:  t.SystemTimeUTC,
+		MissionDate:    t.MissionDate,
+		TimeMultiplier: t.TimeMultiplier,
+		MissionTime:    t.MissionTime,
+	}
+}
+
 // Ace3DeathEventToCore converts a GORM Ace3DeathEvent to a core.Ace3DeathEvent
 func Ace3DeathEventToCore(e model.Ace3DeathEvent) core.Ace3DeathEvent {
 	result := core.Ace3DeathEvent{

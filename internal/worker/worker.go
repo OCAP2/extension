@@ -31,6 +31,7 @@ type HandlerService interface {
 	LogChatEvent(args []string) (model.ChatEvent, error)
 	LogRadioEvent(args []string) (model.RadioEvent, error)
 	LogFpsEvent(args []string) (model.ServerFpsEvent, error)
+	LogTimeState(args []string) (model.TimeState, error)
 	LogAce3DeathEvent(args []string) (model.Ace3DeathEvent, error)
 	LogAce3UnconsciousEvent(args []string) (model.Ace3UnconsciousEvent, error)
 	LogMarkerCreate(args []string) (model.Marker, error)

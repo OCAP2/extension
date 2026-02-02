@@ -1215,6 +1215,50 @@ func (s *Service) LogFpsEvent(data []string) (model.ServerFpsEvent, error) {
 	return fpsEvent, nil
 }
 
+// LogTimeState parses time state data and returns a TimeState model
+// Args: [frameNo, systemTimeUTC, missionDateTime, timeMultiplier, missionTime]
+func (s *Service) LogTimeState(data []string) (model.TimeState, error) {
+	var timeState model.TimeState
+
+	// fix received data
+	for i, v := range data {
+		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
+	}
+
+	// get frame
+	frameStr := data[0]
+	capframe, err := strconv.ParseFloat(frameStr, 64)
+	if err != nil {
+		return timeState, fmt.Errorf(`error converting capture frame to int: %s`, err)
+	}
+
+	timeState.CaptureFrame = uint(capframe)
+	timeState.Time = time.Now()
+	timeState.Mission = *s.ctx.GetMission()
+
+	// systemTimeUTC - e.g., "2024-01-15T14:30:45.123"
+	timeState.SystemTimeUTC = data[1]
+
+	// missionDateTime - e.g., "2035-06-15T06:00:00"
+	timeState.MissionDate = data[2]
+
+	// timeMultiplier
+	timeMult, err := strconv.ParseFloat(data[3], 64)
+	if err != nil {
+		return timeState, fmt.Errorf(`error converting timeMultiplier to float: %v`, err)
+	}
+	timeState.TimeMultiplier = float32(timeMult)
+
+	// missionTime (seconds since start)
+	missionTime, err := strconv.ParseFloat(data[4], 64)
+	if err != nil {
+		return timeState, fmt.Errorf(`error converting missionTime to float: %v`, err)
+	}
+	timeState.MissionTime = float32(missionTime)
+
+	return timeState, nil
+}
+
 // LogAce3DeathEvent parses ACE3 death event data and returns an Ace3DeathEvent model
 func (s *Service) LogAce3DeathEvent(data []string) (model.Ace3DeathEvent, error) {
 	var deathEvent model.Ace3DeathEvent
