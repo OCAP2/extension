@@ -923,23 +923,8 @@ func (s *Service) LogHitEvent(data []string) (model.HitEvent, error) {
 
 	hitEvent.Time = time.Now()
 
-	// parse data in array
-	victimObjectID, err := strconv.ParseUint(data[1], 10, 64)
-	if err != nil {
-		return hitEvent, fmt.Errorf(`error converting victim ocap id to uint: %v`, err)
-	}
-
-	// Set victim ObjectID - check if soldier or vehicle
-	if _, ok := s.deps.EntityCache.GetSoldier(uint16(victimObjectID)); ok {
-		hitEvent.VictimSoldierObjectID = sql.NullInt32{Int32: int32(victimObjectID), Valid: true}
-	} else if _, ok := s.deps.EntityCache.GetVehicle(uint16(victimObjectID)); ok {
-		hitEvent.VictimVehicleObjectID = sql.NullInt32{Int32: int32(victimObjectID), Valid: true}
-	} else {
-		return hitEvent, fmt.Errorf(`victim ocap id not found in cache: %d`, victimObjectID)
-	}
-
-	// parse shooter ObjectID
-	shooterObjectID, err := strconv.ParseUint(data[2], 10, 64)
+	// parse shooter ObjectID (data[1] = shooter/causedBy)
+	shooterObjectID, err := strconv.ParseUint(data[1], 10, 64)
 	if err != nil {
 		return hitEvent, fmt.Errorf(`error converting shooter ocap id to uint: %v`, err)
 	}
@@ -951,6 +936,21 @@ func (s *Service) LogHitEvent(data []string) (model.HitEvent, error) {
 		hitEvent.ShooterVehicleObjectID = sql.NullInt32{Int32: int32(shooterObjectID), Valid: true}
 	} else {
 		return hitEvent, fmt.Errorf(`shooter ocap id not found in cache: %d`, shooterObjectID)
+	}
+
+	// parse victim ObjectID (data[2] = victim)
+	victimObjectID, err := strconv.ParseUint(data[2], 10, 64)
+	if err != nil {
+		return hitEvent, fmt.Errorf(`error converting victim ocap id to uint: %v`, err)
+	}
+
+	// Set victim ObjectID - check if soldier or vehicle
+	if _, ok := s.deps.EntityCache.GetSoldier(uint16(victimObjectID)); ok {
+		hitEvent.VictimSoldierObjectID = sql.NullInt32{Int32: int32(victimObjectID), Valid: true}
+	} else if _, ok := s.deps.EntityCache.GetVehicle(uint16(victimObjectID)); ok {
+		hitEvent.VictimVehicleObjectID = sql.NullInt32{Int32: int32(victimObjectID), Valid: true}
+	} else {
+		return hitEvent, fmt.Errorf(`victim ocap id not found in cache: %d`, victimObjectID)
 	}
 
 	// get event text
@@ -987,23 +987,8 @@ func (s *Service) LogKillEvent(data []string) (model.KillEvent, error) {
 	killEvent.CaptureFrame = uint(capframe)
 	killEvent.Mission = *s.ctx.GetMission()
 
-	// parse data in array
-	victimObjectID, err := strconv.ParseUint(data[1], 10, 64)
-	if err != nil {
-		return killEvent, fmt.Errorf(`error converting victim ocap id to uint: %v`, err)
-	}
-
-	// Set victim ObjectID - check if soldier or vehicle
-	if _, ok := s.deps.EntityCache.GetSoldier(uint16(victimObjectID)); ok {
-		killEvent.VictimSoldierObjectID = sql.NullInt32{Int32: int32(victimObjectID), Valid: true}
-	} else if _, ok := s.deps.EntityCache.GetVehicle(uint16(victimObjectID)); ok {
-		killEvent.VictimVehicleObjectID = sql.NullInt32{Int32: int32(victimObjectID), Valid: true}
-	} else {
-		return killEvent, fmt.Errorf(`victim ocap id not found in cache: %d`, victimObjectID)
-	}
-
-	// parse killer ObjectID
-	killerObjectID, err := strconv.ParseUint(data[2], 10, 64)
+	// parse killer ObjectID (data[1] = killer/causedBy)
+	killerObjectID, err := strconv.ParseUint(data[1], 10, 64)
 	if err != nil {
 		return killEvent, fmt.Errorf(`error converting killer ocap id to uint: %v`, err)
 	}
@@ -1015,6 +1000,21 @@ func (s *Service) LogKillEvent(data []string) (model.KillEvent, error) {
 		killEvent.KillerVehicleObjectID = sql.NullInt32{Int32: int32(killerObjectID), Valid: true}
 	} else {
 		return killEvent, fmt.Errorf(`killer ocap id not found in cache: %d`, killerObjectID)
+	}
+
+	// parse victim ObjectID (data[2] = victim)
+	victimObjectID, err := strconv.ParseUint(data[2], 10, 64)
+	if err != nil {
+		return killEvent, fmt.Errorf(`error converting victim ocap id to uint: %v`, err)
+	}
+
+	// Set victim ObjectID - check if soldier or vehicle
+	if _, ok := s.deps.EntityCache.GetSoldier(uint16(victimObjectID)); ok {
+		killEvent.VictimSoldierObjectID = sql.NullInt32{Int32: int32(victimObjectID), Valid: true}
+	} else if _, ok := s.deps.EntityCache.GetVehicle(uint16(victimObjectID)); ok {
+		killEvent.VictimVehicleObjectID = sql.NullInt32{Int32: int32(victimObjectID), Valid: true}
+	} else {
+		return killEvent, fmt.Errorf(`victim ocap id not found in cache: %d`, victimObjectID)
 	}
 
 	// get event text
