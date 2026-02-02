@@ -81,13 +81,8 @@ Requires Docker with Linux containers.
 ```bash
 docker pull x1unix/go-mingw:1.24
 
-# x64
 docker run --rm -v ${PWD}:/go/work -w /go/work x1unix/go-mingw:1.24 \
-  go build -o dist/ocap_recorder_x64.dll -buildmode=c-shared ./cmd/ocap_recorder
-
-# x86
-docker run --rm -v ${PWD}:/go/work -w /go/work -e GOARCH=386 x1unix/go-mingw:1.24 \
-  go build -o dist/ocap_recorder.dll -buildmode=c-shared ./cmd/ocap_recorder
+  go build -buildvcs=false -o dist/ocap_recorder_x64.dll -buildmode=c-shared ./cmd/ocap_recorder
 ```
 
 ### Linux .so
@@ -95,13 +90,8 @@ docker run --rm -v ${PWD}:/go/work -w /go/work -e GOARCH=386 x1unix/go-mingw:1.2
 ```bash
 docker build -t indifox926/build-a3go:linux-so -f ./Dockerfile .
 
-# x64
 docker run --rm -v ${PWD}:/app -e GOOS=linux -e GOARCH=amd64 -e CGO_ENABLED=1 -e CC=gcc \
   indifox926/build-a3go:linux-so go build -o dist/ocap_recorder_x64.so -linkshared ./cmd/ocap_recorder
-
-# x86
-docker run --rm -v ${PWD}:/app -e GOOS=linux -e GOARCH=386 -e CGO_ENABLED=1 -e CC=gcc \
-  indifox926/build-a3go:linux-so go build -o dist/ocap_recorder.so -linkshared ./cmd/ocap_recorder
 ```
 
 ## Configuration
