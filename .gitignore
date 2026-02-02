@@ -1,7 +1,7 @@
 .vscode/
 ocaplog/
 @ocap/
-ocap-recorder.cfg.json
+ocap_recorder.cfg.json
 vendor/
 dist/
 docs/plans/
