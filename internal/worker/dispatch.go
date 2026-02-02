@@ -52,6 +52,9 @@ func (m *Manager) handleNewSoldier(e dispatcher.Event) (any, error) {
 		return nil, fmt.Errorf("failed to log new soldier: %w", err)
 	}
 
+	// Always cache for state handler lookups
+	m.deps.EntityCache.AddSoldier(obj)
+
 	if m.hasBackend() {
 		coreObj := convert.SoldierToCore(obj)
 		m.backend.AddSoldier(&coreObj)
@@ -71,6 +74,9 @@ func (m *Manager) handleNewVehicle(e dispatcher.Event) (any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to log new vehicle: %w", err)
 	}
+
+	// Always cache for state handler lookups
+	m.deps.EntityCache.AddVehicle(obj)
 
 	if m.hasBackend() {
 		coreObj := convert.VehicleToCore(obj)
