@@ -800,7 +800,7 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 	// Simple commands (RVExtension style - no args)
 	d.Register(":INIT:", func(e dispatcher.Event) (any, error) {
 		go initExtension()
-		return "ok", nil
+		return nil, nil
 	})
 
 	d.Register(":INIT:STORAGE:", func(e dispatcher.Event) (any, error) {
@@ -809,7 +809,7 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 				Logger.Error("Storage initialization failed", "error", err)
 			}
 		}()
-		return "ok", nil
+		return nil, nil
 	})
 
 	// Simple queries - sync return is sufficient, no callback needed
@@ -835,7 +835,7 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 			addonVersion = util.FixEscapeQuotes(util.TrimQuotes(e.Args[0]))
 			Logger.Info("Addon version", "version", addonVersion)
 		}
-		return "ok", nil
+		return nil, nil
 	})
 
 	// :LOG: is used by the addon to log messages through the extension
@@ -844,13 +844,13 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 			msg := util.FixEscapeQuotes(util.TrimQuotes(e.Args[0]))
 			Logger.Info("Addon log", "message", msg)
 		}
-		return "ok", nil
+		return nil, nil
 	})
 
 	// :METRIC: receives telemetry data from the addon (stub - metrics are logged but not stored)
 	d.Register(":METRIC:", func(e dispatcher.Event) (any, error) {
 		// Metrics are currently not stored, just acknowledged
-		return "ok", nil
+		return nil, nil
 	})
 
 	d.Register(":NEW:MISSION:", func(e dispatcher.Event) (any, error) {
@@ -859,7 +859,7 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 				return nil, err
 			}
 		}
-		return "ok", nil
+		return nil, nil
 	}, dispatcher.Buffered(1), dispatcher.Blocking(), dispatcher.Gated(storageReady))
 
 	// Time state tracking - records mission time sync data
@@ -878,7 +878,7 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 			storageBackend.RecordTimeState(&coreObj)
 		}
 
-		return "ok", nil
+		return nil, nil
 	}, dispatcher.Buffered(100))
 
 	d.Register(":SAVE:MISSION:", func(e dispatcher.Event) (any, error) {
@@ -911,7 +911,7 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 				Logger.Warn("Failed to flush OTel data", "error", err)
 			}
 		}
-		return "ok", nil
+		return nil, nil
 	})
 }
 

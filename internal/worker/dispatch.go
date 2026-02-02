@@ -62,7 +62,7 @@ func (m *Manager) handleNewSoldier(e dispatcher.Event) (any, error) {
 		m.queues.Soldiers.Push(obj)
 	}
 
-	return "ok", nil
+	return nil, nil
 }
 
 func (m *Manager) handleNewVehicle(e dispatcher.Event) (any, error) {
@@ -85,7 +85,7 @@ func (m *Manager) handleNewVehicle(e dispatcher.Event) (any, error) {
 		m.queues.Vehicles.Push(obj)
 	}
 
-	return "ok", nil
+	return nil, nil
 }
 
 func (m *Manager) handleSoldierState(e dispatcher.Event) (any, error) {

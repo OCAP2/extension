@@ -652,8 +652,8 @@ func TestHandleNewSoldier_CachesEntityWithBackend(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result != "ok" {
-		t.Errorf("expected 'ok' result, got %v", result)
+	if result != nil {
+		t.Errorf("expected nil result, got %v", result)
 	}
 
 	// Verify soldier is in backend
@@ -699,8 +699,8 @@ func TestHandleNewVehicle_CachesEntityWithBackend(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result != "ok" {
-		t.Errorf("expected 'ok' result, got %v", result)
+	if result != nil {
+		t.Errorf("expected nil result, got %v", result)
 	}
 
 	// Verify vehicle is in backend
