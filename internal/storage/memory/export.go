@@ -197,6 +197,48 @@ func (b *Backend) buildExport() OcapExport {
 		})
 	}
 
+	// Convert hit events
+	for _, evt := range b.hitEvents {
+		data := map[string]any{
+			"causedBy": evt.ShooterSoldierID,
+			"victim":   evt.VictimSoldierID,
+			"distance": evt.Distance,
+		}
+		if evt.ShooterVehicleID != nil {
+			data["causedBy"] = evt.ShooterVehicleID
+		}
+		if evt.VictimVehicleID != nil {
+			data["victim"] = evt.VictimVehicleID
+		}
+		export.Events = append(export.Events, EventJSON{
+			Frame:   evt.CaptureFrame,
+			Type:    "hit",
+			Message: evt.EventText,
+			Data:    data,
+		})
+	}
+
+	// Convert kill events
+	for _, evt := range b.killEvents {
+		data := map[string]any{
+			"killer":   evt.KillerSoldierID,
+			"victim":   evt.VictimSoldierID,
+			"distance": evt.Distance,
+		}
+		if evt.KillerVehicleID != nil {
+			data["killer"] = evt.KillerVehicleID
+		}
+		if evt.VictimVehicleID != nil {
+			data["victim"] = evt.VictimVehicleID
+		}
+		export.Events = append(export.Events, EventJSON{
+			Frame:   evt.CaptureFrame,
+			Type:    "killed",
+			Message: evt.EventText,
+			Data:    data,
+		})
+	}
+
 	// Convert markers
 	for _, record := range b.markers {
 		marker := MarkerJSON{
