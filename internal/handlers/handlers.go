@@ -285,7 +285,7 @@ func (s *Service) LogNewSoldier(data []string) (model.Soldier, error) {
 
 	// get frame
 	frameStr := data[0]
-	capframe, err := strconv.ParseInt(frameStr, 10, 64)
+	capframe, err := strconv.ParseFloat(frameStr, 64)
 	if err != nil {
 		s.writeLog(functionName, fmt.Sprintf(`Error converting capture frame to int: %s`, err), "ERROR")
 		return soldier, err
@@ -341,7 +341,7 @@ func (s *Service) LogSoldierState(data []string) (model.SoldierState, error) {
 	soldierState.MissionID = s.ctx.GetMission().ID
 
 	frameStr := data[8]
-	capframe, err := strconv.ParseInt(frameStr, 10, 64)
+	capframe, err := strconv.ParseFloat(frameStr, 64)
 	if err != nil {
 		return soldierState, fmt.Errorf(`error converting capture frame to int: %s`, err)
 	}
@@ -459,7 +459,7 @@ func (s *Service) LogNewVehicle(data []string) (model.Vehicle, error) {
 
 	// get frame
 	frameStr := data[0]
-	capframe, err := strconv.ParseInt(frameStr, 10, 64)
+	capframe, err := strconv.ParseFloat(frameStr, 64)
 	if err != nil {
 		s.writeLog(functionName, fmt.Sprintf(`Error converting capture frame to int: %s`, err), "ERROR")
 		return vehicle, err
@@ -498,7 +498,7 @@ func (s *Service) LogVehicleState(data []string) (model.VehicleState, error) {
 
 	// get frame
 	frameStr := data[5]
-	capframe, err := strconv.ParseInt(frameStr, 10, 64)
+	capframe, err := strconv.ParseFloat(frameStr, 64)
 	if err != nil {
 		s.writeLog(functionName, fmt.Sprintf(`Error converting capture frame to int: %s`, err), "ERROR")
 		return vehicleState, err
@@ -608,7 +608,7 @@ func (s *Service) LogFiredEvent(data []string) (model.FiredEvent, error) {
 
 	// get frame
 	frameStr := data[1]
-	capframe, err := strconv.ParseInt(frameStr, 10, 64)
+	capframe, err := strconv.ParseFloat(frameStr, 64)
 	if err != nil {
 		s.writeLog(functionName, fmt.Sprintf(`Error converting capture frame to int: %s`, err), "ERROR")
 		return firedEvent, err
@@ -869,7 +869,7 @@ func (s *Service) LogGeneralEvent(data []string) (model.GeneralEvent, error) {
 
 	// get frame
 	frameStr := data[0]
-	capframe, err := strconv.ParseInt(frameStr, 10, 64)
+	capframe, err := strconv.ParseFloat(frameStr, 64)
 	if err != nil {
 		s.writeLog("processEvent", fmt.Sprintf(`Error converting capture frame to int: %s`, err), "ERROR")
 		return thisEvent, err
@@ -911,7 +911,7 @@ func (s *Service) LogHitEvent(data []string) (model.HitEvent, error) {
 
 	// get frame
 	frameStr := data[0]
-	capframe, err := strconv.ParseInt(frameStr, 10, 64)
+	capframe, err := strconv.ParseFloat(frameStr, 64)
 	if err != nil {
 		return hitEvent, fmt.Errorf(`error converting capture frame to int: %s`, err)
 	}
@@ -983,7 +983,7 @@ func (s *Service) LogKillEvent(data []string) (model.KillEvent, error) {
 
 	// get frame
 	frameStr := data[0]
-	capframe, err := strconv.ParseInt(frameStr, 10, 64)
+	capframe, err := strconv.ParseFloat(frameStr, 64)
 	if err != nil {
 		return killEvent, fmt.Errorf(`error converting capture frame to int: %s`, err)
 	}
@@ -1055,7 +1055,7 @@ func (s *Service) LogChatEvent(data []string) (model.ChatEvent, error) {
 
 	// get frame
 	frameStr := data[0]
-	capframe, err := strconv.ParseInt(frameStr, 10, 64)
+	capframe, err := strconv.ParseFloat(frameStr, 64)
 	if err != nil {
 		return chatEvent, fmt.Errorf(`error converting capture frame to int: %s`, err)
 	}
@@ -1123,7 +1123,7 @@ func (s *Service) LogRadioEvent(data []string) (model.RadioEvent, error) {
 
 	// get frame
 	frameStr := data[0]
-	capframe, err := strconv.ParseInt(frameStr, 10, 64)
+	capframe, err := strconv.ParseFloat(frameStr, 64)
 	if err != nil {
 		return radioEvent, fmt.Errorf(`error converting capture frame to int: %s`, err)
 	}
@@ -1190,7 +1190,7 @@ func (s *Service) LogFpsEvent(data []string) (model.ServerFpsEvent, error) {
 
 	// get frame
 	frameStr := data[0]
-	capframe, err := strconv.ParseInt(frameStr, 10, 64)
+	capframe, err := strconv.ParseFloat(frameStr, 64)
 	if err != nil {
 		return fpsEvent, fmt.Errorf(`error converting capture frame to int: %s`, err)
 	}
@@ -1226,7 +1226,7 @@ func (s *Service) LogAce3DeathEvent(data []string) (model.Ace3DeathEvent, error)
 
 	// get frame
 	frameStr := data[0]
-	capframe, err := strconv.ParseInt(frameStr, 10, 64)
+	capframe, err := strconv.ParseFloat(frameStr, 64)
 	if err != nil {
 		return deathEvent, fmt.Errorf(`error converting capture frame to int: %s`, err)
 	}
@@ -1280,7 +1280,7 @@ func (s *Service) LogAce3UnconsciousEvent(data []string) (model.Ace3UnconsciousE
 
 	// get frame
 	frameStr := data[0]
-	capframe, err := strconv.ParseInt(frameStr, 10, 64)
+	capframe, err := strconv.ParseFloat(frameStr, 64)
 	if err != nil {
 		return unconsciousEvent, fmt.Errorf(`error converting capture frame to int: %s`, err)
 	}
@@ -1341,7 +1341,7 @@ func (s *Service) LogMarkerCreate(data []string) (model.Marker, error) {
 
 	// frameNo
 	frameStr := data[4]
-	capframe, err := strconv.ParseInt(frameStr, 10, 64)
+	capframe, err := strconv.ParseFloat(frameStr, 64)
 	if err != nil {
 		s.writeLog(functionName, fmt.Sprintf("Error parsing capture frame: %v", err), "ERROR")
 		return marker, err
@@ -1421,7 +1421,7 @@ func (s *Service) LogMarkerMove(data []string) (model.MarkerState, error) {
 
 	// frameNo
 	frameStr := data[1]
-	capframe, err := strconv.ParseInt(frameStr, 10, 64)
+	capframe, err := strconv.ParseFloat(frameStr, 64)
 	if err != nil {
 		s.writeLog(functionName, fmt.Sprintf("Error parsing capture frame: %v", err), "ERROR")
 		return markerState, err
@@ -1473,7 +1473,7 @@ func (s *Service) LogMarkerDelete(data []string) (string, uint, error) {
 
 	// frameNo
 	frameStr := data[1]
-	capframe, err := strconv.ParseInt(frameStr, 10, 64)
+	capframe, err := strconv.ParseFloat(frameStr, 64)
 	if err != nil {
 		s.writeLog(functionName, fmt.Sprintf("Error parsing capture frame: %v", err), "ERROR")
 		return markerName, 0, err
