@@ -30,7 +30,7 @@ docker run --rm -v ${PWD}:/go/work -w /go/work x1unix/go-mingw:1.24 go build -bu
 Dockerfile                   - Docker build for Linux
 go.mod, go.sum               - Go module dependencies
 createViews.sql              - PostgreSQL materialized views
-ocap-recorder.cfg.json.example - Configuration template
+ocap_recorder.cfg.json.example - Configuration template
 ```
 
 ## Architecture
@@ -79,7 +79,7 @@ GORM models for PostgreSQL/SQLite:
 
 ## Configuration
 
-File: `ocap-recorder.cfg.json` (placed alongside DLL)
+File: `ocap_recorder.cfg.json` (placed alongside DLL)
 
 ```json
 {
@@ -87,7 +87,7 @@ File: `ocap-recorder.cfg.json` (placed alongside DLL)
   "logsDir": "./OCAPLOG",
   "defaultTag": "TvT",
   "api": {
-    "serverUrl": "127.0.0.1:5000",
+    "serverUrl": "http://127.0.0.1:5000",
     "apiKey": "secret"
   },
   "db": {

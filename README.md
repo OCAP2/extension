@@ -96,7 +96,7 @@ docker run --rm -v ${PWD}:/app -e GOOS=linux -e GOARCH=amd64 -e CGO_ENABLED=1 -e
 
 ## Configuration
 
-Copy `ocap-recorder.cfg.json.example` to `ocap-recorder.cfg.json` alongside the DLL and edit as needed.
+Copy `ocap_recorder.cfg.json.example` to `ocap_recorder.cfg.json` alongside the DLL and edit as needed.
 
 ## Supported Commands
 
