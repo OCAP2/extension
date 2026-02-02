@@ -293,7 +293,7 @@ func initExtension() {
 
 func initDB() (err error) {
 	Logger.Debug("Received :INIT:DB: call")
-	loadConfig()
+	// Config is already loaded in init()
 	functionName := ":INIT:DB:"
 	DB, err = getDB()
 	if err != nil || DB == nil {
