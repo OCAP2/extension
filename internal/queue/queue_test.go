@@ -3,252 +3,69 @@ package queue
 import (
 	"sync"
 	"testing"
-
-	"github.com/OCAP2/extension/v5/internal/model"
 )
 
-// Test ArraysQueue
-
-func TestArraysQueue_Push(t *testing.T) {
-	q := &ArraysQueue{}
-
-	q.Push([][]string{{"a", "b"}, {"c", "d"}})
-
-	if q.Len() != 2 {
-		t.Errorf("expected length 2, got %d", q.Len())
-	}
+// testItem is a simple struct for testing the generic queue
+type testItem struct {
+	ID   int
+	Name string
 }
 
-func TestArraysQueue_Pop(t *testing.T) {
-	q := &ArraysQueue{}
-
-	// Pop from empty queue
-	result := q.Pop()
-	if result != nil {
-		t.Errorf("expected nil from empty queue, got %v", result)
+func TestQueue_New(t *testing.T) {
+	q := New[testItem]()
+	if q == nil {
+		t.Fatal("expected non-nil queue")
 	}
-
-	// Pop from non-empty queue
-	q.Push([][]string{{"a", "b"}, {"c", "d"}})
-	first := q.Pop()
-	if len(first) != 2 || first[0] != "a" || first[1] != "b" {
-		t.Errorf("expected [a, b], got %v", first)
-	}
-	if q.Len() != 1 {
-		t.Errorf("expected length 1 after pop, got %d", q.Len())
-	}
-}
-
-func TestArraysQueue_Empty(t *testing.T) {
-	q := &ArraysQueue{}
-
 	if !q.Empty() {
 		t.Error("expected empty queue")
 	}
-
-	q.Push([][]string{{"a"}})
-	if q.Empty() {
-		t.Error("expected non-empty queue")
+	if q.Len() != 0 {
+		t.Errorf("expected length 0, got %d", q.Len())
 	}
 }
 
-func TestArraysQueue_Clear(t *testing.T) {
-	q := &ArraysQueue{}
-	q.Push([][]string{{"a"}, {"b"}, {"c"}})
+func TestQueue_Push(t *testing.T) {
+	q := New[testItem]()
 
-	q.Clear()
+	q.Push(testItem{ID: 1, Name: "first"})
+	if q.Len() != 1 {
+		t.Errorf("expected length 1, got %d", q.Len())
+	}
 
-	if !q.Empty() {
-		t.Error("expected empty queue after clear")
+	q.Push(testItem{ID: 2}, testItem{ID: 3})
+	if q.Len() != 3 {
+		t.Errorf("expected length 3, got %d", q.Len())
 	}
 }
 
-func TestArraysQueue_GetAndEmpty(t *testing.T) {
-	q := &ArraysQueue{}
-	q.Push([][]string{{"a"}, {"b"}, {"c"}})
+func TestQueue_Pop(t *testing.T) {
+	q := New[testItem]()
 
-	result := q.GetAndEmpty()
-
-	if len(result) != 3 {
-		t.Errorf("expected 3 items, got %d", len(result))
-	}
-	if !q.Empty() {
-		t.Error("expected empty queue after GetAndEmpty")
-	}
-}
-
-// Test SoldiersQueue
-
-func TestSoldiersQueue_Push(t *testing.T) {
-	q := &SoldiersQueue{}
-
-	q.Push([]model.Soldier{{OcapID: 1}, {OcapID: 2}})
-
-	if q.Len() != 2 {
-		t.Errorf("expected length 2, got %d", q.Len())
-	}
-}
-
-func TestSoldiersQueue_Pop(t *testing.T) {
-	q := &SoldiersQueue{}
-
-	// Pop from empty queue
+	// Pop from empty queue returns zero value
 	result := q.Pop()
-	if result.OcapID != 0 {
-		t.Errorf("expected empty soldier from empty queue, got OcapID %d", result.OcapID)
+	if result.ID != 0 || result.Name != "" {
+		t.Errorf("expected zero value, got %+v", result)
 	}
 
 	// Pop from non-empty queue
-	q.Push([]model.Soldier{{OcapID: 1}, {OcapID: 2}})
+	q.Push(testItem{ID: 1, Name: "first"}, testItem{ID: 2, Name: "second"})
 	first := q.Pop()
-	if first.OcapID != 1 {
-		t.Errorf("expected OcapID 1, got %d", first.OcapID)
+	if first.ID != 1 || first.Name != "first" {
+		t.Errorf("expected {1, first}, got %+v", first)
 	}
-	if q.Len() != 1 {
-		t.Errorf("expected length 1 after pop, got %d", q.Len())
-	}
-}
-
-func TestSoldiersQueue_Empty(t *testing.T) {
-	q := &SoldiersQueue{}
-
-	if !q.Empty() {
-		t.Error("expected empty queue")
-	}
-
-	q.Push([]model.Soldier{{OcapID: 1}})
-	if q.Empty() {
-		t.Error("expected non-empty queue")
-	}
-}
-
-func TestSoldiersQueue_LockUnlock(t *testing.T) {
-	q := &SoldiersQueue{}
-
-	locked := q.Lock()
-	if !locked {
-		t.Error("expected Lock() to return true")
-	}
-	// Direct access while holding lock
-	q.Queue = append(q.Queue, model.Soldier{OcapID: 99})
-	q.Unlock()
-
 	if q.Len() != 1 {
 		t.Errorf("expected length 1, got %d", q.Len())
 	}
 }
 
-func TestSoldiersQueue_Clear(t *testing.T) {
-	q := &SoldiersQueue{}
-	q.Push([]model.Soldier{{OcapID: 1}, {OcapID: 2}})
+func TestQueue_Empty(t *testing.T) {
+	q := New[testItem]()
 
-	result := q.Clear()
-
-	if result != 0 {
-		t.Errorf("expected Clear to return 0, got %d", result)
-	}
 	if !q.Empty() {
-		t.Error("expected empty queue after clear")
-	}
-}
-
-func TestSoldiersQueue_GetAndEmpty(t *testing.T) {
-	q := &SoldiersQueue{}
-	q.Push([]model.Soldier{{OcapID: 1}, {OcapID: 2}})
-
-	result := q.GetAndEmpty()
-
-	if len(result) != 2 {
-		t.Errorf("expected 2 items, got %d", len(result))
-	}
-	if !q.Empty() {
-		t.Error("expected empty queue after GetAndEmpty")
-	}
-}
-
-// Test SoldierStatesQueue (representative of state queues)
-
-func TestSoldierStatesQueue_Operations(t *testing.T) {
-	q := &SoldierStatesQueue{}
-
-	// Push
-	q.Push([]model.SoldierState{{SoldierID: 1}, {SoldierID: 2}})
-	if q.Len() != 2 {
-		t.Errorf("expected length 2, got %d", q.Len())
+		t.Error("expected empty queue")
 	}
 
-	// Pop
-	first := q.Pop()
-	if first.SoldierID != 1 {
-		t.Errorf("expected SoldierID 1, got %d", first.SoldierID)
-	}
-
-	// Lock/Unlock
-	q.Lock()
-	q.Queue = append(q.Queue, model.SoldierState{SoldierID: 3})
-	q.Unlock()
-
-	// Clear
-	q.Clear()
-	if !q.Empty() {
-		t.Error("expected empty queue after clear")
-	}
-}
-
-// Test VehiclesQueue
-
-func TestVehiclesQueue_Operations(t *testing.T) {
-	q := &VehiclesQueue{}
-
-	q.Push([]model.Vehicle{{OcapID: 1}, {OcapID: 2}})
-	if q.Len() != 2 {
-		t.Errorf("expected length 2, got %d", q.Len())
-	}
-
-	first := q.Pop()
-	if first.OcapID != 1 {
-		t.Errorf("expected OcapID 1, got %d", first.OcapID)
-	}
-
-	q.Lock()
-	q.Unlock()
-
-	q.Clear()
-	if !q.Empty() {
-		t.Error("expected empty queue after clear")
-	}
-}
-
-// Test VehicleStatesQueue
-
-func TestVehicleStatesQueue_Operations(t *testing.T) {
-	q := &VehicleStatesQueue{}
-
-	q.Push([]model.VehicleState{{VehicleID: 1}, {VehicleID: 2}})
-	if q.Len() != 2 {
-		t.Errorf("expected length 2, got %d", q.Len())
-	}
-
-	first := q.Pop()
-	if first.VehicleID != 1 {
-		t.Errorf("expected VehicleID 1, got %d", first.VehicleID)
-	}
-
-	q.Lock()
-	q.Unlock()
-
-	result := q.GetAndEmpty()
-	if len(result) != 1 {
-		t.Errorf("expected 1 item, got %d", len(result))
-	}
-}
-
-// Test FiredEventsQueue
-
-func TestFiredEventsQueue_Operations(t *testing.T) {
-	q := &FiredEventsQueue{}
-
-	q.Push([]model.FiredEvent{{SoldierID: 1}})
+	q.Push(testItem{ID: 1})
 	if q.Empty() {
 		t.Error("expected non-empty queue")
 	}
@@ -257,26 +74,150 @@ func TestFiredEventsQueue_Operations(t *testing.T) {
 	if !q.Empty() {
 		t.Error("expected empty queue after pop")
 	}
-
-	q.Lock()
-	q.Unlock()
-	q.Clear()
 }
 
-// Test GeneralEventsQueue
+func TestQueue_Len(t *testing.T) {
+	q := New[testItem]()
 
-func TestGeneralEventsQueue_Operations(t *testing.T) {
-	q := &GeneralEventsQueue{}
-
-	q.Push([]model.GeneralEvent{{Name: "test"}})
-	result := q.GetAndEmpty()
-	if len(result) != 1 {
-		t.Errorf("expected 1 item, got %d", len(result))
+	if q.Len() != 0 {
+		t.Errorf("expected 0, got %d", q.Len())
 	}
 
-	q.Lock()
-	q.Unlock()
+	q.Push(testItem{ID: 1}, testItem{ID: 2}, testItem{ID: 3})
+	if q.Len() != 3 {
+		t.Errorf("expected 3, got %d", q.Len())
+	}
+}
+
+func TestQueue_Clear(t *testing.T) {
+	q := New[testItem]()
+	q.Push(testItem{ID: 1}, testItem{ID: 2}, testItem{ID: 3})
+
 	q.Clear()
+
+	if !q.Empty() {
+		t.Error("expected empty queue after clear")
+	}
+	if q.Len() != 0 {
+		t.Errorf("expected length 0, got %d", q.Len())
+	}
+}
+
+func TestQueue_GetAndEmpty(t *testing.T) {
+	q := New[testItem]()
+	q.Push(testItem{ID: 1}, testItem{ID: 2}, testItem{ID: 3})
+
+	result := q.GetAndEmpty()
+
+	if len(result) != 3 {
+		t.Errorf("expected 3 items, got %d", len(result))
+	}
+	if result[0].ID != 1 || result[1].ID != 2 || result[2].ID != 3 {
+		t.Errorf("unexpected items: %+v", result)
+	}
+	if !q.Empty() {
+		t.Error("expected empty queue after GetAndEmpty")
+	}
+}
+
+func TestQueue_Concurrent(t *testing.T) {
+	q := New[testItem]()
+	var wg sync.WaitGroup
+
+	// Concurrent pushes
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			q.Push(testItem{ID: id})
+		}(i)
+	}
+	wg.Wait()
+
+	if q.Len() != 100 {
+		t.Errorf("expected 100 items, got %d", q.Len())
+	}
+
+	// Concurrent pops
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			q.Pop()
+		}()
+	}
+	wg.Wait()
+
+	if q.Len() != 50 {
+		t.Errorf("expected 50 items after pops, got %d", q.Len())
+	}
+}
+
+func TestQueue_ConcurrentGetAndEmpty(t *testing.T) {
+	q := New[testItem]()
+
+	// Fill queue
+	for i := 0; i < 100; i++ {
+		q.Push(testItem{ID: i})
+	}
+
+	var wg sync.WaitGroup
+	results := make(chan []testItem, 10)
+
+	// Concurrent GetAndEmpty calls
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results <- q.GetAndEmpty()
+		}()
+	}
+	wg.Wait()
+	close(results)
+
+	// Total items across all results should be 100
+	total := 0
+	for r := range results {
+		total += len(r)
+	}
+	if total != 100 {
+		t.Errorf("expected total 100 items, got %d", total)
+	}
+}
+
+// Test with different types to ensure generics work correctly
+
+func TestQueue_StringType(t *testing.T) {
+	q := New[string]()
+	q.Push("hello", "world")
+
+	first := q.Pop()
+	if first != "hello" {
+		t.Errorf("expected 'hello', got '%s'", first)
+	}
+}
+
+func TestQueue_IntType(t *testing.T) {
+	q := New[int]()
+	q.Push(1, 2, 3, 4, 5)
+
+	sum := 0
+	for !q.Empty() {
+		sum += q.Pop()
+	}
+	if sum != 15 {
+		t.Errorf("expected sum 15, got %d", sum)
+	}
+}
+
+func TestQueue_SliceType(t *testing.T) {
+	q := New[[]string]()
+	q.Push([]string{"a", "b"}, []string{"c", "d"})
+
+	first := q.Pop()
+	if len(first) != 2 || first[0] != "a" {
+		t.Errorf("expected [a, b], got %v", first)
+	}
 }
 
 // Test SoldierStatesMap
@@ -349,175 +290,4 @@ func TestSoldierStatesMap_GetLastState(t *testing.T) {
 	if len(lastState) != 1 || lastState[0] != "state10" {
 		t.Errorf("expected [state10], got %v", lastState)
 	}
-}
-
-// Test MarkersQueue
-
-func TestMarkersQueue_Operations(t *testing.T) {
-	q := &MarkersQueue{}
-
-	q.Push([]model.Marker{{MarkerName: "marker1"}})
-	if q.Len() != 1 {
-		t.Errorf("expected length 1, got %d", q.Len())
-	}
-
-	first := q.Pop()
-	if first.MarkerName != "marker1" {
-		t.Errorf("expected marker1, got %s", first.MarkerName)
-	}
-
-	q.Lock()
-	q.Unlock()
-	q.Clear()
-	q.GetAndEmpty()
-}
-
-// Test MarkerStatesQueue
-
-func TestMarkerStatesQueue_Operations(t *testing.T) {
-	q := &MarkerStatesQueue{}
-
-	q.Push([]model.MarkerState{{MarkerID: 1}})
-	if q.Empty() {
-		t.Error("expected non-empty queue")
-	}
-
-	q.Pop()
-	q.Lock()
-	q.Unlock()
-	q.Clear()
-	q.GetAndEmpty()
-}
-
-// Test concurrent operations
-
-func TestSoldiersQueue_Concurrent(t *testing.T) {
-	q := &SoldiersQueue{}
-	var wg sync.WaitGroup
-
-	// Concurrent pushes
-	for i := 0; i < 100; i++ {
-		wg.Add(1)
-		go func(id uint16) {
-			defer wg.Done()
-			q.Push([]model.Soldier{{OcapID: id}})
-		}(uint16(i))
-	}
-	wg.Wait()
-
-	if q.Len() != 100 {
-		t.Errorf("expected 100 items, got %d", q.Len())
-	}
-
-	// Concurrent pops
-	for i := 0; i < 50; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			q.Pop()
-		}()
-	}
-	wg.Wait()
-
-	if q.Len() != 50 {
-		t.Errorf("expected 50 items after pops, got %d", q.Len())
-	}
-}
-
-// Test remaining queue types to ensure coverage
-
-func TestProjectileEventsQueue_Operations(t *testing.T) {
-	q := &ProjectileEventsQueue{}
-	q.Push([]model.ProjectileEvent{{}})
-	q.Pop()
-	q.Lock()
-	q.Unlock()
-	q.Empty()
-	q.Len()
-	q.Clear()
-	q.GetAndEmpty()
-}
-
-func TestHitEventsQueue_Operations(t *testing.T) {
-	q := &HitEventsQueue{}
-	q.Push([]model.HitEvent{{}})
-	q.Pop()
-	q.Lock()
-	q.Unlock()
-	q.Empty()
-	q.Len()
-	q.Clear()
-	q.GetAndEmpty()
-}
-
-func TestKillEventsQueue_Operations(t *testing.T) {
-	q := &KillEventsQueue{}
-	q.Push([]model.KillEvent{{}})
-	q.Pop()
-	q.Lock()
-	q.Unlock()
-	q.Empty()
-	q.Len()
-	q.Clear()
-	q.GetAndEmpty()
-}
-
-func TestChatEventsQueue_Operations(t *testing.T) {
-	q := &ChatEventsQueue{}
-	q.Push([]model.ChatEvent{{}})
-	q.Pop()
-	q.Lock()
-	q.Unlock()
-	q.Empty()
-	q.Len()
-	q.Clear()
-	q.GetAndEmpty()
-}
-
-func TestRadioEventsQueue_Operations(t *testing.T) {
-	q := &RadioEventsQueue{}
-	q.Push([]model.RadioEvent{{}})
-	q.Pop()
-	q.Lock()
-	q.Unlock()
-	q.Empty()
-	q.Len()
-	q.Clear()
-	q.GetAndEmpty()
-}
-
-func TestFpsEventsQueue_Operations(t *testing.T) {
-	q := &FpsEventsQueue{}
-	q.Push([]model.ServerFpsEvent{{}})
-	q.Pop()
-	q.Lock()
-	q.Unlock()
-	q.Empty()
-	q.Len()
-	q.Clear()
-	q.GetAndEmpty()
-}
-
-func TestAce3DeathEventsQueue_Operations(t *testing.T) {
-	q := &Ace3DeathEventsQueue{}
-	q.Push([]model.Ace3DeathEvent{{}})
-	q.Pop()
-	q.Lock()
-	q.Unlock()
-	q.Empty()
-	q.Len()
-	q.Clear()
-	q.GetAndEmpty()
-}
-
-func TestAce3UnconsciousEventsQueue_Operations(t *testing.T) {
-	q := &Ace3UnconsciousEventsQueue{}
-	q.Push([]model.Ace3UnconsciousEvent{{}})
-	q.Pop()
-	q.Lock()
-	q.Unlock()
-	q.Empty()
-	q.Len()
-	q.Clear()
-	q.GetAndEmpty()
 }

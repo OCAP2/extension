@@ -56,7 +56,7 @@ func (m *Manager) handleNewSoldier(e dispatcher.Event) (any, error) {
 		coreObj := convert.SoldierToCore(obj)
 		m.backend.AddSoldier(&coreObj)
 	} else {
-		m.queues.Soldiers.Push([]model.Soldier{obj})
+		m.queues.Soldiers.Push(obj)
 	}
 
 	return "ok", nil
@@ -76,7 +76,7 @@ func (m *Manager) handleNewVehicle(e dispatcher.Event) (any, error) {
 		coreObj := convert.VehicleToCore(obj)
 		m.backend.AddVehicle(&coreObj)
 	} else {
-		m.queues.Vehicles.Push([]model.Vehicle{obj})
+		m.queues.Vehicles.Push(obj)
 	}
 
 	return "ok", nil
@@ -97,7 +97,7 @@ func (m *Manager) handleSoldierState(e dispatcher.Event) (any, error) {
 		coreObj := convert.SoldierStateToCore(obj)
 		m.backend.RecordSoldierState(&coreObj)
 	} else {
-		m.queues.SoldierStates.Push([]model.SoldierState{obj})
+		m.queues.SoldierStates.Push(obj)
 	}
 
 	return nil, nil
@@ -117,7 +117,7 @@ func (m *Manager) handleVehicleState(e dispatcher.Event) (any, error) {
 		coreObj := convert.VehicleStateToCore(obj)
 		m.backend.RecordVehicleState(&coreObj)
 	} else {
-		m.queues.VehicleStates.Push([]model.VehicleState{obj})
+		m.queues.VehicleStates.Push(obj)
 	}
 
 	return nil, nil
@@ -137,7 +137,7 @@ func (m *Manager) handleFiredEvent(e dispatcher.Event) (any, error) {
 		coreObj := convert.FiredEventToCore(obj)
 		m.backend.RecordFiredEvent(&coreObj)
 	} else {
-		m.queues.FiredEvents.Push([]model.FiredEvent{obj})
+		m.queues.FiredEvents.Push(obj)
 	}
 
 	return nil, nil
@@ -154,7 +154,7 @@ func (m *Manager) handleProjectileEvent(e dispatcher.Event) (any, error) {
 		return nil, nil
 	}
 
-	m.queues.ProjectileEvents.Push([]model.ProjectileEvent{obj})
+	m.queues.ProjectileEvents.Push(obj)
 	return nil, nil
 }
 
@@ -172,7 +172,7 @@ func (m *Manager) handleGeneralEvent(e dispatcher.Event) (any, error) {
 		coreObj := convert.GeneralEventToCore(obj)
 		m.backend.RecordGeneralEvent(&coreObj)
 	} else {
-		m.queues.GeneralEvents.Push([]model.GeneralEvent{obj})
+		m.queues.GeneralEvents.Push(obj)
 	}
 
 	return nil, nil
@@ -192,7 +192,7 @@ func (m *Manager) handleHitEvent(e dispatcher.Event) (any, error) {
 		coreObj := convert.HitEventToCore(obj)
 		m.backend.RecordHitEvent(&coreObj)
 	} else {
-		m.queues.HitEvents.Push([]model.HitEvent{obj})
+		m.queues.HitEvents.Push(obj)
 	}
 
 	return nil, nil
@@ -212,7 +212,7 @@ func (m *Manager) handleKillEvent(e dispatcher.Event) (any, error) {
 		coreObj := convert.KillEventToCore(obj)
 		m.backend.RecordKillEvent(&coreObj)
 	} else {
-		m.queues.KillEvents.Push([]model.KillEvent{obj})
+		m.queues.KillEvents.Push(obj)
 	}
 
 	return nil, nil
@@ -232,7 +232,7 @@ func (m *Manager) handleChatEvent(e dispatcher.Event) (any, error) {
 		coreObj := convert.ChatEventToCore(obj)
 		m.backend.RecordChatEvent(&coreObj)
 	} else {
-		m.queues.ChatEvents.Push([]model.ChatEvent{obj})
+		m.queues.ChatEvents.Push(obj)
 	}
 
 	return nil, nil
@@ -252,7 +252,7 @@ func (m *Manager) handleRadioEvent(e dispatcher.Event) (any, error) {
 		coreObj := convert.RadioEventToCore(obj)
 		m.backend.RecordRadioEvent(&coreObj)
 	} else {
-		m.queues.RadioEvents.Push([]model.RadioEvent{obj})
+		m.queues.RadioEvents.Push(obj)
 	}
 
 	return nil, nil
@@ -272,7 +272,7 @@ func (m *Manager) handleFpsEvent(e dispatcher.Event) (any, error) {
 		coreObj := convert.ServerFpsEventToCore(obj)
 		m.backend.RecordServerFpsEvent(&coreObj)
 	} else {
-		m.queues.FpsEvents.Push([]model.ServerFpsEvent{obj})
+		m.queues.FpsEvents.Push(obj)
 	}
 
 	return nil, nil
@@ -292,7 +292,7 @@ func (m *Manager) handleAce3DeathEvent(e dispatcher.Event) (any, error) {
 		coreObj := convert.Ace3DeathEventToCore(obj)
 		m.backend.RecordAce3DeathEvent(&coreObj)
 	} else {
-		m.queues.Ace3DeathEvents.Push([]model.Ace3DeathEvent{obj})
+		m.queues.Ace3DeathEvents.Push(obj)
 	}
 
 	return nil, nil
@@ -312,7 +312,7 @@ func (m *Manager) handleAce3UnconsciousEvent(e dispatcher.Event) (any, error) {
 		coreObj := convert.Ace3UnconsciousEventToCore(obj)
 		m.backend.RecordAce3UnconsciousEvent(&coreObj)
 	} else {
-		m.queues.Ace3UnconsciousEvents.Push([]model.Ace3UnconsciousEvent{obj})
+		m.queues.Ace3UnconsciousEvents.Push(obj)
 	}
 
 	return nil, nil
@@ -332,7 +332,7 @@ func (m *Manager) handleMarkerCreate(e dispatcher.Event) (any, error) {
 		coreObj := convert.MarkerToCore(marker)
 		m.backend.AddMarker(&coreObj)
 	} else {
-		m.queues.Markers.Push([]model.Marker{marker})
+		m.queues.Markers.Push(marker)
 	}
 
 	return nil, nil
@@ -352,7 +352,7 @@ func (m *Manager) handleMarkerMove(e dispatcher.Event) (any, error) {
 		coreObj := convert.MarkerStateToCore(markerState)
 		m.backend.RecordMarkerState(&coreObj)
 	} else {
-		m.queues.MarkerStates.Push([]model.MarkerState{markerState})
+		m.queues.MarkerStates.Push(markerState)
 	}
 
 	return nil, nil
@@ -377,7 +377,7 @@ func (m *Manager) handleMarkerDelete(e dispatcher.Event) (any, error) {
 			Time:         time.Now(),
 			Alpha:        0,
 		}
-		m.queues.MarkerStates.Push([]model.MarkerState{deleteState})
+		m.queues.MarkerStates.Push(deleteState)
 		if m.deps.DB != nil {
 			m.deps.DB.Model(&model.Marker{}).Where("id = ?", markerID).Update("is_deleted", true)
 		}
