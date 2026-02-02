@@ -14,6 +14,9 @@ import (
 // Verify Backend implements storage.Backend interface
 var _ storage.Backend = (*Backend)(nil)
 
+// Verify Backend implements storage.Uploadable interface
+var _ storage.Uploadable = (*Backend)(nil)
+
 func TestNew(t *testing.T) {
 	cfg := config.MemoryConfig{
 		OutputDir:      "/tmp/test",
@@ -703,5 +706,84 @@ func TestStartMissionResetsEverything(t *testing.T) {
 	}
 	if b.idCounter != 0 {
 		t.Error("idCounter not reset")
+	}
+}
+
+func TestGetExportedFilePath(t *testing.T) {
+	b := New(config.MemoryConfig{
+		OutputDir:      t.TempDir(),
+		CompressOutput: true,
+	})
+
+	// Before export, should return empty
+	if path := b.GetExportedFilePath(); path != "" {
+		t.Errorf("expected empty path before export, got %s", path)
+	}
+}
+
+func TestGetExportMetadata(t *testing.T) {
+	b := New(config.MemoryConfig{})
+
+	mission := &core.Mission{
+		MissionName:  "Test Mission",
+		CaptureDelay: 1.0,
+		Tag:          "TvT",
+	}
+	world := &core.World{
+		WorldName: "Altis",
+	}
+
+	_ = b.StartMission(mission, world)
+
+	// Add some frames
+	s := &core.Soldier{OcapID: 1}
+	_ = b.AddSoldier(s)
+	_ = b.RecordSoldierState(&core.SoldierState{
+		SoldierID:    s.ID,
+		CaptureFrame: 100,
+	})
+
+	meta := b.GetExportMetadata()
+
+	if meta.WorldName != "Altis" {
+		t.Errorf("expected WorldName=Altis, got %s", meta.WorldName)
+	}
+	if meta.MissionName != "Test Mission" {
+		t.Errorf("expected MissionName=Test Mission, got %s", meta.MissionName)
+	}
+	if meta.Tag != "TvT" {
+		t.Errorf("expected Tag=TvT, got %s", meta.Tag)
+	}
+	// Duration = endFrame * captureDelay / 1000 = 100 * 1.0 / 1000 = 0.1
+	if meta.MissionDuration != 0.1 {
+		t.Errorf("expected MissionDuration=0.1, got %f", meta.MissionDuration)
+	}
+}
+
+func TestStartMissionResetsExportPath(t *testing.T) {
+	b := New(config.MemoryConfig{
+		OutputDir:      t.TempDir(),
+		CompressOutput: true,
+	})
+
+	mission := &core.Mission{
+		MissionName: "First",
+		StartTime:   time.Now(),
+	}
+	world := &core.World{WorldName: "Altis"}
+
+	_ = b.StartMission(mission, world)
+	_ = b.EndMission()
+
+	firstPath := b.GetExportedFilePath()
+	if firstPath == "" {
+		t.Fatal("expected non-empty path after export")
+	}
+
+	// Start new mission - should reset path
+	_ = b.StartMission(&core.Mission{MissionName: "Second", StartTime: time.Now()}, world)
+
+	if path := b.GetExportedFilePath(); path != "" {
+		t.Errorf("expected empty path after StartMission, got %s", path)
 	}
 }

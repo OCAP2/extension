@@ -6,6 +6,7 @@ import (
 
 	"github.com/OCAP2/extension/v5/internal/config"
 	"github.com/OCAP2/extension/v5/internal/model/core"
+	"github.com/OCAP2/extension/v5/internal/storage"
 )
 
 // SoldierRecord groups a soldier with all its time-series data
@@ -32,6 +33,8 @@ type Backend struct {
 	cfg     config.MemoryConfig
 	mission *core.Mission
 	world   *core.World
+
+	lastExportPath string // path to the last exported file
 
 	soldiers map[uint16]*SoldierRecord // keyed by OcapID
 	vehicles map[uint16]*VehicleRecord // keyed by OcapID
@@ -91,6 +94,7 @@ func (b *Backend) StartMission(mission *core.Mission, world *core.World) error {
 	b.ace3DeathEvents = nil
 	b.ace3UnconsciousEvents = nil
 	b.idCounter = 0
+	b.lastExportPath = ""
 
 	return nil
 }
@@ -300,4 +304,42 @@ func (b *Backend) RecordAce3UnconsciousEvent(e *core.Ace3UnconsciousEvent) error
 	defer b.mu.Unlock()
 	b.ace3UnconsciousEvents = append(b.ace3UnconsciousEvents, *e)
 	return nil
+}
+
+// GetExportedFilePath returns the path to the last exported file.
+func (b *Backend) GetExportedFilePath() string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.lastExportPath
+}
+
+// GetExportMetadata returns metadata about the last export.
+func (b *Backend) GetExportMetadata() storage.UploadMetadata {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	var endFrame uint
+	for _, record := range b.soldiers {
+		for _, state := range record.States {
+			if state.CaptureFrame > endFrame {
+				endFrame = state.CaptureFrame
+			}
+		}
+	}
+	for _, record := range b.vehicles {
+		for _, state := range record.States {
+			if state.CaptureFrame > endFrame {
+				endFrame = state.CaptureFrame
+			}
+		}
+	}
+
+	duration := float64(endFrame) * float64(b.mission.CaptureDelay) / 1000.0
+
+	return storage.UploadMetadata{
+		WorldName:       b.world.WorldName,
+		MissionName:     b.mission.MissionName,
+		MissionDuration: duration,
+		Tag:             b.mission.Tag,
+	}
 }
