@@ -257,3 +257,158 @@ func TestDispatcher_CombinedOptions(t *testing.T) {
 		t.Errorf("expected log messages, got %d", len(logger.messages))
 	}
 }
+
+func TestDispatcher_GatedHandler(t *testing.T) {
+	d, _ := newTestDispatcher(t)
+
+	ready := make(chan struct{})
+	var processed atomic.Int32
+	var wg sync.WaitGroup
+	wg.Add(3)
+
+	d.Register(":GATED:", func(e Event) (any, error) {
+		processed.Add(1)
+		wg.Done()
+		return nil, nil
+	}, Buffered(10), Gated(ready))
+
+	// Dispatch events before gate opens
+	for i := 0; i < 3; i++ {
+		result, err := d.Dispatch(Event{Command: ":GATED:"})
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		if result != "queued" {
+			t.Errorf("expected 'queued', got %v", result)
+		}
+	}
+
+	// Verify nothing processed yet
+	time.Sleep(50 * time.Millisecond)
+	if processed.Load() != 0 {
+		t.Errorf("expected 0 processed before gate opens, got %d", processed.Load())
+	}
+
+	// Open the gate
+	close(ready)
+
+	// Wait for processing
+	wg.Wait()
+
+	if processed.Load() != 3 {
+		t.Errorf("expected 3 processed after gate opens, got %d", processed.Load())
+	}
+}
+
+func TestDispatcher_GatedHandlerProcessesInOrder(t *testing.T) {
+	d, _ := newTestDispatcher(t)
+
+	ready := make(chan struct{})
+	var order []string
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	wg.Add(3)
+
+	d.Register(":ORDERED:", func(e Event) (any, error) {
+		mu.Lock()
+		order = append(order, e.Args[0])
+		mu.Unlock()
+		wg.Done()
+		return nil, nil
+	}, Buffered(10), Gated(ready))
+
+	// Dispatch in order
+	d.Dispatch(Event{Command: ":ORDERED:", Args: []string{"first"}})
+	d.Dispatch(Event{Command: ":ORDERED:", Args: []string{"second"}})
+	d.Dispatch(Event{Command: ":ORDERED:", Args: []string{"third"}})
+
+	// Open gate
+	close(ready)
+	wg.Wait()
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(order) != 3 {
+		t.Fatalf("expected 3 items, got %d", len(order))
+	}
+	if order[0] != "first" || order[1] != "second" || order[2] != "third" {
+		t.Errorf("expected [first, second, third], got %v", order)
+	}
+}
+
+func TestDispatcher_GatedWithBlocking(t *testing.T) {
+	d, _ := newTestDispatcher(t)
+
+	ready := make(chan struct{})
+	var processed atomic.Int32
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	d.Register(":GATED_BLOCKING:", func(e Event) (any, error) {
+		processed.Add(1)
+		wg.Done()
+		return nil, nil
+	}, Buffered(1), Blocking(), Gated(ready))
+
+	// First event fills buffer
+	d.Dispatch(Event{Command: ":GATED_BLOCKING:"})
+
+	// Second event should block since buffer is full and gate closed
+	dispatched := make(chan struct{})
+	go func() {
+		d.Dispatch(Event{Command: ":GATED_BLOCKING:"})
+		close(dispatched)
+	}()
+
+	// Verify dispatch is blocking
+	select {
+	case <-dispatched:
+		t.Error("dispatch should block when buffer full")
+	case <-time.After(50 * time.Millisecond):
+		// Expected
+	}
+
+	// Open gate - should unblock and process
+	close(ready)
+	wg.Wait()
+
+	if processed.Load() != 2 {
+		t.Errorf("expected 2 processed, got %d", processed.Load())
+	}
+}
+
+func TestDispatcher_GatedLogsWhenOpened(t *testing.T) {
+	d, logger := newTestDispatcher(t)
+
+	ready := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	d.Register(":GATED_LOG:", func(e Event) (any, error) {
+		wg.Done()
+		return nil, nil
+	}, Buffered(10), Gated(ready))
+
+	d.Dispatch(Event{Command: ":GATED_LOG:"})
+	close(ready)
+	wg.Wait()
+
+	// Allow time for log
+	time.Sleep(10 * time.Millisecond)
+
+	logger.mu.Lock()
+	defer logger.mu.Unlock()
+
+	found := false
+	for _, msg := range logger.messages {
+		if len(msg) >= 4 && msg[:4] == "INFO" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Error("expected INFO log when gate opens")
+	}
+}

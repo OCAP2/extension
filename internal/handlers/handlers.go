@@ -112,11 +112,6 @@ func (s *Service) writeLog(functionName, data, level string) {
 func (s *Service) LogNewMission(data []string) error {
 	functionName := ":NEW:MISSION:"
 
-	// Safety check for nil DB
-	if s.deps.DB == nil {
-		return fmt.Errorf("database not initialized")
-	}
-
 	// fix received data
 	for i, v := range data {
 		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
