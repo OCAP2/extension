@@ -837,6 +837,21 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 		return "ok", nil
 	})
 
+	// :LOG: is used by the addon to log messages through the extension
+	d.Register(":LOG:", func(e dispatcher.Event) (any, error) {
+		if len(e.Args) > 0 {
+			msg := util.FixEscapeQuotes(util.TrimQuotes(e.Args[0]))
+			Logger.Info("Addon log", "message", msg)
+		}
+		return "ok", nil
+	})
+
+	// :METRIC: receives telemetry data from the addon (stub - metrics are logged but not stored)
+	d.Register(":METRIC:", func(e dispatcher.Event) (any, error) {
+		// Metrics are currently not stored, just acknowledged
+		return "ok", nil
+	})
+
 	d.Register(":NEW:MISSION:", func(e dispatcher.Event) (any, error) {
 		if handlerService != nil {
 			if err := handlerService.LogNewMission(e.Args); err != nil {
