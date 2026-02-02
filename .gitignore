@@ -4,3 +4,5 @@ ocaplog/
 ocap-recorder.cfg.json
 vendor/
 dist/
+docs/plans/
+cover.out

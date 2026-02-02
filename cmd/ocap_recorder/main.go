@@ -16,7 +16,6 @@ import (
 	"log/slog"
 	"math"
 	"math/rand"
-	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -25,6 +24,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/OCAP2/extension/v5/internal/api"
 	"github.com/OCAP2/extension/v5/internal/cache"
 	"github.com/OCAP2/extension/v5/internal/config"
 	"github.com/OCAP2/extension/v5/internal/database"
@@ -130,6 +130,9 @@ var (
 
 	// Storage backend (optional)
 	storageBackend storage.Backend
+
+	// API client for OCAP web frontend
+	apiClient *api.Client
 )
 
 // init is run automatically when the module is loaded
@@ -282,8 +285,8 @@ func init() {
 	go func() {
 		startGoroutines()
 
-		// log frontend status
-		checkServerStatus()
+		// Initialize API client and check frontend status
+		initAPIClient()
 	}()
 }
 
@@ -350,14 +353,18 @@ func loadConfig() (err error) {
 	return config.Load(AddonFolder)
 }
 
-func checkServerStatus() {
-	var err error
+func initAPIClient() {
+	serverURL := viper.GetString("api.serverUrl")
+	if serverURL == "" {
+		Logger.Info("API server URL not configured, upload disabled")
+		return
+	}
 
-	// check if server is running by making a healthcheck API request
-	// if server is not running, log error and exit
-	_, err = http.Get(viper.GetString("api.serverUrl") + "/healthcheck")
-	if err != nil {
-		Logger.Info("OCAP Frontend is offline")
+	apiKey := viper.GetString("api.apiKey")
+	apiClient = api.New(serverURL, apiKey)
+
+	if err := apiClient.Healthcheck(); err != nil {
+		Logger.Info("OCAP Frontend is offline", "error", err)
 	} else {
 		Logger.Info("OCAP Frontend is online")
 	}
@@ -847,6 +854,19 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 				return nil, err
 			}
 			Logger.Info("Mission recording saved to storage backend")
+
+			// Upload if backend supports it and API client is configured
+			if u, ok := storageBackend.(storage.Uploadable); ok && apiClient != nil {
+				if path := u.GetExportedFilePath(); path != "" {
+					meta := u.GetExportMetadata()
+					if err := apiClient.Upload(path, meta); err != nil {
+						Logger.Error("Failed to upload to OCAP web", "error", err, "path", path)
+						// Don't return error - file is saved locally
+					} else {
+						Logger.Info("Mission uploaded to OCAP web", "path", path)
+					}
+				}
+			}
 		}
 		// Flush OTel data if provider is available
 		if OTelProvider != nil {

@@ -2,6 +2,7 @@
 package memory
 
 import (
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -13,6 +14,9 @@ import (
 
 // Verify Backend implements storage.Backend interface
 var _ storage.Backend = (*Backend)(nil)
+
+// Verify Backend implements storage.Uploadable interface
+var _ storage.Uploadable = (*Backend)(nil)
 
 func TestNew(t *testing.T) {
 	cfg := config.MemoryConfig{
@@ -703,5 +707,204 @@ func TestStartMissionResetsEverything(t *testing.T) {
 	}
 	if b.idCounter != 0 {
 		t.Error("idCounter not reset")
+	}
+}
+
+func TestGetExportedFilePath(t *testing.T) {
+	b := New(config.MemoryConfig{
+		OutputDir:      t.TempDir(),
+		CompressOutput: true,
+	})
+
+	// Before export, should return empty
+	if path := b.GetExportedFilePath(); path != "" {
+		t.Errorf("expected empty path before export, got %s", path)
+	}
+}
+
+func TestGetExportedFilePath_AfterExport(t *testing.T) {
+	tmpDir := t.TempDir()
+	b := New(config.MemoryConfig{
+		OutputDir:      tmpDir,
+		CompressOutput: true,
+	})
+
+	mission := &core.Mission{
+		MissionName: "Test",
+		StartTime:   time.Now(),
+	}
+	world := &core.World{WorldName: "Altis"}
+
+	_ = b.StartMission(mission, world)
+	_ = b.EndMission()
+
+	path := b.GetExportedFilePath()
+	if path == "" {
+		t.Fatal("expected non-empty path after export")
+	}
+	if !strings.HasPrefix(path, tmpDir) {
+		t.Errorf("expected path to start with %s, got %s", tmpDir, path)
+	}
+	if !strings.HasSuffix(path, ".json.gz") {
+		t.Errorf("expected path to end with .json.gz, got %s", path)
+	}
+}
+
+func TestGetExportedFilePath_UncompressedExport(t *testing.T) {
+	tmpDir := t.TempDir()
+	b := New(config.MemoryConfig{
+		OutputDir:      tmpDir,
+		CompressOutput: false,
+	})
+
+	mission := &core.Mission{
+		MissionName: "Test",
+		StartTime:   time.Now(),
+	}
+	world := &core.World{WorldName: "Altis"}
+
+	_ = b.StartMission(mission, world)
+	_ = b.EndMission()
+
+	path := b.GetExportedFilePath()
+	if path == "" {
+		t.Fatal("expected non-empty path after export")
+	}
+	if !strings.HasSuffix(path, ".json") {
+		t.Errorf("expected path to end with .json, got %s", path)
+	}
+	if strings.HasSuffix(path, ".json.gz") {
+		t.Errorf("expected path to NOT end with .json.gz for uncompressed, got %s", path)
+	}
+}
+
+func TestGetExportMetadata(t *testing.T) {
+	b := New(config.MemoryConfig{})
+
+	mission := &core.Mission{
+		MissionName:  "Test Mission",
+		CaptureDelay: 1.0,
+		Tag:          "TvT",
+	}
+	world := &core.World{
+		WorldName: "Altis",
+	}
+
+	_ = b.StartMission(mission, world)
+
+	// Add some frames
+	s := &core.Soldier{OcapID: 1}
+	_ = b.AddSoldier(s)
+	_ = b.RecordSoldierState(&core.SoldierState{
+		SoldierID:    s.ID,
+		CaptureFrame: 100,
+	})
+
+	meta := b.GetExportMetadata()
+
+	if meta.WorldName != "Altis" {
+		t.Errorf("expected WorldName=Altis, got %s", meta.WorldName)
+	}
+	if meta.MissionName != "Test Mission" {
+		t.Errorf("expected MissionName=Test Mission, got %s", meta.MissionName)
+	}
+	if meta.Tag != "TvT" {
+		t.Errorf("expected Tag=TvT, got %s", meta.Tag)
+	}
+	// Duration = endFrame * captureDelay / 1000 = 100 * 1.0 / 1000 = 0.1
+	if meta.MissionDuration != 0.1 {
+		t.Errorf("expected MissionDuration=0.1, got %f", meta.MissionDuration)
+	}
+}
+
+func TestGetExportMetadata_VehicleEndFrame(t *testing.T) {
+	b := New(config.MemoryConfig{})
+
+	mission := &core.Mission{
+		MissionName:  "Vehicle Test",
+		CaptureDelay: 1.0,
+		Tag:          "PvE",
+	}
+	world := &core.World{WorldName: "Stratis"}
+
+	_ = b.StartMission(mission, world)
+
+	// Add soldier with lower frame
+	s := &core.Soldier{OcapID: 1}
+	_ = b.AddSoldier(s)
+	_ = b.RecordSoldierState(&core.SoldierState{
+		SoldierID:    s.ID,
+		CaptureFrame: 50,
+	})
+
+	// Add vehicle with higher frame - this should determine endFrame
+	v := &core.Vehicle{OcapID: 10}
+	_ = b.AddVehicle(v)
+	_ = b.RecordVehicleState(&core.VehicleState{
+		VehicleID:    v.ID,
+		CaptureFrame: 200,
+	})
+
+	meta := b.GetExportMetadata()
+
+	// Duration should be based on vehicle's higher frame: 200 * 1.0 / 1000 = 0.2
+	if meta.MissionDuration != 0.2 {
+		t.Errorf("expected MissionDuration=0.2 (from vehicle frame 200), got %f", meta.MissionDuration)
+	}
+}
+
+func TestGetExportMetadata_EmptyMission(t *testing.T) {
+	b := New(config.MemoryConfig{})
+
+	mission := &core.Mission{
+		MissionName:  "Empty Mission",
+		CaptureDelay: 1.0,
+		Tag:          "",
+	}
+	world := &core.World{WorldName: "VR"}
+
+	_ = b.StartMission(mission, world)
+
+	// No soldiers or vehicles added
+
+	meta := b.GetExportMetadata()
+
+	if meta.WorldName != "VR" {
+		t.Errorf("expected WorldName=VR, got %s", meta.WorldName)
+	}
+	if meta.MissionName != "Empty Mission" {
+		t.Errorf("expected MissionName=Empty Mission, got %s", meta.MissionName)
+	}
+	// Duration should be 0 with no frames
+	if meta.MissionDuration != 0 {
+		t.Errorf("expected MissionDuration=0, got %f", meta.MissionDuration)
+	}
+}
+
+func TestStartMissionResetsExportPath(t *testing.T) {
+	b := New(config.MemoryConfig{
+		OutputDir:      t.TempDir(),
+		CompressOutput: true,
+	})
+
+	mission := &core.Mission{
+		MissionName: "First",
+		StartTime:   time.Now(),
+	}
+	world := &core.World{WorldName: "Altis"}
+
+	_ = b.StartMission(mission, world)
+	_ = b.EndMission()
+
+	firstPath := b.GetExportedFilePath()
+	if firstPath == "" {
+		t.Fatal("expected non-empty path after export")
+	}
+
+	// Start new mission - should reset path
+	_ = b.StartMission(&core.Mission{MissionName: "Second", StartTime: time.Now()}, world)
+
+	if path := b.GetExportedFilePath(); path != "" {
+		t.Errorf("expected empty path after StartMission, got %s", path)
 	}
 }

@@ -39,3 +39,18 @@ type Backend interface {
 	GetVehicleByOcapID(ocapID uint16) (*core.Vehicle, bool)
 	GetMarkerByName(name string) (*core.Marker, bool)
 }
+
+// UploadMetadata contains mission information needed for upload.
+type UploadMetadata struct {
+	WorldName       string
+	MissionName     string
+	MissionDuration float64
+	Tag             string
+}
+
+// Uploadable is an optional interface for storage backends that produce
+// files suitable for upload to the OCAP web frontend.
+type Uploadable interface {
+	GetExportedFilePath() string
+	GetExportMetadata() UploadMetadata
+}

@@ -82,9 +82,17 @@ func (b *Backend) exportJSON() error {
 
 	// Write file
 	if b.cfg.CompressOutput {
-		return b.writeGzipJSON(outputPath, export)
+		if err := b.writeGzipJSON(outputPath, export); err != nil {
+			return err
+		}
+	} else {
+		if err := b.writeJSON(outputPath, export); err != nil {
+			return err
+		}
 	}
-	return b.writeJSON(outputPath, export)
+
+	b.lastExportPath = outputPath
+	return nil
 }
 
 func (b *Backend) buildExport() OcapExport {
