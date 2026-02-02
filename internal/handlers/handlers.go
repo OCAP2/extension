@@ -295,14 +295,7 @@ func (s *Service) LogNewSoldier(data []string) (model.Soldier, error) {
 	soldier.MissionID = s.ctx.GetMission().ID
 	soldier.JoinFrame = uint(capframe)
 
-	// timestamp will always be appended as the last element of data, in unixnano format as a string
-	timestampStr := data[len(data)-1]
-	timestampInt, err := strconv.ParseInt(timestampStr, 10, 64)
-	if err != nil {
-		s.writeLog(functionName, fmt.Sprintf(`Error converting timestamp to int: %v`, err), "ERROR")
-		return soldier, err
-	}
-	soldier.JoinTime = time.Unix(0, timestampInt)
+	soldier.JoinTime = time.Now()
 
 	ocapID, err := strconv.ParseUint(data[1], 10, 64)
 	if err != nil {
@@ -368,14 +361,7 @@ func (s *Service) LogSoldierState(data []string) (model.SoldierState, error) {
 
 	soldierState.SoldierID = soldier.ID
 
-	// timestamp will always be appended as the last element of data, in unixnano format as a string
-	timestampStr := data[len(data)-1]
-	timestampInt, err := strconv.ParseInt(timestampStr, 10, 64)
-	if err != nil {
-		s.writeLog(functionName, fmt.Sprintf(`Error converting timestamp to int: %v`, err), "ERROR")
-		return soldierState, err
-	}
-	soldierState.Time = time.Unix(0, timestampInt)
+	soldierState.Time = time.Now()
 
 	// parse pos from an arma string
 	pos := data[1]
@@ -479,14 +465,7 @@ func (s *Service) LogNewVehicle(data []string) (model.Vehicle, error) {
 		return vehicle, err
 	}
 
-	// timestamp will always be appended as the last element of data, in unixnano format as a string
-	timestampStr := data[len(data)-1]
-	timestampInt, err := strconv.ParseInt(timestampStr, 10, 64)
-	if err != nil {
-		s.writeLog(functionName, fmt.Sprintf(`Error converting timestamp to int: %v`, err), "ERROR")
-		return vehicle, err
-	}
-	vehicle.JoinTime = time.Unix(0, timestampInt)
+	vehicle.JoinTime = time.Now()
 
 	// parse array
 	vehicle.MissionID = s.ctx.GetMission().ID
@@ -540,14 +519,7 @@ func (s *Service) LogVehicleState(data []string) (model.VehicleState, error) {
 	}
 	vehicleState.VehicleID = vehicle.ID
 
-	// timestamp will always be appended as the last element of data, in unixnano format as a string
-	timestampStr := data[len(data)-1]
-	timestampInt, err := strconv.ParseInt(timestampStr, 10, 64)
-	if err != nil {
-		s.writeLog(functionName, fmt.Sprintf(`Error converting timestamp to int: %v`, err), "ERROR")
-		return vehicleState, err
-	}
-	vehicleState.Time = time.Unix(0, timestampInt)
+	vehicleState.Time = time.Now()
 
 	// parse pos from an arma string
 	pos := data[1]
@@ -657,14 +629,7 @@ func (s *Service) LogFiredEvent(data []string) (model.FiredEvent, error) {
 	}
 	firedEvent.SoldierID = soldier.ID
 
-	// timestamp will always be appended as the last element of data, in unixnano format as a string
-	timestampStr := data[len(data)-1]
-	timestampInt, err := strconv.ParseInt(timestampStr, 10, 64)
-	if err != nil {
-		s.writeLog(functionName, fmt.Sprintf(`Error converting timestamp to int: %v`, err), "ERROR")
-		return firedEvent, err
-	}
-	firedEvent.Time = time.Unix(0, timestampInt)
+	firedEvent.Time = time.Now()
 
 	// parse BULLET END POS from an arma string
 	endpos := data[2]
@@ -910,14 +875,7 @@ func (s *Service) LogGeneralEvent(data []string) (model.GeneralEvent, error) {
 		return thisEvent, err
 	}
 
-	// timestamp will always be appended as the last element of data, in unixnano format as a string
-	timestampStr := data[len(data)-1]
-	timestampInt, err := strconv.ParseInt(timestampStr, 10, 64)
-	if err != nil {
-		s.writeLog(functionName, fmt.Sprintf(`Error converting timestamp to int: %v`, err), "ERROR")
-		return thisEvent, err
-	}
-	thisEvent.Time = time.Unix(0, timestampInt)
+	thisEvent.Time = time.Now()
 
 	thisEvent.Mission = *s.ctx.GetMission()
 
@@ -961,13 +919,7 @@ func (s *Service) LogHitEvent(data []string) (model.HitEvent, error) {
 	hitEvent.CaptureFrame = uint(capframe)
 	hitEvent.Mission = *s.ctx.GetMission()
 
-	// timestamp will always be appended as the last element of data, in unixnano format as a string
-	timestampStr := data[len(data)-1]
-	timestampInt, err := strconv.ParseInt(timestampStr, 10, 64)
-	if err != nil {
-		return hitEvent, fmt.Errorf(`error converting timestamp to int: %v`, err)
-	}
-	hitEvent.Time = time.Unix(0, timestampInt)
+	hitEvent.Time = time.Now()
 
 	// parse data in array
 	victimOcapID, err := strconv.ParseUint(data[1], 10, 64)
@@ -1036,13 +988,7 @@ func (s *Service) LogKillEvent(data []string) (model.KillEvent, error) {
 		return killEvent, fmt.Errorf(`error converting capture frame to int: %s`, err)
 	}
 
-	// timestamp will always be appended as the last element of data, in unixnano format as a string
-	timestampStr := data[len(data)-1]
-	timestampInt, err := strconv.ParseInt(timestampStr, 10, 64)
-	if err != nil {
-		return killEvent, fmt.Errorf(`error converting timestamp to int: %v`, err)
-	}
-	killEvent.Time = time.Unix(0, timestampInt)
+	killEvent.Time = time.Now()
 
 	killEvent.CaptureFrame = uint(capframe)
 	killEvent.Mission = *s.ctx.GetMission()
@@ -1114,13 +1060,7 @@ func (s *Service) LogChatEvent(data []string) (model.ChatEvent, error) {
 		return chatEvent, fmt.Errorf(`error converting capture frame to int: %s`, err)
 	}
 
-	// timestamp will always be appended as the last element of data, in unixnano format as a string
-	timestampStr := data[len(data)-1]
-	timestampInt, err := strconv.ParseInt(timestampStr, 10, 64)
-	if err != nil {
-		return chatEvent, fmt.Errorf(`error converting timestamp to int: %v`, err)
-	}
-	chatEvent.Time = time.Unix(0, timestampInt)
+	chatEvent.Time = time.Now()
 
 	chatEvent.CaptureFrame = uint(capframe)
 	chatEvent.Mission = *s.ctx.GetMission()
@@ -1188,13 +1128,7 @@ func (s *Service) LogRadioEvent(data []string) (model.RadioEvent, error) {
 		return radioEvent, fmt.Errorf(`error converting capture frame to int: %s`, err)
 	}
 
-	// timestamp will always be appended as the last element of data, in unixnano format as a string
-	timestampStr := data[len(data)-1]
-	timestampInt, err := strconv.ParseInt(timestampStr, 10, 64)
-	if err != nil {
-		return radioEvent, fmt.Errorf(`error converting timestamp to int: %v`, err)
-	}
-	radioEvent.Time = time.Unix(0, timestampInt)
+	radioEvent.Time = time.Now()
 
 	radioEvent.CaptureFrame = uint(capframe)
 	radioEvent.Mission = *s.ctx.GetMission()
@@ -1261,15 +1195,8 @@ func (s *Service) LogFpsEvent(data []string) (model.ServerFpsEvent, error) {
 		return fpsEvent, fmt.Errorf(`error converting capture frame to int: %s`, err)
 	}
 
-	// timestamp will always be appended as the last element of data, in unixnano format as a string
-	timestampStr := data[len(data)-1]
-	timestampInt, err := strconv.ParseInt(timestampStr, 10, 64)
-	if err != nil {
-		return fpsEvent, fmt.Errorf(`error converting timestamp to int: %v`, err)
-	}
-
 	fpsEvent.CaptureFrame = uint(capframe)
-	fpsEvent.Time = time.Unix(0, timestampInt)
+	fpsEvent.Time = time.Now()
 	fpsEvent.Mission = *s.ctx.GetMission()
 
 	// parse data in array
@@ -1304,13 +1231,7 @@ func (s *Service) LogAce3DeathEvent(data []string) (model.Ace3DeathEvent, error)
 		return deathEvent, fmt.Errorf(`error converting capture frame to int: %s`, err)
 	}
 
-	// timestamp will always be appended as the last element of data, in unixnano format as a string
-	timestampStr := data[len(data)-1]
-	timestampInt, err := strconv.ParseInt(timestampStr, 10, 64)
-	if err != nil {
-		return deathEvent, fmt.Errorf(`error converting timestamp to int: %v`, err)
-	}
-	deathEvent.Time = time.Unix(0, timestampInt)
+	deathEvent.Time = time.Now()
 
 	deathEvent.CaptureFrame = uint(capframe)
 	deathEvent.Mission = *s.ctx.GetMission()
@@ -1471,14 +1392,7 @@ func (s *Service) LogMarkerCreate(data []string) (model.Marker, error) {
 	// brush
 	marker.Brush = data[13]
 
-	// timestamp
-	timestampStr := data[len(data)-1]
-	timestampInt, err := strconv.ParseInt(timestampStr, 10, 64)
-	if err != nil {
-		s.writeLog(functionName, fmt.Sprintf("Error parsing timestamp: %v", err), "ERROR")
-		return marker, err
-	}
-	marker.Time = time.Unix(0, timestampInt)
+	marker.Time = time.Now()
 
 	marker.IsDeleted = false
 
@@ -1541,14 +1455,7 @@ func (s *Service) LogMarkerMove(data []string) (model.MarkerState, error) {
 	}
 	markerState.Alpha = float32(alpha)
 
-	// timestamp
-	timestampStr := data[len(data)-1]
-	timestampInt, err := strconv.ParseInt(timestampStr, 10, 64)
-	if err != nil {
-		s.writeLog(functionName, fmt.Sprintf("Error parsing timestamp: %v", err), "ERROR")
-		return markerState, err
-	}
-	markerState.Time = time.Unix(0, timestampInt)
+	markerState.Time = time.Now()
 
 	return markerState, nil
 }

@@ -1097,7 +1097,6 @@ func populateDemoData() {
 					string(squadParamsJSON),
 				}
 
-				soldier = append(soldier, fmt.Sprintf("%d", time.Now().UnixNano()))
 				dispatchDemoEvent(":NEW:SOLDIER:", soldier)
 
 				for {
@@ -1153,7 +1152,6 @@ func populateDemoData() {
 						[]string{"Up", "Middle", "Down"}[rand.Intn(3)],
 					}
 
-					soldierState = append(soldierState, fmt.Sprintf("%d", time.Now().UnixNano()))
 					dispatchDemoEvent(":NEW:SOLDIER:STATE:", soldierState)
 				}
 				waitGroup.Done()
@@ -1179,7 +1177,6 @@ func populateDemoData() {
 					fmt.Sprintf(`"[[""%s"", %d], [""%s"", %d], [""%s"", %d]]"`, "wasp", 1, "AddTread", 1, "AddTread_Short", 1),
 				}
 
-				vehicle = append(vehicle, fmt.Sprintf("%d", time.Now().UnixNano()))
 				dispatchDemoEvent(":NEW:VEHICLE:", vehicle)
 
 				for {
@@ -1209,7 +1206,6 @@ func populateDemoData() {
 						fmt.Sprintf("%f", rand.Float64()),
 					}
 
-					vehicleState = append(vehicleState, fmt.Sprintf("%d", time.Now().UnixNano()))
 					dispatchDemoEvent(":NEW:VEHICLE:STATE:", vehicleState)
 				}
 				waitGroup.Done()
@@ -1243,7 +1239,6 @@ func populateDemoData() {
 					firemodes[rand.Intn(len(firemodes))],
 				}
 
-				firedEvent = append(firedEvent, fmt.Sprintf("%d", time.Now().UnixNano()))
 				dispatchDemoEvent(":FIRED:", firedEvent)
 				wg2.Done()
 			}()
@@ -1272,7 +1267,6 @@ func populateDemoData() {
 				"1.0",
 				"Solid",
 			}
-			marker = append(marker, fmt.Sprintf("%d", time.Now().UnixNano()))
 			dispatchDemoEvent(":MARKER:CREATE:", marker)
 
 			for j := 0; j < 3; j++ {
@@ -1284,7 +1278,6 @@ func populateDemoData() {
 					fmt.Sprintf("%d", rand.Intn(360)),
 					"1.0",
 				}
-				markerMove = append(markerMove, fmt.Sprintf("%d", time.Now().UnixNano()))
 				dispatchDemoEvent(":MARKER:MOVE:", markerMove)
 			}
 		}
@@ -1294,7 +1287,6 @@ func populateDemoData() {
 				fmt.Sprintf("DemoMarker_%d", i),
 				strconv.Itoa(missionDuration - 10),
 			}
-			markerDelete = append(markerDelete, fmt.Sprintf("%d", time.Now().UnixNano()))
 			dispatchDemoEvent(":MARKER:DELETE:", markerDelete)
 		}
 	}
