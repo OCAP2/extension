@@ -58,13 +58,13 @@ func (c *EntityCache) GetVehicle(id uint16) (model.Vehicle, bool) {
 func (c *EntityCache) AddSoldier(s model.Soldier) {
 	c.m.Lock()
 	defer c.m.Unlock()
-	c.Soldiers[s.OcapID] = s
+	c.Soldiers[s.ObjectID] = s
 }
 
 func (c *EntityCache) AddVehicle(v model.Vehicle) {
 	c.m.Lock()
 	defer c.m.Unlock()
-	c.Vehicles[v.OcapID] = v
+	c.Vehicles[v.ObjectID] = v
 }
 
 // SafeCounter is a thread-safe counter

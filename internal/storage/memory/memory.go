@@ -36,8 +36,8 @@ type Backend struct {
 
 	lastExportPath string // path to the last exported file
 
-	soldiers map[uint16]*SoldierRecord // keyed by OcapID
-	vehicles map[uint16]*VehicleRecord // keyed by OcapID
+	soldiers map[uint16]*SoldierRecord // keyed by ObjectID
+	vehicles map[uint16]*VehicleRecord // keyed by ObjectID
 	markers  map[string]*MarkerRecord  // keyed by MarkerName
 
 	generalEvents         []core.GeneralEvent
@@ -108,12 +108,12 @@ func (b *Backend) EndMission() error {
 }
 
 // AddSoldier registers a new soldier.
-// The soldier's ID is their OcapID (game identifier).
+// The soldier's ID is their ObjectID (game identifier).
 func (b *Backend) AddSoldier(s *core.Soldier) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	// ID is the OcapID, set by caller
+	// ID is the ObjectID, set by caller
 	b.soldiers[s.ID] = &SoldierRecord{
 		Soldier: *s,
 		States:  make([]core.SoldierState, 0),
@@ -122,12 +122,12 @@ func (b *Backend) AddSoldier(s *core.Soldier) error {
 }
 
 // AddVehicle registers a new vehicle.
-// The vehicle's ID is their OcapID (game identifier).
+// The vehicle's ID is their ObjectID (game identifier).
 func (b *Backend) AddVehicle(v *core.Vehicle) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	// ID is the OcapID, set by caller
+	// ID is the ObjectID, set by caller
 	b.vehicles[v.ID] = &VehicleRecord{
 		Vehicle: *v,
 		States:  make([]core.VehicleState, 0),
@@ -147,8 +147,8 @@ func (b *Backend) AddMarker(m *core.Marker) error {
 	return nil
 }
 
-// GetSoldierByOcapID looks up a soldier by their OcapID
-func (b *Backend) GetSoldierByOcapID(ocapID uint16) (*core.Soldier, bool) {
+// GetSoldierByObjectID looks up a soldier by their ObjectID
+func (b *Backend) GetSoldierByObjectID(ocapID uint16) (*core.Soldier, bool) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -158,8 +158,8 @@ func (b *Backend) GetSoldierByOcapID(ocapID uint16) (*core.Soldier, bool) {
 	return nil, false
 }
 
-// GetVehicleByOcapID looks up a vehicle by its OcapID
-func (b *Backend) GetVehicleByOcapID(ocapID uint16) (*core.Vehicle, bool) {
+// GetVehicleByObjectID looks up a vehicle by its ObjectID
+func (b *Backend) GetVehicleByObjectID(ocapID uint16) (*core.Vehicle, bool) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -181,12 +181,12 @@ func (b *Backend) GetMarkerByName(name string) (*core.Marker, bool) {
 }
 
 // RecordSoldierState records a soldier state update.
-// SoldierID must be set to the soldier's OcapID.
+// SoldierID must be set to the soldier's ObjectID.
 func (b *Backend) RecordSoldierState(s *core.SoldierState) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	// Find soldier by OcapID (SoldierState.SoldierID is the OcapID)
+	// Find soldier by ObjectID (SoldierState.SoldierID is the ObjectID)
 	if record, ok := b.soldiers[s.SoldierID]; ok {
 		record.States = append(record.States, *s)
 	}
@@ -194,12 +194,12 @@ func (b *Backend) RecordSoldierState(s *core.SoldierState) error {
 }
 
 // RecordVehicleState records a vehicle state update.
-// VehicleID must be set to the vehicle's OcapID.
+// VehicleID must be set to the vehicle's ObjectID.
 func (b *Backend) RecordVehicleState(v *core.VehicleState) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	// Find vehicle by OcapID (VehicleState.VehicleID is the OcapID)
+	// Find vehicle by ObjectID (VehicleState.VehicleID is the ObjectID)
 	if record, ok := b.vehicles[v.VehicleID]; ok {
 		record.States = append(record.States, *v)
 	}
@@ -221,12 +221,12 @@ func (b *Backend) RecordMarkerState(s *core.MarkerState) error {
 }
 
 // RecordFiredEvent records a fired event.
-// SoldierID must be set to the soldier's OcapID.
+// SoldierID must be set to the soldier's ObjectID.
 func (b *Backend) RecordFiredEvent(e *core.FiredEvent) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	// Find soldier by OcapID (FiredEvent.SoldierID is the OcapID)
+	// Find soldier by ObjectID (FiredEvent.SoldierID is the ObjectID)
 	if record, ok := b.soldiers[e.SoldierID]; ok {
 		record.FiredEvents = append(record.FiredEvents, *e)
 	}

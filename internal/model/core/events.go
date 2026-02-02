@@ -4,10 +4,10 @@ package core
 import "time"
 
 // FiredEvent represents a weapon being fired.
-// SoldierID is the OcapID of the soldier who fired.
+// SoldierID is the ObjectID of the soldier who fired.
 type FiredEvent struct {
 	MissionID    uint
-	SoldierID    uint16 // OcapID of the soldier who fired
+	SoldierID    uint16 // ObjectID of the soldier who fired
 	Time         time.Time
 	CaptureFrame uint
 	Weapon       string

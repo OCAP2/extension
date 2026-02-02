@@ -112,12 +112,12 @@ func TestAddSoldier(t *testing.T) {
 		t.Fatalf("AddSoldier failed: %v", err)
 	}
 
-	// IDs are OcapIDs set by caller, not auto-assigned
+	// IDs are ObjectIDs set by caller, not auto-assigned
 	if s1.ID != 1 {
-		t.Errorf("expected s1.ID=1 (OcapID), got %d", s1.ID)
+		t.Errorf("expected s1.ID=1 (ObjectID), got %d", s1.ID)
 	}
 	if s2.ID != 2 {
-		t.Errorf("expected s2.ID=2 (OcapID), got %d", s2.ID)
+		t.Errorf("expected s2.ID=2 (ObjectID), got %d", s2.ID)
 	}
 
 	// Check storage
@@ -153,12 +153,12 @@ func TestAddVehicle(t *testing.T) {
 		t.Fatalf("AddVehicle failed: %v", err)
 	}
 
-	// IDs are OcapIDs set by caller, not auto-assigned
+	// IDs are ObjectIDs set by caller, not auto-assigned
 	if v1.ID != 10 {
-		t.Errorf("expected v1.ID=10 (OcapID), got %d", v1.ID)
+		t.Errorf("expected v1.ID=10 (ObjectID), got %d", v1.ID)
 	}
 	if v2.ID != 20 {
-		t.Errorf("expected v2.ID=20 (OcapID), got %d", v2.ID)
+		t.Errorf("expected v2.ID=20 (ObjectID), got %d", v2.ID)
 	}
 
 	if len(b.vehicles) != 2 {
@@ -189,7 +189,7 @@ func TestAddMarker(t *testing.T) {
 		t.Fatalf("AddMarker failed: %v", err)
 	}
 
-	// Markers don't have OcapIDs; ID is not auto-assigned
+	// Markers don't have ObjectIDs; ID is not auto-assigned
 	// Just verify storage works
 
 	if len(b.markers) != 2 {
@@ -200,7 +200,7 @@ func TestAddMarker(t *testing.T) {
 	}
 }
 
-func TestGetSoldierByOcapID(t *testing.T) {
+func TestGetSoldierByObjectID(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
 	s := &core.Soldier{
@@ -210,7 +210,7 @@ func TestGetSoldierByOcapID(t *testing.T) {
 	_ = b.AddSoldier(s)
 
 	// Found case
-	found, ok := b.GetSoldierByOcapID(42)
+	found, ok := b.GetSoldierByObjectID(42)
 	if !ok {
 		t.Fatal("soldier not found")
 	}
@@ -219,13 +219,13 @@ func TestGetSoldierByOcapID(t *testing.T) {
 	}
 
 	// Not found case
-	_, ok = b.GetSoldierByOcapID(999)
+	_, ok = b.GetSoldierByObjectID(999)
 	if ok {
-		t.Error("expected not found for non-existent OcapID")
+		t.Error("expected not found for non-existent ObjectID")
 	}
 }
 
-func TestGetVehicleByOcapID(t *testing.T) {
+func TestGetVehicleByObjectID(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
 	v := &core.Vehicle{
@@ -235,7 +235,7 @@ func TestGetVehicleByOcapID(t *testing.T) {
 	_ = b.AddVehicle(v)
 
 	// Found case
-	found, ok := b.GetVehicleByOcapID(100)
+	found, ok := b.GetVehicleByObjectID(100)
 	if !ok {
 		t.Fatal("vehicle not found")
 	}
@@ -244,9 +244,9 @@ func TestGetVehicleByOcapID(t *testing.T) {
 	}
 
 	// Not found case
-	_, ok = b.GetVehicleByOcapID(999)
+	_, ok = b.GetVehicleByObjectID(999)
 	if ok {
-		t.Error("expected not found for non-existent OcapID")
+		t.Error("expected not found for non-existent ObjectID")
 	}
 }
 
@@ -637,7 +637,7 @@ func TestConcurrentAccess(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < numOperationsPerGoroutine; j++ {
 				ocapID := uint16(id*1000 + j)
-				_, _ = b.GetSoldierByOcapID(ocapID)
+				_, _ = b.GetSoldierByObjectID(ocapID)
 			}
 		}(i)
 	}
@@ -654,7 +654,7 @@ func TestConcurrentAccess(t *testing.T) {
 func TestIDsPreserved(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
-	// IDs are OcapIDs set by caller, not auto-assigned
+	// IDs are ObjectIDs set by caller, not auto-assigned
 	s := &core.Soldier{ID: 1}
 	v := &core.Vehicle{ID: 10}
 	m := &core.Marker{MarkerName: "test"}

@@ -58,7 +58,7 @@ internal/
 ├── worker/                  Handler registration and DB writer loop
 ├── handlers/                Business logic for parsing and validation
 ├── queue/                   Thread-safe queues for batch writes
-├── cache/                   Entity lookup caching (OcapID → model)
+├── cache/                   Entity lookup caching (ObjectID → model)
 ├── model/                   GORM database models
 ├── storage/                 Optional alternative storage backend
 └── geo/                     Coordinate/geometry utilities

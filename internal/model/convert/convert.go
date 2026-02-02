@@ -19,7 +19,7 @@ func pointToPosition3D(p geom.Point) core.Position3D {
 }
 
 // SoldierToCore converts a GORM Soldier to a core.Soldier.
-// GORM Soldier.OcapID maps to core Soldier.ID.
+// GORM Soldier.ObjectID maps to core Soldier.ID.
 func SoldierToCore(s model.Soldier) core.Soldier {
 	var squadParams []any
 	if len(s.SquadParams) > 0 {
@@ -27,7 +27,7 @@ func SoldierToCore(s model.Soldier) core.Soldier {
 	}
 
 	return core.Soldier{
-		ID:              s.OcapID, // Core ID = GORM OcapID
+		ID:              s.ObjectID, // Core ID = GORM ObjectID
 		MissionID:       s.MissionID,
 		JoinTime:        s.JoinTime,
 		JoinFrame:       s.JoinFrame,
@@ -45,16 +45,16 @@ func SoldierToCore(s model.Soldier) core.Soldier {
 }
 
 // SoldierStateToCore converts a GORM SoldierState to a core.SoldierState.
-// SoldierOcapID in GORM maps directly to SoldierID in core (both are OcapID).
+// SoldierObjectID in GORM maps directly to SoldierID in core (both are ObjectID).
 func SoldierStateToCore(s model.SoldierState) core.SoldierState {
 	var inVehicleObjID *uint16
-	if s.InVehicleOcapID.Valid {
-		id := uint16(s.InVehicleOcapID.Int32)
+	if s.InVehicleObjectID.Valid {
+		id := uint16(s.InVehicleObjectID.Int32)
 		inVehicleObjID = &id
 	}
 
 	return core.SoldierState{
-		SoldierID:         s.SoldierOcapID, // Direct mapping: GORM SoldierOcapID = core SoldierID
+		SoldierID:         s.SoldierObjectID, // Direct mapping: GORM SoldierObjectID = core SoldierID
 		MissionID:         s.MissionID,
 		Time:              s.Time,
 		CaptureFrame:      s.CaptureFrame,
@@ -82,10 +82,10 @@ func SoldierStateToCore(s model.SoldierState) core.SoldierState {
 }
 
 // VehicleToCore converts a GORM Vehicle to a core.Vehicle.
-// GORM Vehicle.OcapID maps to core Vehicle.ID.
+// GORM Vehicle.ObjectID maps to core Vehicle.ID.
 func VehicleToCore(v model.Vehicle) core.Vehicle {
 	return core.Vehicle{
-		ID:            v.OcapID, // Core ID = GORM OcapID
+		ID:            v.ObjectID, // Core ID = GORM ObjectID
 		MissionID:     v.MissionID,
 		JoinTime:      v.JoinTime,
 		JoinFrame:     v.JoinFrame,
@@ -97,10 +97,10 @@ func VehicleToCore(v model.Vehicle) core.Vehicle {
 }
 
 // VehicleStateToCore converts a GORM VehicleState to a core.VehicleState.
-// VehicleOcapID in GORM maps directly to VehicleID in core (both are OcapID).
+// VehicleObjectID in GORM maps directly to VehicleID in core (both are ObjectID).
 func VehicleStateToCore(v model.VehicleState) core.VehicleState {
 	return core.VehicleState{
-		VehicleID:       v.VehicleOcapID, // Direct mapping: GORM VehicleOcapID = core VehicleID
+		VehicleID:       v.VehicleObjectID, // Direct mapping: GORM VehicleObjectID = core VehicleID
 		MissionID:       v.MissionID,
 		Time:            v.Time,
 		CaptureFrame:    v.CaptureFrame,
@@ -121,11 +121,11 @@ func VehicleStateToCore(v model.VehicleState) core.VehicleState {
 }
 
 // FiredEventToCore converts a GORM FiredEvent to a core.FiredEvent.
-// SoldierOcapID in GORM maps directly to SoldierID in core (both are OcapID).
+// SoldierObjectID in GORM maps directly to SoldierID in core (both are ObjectID).
 func FiredEventToCore(e model.FiredEvent) core.FiredEvent {
 	return core.FiredEvent{
 		MissionID:    e.MissionID,
-		SoldierID:    e.SoldierOcapID, // Direct mapping: GORM SoldierOcapID = core SoldierID
+		SoldierID:    e.SoldierObjectID, // Direct mapping: GORM SoldierObjectID = core SoldierID
 		Time:         e.Time,
 		CaptureFrame: e.CaptureFrame,
 		Weapon:       e.Weapon,
@@ -155,7 +155,7 @@ func GeneralEventToCore(e model.GeneralEvent) core.GeneralEvent {
 }
 
 // HitEventToCore converts a GORM HitEvent to a core.HitEvent
-// OcapID fields in GORM map to uint IDs in core (cast to uint for compatibility)
+// ObjectID fields in GORM map to uint IDs in core (cast to uint for compatibility)
 func HitEventToCore(e model.HitEvent) core.HitEvent {
 	result := core.HitEvent{
 		ID:           e.ID,
@@ -166,20 +166,20 @@ func HitEventToCore(e model.HitEvent) core.HitEvent {
 		Distance:     e.Distance,
 	}
 
-	if e.VictimSoldierOcapID.Valid {
-		id := uint(e.VictimSoldierOcapID.Int32)
+	if e.VictimSoldierObjectID.Valid {
+		id := uint(e.VictimSoldierObjectID.Int32)
 		result.VictimSoldierID = &id
 	}
-	if e.VictimVehicleOcapID.Valid {
-		id := uint(e.VictimVehicleOcapID.Int32)
+	if e.VictimVehicleObjectID.Valid {
+		id := uint(e.VictimVehicleObjectID.Int32)
 		result.VictimVehicleID = &id
 	}
-	if e.ShooterSoldierOcapID.Valid {
-		id := uint(e.ShooterSoldierOcapID.Int32)
+	if e.ShooterSoldierObjectID.Valid {
+		id := uint(e.ShooterSoldierObjectID.Int32)
 		result.ShooterSoldierID = &id
 	}
-	if e.ShooterVehicleOcapID.Valid {
-		id := uint(e.ShooterVehicleOcapID.Int32)
+	if e.ShooterVehicleObjectID.Valid {
+		id := uint(e.ShooterVehicleObjectID.Int32)
 		result.ShooterVehicleID = &id
 	}
 
@@ -187,7 +187,7 @@ func HitEventToCore(e model.HitEvent) core.HitEvent {
 }
 
 // KillEventToCore converts a GORM KillEvent to a core.KillEvent
-// OcapID fields in GORM map to uint IDs in core (cast to uint for compatibility)
+// ObjectID fields in GORM map to uint IDs in core (cast to uint for compatibility)
 func KillEventToCore(e model.KillEvent) core.KillEvent {
 	result := core.KillEvent{
 		ID:           e.ID,
@@ -198,20 +198,20 @@ func KillEventToCore(e model.KillEvent) core.KillEvent {
 		Distance:     e.Distance,
 	}
 
-	if e.VictimSoldierOcapID.Valid {
-		id := uint(e.VictimSoldierOcapID.Int32)
+	if e.VictimSoldierObjectID.Valid {
+		id := uint(e.VictimSoldierObjectID.Int32)
 		result.VictimSoldierID = &id
 	}
-	if e.VictimVehicleOcapID.Valid {
-		id := uint(e.VictimVehicleOcapID.Int32)
+	if e.VictimVehicleObjectID.Valid {
+		id := uint(e.VictimVehicleObjectID.Int32)
 		result.VictimVehicleID = &id
 	}
-	if e.KillerSoldierOcapID.Valid {
-		id := uint(e.KillerSoldierOcapID.Int32)
+	if e.KillerSoldierObjectID.Valid {
+		id := uint(e.KillerSoldierObjectID.Int32)
 		result.KillerSoldierID = &id
 	}
-	if e.KillerVehicleOcapID.Valid {
-		id := uint(e.KillerVehicleOcapID.Int32)
+	if e.KillerVehicleObjectID.Valid {
+		id := uint(e.KillerVehicleObjectID.Int32)
 		result.KillerVehicleID = &id
 	}
 
@@ -232,8 +232,8 @@ func ChatEventToCore(e model.ChatEvent) core.ChatEvent {
 		PlayerUID:    e.PlayerUID,
 	}
 
-	if e.SoldierOcapID.Valid {
-		id := uint(e.SoldierOcapID.Int32)
+	if e.SoldierObjectID.Valid {
+		id := uint(e.SoldierObjectID.Int32)
 		result.SoldierID = &id
 	}
 
@@ -256,8 +256,8 @@ func RadioEventToCore(e model.RadioEvent) core.RadioEvent {
 		Code:         e.Code,
 	}
 
-	if e.SoldierOcapID.Valid {
-		id := uint(e.SoldierOcapID.Int32)
+	if e.SoldierObjectID.Valid {
+		id := uint(e.SoldierObjectID.Int32)
 		result.SoldierID = &id
 	}
 
@@ -293,14 +293,14 @@ func Ace3DeathEventToCore(e model.Ace3DeathEvent) core.Ace3DeathEvent {
 	result := core.Ace3DeathEvent{
 		ID:           e.ID,
 		MissionID:    e.MissionID,
-		SoldierID:    uint(e.SoldierOcapID), // OcapID -> uint for core model
+		SoldierID:    uint(e.SoldierObjectID), // ObjectID -> uint for core model
 		Time:         e.Time,
 		CaptureFrame: e.CaptureFrame,
 		Reason:       e.Reason,
 	}
 
-	if e.LastDamageSourceOcapID.Valid {
-		id := uint(e.LastDamageSourceOcapID.Int32)
+	if e.LastDamageSourceObjectID.Valid {
+		id := uint(e.LastDamageSourceObjectID.Int32)
 		result.LastDamageSourceID = &id
 	}
 
@@ -312,7 +312,7 @@ func Ace3UnconsciousEventToCore(e model.Ace3UnconsciousEvent) core.Ace3Unconscio
 	return core.Ace3UnconsciousEvent{
 		ID:           e.ID,
 		MissionID:    e.MissionID,
-		SoldierID:    uint(e.SoldierOcapID), // OcapID -> uint for core model
+		SoldierID:    uint(e.SoldierObjectID), // ObjectID -> uint for core model
 		Time:         e.Time,
 		CaptureFrame: e.CaptureFrame,
 		IsAwake:      e.IsAwake,

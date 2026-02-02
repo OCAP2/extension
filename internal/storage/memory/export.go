@@ -113,7 +113,7 @@ func (b *Backend) buildExport() OcapExport {
 	// Convert soldiers
 	for _, record := range b.soldiers {
 		entity := EntityJSON{
-			ID:            record.Soldier.ID, // ID is the OcapID
+			ID:            record.Soldier.ID, // ID is the ObjectID
 			Name:          record.Soldier.UnitName,
 			Group:         record.Soldier.GroupID,
 			Side:          record.Soldier.Side,
@@ -158,7 +158,7 @@ func (b *Backend) buildExport() OcapExport {
 	// Convert vehicles
 	for _, record := range b.vehicles {
 		entity := EntityJSON{
-			ID:            record.Vehicle.ID, // ID is the OcapID
+			ID:            record.Vehicle.ID, // ID is the ObjectID
 			Name:          record.Vehicle.DisplayName,
 			Side:          "UNKNOWN",
 			IsPlayer:      0,
