@@ -145,12 +145,12 @@ func TestIntegrationFullExport(t *testing.T) {
 	// Verify events
 	require.Len(t, export.Events, 1)
 	assert.Equal(t, "connected", export.Events[0].Type)
-	assert.Equal(t, uint(15), export.Events[0].Frame)
+	assert.Equal(t, uint(15), export.Events[0].FrameNum)
 	assert.Equal(t, "Player1 connected", export.Events[0].Message)
 
 	// Verify markers
 	require.Len(t, export.Markers, 1)
-	assert.Equal(t, "Objective Alpha", export.Markers[0].Name)
+	assert.Equal(t, "Objective Alpha", export.Markers[0].Text)
 	assert.Equal(t, "mil_objective", export.Markers[0].Type)
 	assert.Equal(t, "ColorBLUFOR", export.Markers[0].Color)
 	assert.Equal(t, "WEST", export.Markers[0].Side)
@@ -375,15 +375,11 @@ func TestMarkerPositionFormat(t *testing.T) {
 	require.Len(t, export.Markers[0].Positions, 2) // initial + 1 state
 
 	initialPos := export.Markers[0].Positions[0]
-	require.Len(t, initialPos, 4) // [frame, [x, y], direction, alpha]
-	assert.Equal(t, uint(0), initialPos[0])
+	assert.Equal(t, uint(0), initialPos.FrameNum)
+	assert.Equal(t, 1000.0, initialPos.PosX)
+	assert.Equal(t, 2000.0, initialPos.PosY)
 
-	coords, ok := initialPos[1].([]float64)
-	require.True(t, ok, "coords should be []float64")
-	assert.Equal(t, 1000.0, coords[0])
-	assert.Equal(t, 2000.0, coords[1])
-
-	assert.Equal(t, uint(50), export.Markers[0].Positions[1][0])
+	assert.Equal(t, uint(50), export.Markers[0].Positions[1].FrameNum)
 }
 
 func TestEmptyExport(t *testing.T) {
@@ -502,7 +498,7 @@ func TestEventWithoutExtraData(t *testing.T) {
 
 	require.Len(t, export.Events, 1)
 	assert.Equal(t, "endMission", export.Events[0].Type)
-	assert.Equal(t, uint(100), export.Events[0].Frame)
+	assert.Equal(t, uint(100), export.Events[0].FrameNum)
 	assert.Equal(t, "Mission ended", export.Events[0].Message)
 }
 
@@ -527,7 +523,7 @@ func TestMultipleMarkersExport(t *testing.T) {
 
 	var m1, m2 *MarkerJSON
 	for i := range export.Markers {
-		switch export.Markers[i].Name {
+		switch export.Markers[i].Text {
 		case "Alpha":
 			m1 = &export.Markers[i]
 		case "Bravo":

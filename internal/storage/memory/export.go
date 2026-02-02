@@ -40,21 +40,38 @@ type EntityJSON struct {
 
 // EventJSON represents a general event
 type EventJSON struct {
-	Frame   uint   `json:"frame"`
-	Type    string `json:"type"`
-	Message string `json:"message,omitempty"`
-	Data    any    `json:"data,omitempty"`
+	FrameNum uint    `json:"frameNum"`
+	Type     string  `json:"type"`
+	SourceID *uint   `json:"sourceId,omitempty"`
+	TargetID *uint   `json:"targetId,omitempty"`
+	Message  string  `json:"message,omitempty"`
+	Distance float32 `json:"distance,omitempty"`
+	Weapon   string  `json:"weapon,omitempty"`
 }
 
 // MarkerJSON represents a marker
 type MarkerJSON struct {
-	ID        string  `json:"id"`
-	Name      string  `json:"name"`
-	Type      string  `json:"type"`
-	Color     string  `json:"color"`
-	Side      string  `json:"side"`
-	Shape     string  `json:"shape"`
-	Positions [][]any `json:"positions"`
+	Type       string              `json:"type"`
+	Text       string              `json:"text"`
+	StartFrame uint                `json:"startFrame"`
+	EndFrame   int                 `json:"endFrame"` // -1 means marker persists until end
+	PlayerID   int                 `json:"playerId"` // -1 means no player
+	Color      string              `json:"color"`
+	Side       string              `json:"side"`
+	Positions  []MarkerPositionJSON `json:"positions"`
+	Size       []float32           `json:"size"`
+	Shape      string              `json:"shape"`
+	Brush      string              `json:"brush"`
+}
+
+// MarkerPositionJSON represents a marker position at a specific frame
+type MarkerPositionJSON struct {
+	FrameNum  uint    `json:"frameNum"`
+	PosX      float64 `json:"posX"`
+	PosY      float64 `json:"posY"`
+	PosZ      float64 `json:"posZ"`
+	Direction float32 `json:"direction"`
+	Alpha     float32 `json:"alpha"`
 }
 
 // exportJSON writes the mission data to a gzipped JSON file
@@ -190,82 +207,96 @@ func (b *Backend) buildExport() OcapExport {
 	// Convert general events
 	for _, evt := range b.generalEvents {
 		export.Events = append(export.Events, EventJSON{
-			Frame:   evt.CaptureFrame,
-			Type:    evt.Name,
-			Message: evt.Message,
-			Data:    evt.ExtraData,
+			FrameNum: evt.CaptureFrame,
+			Type:     evt.Name,
+			Message:  evt.Message,
 		})
 	}
 
 	// Convert hit events
 	for _, evt := range b.hitEvents {
-		data := map[string]any{
-			"causedBy": evt.ShooterSoldierID,
-			"victim":   evt.VictimSoldierID,
-			"distance": evt.Distance,
+		event := EventJSON{
+			FrameNum: evt.CaptureFrame,
+			Type:     "hit",
+			Message:  evt.EventText,
+			Distance: evt.Distance,
 		}
+		// Set source (shooter) ID
 		if evt.ShooterVehicleID != nil {
-			data["causedBy"] = evt.ShooterVehicleID
+			event.SourceID = evt.ShooterVehicleID
+		} else if evt.ShooterSoldierID != nil {
+			event.SourceID = evt.ShooterSoldierID
 		}
+		// Set target (victim) ID
 		if evt.VictimVehicleID != nil {
-			data["victim"] = evt.VictimVehicleID
+			event.TargetID = evt.VictimVehicleID
+		} else if evt.VictimSoldierID != nil {
+			event.TargetID = evt.VictimSoldierID
 		}
-		export.Events = append(export.Events, EventJSON{
-			Frame:   evt.CaptureFrame,
-			Type:    "hit",
-			Message: evt.EventText,
-			Data:    data,
-		})
+		export.Events = append(export.Events, event)
 	}
 
 	// Convert kill events
 	for _, evt := range b.killEvents {
-		data := map[string]any{
-			"killer":   evt.KillerSoldierID,
-			"victim":   evt.VictimSoldierID,
-			"distance": evt.Distance,
+		event := EventJSON{
+			FrameNum: evt.CaptureFrame,
+			Type:     "killed",
+			Message:  evt.EventText,
+			Distance: evt.Distance,
 		}
+		// Set source (killer) ID
 		if evt.KillerVehicleID != nil {
-			data["killer"] = evt.KillerVehicleID
+			event.SourceID = evt.KillerVehicleID
+		} else if evt.KillerSoldierID != nil {
+			event.SourceID = evt.KillerSoldierID
 		}
+		// Set target (victim) ID
 		if evt.VictimVehicleID != nil {
-			data["victim"] = evt.VictimVehicleID
+			event.TargetID = evt.VictimVehicleID
+		} else if evt.VictimSoldierID != nil {
+			event.TargetID = evt.VictimSoldierID
 		}
-		export.Events = append(export.Events, EventJSON{
-			Frame:   evt.CaptureFrame,
-			Type:    "killed",
-			Message: evt.EventText,
-			Data:    data,
-		})
+		export.Events = append(export.Events, event)
 	}
 
 	// Convert markers
 	for _, record := range b.markers {
+		// Determine end frame (use max frame if marker persists)
+		endFrame := -1 // -1 means marker persists until mission end
+
 		marker := MarkerJSON{
-			ID:        fmt.Sprintf("%d", record.Marker.ID),
-			Name:      record.Marker.Text,
-			Type:      record.Marker.MarkerType,
-			Color:     record.Marker.Color,
-			Side:      record.Marker.Side,
-			Shape:     record.Marker.Shape,
-			Positions: make([][]any, 0),
+			Type:       record.Marker.MarkerType,
+			Text:       record.Marker.Text,
+			StartFrame: record.Marker.CaptureFrame,
+			EndFrame:   endFrame,
+			PlayerID:   -1, // -1 means no player owner
+			Color:      record.Marker.Color,
+			Side:       record.Marker.Side,
+			Positions:  make([]MarkerPositionJSON, 0),
+			Size:       []float32{1.0, 1.0}, // Default size
+			Shape:      record.Marker.Shape,
+			Brush:      "Solid", // Default brush
 		}
 
 		// Initial position
-		marker.Positions = append(marker.Positions, []any{
-			record.Marker.CaptureFrame,
-			[]float64{record.Marker.Position.X, record.Marker.Position.Y},
-			record.Marker.Direction,
-			record.Marker.Alpha,
+		marker.Positions = append(marker.Positions, MarkerPositionJSON{
+			FrameNum:  record.Marker.CaptureFrame,
+			PosX:      record.Marker.Position.X,
+			PosY:      record.Marker.Position.Y,
+			PosZ:      0,
+			Direction: record.Marker.Direction,
+			Alpha:     record.Marker.Alpha,
 		})
 
 		// State changes
 		for _, state := range record.States {
-			marker.Positions = append(marker.Positions, []any{
-				state.CaptureFrame,
-				[]float64{state.Position.X, state.Position.Y},
-				state.Direction,
-				state.Alpha,
+			marker.Positions = append(marker.Positions, MarkerPositionJSON{
+				FrameNum:  state.CaptureFrame,
+				PosX:      state.Position.X,
+				PosY:      state.Position.Y,
+				PosZ:      0,
+				Direction: state.Direction,
+				Alpha:     state.Alpha,
 			})
 		}
 
