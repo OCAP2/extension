@@ -1312,7 +1312,7 @@ func (s *Service) LogAce3UnconsciousEvent(data []string) (model.Ace3UnconsciousE
 
 // LogMarkerCreate parses marker create data and returns a Marker model
 func (s *Service) LogMarkerCreate(data []string) (model.Marker, error) {
-	functionName := ":MARKER:CREATE:"
+	functionName := ":NEW:MARKER:"
 	var marker model.Marker
 
 	// fix received data
@@ -1401,7 +1401,7 @@ func (s *Service) LogMarkerCreate(data []string) (model.Marker, error) {
 
 // LogMarkerMove parses marker move data and returns a MarkerState model
 func (s *Service) LogMarkerMove(data []string) (model.MarkerState, error) {
-	functionName := ":MARKER:MOVE:"
+	functionName := ":NEW:MARKER:STATE:"
 	var markerState model.MarkerState
 
 	// fix received data
@@ -1462,7 +1462,7 @@ func (s *Service) LogMarkerMove(data []string) (model.MarkerState, error) {
 
 // LogMarkerDelete parses marker delete data and returns the marker name and frame number
 func (s *Service) LogMarkerDelete(data []string) (string, uint, error) {
-	functionName := ":MARKER:DELETE:"
+	functionName := ":DELETE:MARKER:"
 
 	// fix received data
 	for i, v := range data {

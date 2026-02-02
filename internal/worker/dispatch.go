@@ -37,9 +37,9 @@ func (m *Manager) RegisterHandlers(d *dispatcher.Dispatcher) {
 	d.Register(":ACE3:UNCONSCIOUS:", m.handleAce3UnconsciousEvent, dispatcher.Buffered(1000))
 
 	// Marker events - buffered
-	d.Register(":MARKER:CREATE:", m.handleMarkerCreate, dispatcher.Buffered(500))
-	d.Register(":MARKER:MOVE:", m.handleMarkerMove, dispatcher.Buffered(1000))
-	d.Register(":MARKER:DELETE:", m.handleMarkerDelete, dispatcher.Buffered(500))
+	d.Register(":NEW:MARKER:", m.handleMarkerCreate, dispatcher.Buffered(500))
+	d.Register(":NEW:MARKER:STATE:", m.handleMarkerMove, dispatcher.Buffered(1000))
+	d.Register(":DELETE:MARKER:", m.handleMarkerDelete, dispatcher.Buffered(500))
 }
 
 func (m *Manager) handleNewSoldier(e dispatcher.Event) (any, error) {
@@ -390,3 +390,4 @@ func (m *Manager) handleMarkerDelete(e dispatcher.Event) (any, error) {
 
 	return nil, nil
 }
+
