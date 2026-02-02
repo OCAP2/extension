@@ -528,12 +528,13 @@ func startGoroutines() (err error) {
 
 	// Initialize handler service
 	handlerService = handlers.NewService(handlers.Dependencies{
-		DB:            DB,
-		EntityCache:   EntityCache,
-		MarkerCache:   MarkerCache,
-		LogManager:    SlogManager,
-		ExtensionName: ExtensionName,
-		AddonVersion:  addonVersion,
+		DB:               DB,
+		EntityCache:      EntityCache,
+		MarkerCache:      MarkerCache,
+		LogManager:       SlogManager,
+		ExtensionName:    ExtensionName,
+		AddonVersion:     addonVersion,
+		ExtensionVersion: CurrentExtensionVersion,
 	}, missionCtx)
 
 	// Initialize worker manager
