@@ -34,6 +34,7 @@ type config struct {
 	bufferSize int
 	blocking   bool
 	logged     bool
+	readyChan  <-chan struct{}
 }
 
 // Buffered makes the handler async with a queue of the given size.
@@ -54,6 +55,15 @@ func Blocking() Option {
 func Logged() Option {
 	return func(c *config) {
 		c.logged = true
+	}
+}
+
+// Gated makes the handler wait for a ready signal before processing.
+// Events are buffered until the ready channel is closed.
+// Must be used with Buffered().
+func Gated(ready <-chan struct{}) Option {
+	return func(c *config) {
+		c.readyChan = ready
 	}
 }
 
@@ -139,7 +149,7 @@ func (d *Dispatcher) Register(command string, h HandlerFunc, opts ...Option) {
 	handler := h
 
 	if cfg.bufferSize > 0 {
-		handler = d.withBuffer(command, cfg.bufferSize, cfg.blocking, handler)
+		handler = d.withBuffer(command, cfg, handler)
 	}
 
 	if cfg.logged {
@@ -164,8 +174,8 @@ func (d *Dispatcher) HasHandler(command string) bool {
 	return ok
 }
 
-func (d *Dispatcher) withBuffer(command string, size int, blocking bool, h HandlerFunc) HandlerFunc {
-	buffer := make(chan Event, size)
+func (d *Dispatcher) withBuffer(command string, cfg *config, h HandlerFunc) HandlerFunc {
+	buffer := make(chan Event, cfg.bufferSize)
 
 	d.mu.Lock()
 	d.buffers[command] = buffer
@@ -174,13 +184,19 @@ func (d *Dispatcher) withBuffer(command string, size int, blocking bool, h Handl
 	cmdAttr := attribute.String("command", command)
 
 	go func() {
+		// If gated, wait for ready signal before processing
+		if cfg.readyChan != nil {
+			<-cfg.readyChan
+			d.logger.Info("gate opened, processing buffered events", "command", command)
+		}
+
 		for e := range buffer {
 			h(e)
 			d.processed.Add(context.Background(), 1, metric.WithAttributes(cmdAttr))
 		}
 	}()
 
-	if blocking {
+	if cfg.blocking {
 		return func(e Event) (any, error) {
 			buffer <- e
 			return "queued", nil

@@ -117,6 +117,10 @@ var (
 
 	addonVersion string = "unknown"
 
+	// storageReady is closed when storage (DB or memory) is initialized and ready
+	storageReady     = make(chan struct{})
+	storageReadyOnce sync.Once
+
 	// Services
 	handlerService  *handlers.Service
 	workerManager   *worker.Manager
@@ -127,7 +131,6 @@ var (
 	// Storage backend (optional)
 	storageBackend storage.Backend
 )
-
 
 // init is run automatically when the module is loaded
 func init() {
@@ -300,6 +303,7 @@ func initStorage() error {
 	if storageCfg.Type == "memory" {
 		Logger.Info("Memory storage mode initialized")
 		a3interface.WriteArmaCallback(ExtensionName, ":STORAGE:OK:", "memory")
+		storageReadyOnce.Do(func() { close(storageReady) })
 		return nil
 	}
 
@@ -318,6 +322,7 @@ func initStorage() error {
 		return err
 	}
 	a3interface.WriteArmaCallback(ExtensionName, ":STORAGE:OK:", DB.Dialector.Name())
+	storageReadyOnce.Do(func() { close(storageReady) })
 	return nil
 }
 
@@ -827,10 +832,12 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 
 	d.Register(":NEW:MISSION:", func(e dispatcher.Event) (any, error) {
 		if handlerService != nil {
-			handlerService.LogNewMission(e.Args)
+			if err := handlerService.LogNewMission(e.Args); err != nil {
+				return nil, err
+			}
 		}
 		return "ok", nil
-	})
+	}, dispatcher.Buffered(1), dispatcher.Blocking(), dispatcher.Gated(storageReady))
 
 	d.Register(":SAVE:", func(e dispatcher.Event) (any, error) {
 		Logger.Info("Received :SAVE: command, ending mission recording")
