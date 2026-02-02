@@ -7,6 +7,7 @@ import (
 	"github.com/OCAP2/extension/v5/internal/cache"
 	"github.com/OCAP2/extension/v5/internal/handlers"
 	"github.com/OCAP2/extension/v5/internal/logging"
+	"github.com/OCAP2/extension/v5/internal/model"
 	"github.com/OCAP2/extension/v5/internal/queue"
 	"github.com/OCAP2/extension/v5/internal/storage"
 
@@ -18,43 +19,43 @@ var ErrTooEarlyForStateAssociation = fmt.Errorf("too early for state association
 
 // Queues holds all the write queues
 type Queues struct {
-	Soldiers              *queue.SoldiersQueue
-	SoldierStates         *queue.SoldierStatesQueue
-	Vehicles              *queue.VehiclesQueue
-	VehicleStates         *queue.VehicleStatesQueue
-	FiredEvents           *queue.FiredEventsQueue
-	ProjectileEvents      *queue.ProjectileEventsQueue
-	GeneralEvents         *queue.GeneralEventsQueue
-	HitEvents             *queue.HitEventsQueue
-	KillEvents            *queue.KillEventsQueue
-	ChatEvents            *queue.ChatEventsQueue
-	RadioEvents           *queue.RadioEventsQueue
-	FpsEvents             *queue.FpsEventsQueue
-	Ace3DeathEvents       *queue.Ace3DeathEventsQueue
-	Ace3UnconsciousEvents *queue.Ace3UnconsciousEventsQueue
-	Markers               *queue.MarkersQueue
-	MarkerStates          *queue.MarkerStatesQueue
+	Soldiers              *queue.Queue[model.Soldier]
+	SoldierStates         *queue.Queue[model.SoldierState]
+	Vehicles              *queue.Queue[model.Vehicle]
+	VehicleStates         *queue.Queue[model.VehicleState]
+	FiredEvents           *queue.Queue[model.FiredEvent]
+	ProjectileEvents      *queue.Queue[model.ProjectileEvent]
+	GeneralEvents         *queue.Queue[model.GeneralEvent]
+	HitEvents             *queue.Queue[model.HitEvent]
+	KillEvents            *queue.Queue[model.KillEvent]
+	ChatEvents            *queue.Queue[model.ChatEvent]
+	RadioEvents           *queue.Queue[model.RadioEvent]
+	FpsEvents             *queue.Queue[model.ServerFpsEvent]
+	Ace3DeathEvents       *queue.Queue[model.Ace3DeathEvent]
+	Ace3UnconsciousEvents *queue.Queue[model.Ace3UnconsciousEvent]
+	Markers               *queue.Queue[model.Marker]
+	MarkerStates          *queue.Queue[model.MarkerState]
 }
 
 // NewQueues creates all write queues
 func NewQueues() *Queues {
 	return &Queues{
-		Soldiers:              &queue.SoldiersQueue{},
-		SoldierStates:         &queue.SoldierStatesQueue{},
-		Vehicles:              &queue.VehiclesQueue{},
-		VehicleStates:         &queue.VehicleStatesQueue{},
-		FiredEvents:           &queue.FiredEventsQueue{},
-		ProjectileEvents:      &queue.ProjectileEventsQueue{},
-		GeneralEvents:         &queue.GeneralEventsQueue{},
-		HitEvents:             &queue.HitEventsQueue{},
-		KillEvents:            &queue.KillEventsQueue{},
-		ChatEvents:            &queue.ChatEventsQueue{},
-		RadioEvents:           &queue.RadioEventsQueue{},
-		FpsEvents:             &queue.FpsEventsQueue{},
-		Ace3DeathEvents:       &queue.Ace3DeathEventsQueue{},
-		Ace3UnconsciousEvents: &queue.Ace3UnconsciousEventsQueue{},
-		Markers:               &queue.MarkersQueue{},
-		MarkerStates:          &queue.MarkerStatesQueue{},
+		Soldiers:              queue.New[model.Soldier](),
+		SoldierStates:         queue.New[model.SoldierState](),
+		Vehicles:              queue.New[model.Vehicle](),
+		VehicleStates:         queue.New[model.VehicleState](),
+		FiredEvents:           queue.New[model.FiredEvent](),
+		ProjectileEvents:      queue.New[model.ProjectileEvent](),
+		GeneralEvents:         queue.New[model.GeneralEvent](),
+		HitEvents:             queue.New[model.HitEvent](),
+		KillEvents:            queue.New[model.KillEvent](),
+		ChatEvents:            queue.New[model.ChatEvent](),
+		RadioEvents:           queue.New[model.RadioEvent](),
+		FpsEvents:             queue.New[model.ServerFpsEvent](),
+		Ace3DeathEvents:       queue.New[model.Ace3DeathEvent](),
+		Ace3UnconsciousEvents: queue.New[model.Ace3UnconsciousEvent](),
+		Markers:               queue.New[model.Marker](),
+		MarkerStates:          queue.New[model.MarkerState](),
 	}
 }
 
