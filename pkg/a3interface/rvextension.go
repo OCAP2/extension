@@ -42,7 +42,7 @@ func RVExtension(output *C.char, outputsize C.size_t, input *C.char) {
 
 	// Handle built-in timestamp command
 	if command == ":TIMESTAMP:" {
-		replyToSyncArmaCall(getTimestamp(), output, outputsize)
+		replyToSyncArmaCall(fmt.Sprintf(`["ok", "%s"]`, getTimestamp()), output, outputsize)
 		return
 	}
 
@@ -101,7 +101,7 @@ func RVExtensionArgs(output *C.char, outputsize C.size_t, input *C.char, argv **
 func parseArgsFromC(argv **C.char, argc C.int) []string {
 	var offset = unsafe.Sizeof(uintptr(0))
 	var data []string
-	for index := C.int(0); index < argc; index++ {
+	for range int(argc) {
 		data = append(data, C.GoString(*argv))
 		argv = (**C.char)(unsafe.Pointer(uintptr(unsafe.Pointer(argv)) + offset))
 	}
@@ -111,7 +111,7 @@ func parseArgsFromC(argv **C.char, argc C.int) []string {
 // formatDispatchResponse formats the dispatcher result for ArmA.
 // Format: ["ok", result] for success, ["error", "message"] for errors.
 // Uses JSON encoding for proper SQF-compatible array/object formatting.
-func formatDispatchResponse(command string, result any, err error) string {
+func formatDispatchResponse(_ string, result any, err error) string {
 	if err != nil {
 		return fmt.Sprintf(`["error", "%s"]`, err.Error())
 	}
