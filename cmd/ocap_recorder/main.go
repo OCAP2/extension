@@ -861,8 +861,15 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 		return "ok", nil
 	}, dispatcher.Buffered(1), dispatcher.Blocking(), dispatcher.Gated(storageReady))
 
-	d.Register(":SAVE:", func(e dispatcher.Event) (any, error) {
-		Logger.Info("Received :SAVE: command, ending mission recording")
+	// Time state tracking - records mission time sync data
+	d.Register(":NEW:TIME:STATE:", func(e dispatcher.Event) (any, error) {
+		// Time state is currently not stored, just acknowledged
+		// Args: [frameNo, systemTimeUTC, missionDateTime, timeMultiplier, missionTime]
+		return "ok", nil
+	})
+
+	d.Register(":SAVE:MISSION:", func(e dispatcher.Event) (any, error) {
+		Logger.Info("Received :SAVE:MISSION: command, ending mission recording")
 		if storageBackend != nil {
 			if err := storageBackend.EndMission(); err != nil {
 				Logger.Error("Failed to end mission in storage backend", "error", err)
