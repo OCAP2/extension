@@ -771,3 +771,319 @@ func TestMaxFrameCalculation(t *testing.T) {
 		t.Errorf("expected EndFrame=100, got %d", export.EndFrame)
 	}
 }
+
+func TestSoldierWithoutVehicle(t *testing.T) {
+	b := New(config.MemoryConfig{})
+
+	mission := &core.Mission{MissionName: "Test", StartTime: time.Now()}
+	world := &core.World{WorldName: "Test"}
+	_ = b.StartMission(mission, world)
+
+	soldier := &core.Soldier{OcapID: 1, UnitName: "Infantry", IsPlayer: false}
+	_ = b.AddSoldier(soldier)
+
+	// State with nil InVehicleObjectID (soldier on foot)
+	state := &core.SoldierState{
+		SoldierID:         soldier.ID,
+		CaptureFrame:      0,
+		Position:          core.Position3D{X: 100, Y: 200, Z: 10},
+		Bearing:           45,
+		Lifestate:         1,
+		InVehicleObjectID: nil, // Not in vehicle
+		UnitName:          "Infantry",
+		IsPlayer:          false,
+		CurrentRole:       "Rifleman",
+	}
+	_ = b.RecordSoldierState(state)
+
+	export := b.buildExport()
+
+	if len(export.Entities) != 1 {
+		t.Fatalf("expected 1 entity, got %d", len(export.Entities))
+	}
+
+	entity := export.Entities[0]
+	pos := entity.Positions[0]
+
+	// InVehicleObjectID should be nil (typed nil shows as <nil>)
+	if pos[3] != (*uint)(nil) {
+		t.Errorf("expected InVehicleObjectID=nil, got %v", pos[3])
+	}
+
+	// IsPlayer should be 0 for non-player
+	if entity.IsPlayer != 0 {
+		t.Errorf("expected IsPlayer=0, got %d", entity.IsPlayer)
+	}
+	if pos[5].(int) != 0 {
+		t.Errorf("expected position isPlayer=0, got %v", pos[5])
+	}
+}
+
+func TestDeadVehicle(t *testing.T) {
+	b := New(config.MemoryConfig{})
+
+	mission := &core.Mission{MissionName: "Test", StartTime: time.Now()}
+	world := &core.World{WorldName: "Test"}
+	_ = b.StartMission(mission, world)
+
+	vehicle := &core.Vehicle{OcapID: 5, DisplayName: "Destroyed Tank", OcapType: "tank", ClassName: "B_MBT_01_cannon_F"}
+	_ = b.AddVehicle(vehicle)
+
+	state := &core.VehicleState{
+		VehicleID:    vehicle.ID,
+		CaptureFrame: 50,
+		Position:     core.Position3D{X: 2000, Y: 3000, Z: 0},
+		Bearing:      90,
+		IsAlive:      false, // Destroyed
+		Crew:         "[]",  // Empty crew (everyone dead/bailed)
+	}
+	_ = b.RecordVehicleState(state)
+
+	export := b.buildExport()
+
+	if len(export.Entities) != 1 {
+		t.Fatalf("expected 1 entity, got %d", len(export.Entities))
+	}
+
+	entity := export.Entities[0]
+	if entity.Side != "UNKNOWN" {
+		t.Errorf("expected Side='UNKNOWN' for vehicle, got '%s'", entity.Side)
+	}
+	if entity.IsPlayer != 0 {
+		t.Errorf("expected IsPlayer=0 for vehicle, got %d", entity.IsPlayer)
+	}
+
+	pos := entity.Positions[0]
+	// IsAlive should be 0 for destroyed vehicle
+	if pos[2].(int) != 0 {
+		t.Errorf("expected isAlive=0, got %v", pos[2])
+	}
+}
+
+func TestMultipleEntitiesExport(t *testing.T) {
+	b := New(config.MemoryConfig{})
+
+	mission := &core.Mission{MissionName: "Test", StartTime: time.Now()}
+	world := &core.World{WorldName: "Test"}
+	_ = b.StartMission(mission, world)
+
+	// Add multiple soldiers
+	soldier1 := &core.Soldier{OcapID: 1, UnitName: "Alpha1", GroupID: "Alpha", Side: "WEST", IsPlayer: true, JoinFrame: 0}
+	soldier2 := &core.Soldier{OcapID: 2, UnitName: "Alpha2", GroupID: "Alpha", Side: "WEST", IsPlayer: false, JoinFrame: 5}
+	soldier3 := &core.Soldier{OcapID: 3, UnitName: "Bravo1", GroupID: "Bravo", Side: "EAST", IsPlayer: false, JoinFrame: 10}
+	_ = b.AddSoldier(soldier1)
+	_ = b.AddSoldier(soldier2)
+	_ = b.AddSoldier(soldier3)
+
+	// Add states for each soldier
+	_ = b.RecordSoldierState(&core.SoldierState{SoldierID: soldier1.ID, CaptureFrame: 0, Position: core.Position3D{X: 100, Y: 100}, Lifestate: 1})
+	_ = b.RecordSoldierState(&core.SoldierState{SoldierID: soldier2.ID, CaptureFrame: 5, Position: core.Position3D{X: 110, Y: 100}, Lifestate: 1})
+	_ = b.RecordSoldierState(&core.SoldierState{SoldierID: soldier3.ID, CaptureFrame: 10, Position: core.Position3D{X: 500, Y: 500}, Lifestate: 1})
+
+	// Add multiple vehicles
+	vehicle1 := &core.Vehicle{OcapID: 10, DisplayName: "Hunter", OcapType: "car", JoinFrame: 0}
+	vehicle2 := &core.Vehicle{OcapID: 11, DisplayName: "Heli", OcapType: "heli", JoinFrame: 20}
+	_ = b.AddVehicle(vehicle1)
+	_ = b.AddVehicle(vehicle2)
+
+	_ = b.RecordVehicleState(&core.VehicleState{VehicleID: vehicle1.ID, CaptureFrame: 0, Position: core.Position3D{X: 200, Y: 200}, IsAlive: true})
+	_ = b.RecordVehicleState(&core.VehicleState{VehicleID: vehicle2.ID, CaptureFrame: 20, Position: core.Position3D{X: 300, Y: 300}, IsAlive: true})
+
+	export := b.buildExport()
+
+	// 3 soldiers + 2 vehicles = 5 entities
+	if len(export.Entities) != 5 {
+		t.Errorf("expected 5 entities, got %d", len(export.Entities))
+	}
+
+	// Count by type
+	unitCount := 0
+	vehicleCount := 0
+	for _, e := range export.Entities {
+		if e.Type == "unit" {
+			unitCount++
+		} else {
+			vehicleCount++
+		}
+	}
+	if unitCount != 3 {
+		t.Errorf("expected 3 units, got %d", unitCount)
+	}
+	if vehicleCount != 2 {
+		t.Errorf("expected 2 vehicles, got %d", vehicleCount)
+	}
+}
+
+func TestEventWithoutExtraData(t *testing.T) {
+	b := New(config.MemoryConfig{})
+
+	mission := &core.Mission{MissionName: "Test", StartTime: time.Now()}
+	world := &core.World{WorldName: "Test"}
+	_ = b.StartMission(mission, world)
+
+	// Event without ExtraData - tests the event export path
+	evt := &core.GeneralEvent{
+		CaptureFrame: 100,
+		Name:         "endMission",
+		Message:      "Mission ended",
+		ExtraData:    nil,
+	}
+	_ = b.RecordGeneralEvent(evt)
+
+	export := b.buildExport()
+
+	if len(export.Events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(export.Events))
+	}
+
+	if export.Events[0].Type != "endMission" {
+		t.Errorf("expected Type='endMission', got '%s'", export.Events[0].Type)
+	}
+	if export.Events[0].Frame != 100 {
+		t.Errorf("expected Frame=100, got %d", export.Events[0].Frame)
+	}
+	if export.Events[0].Message != "Mission ended" {
+		t.Errorf("expected Message='Mission ended', got '%s'", export.Events[0].Message)
+	}
+}
+
+func TestMultipleMarkersExport(t *testing.T) {
+	b := New(config.MemoryConfig{})
+
+	mission := &core.Mission{MissionName: "Test", StartTime: time.Now()}
+	world := &core.World{WorldName: "Test"}
+	_ = b.StartMission(mission, world)
+
+	// Add multiple markers
+	marker1 := &core.Marker{
+		MarkerName: "obj_alpha", Text: "Alpha", MarkerType: "mil_objective", Color: "ColorBLUFOR", Side: "WEST", Shape: "ICON",
+		CaptureFrame: 0, Position: core.Position3D{X: 1000, Y: 1000}, Direction: 0, Alpha: 1.0,
+	}
+	marker2 := &core.Marker{
+		MarkerName: "obj_bravo", Text: "Bravo", MarkerType: "mil_objective", Color: "ColorOPFOR", Side: "EAST", Shape: "ICON",
+		CaptureFrame: 0, Position: core.Position3D{X: 2000, Y: 2000}, Direction: 45, Alpha: 1.0,
+	}
+	_ = b.AddMarker(marker1)
+	_ = b.AddMarker(marker2)
+
+	// Add states to first marker only
+	_ = b.RecordMarkerState(&core.MarkerState{MarkerID: marker1.ID, CaptureFrame: 10, Position: core.Position3D{X: 1100, Y: 1100}, Direction: 90, Alpha: 0.8})
+	_ = b.RecordMarkerState(&core.MarkerState{MarkerID: marker1.ID, CaptureFrame: 20, Position: core.Position3D{X: 1200, Y: 1200}, Direction: 180, Alpha: 0.6})
+
+	export := b.buildExport()
+
+	if len(export.Markers) != 2 {
+		t.Fatalf("expected 2 markers, got %d", len(export.Markers))
+	}
+
+	// Find markers by name
+	var m1, m2 *MarkerJSON
+	for i := range export.Markers {
+		if export.Markers[i].Name == "Alpha" {
+			m1 = &export.Markers[i]
+		} else if export.Markers[i].Name == "Bravo" {
+			m2 = &export.Markers[i]
+		}
+	}
+
+	if m1 == nil || m2 == nil {
+		t.Fatal("markers not found by name")
+	}
+
+	// Marker1 should have 3 positions (initial + 2 states)
+	if len(m1.Positions) != 3 {
+		t.Errorf("expected 3 positions for marker1, got %d", len(m1.Positions))
+	}
+
+	// Marker2 should have only 1 position (initial, no states)
+	if len(m2.Positions) != 1 {
+		t.Errorf("expected 1 position for marker2, got %d", len(m2.Positions))
+	}
+
+	// Verify marker properties
+	if m1.Color != "ColorBLUFOR" {
+		t.Errorf("expected marker1 Color='ColorBLUFOR', got '%s'", m1.Color)
+	}
+	if m2.Side != "EAST" {
+		t.Errorf("expected marker2 Side='EAST', got '%s'", m2.Side)
+	}
+}
+
+func TestMultipleFiredEvents(t *testing.T) {
+	b := New(config.MemoryConfig{})
+
+	mission := &core.Mission{MissionName: "Test", StartTime: time.Now()}
+	world := &core.World{WorldName: "Test"}
+	_ = b.StartMission(mission, world)
+
+	soldier := &core.Soldier{OcapID: 1, UnitName: "Shooter"}
+	_ = b.AddSoldier(soldier)
+
+	// Multiple fired events for same soldier
+	_ = b.RecordFiredEvent(&core.FiredEvent{
+		SoldierID: soldier.ID, CaptureFrame: 10, Weapon: "arifle_MX_F", Magazine: "30Rnd_65x39", FiringMode: "Single",
+		StartPos: core.Position3D{X: 100, Y: 100}, EndPos: core.Position3D{X: 200, Y: 200},
+	})
+	_ = b.RecordFiredEvent(&core.FiredEvent{
+		SoldierID: soldier.ID, CaptureFrame: 15, Weapon: "arifle_MX_F", Magazine: "30Rnd_65x39", FiringMode: "FullAuto",
+		StartPos: core.Position3D{X: 100, Y: 100}, EndPos: core.Position3D{X: 250, Y: 250},
+	})
+	_ = b.RecordFiredEvent(&core.FiredEvent{
+		SoldierID: soldier.ID, CaptureFrame: 50, Weapon: "launch_NLAW_F", Magazine: "NLAW_F", FiringMode: "Single",
+		StartPos: core.Position3D{X: 100, Y: 100}, EndPos: core.Position3D{X: 500, Y: 500},
+	})
+
+	export := b.buildExport()
+
+	if len(export.Entities) != 1 {
+		t.Fatalf("expected 1 entity, got %d", len(export.Entities))
+	}
+
+	entity := export.Entities[0]
+	if len(entity.FramesFired) != 3 {
+		t.Errorf("expected 3 framesFired, got %d", len(entity.FramesFired))
+	}
+
+	// Verify different weapons are recorded
+	weapons := make(map[string]bool)
+	for _, ff := range entity.FramesFired {
+		weapons[ff[3].(string)] = true
+	}
+	if !weapons["arifle_MX_F"] || !weapons["launch_NLAW_F"] {
+		t.Errorf("expected both weapons recorded, got %v", weapons)
+	}
+}
+
+func TestVehicleWithJoinFrame(t *testing.T) {
+	b := New(config.MemoryConfig{})
+
+	mission := &core.Mission{MissionName: "Test", StartTime: time.Now()}
+	world := &core.World{WorldName: "Test"}
+	_ = b.StartMission(mission, world)
+
+	vehicle := &core.Vehicle{
+		OcapID:      20,
+		DisplayName: "Late Arrival",
+		OcapType:    "plane",
+		ClassName:   "B_Plane_Fighter_01_F",
+		JoinFrame:   500, // Spawned late in the mission
+	}
+	_ = b.AddVehicle(vehicle)
+
+	export := b.buildExport()
+
+	if len(export.Entities) != 1 {
+		t.Fatalf("expected 1 entity, got %d", len(export.Entities))
+	}
+
+	entity := export.Entities[0]
+	if entity.StartFrameNum != 500 {
+		t.Errorf("expected StartFrameNum=500, got %d", entity.StartFrameNum)
+	}
+	if entity.Type != "plane" {
+		t.Errorf("expected Type='plane', got '%s'", entity.Type)
+	}
+	if entity.Class != "B_Plane_Fighter_01_F" {
+		t.Errorf("expected Class='B_Plane_Fighter_01_F', got '%s'", entity.Class)
+	}
+}
