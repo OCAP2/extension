@@ -525,3 +525,77 @@ func TestSetBackend(t *testing.T) {
 	}
 }
 
+func TestNewQueues(t *testing.T) {
+	queues := NewQueues()
+
+	if queues == nil {
+		t.Fatal("expected non-nil queues")
+	}
+	if queues.Soldiers == nil {
+		t.Error("expected Soldiers queue to be initialized")
+	}
+	if queues.SoldierStates == nil {
+		t.Error("expected SoldierStates queue to be initialized")
+	}
+	if queues.Vehicles == nil {
+		t.Error("expected Vehicles queue to be initialized")
+	}
+	if queues.VehicleStates == nil {
+		t.Error("expected VehicleStates queue to be initialized")
+	}
+	if queues.FiredEvents == nil {
+		t.Error("expected FiredEvents queue to be initialized")
+	}
+	if queues.ProjectileEvents == nil {
+		t.Error("expected ProjectileEvents queue to be initialized")
+	}
+	if queues.GeneralEvents == nil {
+		t.Error("expected GeneralEvents queue to be initialized")
+	}
+	if queues.HitEvents == nil {
+		t.Error("expected HitEvents queue to be initialized")
+	}
+	if queues.KillEvents == nil {
+		t.Error("expected KillEvents queue to be initialized")
+	}
+	if queues.ChatEvents == nil {
+		t.Error("expected ChatEvents queue to be initialized")
+	}
+	if queues.RadioEvents == nil {
+		t.Error("expected RadioEvents queue to be initialized")
+	}
+	if queues.FpsEvents == nil {
+		t.Error("expected FpsEvents queue to be initialized")
+	}
+	if queues.Ace3DeathEvents == nil {
+		t.Error("expected Ace3DeathEvents queue to be initialized")
+	}
+	if queues.Ace3UnconsciousEvents == nil {
+		t.Error("expected Ace3UnconsciousEvents queue to be initialized")
+	}
+	if queues.Markers == nil {
+		t.Error("expected Markers queue to be initialized")
+	}
+	if queues.MarkerStates == nil {
+		t.Error("expected MarkerStates queue to be initialized")
+	}
+}
+
+func TestNewManager(t *testing.T) {
+	deps := Dependencies{
+		IsDatabaseValid: func() bool { return true },
+		ShouldSaveLocal: func() bool { return false },
+		DBInsertsPaused: func() bool { return false },
+	}
+	queues := NewQueues()
+
+	manager := NewManager(deps, queues)
+
+	if manager == nil {
+		t.Fatal("expected non-nil manager")
+	}
+	if manager.hasBackend() {
+		t.Error("expected no backend initially")
+	}
+}
+
