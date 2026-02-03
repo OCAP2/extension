@@ -8,6 +8,15 @@ type Position3D struct {
 	Z float64 `json:"z"` // elevation ASL
 }
 
+// Position2D represents a 2D map coordinate
+type Position2D struct {
+	X float64 `json:"x"` // easting
+	Y float64 `json:"y"` // northing
+}
+
+// Polyline represents a sequence of 2D positions for line markers
+type Polyline []Position2D
+
 // SoldierScores stores Arma 3 player scores
 type SoldierScores struct {
 	InfantryKills uint8 `json:"infantryKills"`

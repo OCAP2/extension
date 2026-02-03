@@ -332,26 +332,40 @@ func (b *Backend) buildExport() OcapExport {
 
 	// Convert markers
 	// Format: [type, text, startFrame, endFrame, playerId, color, sideIndex, positions, size, shape, brush]
-	// Where positions is: [[frameNum, [x, y], direction, alpha], ...]
+	// For POLYLINE: positions is [[x1,y1],[x2,y2],...]
+	// For other shapes: positions is [[frameNum, [x, y], direction, alpha], ...]
 	for _, record := range b.markers {
-		positions := make([][]any, 0)
+		var positions any
 
-		// Initial position: [frameNum, [x, y], direction, alpha]
-		positions = append(positions, []any{
-			record.Marker.CaptureFrame,
-			[]float64{record.Marker.Position.X, record.Marker.Position.Y},
-			record.Marker.Direction,
-			record.Marker.Alpha,
-		})
+		if record.Marker.Shape == "POLYLINE" {
+			// For polylines: output raw coordinate array
+			coords := make([][]float64, len(record.Marker.Polyline))
+			for i, pt := range record.Marker.Polyline {
+				coords[i] = []float64{pt.X, pt.Y}
+			}
+			positions = coords
+		} else {
+			// For other shapes: frame-based positions
+			posArray := make([][]any, 0)
 
-		// State changes
-		for _, state := range record.States {
-			positions = append(positions, []any{
-				state.CaptureFrame,
-				[]float64{state.Position.X, state.Position.Y},
-				state.Direction,
-				state.Alpha,
+			// Initial position: [frameNum, [x, y], direction, alpha]
+			posArray = append(posArray, []any{
+				record.Marker.CaptureFrame,
+				[]float64{record.Marker.Position.X, record.Marker.Position.Y},
+				record.Marker.Direction,
+				record.Marker.Alpha,
 			})
+
+			// State changes
+			for _, state := range record.States {
+				posArray = append(posArray, []any{
+					state.CaptureFrame,
+					[]float64{state.Position.X, state.Position.Y},
+					state.Direction,
+					state.Alpha,
+				})
+			}
+			positions = posArray
 		}
 
 		// Strip "#" prefix from hex colors (e.g., "#800000" -> "800000") for URL compatibility

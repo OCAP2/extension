@@ -18,6 +18,20 @@ func pointToPosition3D(p geom.Point) core.Position3D {
 	return core.Position3D{X: coord.XY.X, Y: coord.XY.Y, Z: coord.Z}
 }
 
+// lineStringToPolyline converts a geom.LineString to a core.Polyline
+func lineStringToPolyline(ls geom.LineString) core.Polyline {
+	seq := ls.Coordinates()
+	if seq.Length() == 0 {
+		return nil
+	}
+	polyline := make(core.Polyline, seq.Length())
+	for i := 0; i < seq.Length(); i++ {
+		pt := seq.GetXY(i)
+		polyline[i] = core.Position2D{X: pt.X, Y: pt.Y}
+	}
+	return polyline
+}
+
 // SoldierToCore converts a GORM Soldier to a core.Soldier.
 // GORM Soldier.ObjectID maps to core Soldier.ID.
 func SoldierToCore(s model.Soldier) core.Soldier {
@@ -335,6 +349,7 @@ func MarkerToCore(m model.Marker) core.Marker {
 		Size:         m.Size,
 		Side:         m.Side,
 		Position:     pointToPosition3D(m.Position),
+		Polyline:     lineStringToPolyline(m.Polyline),
 		Shape:        m.Shape,
 		Alpha:        m.Alpha,
 		Brush:        m.Brush,

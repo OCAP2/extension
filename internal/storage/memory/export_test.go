@@ -1074,3 +1074,41 @@ func TestTimesExportJSON(t *testing.T) {
 	assert.Equal(t, float64(1.0), timeEntry["timeMultiplier"])
 	assert.Equal(t, float64(0), timeEntry["time"])
 }
+
+func TestPolylineMarkerExport(t *testing.T) {
+	b := New(config.MemoryConfig{})
+
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
+
+	// Add a polyline marker
+	require.NoError(t, b.AddMarker(&core.Marker{
+		MarkerName: "polyline_1", Text: "", MarkerType: "mil_dot", Color: "000000",
+		Side: "GLOBAL", Shape: "POLYLINE", OwnerID: 0, CaptureFrame: 71,
+		Polyline: core.Polyline{
+			{X: 8261.73, Y: 18543.5},
+			{X: 8160.17, Y: 18527.4},
+			{X: 8051.69, Y: 18497.4},
+		},
+		Direction: 0, Alpha: 1.0, Brush: "Solid",
+	}))
+
+	export := b.buildExport()
+
+	require.Len(t, export.Markers, 1)
+	marker := export.Markers[0]
+
+	// Verify shape at index 9
+	assert.Equal(t, "POLYLINE", marker[9])
+
+	// Verify positions at index 7 is coordinate array, not frame-based
+	positions, ok := marker[7].([][]float64)
+	require.True(t, ok, "polyline positions should be [][]float64, got %T", marker[7])
+	require.Len(t, positions, 3)
+
+	assert.Equal(t, 8261.73, positions[0][0])
+	assert.Equal(t, 18543.5, positions[0][1])
+	assert.Equal(t, 8160.17, positions[1][0])
+	assert.Equal(t, 18527.4, positions[1][1])
+	assert.Equal(t, 8051.69, positions[2][0])
+	assert.Equal(t, 18497.4, positions[2][1])
+}
