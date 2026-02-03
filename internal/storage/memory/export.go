@@ -15,14 +15,26 @@ import (
 type OcapExport struct {
 	AddonVersion     string       `json:"addonVersion"`
 	ExtensionVersion string       `json:"extensionVersion"`
+	ExtensionBuild   string       `json:"extensionBuild"`
 	MissionName      string       `json:"missionName"`
 	MissionAuthor    string       `json:"missionAuthor"`
 	WorldName        string       `json:"worldName"`
 	EndFrame         uint         `json:"endFrame"`
 	CaptureDelay     float32      `json:"captureDelay"`
+	Tags             string       `json:"tags"`
+	Times            []TimeJSON   `json:"times"`
 	Entities         []EntityJSON `json:"entities"`
 	Events           [][]any      `json:"events"`
 	Markers          [][]any      `json:"Markers"` // Capital M for ocap2-web compatibility
+}
+
+// TimeJSON represents time synchronization data for a frame
+type TimeJSON struct {
+	Date           string  `json:"date"`
+	FrameNum       uint    `json:"frameNum"`
+	SystemTimeUTC  string  `json:"systemTimeUTC"`
+	Time           float32 `json:"time"`
+	TimeMultiplier float32 `json:"timeMultiplier"`
 }
 
 // EntityJSON represents a soldier or vehicle
@@ -108,13 +120,27 @@ func (b *Backend) buildExport() OcapExport {
 	export := OcapExport{
 		AddonVersion:     b.mission.AddonVersion,
 		ExtensionVersion: b.mission.ExtensionVersion,
+		ExtensionBuild:   b.mission.ExtensionBuild,
 		MissionName:      b.mission.MissionName,
 		MissionAuthor:    b.mission.Author,
 		WorldName:        b.world.WorldName,
 		CaptureDelay:     b.mission.CaptureDelay,
+		Tags:             b.mission.Tag,
+		Times:            make([]TimeJSON, 0, len(b.timeStates)),
 		Entities:         make([]EntityJSON, 0),
 		Events:           make([][]any, 0),
 		Markers:          make([][]any, 0),
+	}
+
+	// Convert time states
+	for _, ts := range b.timeStates {
+		export.Times = append(export.Times, TimeJSON{
+			Date:           ts.MissionDate,
+			FrameNum:       ts.CaptureFrame,
+			SystemTimeUTC:  ts.SystemTimeUTC,
+			Time:           ts.MissionTime,
+			TimeMultiplier: ts.TimeMultiplier,
+		})
 	}
 
 	var maxFrame uint = 0
