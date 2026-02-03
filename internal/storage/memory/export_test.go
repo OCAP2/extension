@@ -1122,3 +1122,47 @@ func TestPolylineMarkerExport(t *testing.T) {
 	assert.Equal(t, 8051.69, coords[2][0])
 	assert.Equal(t, 18497.4, coords[2][1])
 }
+
+func TestMarkerSideValues(t *testing.T) {
+	// Test that sideToIndex correctly handles side string values
+	b := New(config.MemoryConfig{})
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
+
+	// Add markers with string side values
+	require.NoError(t, b.AddMarker(&core.Marker{
+		MarkerName: "east_marker", Text: "East", MarkerType: "mil_dot", Color: "800000",
+		Side: "EAST", Shape: "ICON", CaptureFrame: 0, Position: core.Position3D{X: 1000, Y: 1000}, Alpha: 1.0,
+	}))
+	require.NoError(t, b.AddMarker(&core.Marker{
+		MarkerName: "west_marker", Text: "West", MarkerType: "mil_dot", Color: "004C99",
+		Side: "WEST", Shape: "ICON", CaptureFrame: 0, Position: core.Position3D{X: 2000, Y: 2000}, Alpha: 1.0,
+	}))
+	require.NoError(t, b.AddMarker(&core.Marker{
+		MarkerName: "guer_marker", Text: "Guer", MarkerType: "mil_dot", Color: "008000",
+		Side: "GUER", Shape: "ICON", CaptureFrame: 0, Position: core.Position3D{X: 3000, Y: 3000}, Alpha: 1.0,
+	}))
+	require.NoError(t, b.AddMarker(&core.Marker{
+		MarkerName: "civ_marker", Text: "Civ", MarkerType: "mil_dot", Color: "660080",
+		Side: "CIV", Shape: "ICON", CaptureFrame: 0, Position: core.Position3D{X: 4000, Y: 4000}, Alpha: 1.0,
+	}))
+	require.NoError(t, b.AddMarker(&core.Marker{
+		MarkerName: "global_marker", Text: "Global", MarkerType: "mil_dot", Color: "000000",
+		Side: "UNKNOWN", Shape: "ICON", CaptureFrame: 0, Position: core.Position3D{X: 5000, Y: 5000}, Alpha: 1.0,
+	}))
+
+	export := b.buildExport()
+
+	// Build a map of marker name to side index for easier assertions
+	markerSides := make(map[string]int)
+	for _, marker := range export.Markers {
+		text := marker[1].(string)
+		sideIdx := marker[6].(int)
+		markerSides[text] = sideIdx
+	}
+
+	assert.Equal(t, 0, markerSides["East"], "Side 'EAST' should map to 0")
+	assert.Equal(t, 1, markerSides["West"], "Side 'WEST' should map to 1")
+	assert.Equal(t, 2, markerSides["Guer"], "Side 'GUER' should map to 2")
+	assert.Equal(t, 3, markerSides["Civ"], "Side 'CIV' should map to 3")
+	assert.Equal(t, -1, markerSides["Global"], "Unknown side should map to GLOBAL (-1)")
+}
