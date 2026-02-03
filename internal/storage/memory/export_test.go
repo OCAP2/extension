@@ -37,6 +37,8 @@ func TestIntegrationFullExport(t *testing.T) {
 		CaptureDelay:     1.0,
 		AddonVersion:     "1.0.0",
 		ExtensionVersion: "2.0.0",
+		ExtensionBuild:   "Mon Jan 15 10:00:00 2024",
+		Tag:              "PvP",
 	}
 	world := &core.World{
 		WorldName: "Altis",
@@ -76,6 +78,9 @@ func TestIntegrationFullExport(t *testing.T) {
 	require.NoError(t, b.RecordGeneralEvent(&core.GeneralEvent{
 		CaptureFrame: 15, Name: "connected", Message: "Player1 connected", ExtraData: map[string]any{"uid": "12345"},
 	}))
+	require.NoError(t, b.RecordTimeState(&core.TimeState{
+		CaptureFrame: 0, SystemTimeUTC: "2024-01-15T10:30:00.000", MissionDate: "2035-06-24T06:00:00", TimeMultiplier: 1.0, MissionTime: 0,
+	}))
 	require.NoError(t, b.EndMission())
 
 	// Find and read the exported JSON file
@@ -97,7 +102,14 @@ func TestIntegrationFullExport(t *testing.T) {
 	assert.Equal(t, float32(1.0), export.CaptureDelay)
 	assert.Equal(t, "1.0.0", export.AddonVersion)
 	assert.Equal(t, "2.0.0", export.ExtensionVersion)
+	assert.Equal(t, "Mon Jan 15 10:00:00 2024", export.ExtensionBuild)
+	assert.Equal(t, "PvP", export.Tags)
 	assert.Equal(t, uint(10), export.EndFrame, "EndFrame should be max state frame")
+
+	// Verify times
+	require.Len(t, export.Times, 1)
+	assert.Equal(t, uint(0), export.Times[0].FrameNum)
+	assert.Equal(t, "2024-01-15T10:30:00.000", export.Times[0].SystemTimeUTC)
 
 	// Verify entities (array is sparse: index = entity ID)
 	// Soldier has ID 1, Vehicle has ID 10, so array length is 11 (0-10)
@@ -924,4 +936,141 @@ func TestMarkerSizeAndBrushExport(t *testing.T) {
 	defaultSize := defaultMarker[8].([]float64)
 	assert.Equal(t, []float64{1.0, 1.0}, defaultSize, "default marker should have size [1.0, 1.0]")
 	assert.Equal(t, "Solid", defaultMarker[10], "default marker should have brush Solid")
+}
+
+func TestExtensionBuildExport(t *testing.T) {
+	b := New(config.MemoryConfig{})
+
+	require.NoError(t, b.StartMission(&core.Mission{
+		MissionName:    "Test",
+		StartTime:      time.Now(),
+		ExtensionBuild: "Wed Jul 28 08:28:28 2021",
+	}, &core.World{WorldName: "Test"}))
+
+	export := b.buildExport()
+
+	assert.Equal(t, "Wed Jul 28 08:28:28 2021", export.ExtensionBuild)
+}
+
+func TestTagsExport(t *testing.T) {
+	b := New(config.MemoryConfig{})
+
+	require.NoError(t, b.StartMission(&core.Mission{
+		MissionName: "Test",
+		StartTime:   time.Now(),
+		Tag:         "Zeus",
+	}, &core.World{WorldName: "Test"}))
+
+	export := b.buildExport()
+
+	assert.Equal(t, "Zeus", export.Tags)
+}
+
+func TestTimesExport(t *testing.T) {
+	b := New(config.MemoryConfig{})
+
+	require.NoError(t, b.StartMission(&core.Mission{
+		MissionName: "Test",
+		StartTime:   time.Now(),
+	}, &core.World{WorldName: "Test"}))
+
+	// Record time states
+	require.NoError(t, b.RecordTimeState(&core.TimeState{
+		CaptureFrame:   0,
+		SystemTimeUTC:  "2026-01-25T18:46:48.850",
+		MissionDate:    "2035-06-24T12:26:00",
+		TimeMultiplier: 1.0,
+		MissionTime:    1597.56,
+	}))
+	require.NoError(t, b.RecordTimeState(&core.TimeState{
+		CaptureFrame:   10,
+		SystemTimeUTC:  "2026-01-25T18:47:18.854",
+		MissionDate:    "2035-06-24T12:27:00",
+		TimeMultiplier: 2.0,
+		MissionTime:    1627.58,
+	}))
+
+	export := b.buildExport()
+
+	require.Len(t, export.Times, 2)
+
+	// Verify first time state
+	assert.Equal(t, uint(0), export.Times[0].FrameNum)
+	assert.Equal(t, "2026-01-25T18:46:48.850", export.Times[0].SystemTimeUTC)
+	assert.Equal(t, "2035-06-24T12:26:00", export.Times[0].Date)
+	assert.Equal(t, float32(1.0), export.Times[0].TimeMultiplier)
+	assert.Equal(t, float32(1597.56), export.Times[0].Time)
+
+	// Verify second time state
+	assert.Equal(t, uint(10), export.Times[1].FrameNum)
+	assert.Equal(t, "2026-01-25T18:47:18.854", export.Times[1].SystemTimeUTC)
+	assert.Equal(t, "2035-06-24T12:27:00", export.Times[1].Date)
+	assert.Equal(t, float32(2.0), export.Times[1].TimeMultiplier)
+	assert.Equal(t, float32(1627.58), export.Times[1].Time)
+}
+
+func TestTimesExportEmpty(t *testing.T) {
+	b := New(config.MemoryConfig{})
+
+	require.NoError(t, b.StartMission(&core.Mission{
+		MissionName: "Test",
+		StartTime:   time.Now(),
+	}, &core.World{WorldName: "Test"}))
+
+	// No time states recorded
+
+	export := b.buildExport()
+
+	assert.Empty(t, export.Times)
+}
+
+func TestTimesExportJSON(t *testing.T) {
+	tempDir := t.TempDir()
+	b := New(config.MemoryConfig{OutputDir: tempDir, CompressOutput: false})
+
+	require.NoError(t, b.StartMission(&core.Mission{
+		MissionName:    "Times Test",
+		StartTime:      time.Date(2024, 3, 15, 14, 30, 0, 0, time.UTC),
+		ExtensionBuild: "Build 123",
+		Tag:            "TvT",
+	}, &core.World{WorldName: "Altis"}))
+
+	require.NoError(t, b.RecordTimeState(&core.TimeState{
+		CaptureFrame:   0,
+		SystemTimeUTC:  "2024-03-15T14:30:00.000",
+		MissionDate:    "2035-06-24T06:00:00",
+		TimeMultiplier: 1.0,
+		MissionTime:    0,
+	}))
+
+	require.NoError(t, b.EndMission())
+
+	// Read and parse the JSON file
+	matches, err := filepath.Glob(filepath.Join(tempDir, "*.json"))
+	require.NoError(t, err)
+	require.Len(t, matches, 1)
+
+	data, err := os.ReadFile(matches[0])
+	require.NoError(t, err)
+
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal(data, &raw))
+
+	// Verify extensionBuild
+	assert.Equal(t, "Build 123", raw["extensionBuild"])
+
+	// Verify tags
+	assert.Equal(t, "TvT", raw["tags"])
+
+	// Verify times array structure
+	times, ok := raw["times"].([]any)
+	require.True(t, ok, "times should be an array")
+	require.Len(t, times, 1)
+
+	timeEntry := times[0].(map[string]any)
+	assert.Equal(t, float64(0), timeEntry["frameNum"])
+	assert.Equal(t, "2024-03-15T14:30:00.000", timeEntry["systemTimeUTC"])
+	assert.Equal(t, "2035-06-24T06:00:00", timeEntry["date"])
+	assert.Equal(t, float64(1.0), timeEntry["timeMultiplier"])
+	assert.Equal(t, float64(0), timeEntry["time"])
 }
