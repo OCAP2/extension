@@ -2,6 +2,7 @@
 package memory
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/OCAP2/extension/v5/internal/config"
@@ -103,6 +104,10 @@ func (b *Backend) StartMission(mission *core.Mission, world *core.World) error {
 func (b *Backend) EndMission() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	if b.mission == nil {
+		return fmt.Errorf("no mission to end: mission was never started")
+	}
 
 	return b.exportJSON()
 }
@@ -313,9 +318,14 @@ func (b *Backend) GetExportedFilePath() string {
 }
 
 // GetExportMetadata returns metadata about the last export.
+// Returns empty metadata if no mission was started.
 func (b *Backend) GetExportMetadata() storage.UploadMetadata {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
+
+	if b.mission == nil || b.world == nil {
+		return storage.UploadMetadata{}
+	}
 
 	var endFrame uint
 	for _, record := range b.soldiers {
