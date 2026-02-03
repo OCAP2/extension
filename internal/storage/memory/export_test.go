@@ -1100,15 +1100,25 @@ func TestPolylineMarkerExport(t *testing.T) {
 	// Verify shape at index 9
 	assert.Equal(t, "POLYLINE", marker[9])
 
-	// Verify positions at index 7 is coordinate array, not frame-based
-	positions, ok := marker[7].([][]float64)
-	require.True(t, ok, "polyline positions should be [][]float64, got %T", marker[7])
-	require.Len(t, positions, 3)
+	// Verify positions at index 7 is frame-based: [[frameNum, [[x1,y1], [x2,y2], ...], direction, alpha]]
+	positions, ok := marker[7].([][]any)
+	require.True(t, ok, "positions should be [][]any, got %T", marker[7])
+	require.Len(t, positions, 1) // Single frame entry for polylines
 
-	assert.Equal(t, 8261.73, positions[0][0])
-	assert.Equal(t, 18543.5, positions[0][1])
-	assert.Equal(t, 8160.17, positions[1][0])
-	assert.Equal(t, 18527.4, positions[1][1])
-	assert.Equal(t, 8051.69, positions[2][0])
-	assert.Equal(t, 18497.4, positions[2][1])
+	frameEntry := positions[0]
+	assert.EqualValues(t, 71, frameEntry[0])   // frameNum
+	assert.EqualValues(t, 0, frameEntry[2])    // direction
+	assert.EqualValues(t, 1.0, frameEntry[3])  // alpha
+
+	// frameEntry[1] contains the coordinate array
+	coords, ok := frameEntry[1].([][]float64)
+	require.True(t, ok, "polyline coords should be [][]float64, got %T", frameEntry[1])
+	require.Len(t, coords, 3)
+
+	assert.Equal(t, 8261.73, coords[0][0])
+	assert.Equal(t, 18543.5, coords[0][1])
+	assert.Equal(t, 8160.17, coords[1][0])
+	assert.Equal(t, 18527.4, coords[1][1])
+	assert.Equal(t, 8051.69, coords[2][0])
+	assert.Equal(t, 18497.4, coords[2][1])
 }
