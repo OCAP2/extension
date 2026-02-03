@@ -332,26 +332,42 @@ func (b *Backend) buildExport() OcapExport {
 
 	// Convert markers
 	// Format: [type, text, startFrame, endFrame, playerId, color, sideIndex, positions, size, shape, brush]
-	// Where positions is: [[frameNum, [x, y], direction, alpha], ...]
+	// positions is always: [[frameNum, pos, direction, alpha], ...]
+	// For POLYLINE: pos is [[x1,y1],[x2,y2],...] (array of coordinates)
+	// For other shapes: pos is [x, y] (single coordinate)
 	for _, record := range b.markers {
-		positions := make([][]any, 0)
+		posArray := make([][]any, 0)
 
-		// Initial position: [frameNum, [x, y], direction, alpha]
-		positions = append(positions, []any{
-			record.Marker.CaptureFrame,
-			[]float64{record.Marker.Position.X, record.Marker.Position.Y},
-			record.Marker.Direction,
-			record.Marker.Alpha,
-		})
-
-		// State changes
-		for _, state := range record.States {
-			positions = append(positions, []any{
-				state.CaptureFrame,
-				[]float64{state.Position.X, state.Position.Y},
-				state.Direction,
-				state.Alpha,
+		if record.Marker.Shape == "POLYLINE" {
+			// For polylines: pos contains the coordinate array
+			coords := make([][]float64, len(record.Marker.Polyline))
+			for i, pt := range record.Marker.Polyline {
+				coords[i] = []float64{pt.X, pt.Y}
+			}
+			posArray = append(posArray, []any{
+				record.Marker.CaptureFrame,
+				coords, // [[x1,y1], [x2,y2], ...]
+				record.Marker.Direction,
+				record.Marker.Alpha,
 			})
+		} else {
+			// For other shapes: pos is a single coordinate
+			posArray = append(posArray, []any{
+				record.Marker.CaptureFrame,
+				[]float64{record.Marker.Position.X, record.Marker.Position.Y},
+				record.Marker.Direction,
+				record.Marker.Alpha,
+			})
+
+			// State changes
+			for _, state := range record.States {
+				posArray = append(posArray, []any{
+					state.CaptureFrame,
+					[]float64{state.Position.X, state.Position.Y},
+					state.Direction,
+					state.Alpha,
+				})
+			}
 		}
 
 		// Strip "#" prefix from hex colors (e.g., "#800000" -> "800000") for URL compatibility
@@ -367,7 +383,7 @@ func (b *Backend) buildExport() OcapExport {
 			record.Marker.OwnerID,             // [4] playerId (entity ID of creating player, -1 for system markers)
 			markerColor,                       // [5] color (# prefix stripped for URL compatibility)
 			sideToIndex(record.Marker.Side),   // [6] sideIndex
-			positions,                         // [7] positions
+			posArray,                          // [7] positions
 			parseMarkerSize(record.Marker.Size), // [8] size
 			record.Marker.Shape,               // [9] shape
 			record.Marker.Brush,               // [10] brush

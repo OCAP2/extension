@@ -699,8 +699,9 @@ type Marker struct {
 	Color      string     `json:"color" gorm:"size:32"`
 	Size       string     `json:"size" gorm:"size:32"` // stored as "[w,h]"
 	Side       string     `json:"side" gorm:"size:16"`
-	Position   geom.Point `json:"position"`
-	Shape      string     `json:"shape" gorm:"size:32"`
+	Position   geom.Point      `json:"position"`
+	Polyline   geom.LineString `json:"polyline"`
+	Shape      string          `json:"shape" gorm:"size:32"`
 	Alpha      float32    `json:"alpha"`
 	Brush      string     `json:"brush" gorm:"size:32"`
 	IsDeleted  bool       `json:"isDeleted" gorm:"default:false"`

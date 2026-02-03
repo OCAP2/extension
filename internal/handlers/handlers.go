@@ -1391,19 +1391,28 @@ func (s *Service) LogMarkerCreate(data []string) (model.Marker, error) {
 	// side
 	marker.Side = data[9]
 
-	// position - parse from arma string "[x,y,z]"
-	pos := data[10]
-	pos = strings.TrimPrefix(pos, "[")
-	pos = strings.TrimSuffix(pos, "]")
-	point, _, err := geo.Coord3857FromString(pos)
-	if err != nil {
-		s.writeLog(functionName, fmt.Sprintf("Error parsing position: %v", err), "ERROR")
-		return marker, err
-	}
-	marker.Position = point
-
-	// shape
+	// shape - read first to determine position format
 	marker.Shape = data[11]
+
+	// position - parse based on shape
+	pos := data[10]
+	if marker.Shape == "POLYLINE" {
+		polyline, err := geo.ParsePolyline(pos)
+		if err != nil {
+			s.writeLog(functionName, fmt.Sprintf("Error parsing polyline: %v", err), "ERROR")
+			return marker, err
+		}
+		marker.Polyline = polyline
+	} else {
+		pos = strings.TrimPrefix(pos, "[")
+		pos = strings.TrimSuffix(pos, "]")
+		point, _, err := geo.Coord3857FromString(pos)
+		if err != nil {
+			s.writeLog(functionName, fmt.Sprintf("Error parsing position: %v", err), "ERROR")
+			return marker, err
+		}
+		marker.Position = point
+	}
 
 	// alpha
 	alpha, err := strconv.ParseFloat(data[12], 32)

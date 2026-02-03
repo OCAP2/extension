@@ -18,6 +18,7 @@ type Marker struct {
 	Size         string
 	Side         string
 	Position     Position3D
+	Polyline     Polyline
 	Shape        string
 	Alpha        float32
 	Brush        string
