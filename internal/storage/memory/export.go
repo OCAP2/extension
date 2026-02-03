@@ -39,6 +39,16 @@ type EntityJSON struct {
 	FramesFired   [][]any `json:"framesFired"`
 }
 
+// parseMarkerSize converts size string "[w,h]" to []float64{w, h}
+// Falls back to [1.0, 1.0] if parsing fails
+func parseMarkerSize(sizeStr string) []float64 {
+	var size []float64
+	if err := json.Unmarshal([]byte(sizeStr), &size); err != nil || len(size) != 2 {
+		return []float64{1.0, 1.0}
+	}
+	return size
+}
+
 // sideToIndex converts side string to numeric index for markers
 // -1=GLOBAL, 0=EAST, 1=WEST, 2=GUER, 3=CIV
 func sideToIndex(side string) int {
@@ -316,13 +326,13 @@ func (b *Backend) buildExport() OcapExport {
 			markerText,                        // [1] text (# prefix stripped)
 			record.Marker.CaptureFrame,        // [2] startFrame
 			-1,                                // [3] endFrame (-1 = persists until end)
-			-1,                                // [4] playerId (-1 = no player)
+			record.Marker.OwnerID,             // [4] playerId (entity ID of creating player, -1 for system markers)
 			record.Marker.Color,               // [5] color
 			sideToIndex(record.Marker.Side),   // [6] sideIndex
 			positions,                         // [7] positions
-			[]float32{1.0, 1.0},               // [8] size
+			parseMarkerSize(record.Marker.Size), // [8] size
 			record.Marker.Shape,               // [9] shape
-			"Solid",                           // [10] brush
+			record.Marker.Brush,               // [10] brush
 		}
 
 		export.Markers = append(export.Markers, marker)
