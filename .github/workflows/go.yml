@@ -32,7 +32,22 @@ jobs:
         run: go vet ./internal/...
 
       - name: Run tests
-        run: go test -coverprofile=cover.out -coverpkg=./internal/... ./internal/...
+        run: go test -coverprofile=cover.out.raw -coverpkg=./internal/... ./internal/...
+
+      - name: Deduplicate coverage blocks
+        # Workaround for fgrosse/go-coverage-report#61: merge duplicate coverage blocks
+        # When using -coverpkg, Go creates duplicate entries for each test package
+        run: |
+          head -1 cover.out.raw > cover.out
+          tail -n +2 cover.out.raw | awk '{
+            key = $1
+            stmt = $2
+            count = $3 + 0
+            if (count > counts[key]) counts[key] = count
+            stmts[key] = stmt
+          } END {
+            for (key in stmts) print key, stmts[key], counts[key] + 0
+          }' | sort >> cover.out
 
       - name: Archive code coverage results
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v4
