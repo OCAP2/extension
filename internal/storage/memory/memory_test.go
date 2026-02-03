@@ -934,3 +934,36 @@ func TestStartMissionResetsExportPath(t *testing.T) {
 		t.Errorf("expected empty path after StartMission, got %s", path)
 	}
 }
+
+func TestEndMissionWithoutStartMission(t *testing.T) {
+	b := New(config.MemoryConfig{})
+
+	// EndMission without StartMission should return an error, not panic
+	err := b.EndMission()
+	if err == nil {
+		t.Error("expected error when ending mission that was never started")
+	}
+	if !strings.Contains(err.Error(), "no mission to end") {
+		t.Errorf("expected error message to contain 'no mission to end', got: %s", err.Error())
+	}
+}
+
+func TestGetExportMetadataWithoutStartMission(t *testing.T) {
+	b := New(config.MemoryConfig{})
+
+	// GetExportMetadata without StartMission should return empty metadata, not panic
+	meta := b.GetExportMetadata()
+
+	if meta.WorldName != "" {
+		t.Errorf("expected empty WorldName, got %s", meta.WorldName)
+	}
+	if meta.MissionName != "" {
+		t.Errorf("expected empty MissionName, got %s", meta.MissionName)
+	}
+	if meta.Tag != "" {
+		t.Errorf("expected empty Tag, got %s", meta.Tag)
+	}
+	if meta.MissionDuration != 0 {
+		t.Errorf("expected MissionDuration=0, got %f", meta.MissionDuration)
+	}
+}
