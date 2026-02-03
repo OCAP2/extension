@@ -8,6 +8,7 @@ import (
 	"github.com/OCAP2/extension/v5/internal/config"
 	"github.com/OCAP2/extension/v5/internal/model/core"
 	"github.com/OCAP2/extension/v5/internal/storage"
+	v1 "github.com/OCAP2/extension/v5/internal/storage/memory/export/v1"
 )
 
 // SoldierRecord groups a soldier with all its time-series data
@@ -351,4 +352,52 @@ func (b *Backend) GetExportMetadata() storage.UploadMetadata {
 		MissionDuration: duration,
 		Tag:             b.mission.Tag,
 	}
+}
+
+// BuildExport creates a v1 export from the current mission data.
+// This is safe for concurrent use.
+func (b *Backend) BuildExport() v1.Export {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.buildExportUnlocked()
+}
+
+// buildExportUnlocked creates a v1 export from the current mission data.
+// Caller must hold at least b.mu.RLock.
+func (b *Backend) buildExportUnlocked() v1.Export {
+	data := &v1.MissionData{
+		Mission:       b.mission,
+		World:         b.world,
+		Soldiers:      make(map[uint16]*v1.SoldierRecord),
+		Vehicles:      make(map[uint16]*v1.VehicleRecord),
+		Markers:       make(map[string]*v1.MarkerRecord),
+		GeneralEvents: b.generalEvents,
+		HitEvents:     b.hitEvents,
+		KillEvents:    b.killEvents,
+		TimeStates:    b.timeStates,
+	}
+
+	for id, record := range b.soldiers {
+		data.Soldiers[id] = &v1.SoldierRecord{
+			Soldier:     record.Soldier,
+			States:      record.States,
+			FiredEvents: record.FiredEvents,
+		}
+	}
+
+	for id, record := range b.vehicles {
+		data.Vehicles[id] = &v1.VehicleRecord{
+			Vehicle: record.Vehicle,
+			States:  record.States,
+		}
+	}
+
+	for name, record := range b.markers {
+		data.Markers[name] = &v1.MarkerRecord{
+			Marker: record.Marker,
+			States: record.States,
+		}
+	}
+
+	return v1.Build(data)
 }
