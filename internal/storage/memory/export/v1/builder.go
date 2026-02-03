@@ -128,13 +128,10 @@ func Build(data *MissionData) Export {
 		}
 
 		for _, fired := range record.FiredEvents {
+			// v1 format: [frameNum, [x, y, z]] - matches old C++ extension
 			ff := []any{
 				fired.CaptureFrame,
-				[]float64{fired.EndPos.X, fired.EndPos.Y},
-				[]float64{fired.StartPos.X, fired.StartPos.Y},
-				fired.Weapon,
-				fired.Magazine,
-				fired.FiringMode,
+				[]float64{fired.EndPos.X, fired.EndPos.Y, fired.EndPos.Z},
 			}
 			entity.FramesFired = append(entity.FramesFired, ff)
 		}
