@@ -371,6 +371,40 @@ func MarkerStateToCore(m model.MarkerState) core.MarkerState {
 	}
 }
 
+// ProjectileEventToFiredEvent converts a ProjectileEvent to a FiredEvent for the memory backend.
+// This extracts start/end positions from the projectile trajectory for fireline rendering.
+func ProjectileEventToFiredEvent(p model.ProjectileEvent) core.FiredEvent {
+	var startPos, endPos core.Position3D
+
+	// Extract positions from the LineStringZM geometry
+	if !p.Positions.IsEmpty() {
+		if ls, ok := p.Positions.AsLineString(); ok {
+			seq := ls.Coordinates()
+			if seq.Length() > 0 {
+				// First point is start position
+				start := seq.Get(0)
+				startPos = core.Position3D{X: start.X, Y: start.Y, Z: start.Z}
+
+				// Last point is end position
+				end := seq.Get(seq.Length() - 1)
+				endPos = core.Position3D{X: end.X, Y: end.Y, Z: end.Z}
+			}
+		}
+	}
+
+	return core.FiredEvent{
+		MissionID:    p.MissionID,
+		SoldierID:    p.FirerObjectID,
+		Time:         p.Time,
+		CaptureFrame: p.CaptureFrame,
+		Weapon:       p.Weapon,
+		Magazine:     p.Magazine,
+		FiringMode:   p.Mode,
+		StartPos:     startPos,
+		EndPos:       endPos,
+	}
+}
+
 // MissionToCore converts a GORM Mission to a core.Mission
 func MissionToCore(m *model.Mission) core.Mission {
 	addons := make([]core.Addon, 0, len(m.Addons))

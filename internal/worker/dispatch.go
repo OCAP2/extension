@@ -149,6 +149,17 @@ func (m *Manager) handleFiredEvent(e dispatcher.Event) (any, error) {
 }
 
 func (m *Manager) handleProjectileEvent(e dispatcher.Event) (any, error) {
+	// For memory backend, convert projectile to fired event (simpler format)
+	if m.hasBackend() {
+		obj, err := m.deps.HandlerService.LogProjectileEvent(e.Args)
+		if err != nil {
+			return nil, fmt.Errorf("failed to log projectile event: %w", err)
+		}
+		coreObj := convert.ProjectileEventToFiredEvent(obj)
+		m.backend.RecordFiredEvent(&coreObj)
+		return nil, nil
+	}
+
 	// Projectile events use linestringzm geo format, not supported by SQLite
 	if !m.deps.IsDatabaseValid() || m.deps.ShouldSaveLocal() {
 		return nil, nil

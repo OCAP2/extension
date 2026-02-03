@@ -625,6 +625,86 @@ func TestHitEventToCore_NilIDs(t *testing.T) {
 	}
 }
 
+func TestProjectileEventToFiredEvent(t *testing.T) {
+	now := time.Now()
+
+	// Create a LineStringZM with 3 points (start, middle, end)
+	// Coordinates: X, Y, Z, M (M is timestamp)
+	coords := []float64{
+		100.0, 200.0, 10.0, 1000.0, // start position
+		150.0, 250.0, 15.0, 1001.0, // middle position
+		200.0, 300.0, 5.0, 1002.0, // end position (impact)
+	}
+	seq := geom.NewSequence(coords, geom.DimXYZM)
+	ls, _ := geom.NewLineString(seq)
+
+	gormEvent := model.ProjectileEvent{
+		MissionID:     1,
+		Time:          now,
+		FirerObjectID: 42,
+		CaptureFrame:  100,
+		Weapon:        "throw",
+		Magazine:      "HandGrenade",
+		Mode:          "HandGrenadeMuzzle",
+		Positions:     ls.AsGeometry(),
+	}
+
+	coreEvent := ProjectileEventToFiredEvent(gormEvent)
+
+	if coreEvent.MissionID != 1 {
+		t.Errorf("expected MissionID=1, got %d", coreEvent.MissionID)
+	}
+	if coreEvent.SoldierID != 42 {
+		t.Errorf("expected SoldierID=42, got %d", coreEvent.SoldierID)
+	}
+	if coreEvent.CaptureFrame != 100 {
+		t.Errorf("expected CaptureFrame=100, got %d", coreEvent.CaptureFrame)
+	}
+	if coreEvent.Weapon != "throw" {
+		t.Errorf("expected Weapon=throw, got %s", coreEvent.Weapon)
+	}
+	if coreEvent.Magazine != "HandGrenade" {
+		t.Errorf("expected Magazine=HandGrenade, got %s", coreEvent.Magazine)
+	}
+	if coreEvent.FiringMode != "HandGrenadeMuzzle" {
+		t.Errorf("expected FiringMode=HandGrenadeMuzzle, got %s", coreEvent.FiringMode)
+	}
+
+	// Start position should be first point
+	if coreEvent.StartPos.X != 100.0 || coreEvent.StartPos.Y != 200.0 || coreEvent.StartPos.Z != 10.0 {
+		t.Errorf("expected StartPos=(100,200,10), got (%f,%f,%f)",
+			coreEvent.StartPos.X, coreEvent.StartPos.Y, coreEvent.StartPos.Z)
+	}
+
+	// End position should be last point
+	if coreEvent.EndPos.X != 200.0 || coreEvent.EndPos.Y != 300.0 || coreEvent.EndPos.Z != 5.0 {
+		t.Errorf("expected EndPos=(200,300,5), got (%f,%f,%f)",
+			coreEvent.EndPos.X, coreEvent.EndPos.Y, coreEvent.EndPos.Z)
+	}
+}
+
+func TestProjectileEventToFiredEvent_EmptyPositions(t *testing.T) {
+	gormEvent := model.ProjectileEvent{
+		MissionID:     1,
+		FirerObjectID: 42,
+		CaptureFrame:  100,
+		Weapon:        "throw",
+		Positions:     geom.Geometry{}, // empty geometry
+	}
+
+	coreEvent := ProjectileEventToFiredEvent(gormEvent)
+
+	// Should handle empty positions gracefully
+	if coreEvent.StartPos.X != 0 || coreEvent.StartPos.Y != 0 {
+		t.Errorf("expected zero StartPos for empty geometry, got (%f,%f)",
+			coreEvent.StartPos.X, coreEvent.StartPos.Y)
+	}
+	if coreEvent.EndPos.X != 0 || coreEvent.EndPos.Y != 0 {
+		t.Errorf("expected zero EndPos for empty geometry, got (%f,%f)",
+			coreEvent.EndPos.X, coreEvent.EndPos.Y)
+	}
+}
+
 // Compile-time interface checks
 var (
 	_ core.Soldier              = SoldierToCore(model.Soldier{})
@@ -632,6 +712,7 @@ var (
 	_ core.Vehicle              = VehicleToCore(model.Vehicle{})
 	_ core.VehicleState         = VehicleStateToCore(model.VehicleState{})
 	_ core.FiredEvent           = FiredEventToCore(model.FiredEvent{})
+	_ core.FiredEvent           = ProjectileEventToFiredEvent(model.ProjectileEvent{})
 	_ core.GeneralEvent         = GeneralEventToCore(model.GeneralEvent{})
 	_ core.HitEvent             = HitEventToCore(model.HitEvent{})
 	_ core.KillEvent            = KillEventToCore(model.KillEvent{})

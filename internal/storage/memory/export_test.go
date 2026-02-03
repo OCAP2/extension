@@ -131,10 +131,13 @@ func TestIntegrationFullExport(t *testing.T) {
 	assert.Equal(t, 1000.0, coords[0])
 	assert.Equal(t, 2000.0, coords[1])
 
-	// Verify fired event
+	// Verify fired event - v1 format: [frameNum, [x, y, z]]
 	ff := soldierEntity.FramesFired[0]
+	require.Len(t, ff, 2)
 	assert.Equal(t, 5.0, ff[0]) // JSON unmarshals numbers as float64
-	assert.Equal(t, "arifle_MX_F", ff[3])
+	endPos, ok := ff[1].([]any)
+	require.True(t, ok, "endPos should be []any after JSON unmarshal")
+	require.Len(t, endPos, 3)
 
 	// Verify vehicle entity
 	require.NotNil(t, vehicleEntity, "vehicle entity not found")
@@ -349,22 +352,16 @@ func TestFiredEventFormat(t *testing.T) {
 	require.Len(t, export.Entities[1].FramesFired, 1)
 
 	ff := export.Entities[1].FramesFired[0]
-	require.Len(t, ff, 6) // [captureFrame, [endX, endY], [startX, startY], weapon, magazine, firingMode]
+	// v1 format: [frameNum, [x, y, z]] - matches old C++ extension
+	require.Len(t, ff, 2)
 	assert.Equal(t, uint(100), ff[0])
 
 	endPos, ok := ff[1].([]float64)
 	require.True(t, ok, "endPos should be []float64")
+	require.Len(t, endPos, 3, "position should have X, Y, Z")
 	assert.Equal(t, 300.0, endPos[0])
 	assert.Equal(t, 400.0, endPos[1])
-
-	startPos, ok := ff[2].([]float64)
-	require.True(t, ok, "startPos should be []float64")
-	assert.Equal(t, 100.0, startPos[0])
-	assert.Equal(t, 200.0, startPos[1])
-
-	assert.Equal(t, "arifle_MX_F", ff[3])
-	assert.Equal(t, "30Rnd_65x39_caseless_mag", ff[4])
-	assert.Equal(t, "FullAuto", ff[5])
+	assert.Equal(t, 1.8, endPos[2])
 }
 
 func TestMarkerPositionFormat(t *testing.T) {
@@ -646,12 +643,15 @@ func TestMultipleFiredEvents(t *testing.T) {
 	entity := export.Entities[1]
 	require.Len(t, entity.FramesFired, 3)
 
-	weapons := make(map[string]bool)
+	// v1 format: [frameNum, [x, y, z]] - verify frames and positions
+	frames := make(map[uint]bool)
 	for _, ff := range entity.FramesFired {
-		weapons[ff[3].(string)] = true
+		require.Len(t, ff, 2)
+		frames[ff[0].(uint)] = true
 	}
-	assert.True(t, weapons["arifle_MX_F"], "arifle_MX_F should be recorded")
-	assert.True(t, weapons["launch_NLAW_F"], "launch_NLAW_F should be recorded")
+	assert.True(t, frames[10], "frame 10 should be recorded")
+	assert.True(t, frames[15], "frame 15 should be recorded")
+	assert.True(t, frames[50], "frame 50 should be recorded")
 }
 
 func TestVehicleWithJoinFrame(t *testing.T) {

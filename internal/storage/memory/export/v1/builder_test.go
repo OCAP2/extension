@@ -196,17 +196,16 @@ func TestBuildWithSoldier(t *testing.T) {
 	assert.Equal(t, 1, pos[5])           // isPlayer
 	assert.Equal(t, "Rifleman", pos[6])  // currentRole
 
-	// Check fired events
+	// Check fired events - v1 format: [frameNum, [x, y, z]]
 	require.Len(t, entity.FramesFired, 1)
 	ff := entity.FramesFired[0]
-	assert.Equal(t, uint(15), ff[0])             // captureFrame
+	require.Len(t, ff, 2)
+	assert.Equal(t, uint(15), ff[0]) // captureFrame
 	endPos := ff[1].([]float64)
-	assert.Equal(t, 1200.0, endPos[0])
-	startPos := ff[2].([]float64)
-	assert.Equal(t, 1050.0, startPos[0])
-	assert.Equal(t, "arifle_MX_F", ff[3])        // weapon
-	assert.Equal(t, "30Rnd_65x39", ff[4])        // magazine
-	assert.Equal(t, "Single", ff[5])             // firingMode
+	require.Len(t, endPos, 3)
+	assert.Equal(t, 1200.0, endPos[0]) // X
+	assert.Equal(t, 2200.0, endPos[1]) // Y
+	assert.Equal(t, 0.0, endPos[2])    // Z
 
 	// EndFrame should be max state frame
 	assert.Equal(t, uint(20), export.EndFrame)
