@@ -99,19 +99,13 @@ func TestIntegrationFullExport(t *testing.T) {
 	assert.Equal(t, "2.0.0", export.ExtensionVersion)
 	assert.Equal(t, uint(10), export.EndFrame, "EndFrame should be max state frame")
 
-	// Verify entities (1 soldier + 1 vehicle)
-	require.Len(t, export.Entities, 2)
+	// Verify entities (array is sparse: index = entity ID)
+	// Soldier has ID 1, Vehicle has ID 10, so array length is 11 (0-10)
+	require.Len(t, export.Entities, 11)
 
-	// Find soldier and vehicle entities
-	var soldierEntity, vehicleEntity *EntityJSON
-	for i := range export.Entities {
-		switch export.Entities[i].Type {
-		case "unit":
-			soldierEntity = &export.Entities[i]
-		case "car":
-			vehicleEntity = &export.Entities[i]
-		}
-	}
+	// Access entities by their ID (which equals array index)
+	soldierEntity := &export.Entities[1]  // ID 1
+	vehicleEntity := &export.Entities[10] // ID 10
 
 	// Verify soldier entity
 	require.NotNil(t, soldierEntity, "soldier entity not found")
@@ -142,19 +136,22 @@ func TestIntegrationFullExport(t *testing.T) {
 	assert.Equal(t, "B_MRAP_01_F", vehicleEntity.Class)
 	require.Len(t, vehicleEntity.Positions, 1)
 
-	// Verify events
+	// Verify events (array format: [frameNum, type, message])
 	require.Len(t, export.Events, 1)
-	assert.Equal(t, "connected", export.Events[0].Type)
-	assert.Equal(t, uint(15), export.Events[0].Frame)
-	assert.Equal(t, "Player1 connected", export.Events[0].Message)
+	assert.Equal(t, "connected", export.Events[0][1])         // type
+	assert.EqualValues(t, 15, export.Events[0][0])            // frameNum
+	assert.Equal(t, "Player1 connected", export.Events[0][2]) // message
 
-	// Verify markers
+	// Verify markers (array format: [type, text, startFrame, endFrame, playerId, color, sideIndex, positions, size, shape, brush])
 	require.Len(t, export.Markers, 1)
-	assert.Equal(t, "Objective Alpha", export.Markers[0].Name)
-	assert.Equal(t, "mil_objective", export.Markers[0].Type)
-	assert.Equal(t, "ColorBLUFOR", export.Markers[0].Color)
-	assert.Equal(t, "WEST", export.Markers[0].Side)
-	assert.Len(t, export.Markers[0].Positions, 2, "initial position + 1 state change")
+	assert.Equal(t, "Objective Alpha", export.Markers[0][1]) // text
+	assert.Equal(t, "mil_objective", export.Markers[0][0])   // type
+	assert.Equal(t, "ColorBLUFOR", export.Markers[0][5])     // color
+	assert.EqualValues(t, 1, export.Markers[0][6])           // sideIndex (WEST = 1)
+	// JSON decodes nested arrays as []interface{}, not [][]any
+	positions, ok := export.Markers[0][7].([]interface{})
+	require.True(t, ok, "positions should be []interface{}")
+	assert.Len(t, positions, 2, "initial position + 1 state change")
 }
 
 func TestExportJSON(t *testing.T) {
@@ -283,10 +280,12 @@ func TestSoldierPositionFormat(t *testing.T) {
 
 	export := b.buildExport()
 
-	require.Len(t, export.Entities, 1)
-	require.Len(t, export.Entities[0].Positions, 1)
+	// Sparse array: entity at index 1 (its ID)
+	require.Len(t, export.Entities, 2) // indices 0 and 1
+	entity := export.Entities[1]       // Access by ID
+	require.Len(t, entity.Positions, 1)
 
-	pos := export.Entities[0].Positions[0]
+	pos := entity.Positions[0]
 	require.Len(t, pos, 7) // [[x, y], bearing, lifestate, inVehicleObjectID, unitName, isPlayer, currentRole]
 
 	coords, ok := pos[0].([]float64)
@@ -310,10 +309,12 @@ func TestVehiclePositionFormat(t *testing.T) {
 
 	export := b.buildExport()
 
-	require.Len(t, export.Entities, 1)
-	require.Len(t, export.Entities[0].Positions, 1)
+	// Sparse array: entity at index 10 (its ID)
+	require.Len(t, export.Entities, 11) // indices 0-10
+	entity := export.Entities[10]       // Access by ID
+	require.Len(t, entity.Positions, 1)
 
-	pos := export.Entities[0].Positions[0]
+	pos := entity.Positions[0]
 	require.Len(t, pos, 4) // [[x, y], bearing, isAlive, crew]
 
 	coords, ok := pos[0].([]float64)
@@ -335,10 +336,11 @@ func TestFiredEventFormat(t *testing.T) {
 
 	export := b.buildExport()
 
-	require.Len(t, export.Entities, 1)
-	require.Len(t, export.Entities[0].FramesFired, 1)
+	// Sparse array: entity at index 1 (its ID)
+	require.Len(t, export.Entities, 2)        // indices 0 and 1
+	require.Len(t, export.Entities[1].FramesFired, 1)
 
-	ff := export.Entities[0].FramesFired[0]
+	ff := export.Entities[1].FramesFired[0]
 	require.Len(t, ff, 6) // [captureFrame, [endX, endY], [startX, startY], weapon, magazine, firingMode]
 	assert.Equal(t, uint(100), ff[0])
 
@@ -372,18 +374,17 @@ func TestMarkerPositionFormat(t *testing.T) {
 	export := b.buildExport()
 
 	require.Len(t, export.Markers, 1)
-	require.Len(t, export.Markers[0].Positions, 2) // initial + 1 state
+	positions := export.Markers[0][7].([][]any) // positions at index 7
+	require.Len(t, positions, 2)                // initial + 1 state
 
-	initialPos := export.Markers[0].Positions[0]
-	require.Len(t, initialPos, 4) // [frame, [x, y], direction, alpha]
-	assert.Equal(t, uint(0), initialPos[0])
+	// Position format: [frameNum, [x, y], direction, alpha]
+	initialPos := positions[0]
+	assert.Equal(t, uint(0), initialPos[0])      // frameNum
+	coords := initialPos[1].([]float64)
+	assert.Equal(t, 1000.0, coords[0])           // posX
+	assert.Equal(t, 2000.0, coords[1])           // posY
 
-	coords, ok := initialPos[1].([]float64)
-	require.True(t, ok, "coords should be []float64")
-	assert.Equal(t, 1000.0, coords[0])
-	assert.Equal(t, 2000.0, coords[1])
-
-	assert.Equal(t, uint(50), export.Markers[0].Positions[1][0])
+	assert.Equal(t, uint(50), positions[1][0])   // second position frameNum
 }
 
 func TestEmptyExport(t *testing.T) {
@@ -435,11 +436,13 @@ func TestSoldierWithoutVehicle(t *testing.T) {
 
 	export := b.buildExport()
 
-	require.Len(t, export.Entities, 1)
-	pos := export.Entities[0].Positions[0]
+	// Sparse array: entity at index 1 (its ID)
+	require.Len(t, export.Entities, 2) // indices 0 and 1
+	entity := export.Entities[1]
+	pos := entity.Positions[0]
 
-	assert.Equal(t, (*uint16)(nil), pos[3], "InVehicleObjectID should be nil")
-	assert.Equal(t, 0, export.Entities[0].IsPlayer)
+	assert.Equal(t, 0, pos[3], "InVehicleObjectID should be 0 when not in vehicle")
+	assert.Equal(t, 0, entity.IsPlayer)
 	assert.Equal(t, 0, pos[5])
 }
 
@@ -455,10 +458,12 @@ func TestDeadVehicle(t *testing.T) {
 
 	export := b.buildExport()
 
-	require.Len(t, export.Entities, 1)
-	assert.Equal(t, "UNKNOWN", export.Entities[0].Side)
-	assert.Equal(t, 0, export.Entities[0].IsPlayer)
-	assert.Equal(t, 0, export.Entities[0].Positions[0][2], "isAlive should be 0 for destroyed vehicle")
+	// Sparse array: entity at index 5 (its ID)
+	require.Len(t, export.Entities, 6) // indices 0-5
+	entity := export.Entities[5]
+	assert.Equal(t, "UNKNOWN", entity.Side)
+	assert.Equal(t, 0, entity.IsPlayer)
+	assert.Equal(t, 0, entity.Positions[0][2], "isAlive should be 0 for destroyed vehicle")
 }
 
 func TestMultipleEntitiesExport(t *testing.T) {
@@ -478,13 +483,16 @@ func TestMultipleEntitiesExport(t *testing.T) {
 
 	export := b.buildExport()
 
-	require.Len(t, export.Entities, 5) // 3 soldiers + 2 vehicles
+	// Sparse array: max ID is 11, so array has indices 0-11
+	require.Len(t, export.Entities, 12)
 
+	// Count actual entities (non-placeholder)
 	unitCount, vehicleCount := 0, 0
 	for _, e := range export.Entities {
-		if e.Type == "unit" {
+		switch e.Type {
+		case "unit":
 			unitCount++
-		} else {
+		case "car", "heli":
 			vehicleCount++
 		}
 	}
@@ -501,9 +509,9 @@ func TestEventWithoutExtraData(t *testing.T) {
 	export := b.buildExport()
 
 	require.Len(t, export.Events, 1)
-	assert.Equal(t, "endMission", export.Events[0].Type)
-	assert.Equal(t, uint(100), export.Events[0].Frame)
-	assert.Equal(t, "Mission ended", export.Events[0].Message)
+	assert.Equal(t, "endMission", export.Events[0][1])       // type at index 1
+	assert.Equal(t, uint(100), export.Events[0][0])          // frameNum at index 0
+	assert.Equal(t, "Mission ended", export.Events[0][2])    // message at index 2
 }
 
 func TestMultipleMarkersExport(t *testing.T) {
@@ -525,22 +533,26 @@ func TestMultipleMarkersExport(t *testing.T) {
 
 	require.Len(t, export.Markers, 2)
 
-	var m1, m2 *MarkerJSON
+	// Markers are now arrays: [type, text, startFrame, endFrame, playerId, color, sideIndex, positions, size, shape, brush]
+	var m1, m2 []any
 	for i := range export.Markers {
-		switch export.Markers[i].Name {
+		text := export.Markers[i][1].(string) // text at index 1
+		switch text {
 		case "Alpha":
-			m1 = &export.Markers[i]
+			m1 = export.Markers[i]
 		case "Bravo":
-			m2 = &export.Markers[i]
+			m2 = export.Markers[i]
 		}
 	}
 
 	require.NotNil(t, m1, "marker Alpha not found")
 	require.NotNil(t, m2, "marker Bravo not found")
-	assert.Len(t, m1.Positions, 3, "marker1 should have initial + 2 states")
-	assert.Len(t, m2.Positions, 1, "marker2 should have only initial position")
-	assert.Equal(t, "ColorBLUFOR", m1.Color)
-	assert.Equal(t, "EAST", m2.Side)
+	m1Positions := m1[7].([][]any)
+	m2Positions := m2[7].([][]any)
+	assert.Len(t, m1Positions, 3, "marker1 should have initial + 2 states")
+	assert.Len(t, m2Positions, 1, "marker2 should have only initial position")
+	assert.Equal(t, "ColorBLUFOR", m1[5]) // color at index 5
+	assert.Equal(t, 0, m2[6])             // sideIndex at index 6 (EAST = 0)
 }
 
 func TestMultipleFiredEvents(t *testing.T) {
@@ -563,11 +575,13 @@ func TestMultipleFiredEvents(t *testing.T) {
 
 	export := b.buildExport()
 
-	require.Len(t, export.Entities, 1)
-	require.Len(t, export.Entities[0].FramesFired, 3)
+	// Sparse array: entity at index 1 (its ID)
+	require.Len(t, export.Entities, 2)
+	entity := export.Entities[1]
+	require.Len(t, entity.FramesFired, 3)
 
 	weapons := make(map[string]bool)
-	for _, ff := range export.Entities[0].FramesFired {
+	for _, ff := range entity.FramesFired {
 		weapons[ff[3].(string)] = true
 	}
 	assert.True(t, weapons["arifle_MX_F"], "arifle_MX_F should be recorded")
@@ -588,9 +602,135 @@ func TestVehicleWithJoinFrame(t *testing.T) {
 
 	export := b.buildExport()
 
-	require.Len(t, export.Entities, 1)
-	entity := export.Entities[0]
+	// Sparse array: entity at index 20 (its ID)
+	require.Len(t, export.Entities, 21) // indices 0-20
+	entity := export.Entities[20]
 	assert.Equal(t, uint(500), entity.StartFrameNum)
 	assert.Equal(t, "plane", entity.Type)
 	assert.Equal(t, "B_Plane_Fighter_01_F", entity.Class)
+}
+
+// TestJSONFormatValidation validates that JSON output matches the old C++ extension format
+func TestJSONFormatValidation(t *testing.T) {
+	tempDir := t.TempDir()
+	b := New(config.MemoryConfig{OutputDir: tempDir, CompressOutput: false})
+
+	require.NoError(t, b.StartMission(&core.Mission{
+		MissionName: "Format Test", Author: "Author", StartTime: time.Now(),
+		CaptureDelay: 1.0, AddonVersion: "1.0.0", ExtensionVersion: "2.0.0",
+	}, &core.World{WorldName: "Altis"}))
+
+	// Add entities with specific IDs to test sparse array
+	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 5, UnitName: "Player", Side: "WEST", IsPlayer: true}))
+	require.NoError(t, b.AddVehicle(&core.Vehicle{ID: 10, DisplayName: "Tank", OcapType: "tank", ClassName: "B_MBT_01"}))
+
+	// Record states
+	require.NoError(t, b.RecordSoldierState(&core.SoldierState{
+		SoldierID: 5, CaptureFrame: 0, Position: core.Position3D{X: 1000, Y: 2000},
+		Bearing: 90, Lifestate: 1, UnitName: "Player", IsPlayer: true, CurrentRole: "Rifleman",
+	}))
+	require.NoError(t, b.RecordVehicleState(&core.VehicleState{
+		VehicleID: 10, CaptureFrame: 0, Position: core.Position3D{X: 3000, Y: 4000},
+		Bearing: 180, IsAlive: true, Crew: "[[5,\"driver\"]]",
+	}))
+
+	// Add events in correct format: [frameNum, type, victimId, [killerId, weapon], distance]
+	require.NoError(t, b.RecordKillEvent(&core.KillEvent{
+		CaptureFrame:      100,
+		VictimSoldierID:   ptrUint(5),
+		KillerSoldierID:   ptrUint(10),
+		EventText:         "Tank Gun",
+		Distance:          50,
+	}))
+
+	// Add marker
+	require.NoError(t, b.AddMarker(&core.Marker{
+		MarkerName: "obj1", Text: "Objective", MarkerType: "mil_objective",
+		Color: "ColorRed", Side: "WEST", Shape: "ICON",
+		CaptureFrame: 0, Position: core.Position3D{X: 5000, Y: 6000}, Direction: 45, Alpha: 1.0,
+	}))
+
+	require.NoError(t, b.EndMission())
+
+	// Read and parse the JSON file
+	matches, err := filepath.Glob(filepath.Join(tempDir, "*.json"))
+	require.NoError(t, err)
+	require.Len(t, matches, 1)
+
+	data, err := os.ReadFile(matches[0])
+	require.NoError(t, err)
+
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal(data, &raw))
+
+	// Validate root structure
+	assert.Equal(t, "Format Test", raw["missionName"])
+	assert.Equal(t, "Altis", raw["worldName"])
+	assert.Equal(t, "1.0.0", raw["addonVersion"])
+	assert.Equal(t, "2.0.0", raw["extensionVersion"])
+
+	// Validate entities array is sparse (ID = index)
+	entities := raw["entities"].([]any)
+	assert.Len(t, entities, 11) // indices 0-10
+
+	// Entity at index 5 should be the soldier
+	soldier := entities[5].(map[string]any)
+	assert.Equal(t, float64(5), soldier["id"])
+	assert.Equal(t, "unit", soldier["type"])
+
+	// Entity at index 10 should be the vehicle
+	vehicle := entities[10].(map[string]any)
+	assert.Equal(t, float64(10), vehicle["id"])
+	assert.Equal(t, "tank", vehicle["type"])
+
+	// Validate vehicle position format: [[x, y], bearing, alive, crew]
+	vehiclePositions := vehicle["positions"].([]any)
+	require.Len(t, vehiclePositions, 1)
+	vehPos := vehiclePositions[0].([]any)
+	coords := vehPos[0].([]any)
+	assert.Equal(t, float64(3000), coords[0])
+	assert.Equal(t, float64(4000), coords[1])
+	// Crew should be parsed as array, not string
+	crew := vehPos[3].([]any)
+	require.Len(t, crew, 1)
+	crewEntry := crew[0].([]any)
+	assert.Equal(t, float64(5), crewEntry[0]) // driver ID
+
+	// Validate event format: [frameNum, "killed", victimId, [killerId, weapon], distance]
+	events := raw["events"].([]any)
+	require.Len(t, events, 1)
+	killEvent := events[0].([]any)
+	assert.Equal(t, float64(100), killEvent[0])   // frameNum
+	assert.Equal(t, "killed", killEvent[1])        // type
+	assert.Equal(t, float64(5), killEvent[2])      // victimId
+	causedBy := killEvent[3].([]any)
+	assert.Equal(t, float64(10), causedBy[0])      // killerId
+	assert.Equal(t, "Tank Gun", causedBy[1])       // weapon
+	assert.Equal(t, float64(50), killEvent[4])     // distance
+
+	// Validate marker format: [type, text, startFrame, endFrame, playerId, color, side, positions, size, shape, brush]
+	markers := raw["Markers"].([]any)
+	require.Len(t, markers, 1)
+	marker := markers[0].([]any)
+	assert.Equal(t, "mil_objective", marker[0]) // type
+	assert.Equal(t, "Objective", marker[1])     // text
+	assert.EqualValues(t, 0, marker[2])         // startFrame
+	assert.EqualValues(t, -1, marker[3])        // endFrame (-1 = persists)
+	assert.EqualValues(t, -1, marker[4])        // playerId
+	assert.Equal(t, "ColorRed", marker[5])      // color
+	assert.EqualValues(t, 1, marker[6])         // side (WEST = 1)
+
+	// Validate marker position format: [frameNum, [x, y], direction, alpha]
+	markerPositions := marker[7].([]any)
+	require.Len(t, markerPositions, 1)
+	mPos := markerPositions[0].([]any)
+	assert.EqualValues(t, 0, mPos[0])           // frameNum
+	mCoords := mPos[1].([]any)
+	assert.Equal(t, float64(5000), mCoords[0])  // x
+	assert.Equal(t, float64(6000), mCoords[1])  // y
+	assert.Len(t, mCoords, 2)                   // should be [x, y], not [x, y, z]
+}
+
+func ptrUint(v uint) *uint {
+	return &v
 }

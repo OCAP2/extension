@@ -11,6 +11,7 @@ import (
 )
 
 // OcapExport is the root JSON structure
+// Note: Markers uses capital M for compatibility with ocap2-web
 type OcapExport struct {
 	AddonVersion     string       `json:"addonVersion"`
 	ExtensionVersion string       `json:"extensionVersion"`
@@ -20,8 +21,8 @@ type OcapExport struct {
 	EndFrame         uint         `json:"endFrame"`
 	CaptureDelay     float32      `json:"captureDelay"`
 	Entities         []EntityJSON `json:"entities"`
-	Events           []EventJSON  `json:"events"`
-	Markers          []MarkerJSON `json:"markers"`
+	Events           [][]any      `json:"events"`
+	Markers          [][]any      `json:"Markers"` // Capital M for ocap2-web compatibility
 }
 
 // EntityJSON represents a soldier or vehicle
@@ -38,23 +39,21 @@ type EntityJSON struct {
 	FramesFired   [][]any `json:"framesFired"`
 }
 
-// EventJSON represents a general event
-type EventJSON struct {
-	Frame   uint   `json:"frame"`
-	Type    string `json:"type"`
-	Message string `json:"message,omitempty"`
-	Data    any    `json:"data,omitempty"`
-}
-
-// MarkerJSON represents a marker
-type MarkerJSON struct {
-	ID        string  `json:"id"`
-	Name      string  `json:"name"`
-	Type      string  `json:"type"`
-	Color     string  `json:"color"`
-	Side      string  `json:"side"`
-	Shape     string  `json:"shape"`
-	Positions [][]any `json:"positions"`
+// sideToIndex converts side string to numeric index for markers
+// -1=GLOBAL, 0=EAST, 1=WEST, 2=GUER, 3=CIV
+func sideToIndex(side string) int {
+	switch strings.ToUpper(side) {
+	case "EAST", "OPFOR":
+		return 0
+	case "WEST", "BLUFOR":
+		return 1
+	case "GUER", "INDEPENDENT":
+		return 2
+	case "CIV", "CIVILIAN":
+		return 3
+	default:
+		return -1 // GLOBAL
+	}
 }
 
 // exportJSON writes the mission data to a gzipped JSON file
@@ -104,16 +103,37 @@ func (b *Backend) buildExport() OcapExport {
 		WorldName:        b.world.WorldName,
 		CaptureDelay:     b.mission.CaptureDelay,
 		Entities:         make([]EntityJSON, 0),
-		Events:           make([]EventJSON, 0),
-		Markers:          make([]MarkerJSON, 0),
+		Events:           make([][]any, 0),
+		Markers:          make([][]any, 0),
 	}
 
 	var maxFrame uint = 0
 
-	// Convert soldiers
+	// Find max entity ID to size the entities array correctly
+	// The JS frontend uses entities[id] to look up entities, so array index must equal entity ID
+	var maxEntityID uint16 = 0
+	hasEntities := len(b.soldiers) > 0 || len(b.vehicles) > 0
+	for _, record := range b.soldiers {
+		if record.Soldier.ID > maxEntityID {
+			maxEntityID = record.Soldier.ID
+		}
+	}
+	for _, record := range b.vehicles {
+		if record.Vehicle.ID > maxEntityID {
+			maxEntityID = record.Vehicle.ID
+		}
+	}
+
+	// Create entities array with placeholder entries
+	// Index N will contain entity with ID=N
+	if hasEntities {
+		export.Entities = make([]EntityJSON, maxEntityID+1)
+	}
+
+	// Convert soldiers - place at index matching their ID
 	for _, record := range b.soldiers {
 		entity := EntityJSON{
-			ID:            record.Soldier.ID, // ID is the ObjectID
+			ID:            record.Soldier.ID,
 			Name:          record.Soldier.UnitName,
 			Group:         record.Soldier.GroupID,
 			Side:          record.Soldier.Side,
@@ -125,11 +145,17 @@ func (b *Backend) buildExport() OcapExport {
 		}
 
 		for _, state := range record.States {
+			// Convert nil InVehicleObjectID to 0 (old C++ extension uses 0 for "not in vehicle")
+			var inVehicleID any = 0
+			if state.InVehicleObjectID != nil {
+				inVehicleID = *state.InVehicleObjectID
+			}
+
 			pos := []any{
 				[]float64{state.Position.X, state.Position.Y},
 				state.Bearing,
 				state.Lifestate,
-				state.InVehicleObjectID,
+				inVehicleID,
 				state.UnitName,
 				boolToInt(state.IsPlayer),
 				state.CurrentRole,
@@ -152,13 +178,13 @@ func (b *Backend) buildExport() OcapExport {
 			entity.FramesFired = append(entity.FramesFired, ff)
 		}
 
-		export.Entities = append(export.Entities, entity)
+		export.Entities[record.Soldier.ID] = entity
 	}
 
-	// Convert vehicles
+	// Convert vehicles - place at index matching their ID
 	for _, record := range b.vehicles {
 		entity := EntityJSON{
-			ID:            record.Vehicle.ID, // ID is the ObjectID
+			ID:            record.Vehicle.ID,
 			Name:          record.Vehicle.DisplayName,
 			Side:          "UNKNOWN",
 			IsPlayer:      0,
@@ -170,11 +196,21 @@ func (b *Backend) buildExport() OcapExport {
 		}
 
 		for _, state := range record.States {
+			// Parse crew JSON string into actual JSON array
+			var crew any
+			if state.Crew != "" {
+				if err := json.Unmarshal([]byte(state.Crew), &crew); err != nil {
+					crew = []any{} // Fallback to empty array on parse error
+				}
+			} else {
+				crew = []any{}
+			}
+
 			pos := []any{
 				[]float64{state.Position.X, state.Position.Y},
 				state.Bearing,
 				boolToInt(state.IsAlive),
-				state.Crew,
+				crew,
 			}
 			entity.Positions = append(entity.Positions, pos)
 			if state.CaptureFrame > maxFrame {
@@ -182,77 +218,81 @@ func (b *Backend) buildExport() OcapExport {
 			}
 		}
 
-		export.Entities = append(export.Entities, entity)
+		export.Entities[record.Vehicle.ID] = entity
 	}
 
 	export.EndFrame = maxFrame
 
 	// Convert general events
+	// Format: [frameNum, "type", message]
 	for _, evt := range b.generalEvents {
-		export.Events = append(export.Events, EventJSON{
-			Frame:   evt.CaptureFrame,
-			Type:    evt.Name,
-			Message: evt.Message,
-			Data:    evt.ExtraData,
+		export.Events = append(export.Events, []any{
+			evt.CaptureFrame,
+			evt.Name,
+			evt.Message,
 		})
 	}
 
 	// Convert hit events
+	// Format: [frameNum, "hit", victimId, [causedById, weapon], distance]
 	for _, evt := range b.hitEvents {
-		data := map[string]any{
-			"causedBy": evt.ShooterSoldierID,
-			"victim":   evt.VictimSoldierID,
-			"distance": evt.Distance,
-		}
-		if evt.ShooterVehicleID != nil {
-			data["causedBy"] = evt.ShooterVehicleID
-		}
+		var victimID uint
 		if evt.VictimVehicleID != nil {
-			data["victim"] = evt.VictimVehicleID
+			victimID = *evt.VictimVehicleID
+		} else if evt.VictimSoldierID != nil {
+			victimID = *evt.VictimSoldierID
 		}
-		export.Events = append(export.Events, EventJSON{
-			Frame:   evt.CaptureFrame,
-			Type:    "hit",
-			Message: evt.EventText,
-			Data:    data,
+
+		var sourceID uint
+		if evt.ShooterVehicleID != nil {
+			sourceID = *evt.ShooterVehicleID
+		} else if evt.ShooterSoldierID != nil {
+			sourceID = *evt.ShooterSoldierID
+		}
+
+		export.Events = append(export.Events, []any{
+			evt.CaptureFrame,
+			"hit",
+			victimID,
+			[]any{sourceID, evt.EventText}, // [causedById, weapon]
+			evt.Distance,
 		})
 	}
 
 	// Convert kill events
+	// Format: [frameNum, "killed", victimId, [causedById, weapon], distance]
 	for _, evt := range b.killEvents {
-		data := map[string]any{
-			"killer":   evt.KillerSoldierID,
-			"victim":   evt.VictimSoldierID,
-			"distance": evt.Distance,
-		}
-		if evt.KillerVehicleID != nil {
-			data["killer"] = evt.KillerVehicleID
-		}
+		var victimID uint
 		if evt.VictimVehicleID != nil {
-			data["victim"] = evt.VictimVehicleID
+			victimID = *evt.VictimVehicleID
+		} else if evt.VictimSoldierID != nil {
+			victimID = *evt.VictimSoldierID
 		}
-		export.Events = append(export.Events, EventJSON{
-			Frame:   evt.CaptureFrame,
-			Type:    "killed",
-			Message: evt.EventText,
-			Data:    data,
+
+		var killerID uint
+		if evt.KillerVehicleID != nil {
+			killerID = *evt.KillerVehicleID
+		} else if evt.KillerSoldierID != nil {
+			killerID = *evt.KillerSoldierID
+		}
+
+		export.Events = append(export.Events, []any{
+			evt.CaptureFrame,
+			"killed",
+			victimID,
+			[]any{killerID, evt.EventText}, // [causedById, weapon]
+			evt.Distance,
 		})
 	}
 
 	// Convert markers
+	// Format: [type, text, startFrame, endFrame, playerId, color, sideIndex, positions, size, shape, brush]
+	// Where positions is: [[frameNum, [x, y], direction, alpha], ...]
 	for _, record := range b.markers {
-		marker := MarkerJSON{
-			ID:        fmt.Sprintf("%d", record.Marker.ID),
-			Name:      record.Marker.Text,
-			Type:      record.Marker.MarkerType,
-			Color:     record.Marker.Color,
-			Side:      record.Marker.Side,
-			Shape:     record.Marker.Shape,
-			Positions: make([][]any, 0),
-		}
+		positions := make([][]any, 0)
 
-		// Initial position
-		marker.Positions = append(marker.Positions, []any{
+		// Initial position: [frameNum, [x, y], direction, alpha]
+		positions = append(positions, []any{
 			record.Marker.CaptureFrame,
 			[]float64{record.Marker.Position.X, record.Marker.Position.Y},
 			record.Marker.Direction,
@@ -261,12 +301,26 @@ func (b *Backend) buildExport() OcapExport {
 
 		// State changes
 		for _, state := range record.States {
-			marker.Positions = append(marker.Positions, []any{
+			positions = append(positions, []any{
 				state.CaptureFrame,
 				[]float64{state.Position.X, state.Position.Y},
 				state.Direction,
 				state.Alpha,
 			})
+		}
+
+		marker := []any{
+			record.Marker.MarkerType,          // [0] type
+			record.Marker.Text,                // [1] text
+			record.Marker.CaptureFrame,        // [2] startFrame
+			-1,                                // [3] endFrame (-1 = persists until end)
+			-1,                                // [4] playerId (-1 = no player)
+			record.Marker.Color,               // [5] color
+			sideToIndex(record.Marker.Side),   // [6] sideIndex
+			positions,                         // [7] positions
+			[]float32{1.0, 1.0},               // [8] size
+			record.Marker.Shape,               // [9] shape
+			"Solid",                           // [10] brush
 		}
 
 		export.Markers = append(export.Markers, marker)
