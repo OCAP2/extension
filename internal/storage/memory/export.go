@@ -154,7 +154,7 @@ func (b *Backend) buildExport() OcapExport {
 			pos := []any{
 				[]float64{state.Position.X, state.Position.Y},
 				state.Bearing,
-				state.Lifestate,
+				convertLifestate(state.Lifestate),
 				inVehicleID,
 				state.UnitName,
 				boolToInt(state.IsPlayer),
@@ -361,4 +361,20 @@ func boolToInt(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+// convertLifestate converts Arma 3 lifestate to OCAP2 web UI format
+// Arma 3: 0=ALIVE, 1=INCAPACITATED, 2=DEAD
+// Web UI: 0=DEAD, 1=ALIVE, 2=UNCONSCIOUS
+func convertLifestate(armaLifestate uint8) uint8 {
+	switch armaLifestate {
+	case 0:
+		return 1 // ALIVE
+	case 1:
+		return 2 // INCAPACITATED → UNCONSCIOUS
+	case 2:
+		return 0 // DEAD
+	default:
+		return 1 // fallback to alive
+	}
 }
