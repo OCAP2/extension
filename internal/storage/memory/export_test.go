@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -738,20 +737,20 @@ func ptrUint(v uint) *uint {
 	return &v
 }
 
-func TestMarkerTextHashPrefixIsStripped(t *testing.T) {
+func TestMarkerColorHashPrefixIsStripped(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
 
-	// Add a normal marker
+	// Add marker with hex color including # prefix (should be stripped in export)
 	require.NoError(t, b.AddMarker(&core.Marker{
-		MarkerName: "normal_marker", Text: "Normal", MarkerType: "mil_dot", Color: "ColorRed",
+		MarkerName: "hex_marker", Text: "Hex Color", MarkerType: "respawn_inf", Color: "#800000",
 		Side: "WEST", Shape: "ICON", CaptureFrame: 0, Position: core.Position3D{X: 1000, Y: 2000}, Direction: 0, Alpha: 1.0,
 	}))
 
-	// Add marker with # prefix in text (should be stripped in export)
+	// Add marker with named color (no prefix, should remain unchanged)
 	require.NoError(t, b.AddMarker(&core.Marker{
-		MarkerName: "hash_marker", Text: "#HashText", MarkerType: "mil_dot", Color: "ColorBlue",
+		MarkerName: "named_marker", Text: "Named Color", MarkerType: "mil_dot", Color: "ColorRed",
 		Side: "WEST", Shape: "ICON", CaptureFrame: 0, Position: core.Position3D{X: 2000, Y: 3000}, Direction: 0, Alpha: 1.0,
 	}))
 
@@ -759,17 +758,25 @@ func TestMarkerTextHashPrefixIsStripped(t *testing.T) {
 
 	require.Len(t, export.Markers, 2)
 
-	// Find the marker with hash text and verify # was stripped
-	var foundHashMarker bool
+	// Find markers and verify color format
+	var hexMarker, namedMarker []any
 	for _, m := range export.Markers {
 		text := m[1].(string)
-		if text == "HashText" {
-			foundHashMarker = true
+		if text == "Hex Color" {
+			hexMarker = m
+		} else if text == "Named Color" {
+			namedMarker = m
 		}
-		// Verify no marker text starts with #
-		assert.False(t, strings.HasPrefix(text, "#"), "marker text should not start with #")
 	}
-	assert.True(t, foundHashMarker, "marker with stripped # prefix should be present")
+
+	require.NotNil(t, hexMarker, "hex color marker not found")
+	require.NotNil(t, namedMarker, "named color marker not found")
+
+	// Hex color should have # prefix stripped (for URL compatibility in web UI)
+	assert.Equal(t, "800000", hexMarker[5], "hex color should have # prefix stripped")
+
+	// Named color should remain unchanged
+	assert.Equal(t, "ColorRed", namedMarker[5], "named color should remain unchanged")
 }
 
 func TestMarkerOwnerIDExport(t *testing.T) {

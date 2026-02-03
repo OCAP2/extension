@@ -299,8 +299,6 @@ func (b *Backend) buildExport() OcapExport {
 	// Format: [type, text, startFrame, endFrame, playerId, color, sideIndex, positions, size, shape, brush]
 	// Where positions is: [[frameNum, [x, y], direction, alpha], ...]
 	for _, record := range b.markers {
-		// Strip "#" prefix from marker names (local/scripted markers in ArmA 3)
-		markerText := strings.TrimPrefix(record.Marker.Text, "#")
 		positions := make([][]any, 0)
 
 		// Initial position: [frameNum, [x, y], direction, alpha]
@@ -321,13 +319,18 @@ func (b *Backend) buildExport() OcapExport {
 			})
 		}
 
+		// Strip "#" prefix from hex colors (e.g., "#800000" -> "800000") for URL compatibility
+		// The web UI constructs URLs like: /images/markers/${type}/${color}.png
+		// With "#" prefix, browsers interpret the fragment as an anchor, causing 404s
+		markerColor := strings.TrimPrefix(record.Marker.Color, "#")
+
 		marker := []any{
 			record.Marker.MarkerType,          // [0] type
-			markerText,                        // [1] text (# prefix stripped)
+			record.Marker.Text,                // [1] text
 			record.Marker.CaptureFrame,        // [2] startFrame
 			-1,                                // [3] endFrame (-1 = persists until end)
 			record.Marker.OwnerID,             // [4] playerId (entity ID of creating player, -1 for system markers)
-			record.Marker.Color,               // [5] color
+			markerColor,                       // [5] color (# prefix stripped for URL compatibility)
 			sideToIndex(record.Marker.Side),   // [6] sideIndex
 			positions,                         // [7] positions
 			parseMarkerSize(record.Marker.Size), // [8] size
