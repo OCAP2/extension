@@ -666,6 +666,27 @@ func (s *Service) LogFiredEvent(data []string) (model.FiredEvent, error) {
 }
 
 // LogProjectileEvent parses projectile event data and returns a ProjectileEvent model
+// New SQF array format (indices):
+//
+//	0:  firedFrame (uint)
+//	1:  firedTime (float - diag_tickTime)
+//	2:  firerID (uint)
+//	3:  vehicleID (uint, -1 if not in vehicle)
+//	4:  vehicleRole (string)
+//	5:  remoteControllerID (uint)
+//	6:  weapon (string)
+//	7:  weaponDisplay (string)
+//	8:  muzzle (string)
+//	9:  muzzleDisplay (string)
+//	10: magazine (string)
+//	11: magazineDisplay (string)
+//	12: ammo (string)
+//	13: fireMode (string)
+//	14: positions (array string "[[tickTime,frameNo,\"x,y,z\"],...]")
+//	15: initialVelocity (string "x,y,z")
+//	16: hitParts (array string)
+//	17: sim (string - simulation type)
+//	18: isSub (bool - is submunition)
 func (s *Service) LogProjectileEvent(data []string) (model.ProjectileEvent, error) {
 	var projectileEvent model.ProjectileEvent
 	logger := s.deps.LogManager.Logger()
@@ -675,78 +696,100 @@ func (s *Service) LogProjectileEvent(data []string) (model.ProjectileEvent, erro
 		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
 	}
 
+	if len(data) < 17 {
+		return projectileEvent, fmt.Errorf("insufficient data fields: got %d, need at least 17", len(data))
+	}
+
 	projectileEvent.MissionID = s.ctx.GetMission().ID
 
-	logger.Debug("Projectile data", "data", data[0])
-
-	var rawJsonData map[string]interface{}
-	err := json.Unmarshal([]byte(data[0]), &rawJsonData)
+	// [0] firedFrame
+	capframe, err := strconv.ParseFloat(data[0], 64)
 	if err != nil {
-		return projectileEvent, fmt.Errorf(`error unmarshalling json data: %v`, err)
+		return projectileEvent, fmt.Errorf("error parsing firedFrame: %v", err)
 	}
+	projectileEvent.CaptureFrame = uint(capframe)
 
-	logger.Debug("Processing time and frame")
-	firedTime := rawJsonData["firedTime"].(string)
-	firedTimeInt, err := strconv.ParseInt(firedTime, 10, 64)
+	// [1] firedTime (diag_tickTime) - convert to Time using current time as base
+	// diag_tickTime is seconds since game start, so we just store current time
+	projectileEvent.Time = time.Now()
+
+	// [2] firerID
+	firerID, err := strconv.ParseUint(data[2], 10, 64)
 	if err != nil {
-		return projectileEvent, fmt.Errorf(`error converting firedTime to int: %v`, err)
+		return projectileEvent, fmt.Errorf("error parsing firerID: %v", err)
 	}
-	projectileEvent.Time = time.Unix(0, firedTimeInt)
-	projectileEvent.CaptureFrame = uint(rawJsonData["firedFrame"].(float64))
-
-	logger.Debug("Processing soldierFired")
-	soldierFired, ok := s.deps.EntityCache.GetSoldier(uint16(rawJsonData["firerID"].(float64)))
+	soldierFired, ok := s.deps.EntityCache.GetSoldier(uint16(firerID))
 	if !ok {
-		return projectileEvent, fmt.Errorf("soldier %d not found in cache", uint16(rawJsonData["firerID"].(float64)))
+		return projectileEvent, fmt.Errorf("soldier %d not found in cache", firerID)
 	}
 	projectileEvent.FirerObjectID = soldierFired.ObjectID
 
-	logger.Debug("Processing actualFirer")
-	actualFirer, ok := s.deps.EntityCache.GetSoldier(uint16(rawJsonData["remoteControllerID"].(float64)))
+	// [3] vehicleID (-1 if not in vehicle)
+	vehicleID, err := strconv.ParseInt(data[3], 10, 64)
+	if err != nil {
+		return projectileEvent, fmt.Errorf("error parsing vehicleID: %v", err)
+	}
+	if vehicleID >= 0 {
+		vehicle, ok := s.deps.EntityCache.GetVehicle(uint16(vehicleID))
+		if ok {
+			projectileEvent.VehicleObjectID = sql.NullInt32{Int32: int32(vehicle.ObjectID), Valid: true}
+		}
+	}
+
+	// [4] vehicleRole
+	projectileEvent.VehicleRole = data[4]
+
+	// [5] remoteControllerID
+	remoteControllerID, err := strconv.ParseUint(data[5], 10, 64)
+	if err != nil {
+		return projectileEvent, fmt.Errorf("error parsing remoteControllerID: %v", err)
+	}
+	actualFirer, ok := s.deps.EntityCache.GetSoldier(uint16(remoteControllerID))
 	if !ok {
-		return projectileEvent, fmt.Errorf("soldier %d not found in cache", uint16(rawJsonData["remoteControllerID"].(float64)))
+		return projectileEvent, fmt.Errorf("soldier %d (remoteController) not found in cache", remoteControllerID)
 	}
 	projectileEvent.ActualFirerObjectID = actualFirer.ObjectID
 
-	logger.Debug("Processing vehicleID")
-	vehicleID := rawJsonData["vehicleID"].(float64)
-	vehicle, ok := s.deps.EntityCache.GetVehicle(uint16(vehicleID))
-	if ok {
-		projectileEvent.VehicleObjectID = sql.NullInt32{
-			Int32: int32(vehicle.ObjectID),
-			Valid: true,
-		}
-	} else {
-		projectileEvent.VehicleObjectID = sql.NullInt32{
-			Int32: 0,
-			Valid: false,
-		}
+	// [6-13] weapon info
+	projectileEvent.Weapon = data[6]
+	projectileEvent.WeaponDisplay = data[7]
+	projectileEvent.Muzzle = data[8]
+	projectileEvent.MuzzleDisplay = data[9]
+	projectileEvent.Magazine = data[10]
+	projectileEvent.MagazineDisplay = data[11]
+	projectileEvent.Ammo = data[12]
+	projectileEvent.Mode = data[13]
+
+	// [14] positions - SQF array "[[tickTime,frameNo,\"x,y,z\"],...]"
+	var positions [][]interface{}
+	if err := json.Unmarshal([]byte(data[14]), &positions); err != nil {
+		return projectileEvent, fmt.Errorf("error parsing positions: %v", err)
 	}
 
-	// for Positions parsing, we need to create a Linestring with XYZM dimensions
-	logger.Debug("Projectile positions", "positions", rawJsonData["positions"])
 	positionSequence := []float64{}
-	for _, v := range rawJsonData["positions"].([]interface{}) {
-		posArr := v.([]interface{})
-
-		logger.Debug("Projectile posArr", "posArr", posArr)
-
-		// process time as posArr[0]
-		unixTimeNano := posArr[0].(string)
-		unixTimeNanoFloat, err := strconv.ParseFloat(unixTimeNano, 64)
-		if err != nil {
-			jsonData, _ := json.Marshal(posArr)
-			logger.Error("Error converting timestamp to float64", "error", err, "json", string(jsonData))
-			return projectileEvent, err
+	for _, posArr := range positions {
+		if len(posArr) < 3 {
+			continue
 		}
 
-		// process actual position xyz as posArr[2]
-		pos := posArr[2].(string)
-		point, _, err := geo.Coord3857FromString(pos)
+		// posArr[0] = tickTime (float)
+		tickTime, ok := posArr[0].(float64)
+		if !ok {
+			logger.Warn("Invalid tickTime in position", "value", posArr[0])
+			continue
+		}
+
+		// posArr[2] = "x,y,z" position string
+		posStr, ok := posArr[2].(string)
+		if !ok {
+			logger.Warn("Invalid position string", "value", posArr[2])
+			continue
+		}
+
+		point, _, err := geo.Coord3857FromString(posStr)
 		if err != nil {
-			jsonData, _ := json.Marshal(posArr)
-			logger.Error("Error converting position to Point", "error", err, "json", string(jsonData))
-			return projectileEvent, err
+			logger.Warn("Error converting position to Point", "error", err, "pos", posStr)
+			continue
 		}
 		coords, _ := point.Coordinates()
 
@@ -755,106 +798,99 @@ func (s *Service) LogProjectileEvent(data []string) (model.ProjectileEvent, erro
 			coords.XY.X,
 			coords.XY.Y,
 			coords.Z,
-			unixTimeNanoFloat,
+			tickTime,
 		)
 	}
 
-	// create the linestring
-	posSeq := geom.NewSequence(positionSequence, geom.DimXYZM)
-	ls, err := geom.NewLineString(posSeq)
-	if err != nil {
-		jsonData, _ := json.Marshal(posSeq)
-		logger.Error("Error creating linestring", "error", err, "json", string(jsonData))
-		return projectileEvent, err
+	// create the linestring if we have positions
+	if len(positionSequence) >= 8 { // at least 2 points (4 values each)
+		posSeq := geom.NewSequence(positionSequence, geom.DimXYZM)
+		ls, err := geom.NewLineString(posSeq)
+		if err != nil {
+			logger.Warn("Error creating linestring", "error", err)
+		} else {
+			projectileEvent.Positions = ls.AsGeometry()
+		}
 	}
 
-	logger.Debug("Created linestring",
-		"sequence", posSeq,
-		"linestring", ls,
-		"wkt", ls.AsText(),
-		"wkb", ls.AsBinary())
+	// [15] initialVelocity
+	projectileEvent.InitialVelocity = data[15]
 
-	projectileEvent.Positions = ls.AsGeometry()
-
-	logger.Debug("Processing hit events")
-	// hit events
+	// [16] hitParts - SQF array "[[entityID,[components],\"x,y,z\",frameNo],...]"
 	projectileEvent.HitSoldiers = []model.ProjectileHitsSoldier{}
 	projectileEvent.HitVehicles = []model.ProjectileHitsVehicle{}
-	for _, event := range rawJsonData["hitParts"].([]interface{}) {
-		eventArr := event.([]interface{})
 
-		logger.Debug("Processing hit event", "eventArr", eventArr)
+	var hitParts [][]interface{}
+	if err := json.Unmarshal([]byte(data[16]), &hitParts); err != nil {
+		logger.Warn("Error parsing hitParts", "error", err, "data", data[16])
+	} else {
+		for _, eventArr := range hitParts {
+			if len(eventArr) < 4 {
+				continue
+			}
 
-		// [1] is []string containing hit components
-		hitComponents := []string{}
-		for _, v := range eventArr[1].([]interface{}) {
-			hitComponents = append(hitComponents, v.(string))
-		}
+			// [0] hit entity ocap id
+			hitEntityID, ok := eventArr[0].(float64)
+			if !ok {
+				continue
+			}
 
-		// [2] is string with positionASL
-		hitPos := eventArr[2].(string)
-		hitPoint, _, err := geo.Coord3857FromString(hitPos)
-		if err != nil {
-			jsonData, _ := json.Marshal(eventArr)
-			logger.Error("Error converting hit position to Point", "error", err, "json", string(jsonData))
-			return projectileEvent, err
-		}
+			// [1] hit component(s) - string for HitPart, array for HitExplosion
+			hitComponents := []string{}
+			switch comp := eventArr[1].(type) {
+			case string:
+				// Single component (HitPart event)
+				hitComponents = append(hitComponents, comp)
+			case []interface{}:
+				// Multiple components (HitExplosion event)
+				for _, v := range comp {
+					if s, ok := v.(string); ok {
+						hitComponents = append(hitComponents, s)
+					}
+				}
+			}
 
-		// [3] is uint capture frame
-		hitFrame := eventArr[3].(float64)
+			// [2] hit position "x,y,z"
+			hitPosStr, ok := eventArr[2].(string)
+			if !ok {
+				continue
+			}
+			hitPoint, _, err := geo.Coord3857FromString(hitPosStr)
+			if err != nil {
+				logger.Warn("Error converting hit position", "error", err)
+				continue
+			}
 
-		// marshal hit components to json array
-		hitComponentsJSON, err := json.Marshal(hitComponents)
-		if err != nil {
-			logger.Error("Error marshalling hit components to json", "error", err)
-			return projectileEvent, err
-		}
+			// [3] capture frame
+			hitFrame, ok := eventArr[3].(float64)
+			if !ok {
+				continue
+			}
 
-		logger.Debug("Processed hit components", "hitComponents", hitComponents)
+			hitComponentsJSON, _ := json.Marshal(hitComponents)
 
-		// [0] is the hit entity ocap id
-		hitEntityID := eventArr[0].(float64)
-		hitEntity, ok := s.deps.EntityCache.GetSoldier(uint16(hitEntityID))
-		if ok {
-			projectileEvent.HitSoldiers = append(
-				projectileEvent.HitSoldiers,
-				model.ProjectileHitsSoldier{
-					SoldierObjectID: hitEntity.ObjectID,
-					ComponentsHit: hitComponentsJSON,
-					CaptureFrame:  uint(hitFrame),
-					Position:      hitPoint,
-				},
-			)
-		} else {
-			hitVehicle, ok := s.deps.EntityCache.GetVehicle(uint16(hitEntityID))
-			if ok {
-				projectileEvent.HitVehicles = append(
-					projectileEvent.HitVehicles,
+			// Try soldier first, then vehicle
+			if hitEntity, ok := s.deps.EntityCache.GetSoldier(uint16(hitEntityID)); ok {
+				projectileEvent.HitSoldiers = append(projectileEvent.HitSoldiers,
+					model.ProjectileHitsSoldier{
+						SoldierObjectID: hitEntity.ObjectID,
+						ComponentsHit:   hitComponentsJSON,
+						CaptureFrame:    uint(hitFrame),
+						Position:        hitPoint,
+					})
+			} else if hitVehicle, ok := s.deps.EntityCache.GetVehicle(uint16(hitEntityID)); ok {
+				projectileEvent.HitVehicles = append(projectileEvent.HitVehicles,
 					model.ProjectileHitsVehicle{
 						VehicleObjectID: hitVehicle.ObjectID,
-						ComponentsHit: hitComponentsJSON,
-						CaptureFrame:  uint(hitFrame),
-						Position:      hitPoint,
-					},
-				)
+						ComponentsHit:   hitComponentsJSON,
+						CaptureFrame:    uint(hitFrame),
+						Position:        hitPoint,
+					})
 			} else {
 				logger.Warn("Hit entity not found in cache", "hitEntityID", uint16(hitEntityID))
 			}
 		}
 	}
-
-	logger.Debug("Processing other properties")
-
-	projectileEvent.VehicleRole = rawJsonData["vehicleRole"].(string)
-	projectileEvent.Weapon = rawJsonData["weapon"].(string)
-	projectileEvent.WeaponDisplay = rawJsonData["weaponDisplay"].(string)
-	projectileEvent.Magazine = rawJsonData["magazine"].(string)
-	projectileEvent.MagazineDisplay = rawJsonData["magazineDisplay"].(string)
-	projectileEvent.Muzzle = rawJsonData["muzzle"].(string)
-	projectileEvent.MuzzleDisplay = rawJsonData["muzzleDisplay"].(string)
-	projectileEvent.Ammo = rawJsonData["ammo"].(string)
-	projectileEvent.Mode = rawJsonData["fireMode"].(string)
-	projectileEvent.InitialVelocity = rawJsonData["initialVelocity"].(string)
 
 	return projectileEvent, nil
 }
