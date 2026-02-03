@@ -514,6 +514,62 @@ func TestEventWithoutExtraData(t *testing.T) {
 	assert.Equal(t, "Mission ended", export.Events[0][2])    // message at index 2
 }
 
+func TestGeneralEventJSONMessageParsing(t *testing.T) {
+	tests := []struct {
+		name            string
+		message         string
+		expectedMessage any
+	}{
+		{
+			name:            "JSON array is parsed as native array",
+			message:         "[-1,-1,-1,-1]",
+			expectedMessage: []any{float64(-1), float64(-1), float64(-1), float64(-1)},
+		},
+		{
+			name:            "JSON object is parsed as native object",
+			message:         `{"key":"value","num":42}`,
+			expectedMessage: map[string]any{"key": "value", "num": float64(42)},
+		},
+		{
+			name:            "plain string remains string",
+			message:         "Mission ended",
+			expectedMessage: "Mission ended",
+		},
+		{
+			name:            "empty string remains string",
+			message:         "",
+			expectedMessage: "",
+		},
+		{
+			name:            "invalid JSON array remains string",
+			message:         "[1,2,3",
+			expectedMessage: "[1,2,3",
+		},
+		{
+			name:            "string starting with bracket but not JSON remains string",
+			message:         "[alpha] objective complete",
+			expectedMessage: "[alpha] objective complete",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := New(config.MemoryConfig{})
+			require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
+			require.NoError(t, b.RecordGeneralEvent(&core.GeneralEvent{
+				CaptureFrame: 10,
+				Name:         "testEvent",
+				Message:      tt.message,
+			}))
+
+			export := b.buildExport()
+
+			require.Len(t, export.Events, 1)
+			assert.Equal(t, tt.expectedMessage, export.Events[0][2])
+		})
+	}
+}
+
 func TestMultipleMarkersExport(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
