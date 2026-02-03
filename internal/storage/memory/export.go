@@ -62,7 +62,8 @@ func parseMarkerSize(sizeStr string) []float64 {
 }
 
 // sideToIndex converts side string to numeric index for markers
-// -1=GLOBAL, 0=EAST, 1=WEST, 2=GUER, 3=CIV
+// Input: result of "str side" from SQF (EAST, WEST, GUER, CIV, EMPTY, LOGIC, UNKNOWN)
+// Returns: -1=GLOBAL, 0=EAST, 1=WEST, 2=GUER, 3=CIV
 func sideToIndex(side string) int {
 	switch strings.ToUpper(side) {
 	case "EAST", "OPFOR":
@@ -74,7 +75,7 @@ func sideToIndex(side string) int {
 	case "CIV", "CIVILIAN":
 		return 3
 	default:
-		return -1 // GLOBAL
+		return -1 // GLOBAL (includes EMPTY, LOGIC, UNKNOWN)
 	}
 }
 
