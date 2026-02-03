@@ -236,10 +236,19 @@ func (b *Backend) buildExport() OcapExport {
 	// Convert general events
 	// Format: [frameNum, "type", message]
 	for _, evt := range b.generalEvents {
+		// Try to parse message as JSON - if it's a valid JSON array/object, use parsed value
+		// Otherwise keep as string
+		var message any = evt.Message
+		if len(evt.Message) > 0 && (evt.Message[0] == '[' || evt.Message[0] == '{') {
+			var parsed any
+			if err := json.Unmarshal([]byte(evt.Message), &parsed); err == nil {
+				message = parsed
+			}
+		}
 		export.Events = append(export.Events, []any{
 			evt.CaptureFrame,
 			evt.Name,
-			evt.Message,
+			message,
 		})
 	}
 
