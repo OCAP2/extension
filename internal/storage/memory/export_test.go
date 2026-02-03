@@ -11,14 +11,10 @@ import (
 
 	"github.com/OCAP2/extension/v5/internal/config"
 	"github.com/OCAP2/extension/v5/internal/model/core"
+	v1 "github.com/OCAP2/extension/v5/internal/storage/memory/export/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestBoolToInt(t *testing.T) {
-	assert.Equal(t, 1, boolToInt(true))
-	assert.Equal(t, 0, boolToInt(false))
-}
 
 // TestIntegrationFullExport is a comprehensive integration test that verifies the full flow:
 // start mission -> add entities (soldier, vehicle, marker) -> record states/events -> export JSON -> verify output
@@ -92,7 +88,7 @@ func TestIntegrationFullExport(t *testing.T) {
 	data, err := os.ReadFile(matches[0])
 	require.NoError(t, err)
 
-	var export OcapExport
+	var export v1.Export
 	require.NoError(t, json.Unmarshal(data, &export))
 
 	// Verify mission metadata
@@ -187,7 +183,7 @@ func TestExportJSON(t *testing.T) {
 	data, err := os.ReadFile(matches[0])
 	require.NoError(t, err)
 
-	var export OcapExport
+	var export v1.Export
 	require.NoError(t, json.Unmarshal(data, &export))
 	assert.Equal(t, "Export Test", export.MissionName)
 }
@@ -215,7 +211,7 @@ func TestExportGzipJSON(t *testing.T) {
 	require.NoError(t, err)
 	defer gzReader.Close()
 
-	var export OcapExport
+	var export v1.Export
 	require.NoError(t, json.NewDecoder(gzReader).Decode(&export))
 	assert.Equal(t, "Gzip Test", export.MissionName)
 }
@@ -290,7 +286,7 @@ func TestSoldierPositionFormat(t *testing.T) {
 		UnitName: "Player1_InVeh", IsPlayer: true, CurrentRole: "Gunner",
 	}))
 
-	export := b.buildExport()
+	export := b.BuildExport()
 
 	// Sparse array: entity at index 1 (its ID)
 	require.Len(t, export.Entities, 2) // indices 0 and 1
@@ -319,7 +315,7 @@ func TestVehiclePositionFormat(t *testing.T) {
 		Bearing: 45, IsAlive: true, Crew: "[[1,\"driver\"],[2,\"gunner\"]]",
 	}))
 
-	export := b.buildExport()
+	export := b.BuildExport()
 
 	// Sparse array: entity at index 10 (its ID)
 	require.Len(t, export.Entities, 11) // indices 0-10
@@ -346,7 +342,7 @@ func TestFiredEventFormat(t *testing.T) {
 		FiringMode: "FullAuto", StartPos: core.Position3D{X: 100, Y: 200, Z: 1.5}, EndPos: core.Position3D{X: 300, Y: 400, Z: 1.8},
 	}))
 
-	export := b.buildExport()
+	export := b.BuildExport()
 
 	// Sparse array: entity at index 1 (its ID)
 	require.Len(t, export.Entities, 2)        // indices 0 and 1
@@ -383,7 +379,7 @@ func TestMarkerPositionFormat(t *testing.T) {
 		MarkerID: 0, CaptureFrame: 50, Position: core.Position3D{X: 1100, Y: 2100, Z: 0}, Direction: 180, Alpha: 0.5,
 	}))
 
-	export := b.buildExport()
+	export := b.BuildExport()
 
 	require.Len(t, export.Markers, 1)
 	positions := export.Markers[0][7].([][]any) // positions at index 7
@@ -413,7 +409,7 @@ func TestEmptyExport(t *testing.T) {
 	data, err := os.ReadFile(matches[0])
 	require.NoError(t, err)
 
-	var export OcapExport
+	var export v1.Export
 	require.NoError(t, json.Unmarshal(data, &export))
 
 	assert.Empty(t, export.Entities)
@@ -433,7 +429,7 @@ func TestMaxFrameCalculation(t *testing.T) {
 	require.NoError(t, b.RecordVehicleState(&core.VehicleState{VehicleID: 10, CaptureFrame: 100}))
 	require.NoError(t, b.RecordVehicleState(&core.VehicleState{VehicleID: 10, CaptureFrame: 75}))
 
-	assert.Equal(t, uint(100), b.buildExport().EndFrame)
+	assert.Equal(t, uint(100), b.BuildExport().EndFrame)
 }
 
 func TestSoldierWithoutVehicle(t *testing.T) {
@@ -446,7 +442,7 @@ func TestSoldierWithoutVehicle(t *testing.T) {
 		Bearing: 45, Lifestate: 1, InVehicleObjectID: nil, UnitName: "Infantry", IsPlayer: false, CurrentRole: "Rifleman",
 	}))
 
-	export := b.buildExport()
+	export := b.BuildExport()
 
 	// Sparse array: entity at index 1 (its ID)
 	require.Len(t, export.Entities, 2) // indices 0 and 1
@@ -468,7 +464,7 @@ func TestDeadVehicle(t *testing.T) {
 		Bearing: 90, IsAlive: false, Crew: "[]",
 	}))
 
-	export := b.buildExport()
+	export := b.BuildExport()
 
 	// Sparse array: entity at index 5 (its ID)
 	require.Len(t, export.Entities, 6) // indices 0-5
@@ -493,7 +489,7 @@ func TestMultipleEntitiesExport(t *testing.T) {
 	require.NoError(t, b.RecordVehicleState(&core.VehicleState{VehicleID: 10, CaptureFrame: 0, Position: core.Position3D{X: 200, Y: 200}, IsAlive: true}))
 	require.NoError(t, b.RecordVehicleState(&core.VehicleState{VehicleID: 11, CaptureFrame: 20, Position: core.Position3D{X: 300, Y: 300}, IsAlive: true}))
 
-	export := b.buildExport()
+	export := b.BuildExport()
 
 	// Sparse array: max ID is 11, so array has indices 0-11
 	require.Len(t, export.Entities, 12)
@@ -518,7 +514,7 @@ func TestEventWithoutExtraData(t *testing.T) {
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
 	require.NoError(t, b.RecordGeneralEvent(&core.GeneralEvent{CaptureFrame: 100, Name: "endMission", Message: "Mission ended", ExtraData: nil}))
 
-	export := b.buildExport()
+	export := b.BuildExport()
 
 	require.Len(t, export.Events, 1)
 	assert.Equal(t, "endMission", export.Events[0][1])       // type at index 1
@@ -574,7 +570,7 @@ func TestGeneralEventJSONMessageParsing(t *testing.T) {
 				Message:      tt.message,
 			}))
 
-			export := b.buildExport()
+			export := b.BuildExport()
 
 			require.Len(t, export.Events, 1)
 			assert.Equal(t, tt.expectedMessage, export.Events[0][2])
@@ -599,7 +595,7 @@ func TestMultipleMarkersExport(t *testing.T) {
 	require.NoError(t, b.RecordMarkerState(&core.MarkerState{MarkerID: 1, CaptureFrame: 10, Position: core.Position3D{X: 1100, Y: 1100}, Direction: 90, Alpha: 0.8}))
 	require.NoError(t, b.RecordMarkerState(&core.MarkerState{MarkerID: 1, CaptureFrame: 20, Position: core.Position3D{X: 1200, Y: 1200}, Direction: 180, Alpha: 0.6}))
 
-	export := b.buildExport()
+	export := b.BuildExport()
 
 	require.Len(t, export.Markers, 2)
 
@@ -643,7 +639,7 @@ func TestMultipleFiredEvents(t *testing.T) {
 		StartPos: core.Position3D{X: 100, Y: 100}, EndPos: core.Position3D{X: 500, Y: 500},
 	}))
 
-	export := b.buildExport()
+	export := b.BuildExport()
 
 	// Sparse array: entity at index 1 (its ID)
 	require.Len(t, export.Entities, 2)
@@ -670,7 +666,7 @@ func TestVehicleWithJoinFrame(t *testing.T) {
 		JoinFrame:   500, // Spawned late in the mission
 	}))
 
-	export := b.buildExport()
+	export := b.BuildExport()
 
 	// Sparse array: entity at index 20 (its ID)
 	require.Len(t, export.Entities, 21) // indices 0-20
@@ -822,7 +818,7 @@ func TestMarkerColorHashPrefixIsStripped(t *testing.T) {
 		Side: "WEST", Shape: "ICON", CaptureFrame: 0, Position: core.Position3D{X: 2000, Y: 3000}, Direction: 0, Alpha: 1.0,
 	}))
 
-	export := b.buildExport()
+	export := b.BuildExport()
 
 	require.Len(t, export.Markers, 2)
 
@@ -866,7 +862,7 @@ func TestMarkerOwnerIDExport(t *testing.T) {
 		CaptureFrame: 10, Position: core.Position3D{X: 3000, Y: 4000}, Direction: 45, Alpha: 1.0,
 	}))
 
-	export := b.buildExport()
+	export := b.BuildExport()
 
 	require.Len(t, export.Markers, 2)
 
@@ -910,7 +906,7 @@ func TestMarkerSizeAndBrushExport(t *testing.T) {
 		CaptureFrame: 0, Position: core.Position3D{X: 3000, Y: 4000}, Direction: 0, Alpha: 1.0,
 	}))
 
-	export := b.buildExport()
+	export := b.BuildExport()
 
 	require.Len(t, export.Markers, 2)
 
@@ -947,7 +943,7 @@ func TestExtensionBuildExport(t *testing.T) {
 		ExtensionBuild: "Wed Jul 28 08:28:28 2021",
 	}, &core.World{WorldName: "Test"}))
 
-	export := b.buildExport()
+	export := b.BuildExport()
 
 	assert.Equal(t, "Wed Jul 28 08:28:28 2021", export.ExtensionBuild)
 }
@@ -961,7 +957,7 @@ func TestTagsExport(t *testing.T) {
 		Tag:         "Zeus",
 	}, &core.World{WorldName: "Test"}))
 
-	export := b.buildExport()
+	export := b.BuildExport()
 
 	assert.Equal(t, "Zeus", export.Tags)
 }
@@ -990,7 +986,7 @@ func TestTimesExport(t *testing.T) {
 		MissionTime:    1627.58,
 	}))
 
-	export := b.buildExport()
+	export := b.BuildExport()
 
 	require.Len(t, export.Times, 2)
 
@@ -1019,7 +1015,7 @@ func TestTimesExportEmpty(t *testing.T) {
 
 	// No time states recorded
 
-	export := b.buildExport()
+	export := b.BuildExport()
 
 	assert.Empty(t, export.Times)
 }
@@ -1092,7 +1088,7 @@ func TestPolylineMarkerExport(t *testing.T) {
 		Direction: 0, Alpha: 1.0, Brush: "Solid",
 	}))
 
-	export := b.buildExport()
+	export := b.BuildExport()
 
 	require.Len(t, export.Markers, 1)
 	marker := export.Markers[0]
@@ -1150,7 +1146,7 @@ func TestMarkerSideValues(t *testing.T) {
 		Side: "UNKNOWN", Shape: "ICON", CaptureFrame: 0, Position: core.Position3D{X: 5000, Y: 5000}, Alpha: 1.0,
 	}))
 
-	export := b.buildExport()
+	export := b.BuildExport()
 
 	// Build a map of marker name to side index for easier assertions
 	markerSides := make(map[string]int)
