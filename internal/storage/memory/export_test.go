@@ -541,16 +541,18 @@ func TestMultipleMarkersExport(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
+	// Each marker needs a unique ID so RecordMarkerState can find the correct one
 	require.NoError(t, b.AddMarker(&core.Marker{
-		MarkerName: "obj_alpha", Text: "Alpha", MarkerType: "mil_objective", Color: "ColorBLUFOR", Side: "WEST", Shape: "ICON",
+		ID: 1, MarkerName: "obj_alpha", Text: "Alpha", MarkerType: "mil_objective", Color: "ColorBLUFOR", Side: "WEST", Shape: "ICON",
 		CaptureFrame: 0, Position: core.Position3D{X: 1000, Y: 1000}, Direction: 0, Alpha: 1.0,
 	}))
 	require.NoError(t, b.AddMarker(&core.Marker{
-		MarkerName: "obj_bravo", Text: "Bravo", MarkerType: "mil_objective", Color: "ColorOPFOR", Side: "EAST", Shape: "ICON",
+		ID: 2, MarkerName: "obj_bravo", Text: "Bravo", MarkerType: "mil_objective", Color: "ColorOPFOR", Side: "EAST", Shape: "ICON",
 		CaptureFrame: 0, Position: core.Position3D{X: 2000, Y: 2000}, Direction: 45, Alpha: 1.0,
 	}))
-	require.NoError(t, b.RecordMarkerState(&core.MarkerState{MarkerID: 0, CaptureFrame: 10, Position: core.Position3D{X: 1100, Y: 1100}, Direction: 90, Alpha: 0.8}))
-	require.NoError(t, b.RecordMarkerState(&core.MarkerState{MarkerID: 0, CaptureFrame: 20, Position: core.Position3D{X: 1200, Y: 1200}, Direction: 180, Alpha: 0.6}))
+	// States for marker 1 (Alpha)
+	require.NoError(t, b.RecordMarkerState(&core.MarkerState{MarkerID: 1, CaptureFrame: 10, Position: core.Position3D{X: 1100, Y: 1100}, Direction: 90, Alpha: 0.8}))
+	require.NoError(t, b.RecordMarkerState(&core.MarkerState{MarkerID: 1, CaptureFrame: 20, Position: core.Position3D{X: 1200, Y: 1200}, Direction: 180, Alpha: 0.6}))
 
 	export := b.buildExport()
 
@@ -666,10 +668,10 @@ func TestJSONFormatValidation(t *testing.T) {
 		Distance:          50,
 	}))
 
-	// Add marker
+	// Add marker (OwnerID: -1 indicates system/mission marker, not player-drawn)
 	require.NoError(t, b.AddMarker(&core.Marker{
 		MarkerName: "obj1", Text: "Objective", MarkerType: "mil_objective",
-		Color: "ColorRed", Side: "WEST", Shape: "ICON",
+		Color: "ColorRed", Side: "WEST", Shape: "ICON", OwnerID: -1,
 		CaptureFrame: 0, Position: core.Position3D{X: 5000, Y: 6000}, Direction: 45, Alpha: 1.0,
 	}))
 
@@ -832,4 +834,95 @@ func TestMarkerTextHashPrefixIsStripped(t *testing.T) {
 		assert.False(t, strings.HasPrefix(text, "#"), "marker text should not start with #")
 	}
 	assert.True(t, foundHashMarker, "marker with stripped # prefix should be present")
+}
+
+func TestMarkerOwnerIDExport(t *testing.T) {
+	b := New(config.MemoryConfig{})
+
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
+
+	// Add a system marker (OwnerID: -1)
+	require.NoError(t, b.AddMarker(&core.Marker{
+		MarkerName: "system_marker", Text: "System", MarkerType: "mil_objective", Color: "ColorRed",
+		Side: "WEST", Shape: "ICON", OwnerID: -1,
+		CaptureFrame: 0, Position: core.Position3D{X: 1000, Y: 2000}, Direction: 0, Alpha: 1.0,
+	}))
+
+	// Add a player-drawn marker (OwnerID: 42, which would be the player's entity ID)
+	require.NoError(t, b.AddMarker(&core.Marker{
+		MarkerName: "player_marker", Text: "Player Drawn", MarkerType: "mil_dot", Color: "ColorBlue",
+		Side: "BLUFOR", Shape: "ICON", OwnerID: 42,
+		CaptureFrame: 10, Position: core.Position3D{X: 3000, Y: 4000}, Direction: 45, Alpha: 1.0,
+	}))
+
+	export := b.buildExport()
+
+	require.Len(t, export.Markers, 2)
+
+	// Find and verify each marker's playerId (index 4 in the array)
+	var systemMarker, playerMarker []any
+	for _, m := range export.Markers {
+		text := m[1].(string)
+		if text == "System" {
+			systemMarker = m
+		} else if text == "Player Drawn" {
+			playerMarker = m
+		}
+	}
+
+	require.NotNil(t, systemMarker, "system marker not found")
+	require.NotNil(t, playerMarker, "player marker not found")
+
+	// System marker should have playerId: -1
+	assert.Equal(t, -1, systemMarker[4], "system marker should have playerId -1")
+
+	// Player-drawn marker should have the player's entity ID
+	assert.Equal(t, 42, playerMarker[4], "player marker should have playerId 42")
+}
+
+func TestMarkerSizeAndBrushExport(t *testing.T) {
+	b := New(config.MemoryConfig{})
+
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
+
+	// Add marker with custom size and brush
+	require.NoError(t, b.AddMarker(&core.Marker{
+		MarkerName: "custom_marker", Text: "Custom", MarkerType: "mil_objective", Color: "ColorRed",
+		Side: "WEST", Shape: "RECTANGLE", OwnerID: -1, Size: "[2.5,3.0]", Brush: "SolidBorder",
+		CaptureFrame: 0, Position: core.Position3D{X: 1000, Y: 2000}, Direction: 0, Alpha: 1.0,
+	}))
+
+	// Add marker without size (should default to [1.0, 1.0])
+	require.NoError(t, b.AddMarker(&core.Marker{
+		MarkerName: "default_marker", Text: "Default", MarkerType: "mil_dot", Color: "ColorBlue",
+		Side: "WEST", Shape: "ICON", OwnerID: -1, Size: "", Brush: "Solid",
+		CaptureFrame: 0, Position: core.Position3D{X: 3000, Y: 4000}, Direction: 0, Alpha: 1.0,
+	}))
+
+	export := b.buildExport()
+
+	require.Len(t, export.Markers, 2)
+
+	var customMarker, defaultMarker []any
+	for _, m := range export.Markers {
+		text := m[1].(string)
+		if text == "Custom" {
+			customMarker = m
+		} else if text == "Default" {
+			defaultMarker = m
+		}
+	}
+
+	require.NotNil(t, customMarker, "custom marker not found")
+	require.NotNil(t, defaultMarker, "default marker not found")
+
+	// Custom marker should have the specified size and brush
+	customSize := customMarker[8].([]float64)
+	assert.Equal(t, []float64{2.5, 3.0}, customSize, "custom marker should have size [2.5, 3.0]")
+	assert.Equal(t, "SolidBorder", customMarker[10], "custom marker should have brush SolidBorder")
+
+	// Default marker should have fallback size [1.0, 1.0]
+	defaultSize := defaultMarker[8].([]float64)
+	assert.Equal(t, []float64{1.0, 1.0}, defaultSize, "default marker should have size [1.0, 1.0]")
+	assert.Equal(t, "Solid", defaultMarker[10], "default marker should have brush Solid")
 }
