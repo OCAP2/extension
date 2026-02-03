@@ -289,6 +289,8 @@ func (b *Backend) buildExport() OcapExport {
 	// Format: [type, text, startFrame, endFrame, playerId, color, sideIndex, positions, size, shape, brush]
 	// Where positions is: [[frameNum, [x, y], direction, alpha], ...]
 	for _, record := range b.markers {
+		// Strip "#" prefix from marker names (local/scripted markers in ArmA 3)
+		markerText := strings.TrimPrefix(record.Marker.Text, "#")
 		positions := make([][]any, 0)
 
 		// Initial position: [frameNum, [x, y], direction, alpha]
@@ -311,7 +313,7 @@ func (b *Backend) buildExport() OcapExport {
 
 		marker := []any{
 			record.Marker.MarkerType,          // [0] type
-			record.Marker.Text,                // [1] text
+			markerText,                        // [1] text (# prefix stripped)
 			record.Marker.CaptureFrame,        // [2] startFrame
 			-1,                                // [3] endFrame (-1 = persists until end)
 			-1,                                // [4] playerId (-1 = no player)

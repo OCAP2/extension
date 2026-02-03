@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -733,4 +734,38 @@ func TestJSONFormatValidation(t *testing.T) {
 
 func ptrUint(v uint) *uint {
 	return &v
+}
+
+func TestMarkerTextHashPrefixIsStripped(t *testing.T) {
+	b := New(config.MemoryConfig{})
+
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
+
+	// Add a normal marker
+	require.NoError(t, b.AddMarker(&core.Marker{
+		MarkerName: "normal_marker", Text: "Normal", MarkerType: "mil_dot", Color: "ColorRed",
+		Side: "WEST", Shape: "ICON", CaptureFrame: 0, Position: core.Position3D{X: 1000, Y: 2000}, Direction: 0, Alpha: 1.0,
+	}))
+
+	// Add marker with # prefix in text (should be stripped in export)
+	require.NoError(t, b.AddMarker(&core.Marker{
+		MarkerName: "hash_marker", Text: "#HashText", MarkerType: "mil_dot", Color: "ColorBlue",
+		Side: "WEST", Shape: "ICON", CaptureFrame: 0, Position: core.Position3D{X: 2000, Y: 3000}, Direction: 0, Alpha: 1.0,
+	}))
+
+	export := b.buildExport()
+
+	require.Len(t, export.Markers, 2)
+
+	// Find the marker with hash text and verify # was stripped
+	var foundHashMarker bool
+	for _, m := range export.Markers {
+		text := m[1].(string)
+		if text == "HashText" {
+			foundHashMarker = true
+		}
+		// Verify no marker text starts with #
+		assert.False(t, strings.HasPrefix(text, "#"), "marker text should not start with #")
+	}
+	assert.True(t, foundHashMarker, "marker with stripped # prefix should be present")
 }
