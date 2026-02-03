@@ -21,6 +21,27 @@ func TestBoolToInt(t *testing.T) {
 	assert.Equal(t, 0, boolToInt(false))
 }
 
+func TestConvertLifestate(t *testing.T) {
+	// Arma 3: 0=ALIVE, 1=INCAPACITATED, 2=DEAD
+	// Web UI: 0=DEAD, 1=ALIVE, 2=UNCONSCIOUS
+	tests := []struct {
+		armaValue    uint8
+		expectedWeb  uint8
+		description  string
+	}{
+		{0, 1, "ALIVE converts to 1"},
+		{1, 2, "INCAPACITATED converts to 2 (UNCONSCIOUS)"},
+		{2, 0, "DEAD converts to 0"},
+		{255, 1, "unknown value defaults to ALIVE"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.description, func(t *testing.T) {
+			assert.Equal(t, tt.expectedWeb, convertLifestate(tt.armaValue))
+		})
+	}
+}
+
 // TestIntegrationFullExport is a comprehensive integration test that verifies the full flow:
 // start mission -> add entities (soldier, vehicle, marker) -> record states/events -> export JSON -> verify output
 func TestIntegrationFullExport(t *testing.T) {
@@ -294,7 +315,8 @@ func TestSoldierPositionFormat(t *testing.T) {
 	assert.Equal(t, 1234.56, coords[0])
 	assert.Equal(t, 7890.12, coords[1])
 	assert.Equal(t, uint16(270), pos[1])
-	assert.Equal(t, uint8(1), pos[2])
+	// Arma lifestate 1 (INCAPACITATED) converts to web UI 2 (UNCONSCIOUS)
+	assert.Equal(t, uint8(2), pos[2])
 	assert.Equal(t, 1, pos[5])
 }
 
@@ -734,6 +756,48 @@ func TestJSONFormatValidation(t *testing.T) {
 
 func ptrUint(v uint) *uint {
 	return &v
+}
+
+func TestLifestateConversionInExport(t *testing.T) {
+	b := New(config.MemoryConfig{})
+
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
+
+	// Add three soldiers with different lifestates
+	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 1, UnitName: "Alive"}))
+	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 2, UnitName: "Incapacitated"}))
+	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 3, UnitName: "Dead"}))
+
+	// Record states with Arma lifestates: 0=ALIVE, 1=INCAPACITATED, 2=DEAD
+	require.NoError(t, b.RecordSoldierState(&core.SoldierState{
+		SoldierID: 1, CaptureFrame: 0, Position: core.Position3D{X: 100, Y: 100},
+		Lifestate: 0, // Arma ALIVE
+	}))
+	require.NoError(t, b.RecordSoldierState(&core.SoldierState{
+		SoldierID: 2, CaptureFrame: 0, Position: core.Position3D{X: 200, Y: 200},
+		Lifestate: 1, // Arma INCAPACITATED
+	}))
+	require.NoError(t, b.RecordSoldierState(&core.SoldierState{
+		SoldierID: 3, CaptureFrame: 0, Position: core.Position3D{X: 300, Y: 300},
+		Lifestate: 2, // Arma DEAD
+	}))
+
+	export := b.buildExport()
+
+	// Verify conversion to web UI format: 0=DEAD, 1=ALIVE, 2=UNCONSCIOUS
+	require.Len(t, export.Entities, 4) // indices 0-3
+
+	// Entity 1: Arma ALIVE (0) -> Web ALIVE (1)
+	pos1 := export.Entities[1].Positions[0]
+	assert.Equal(t, uint8(1), pos1[2], "Arma ALIVE should convert to web UI 1")
+
+	// Entity 2: Arma INCAPACITATED (1) -> Web UNCONSCIOUS (2)
+	pos2 := export.Entities[2].Positions[0]
+	assert.Equal(t, uint8(2), pos2[2], "Arma INCAPACITATED should convert to web UI 2 (UNCONSCIOUS)")
+
+	// Entity 3: Arma DEAD (2) -> Web DEAD (0)
+	pos3 := export.Entities[3].Positions[0]
+	assert.Equal(t, uint8(0), pos3[2], "Arma DEAD should convert to web UI 0")
 }
 
 func TestMarkerTextHashPrefixIsStripped(t *testing.T) {
