@@ -772,10 +772,10 @@ func (s *Service) LogProjectileEvent(data []string) (model.ProjectileEvent, erro
 			continue
 		}
 
-		// posArr[0] = tickTime (float)
-		tickTime, ok := posArr[0].(float64)
+		// posArr[1] = frameNo (float64 from JSON)
+		frameNo, ok := posArr[1].(float64)
 		if !ok {
-			logger.Warn("Invalid tickTime in position", "value", posArr[0])
+			logger.Warn("Invalid frameNo in position", "value", posArr[1])
 			continue
 		}
 
@@ -793,12 +793,13 @@ func (s *Service) LogProjectileEvent(data []string) (model.ProjectileEvent, erro
 		}
 		coords, _ := point.Coordinates()
 
+		// Store as XYZM where M = frame number (used by projectile markers)
 		positionSequence = append(
 			positionSequence,
 			coords.XY.X,
 			coords.XY.Y,
 			coords.Z,
-			tickTime,
+			frameNo,
 		)
 	}
 
