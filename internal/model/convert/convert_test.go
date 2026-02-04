@@ -748,6 +748,11 @@ func TestProjectileEventToProjectileMarker(t *testing.T) {
 		t.Errorf("expected MarkerName=projectile_100_42, got %s", marker.MarkerName)
 	}
 
+	// EndFrame should be the last position's frame (303)
+	if marker.EndFrame != 303 {
+		t.Errorf("expected EndFrame=303, got %d", marker.EndFrame)
+	}
+
 	// First position should be in marker
 	if marker.Position.X != 100.0 || marker.Position.Y != 200.0 {
 		t.Errorf("expected marker Position=(100,200), got (%f,%f)",

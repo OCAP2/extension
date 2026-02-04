@@ -341,6 +341,7 @@ func MarkerToCore(m model.Marker) core.Marker {
 		MissionID:    m.MissionID,
 		Time:         m.Time,
 		CaptureFrame: m.CaptureFrame,
+		EndFrame:     -1, // Regular markers persist until end
 		MarkerName:   m.MarkerName,
 		Direction:    m.Direction,
 		MarkerType:   m.MarkerType,
@@ -461,10 +462,17 @@ func ProjectileEventToProjectileMarker(p model.ProjectileEvent) (core.Marker, []
 		firstPos = positions[0]
 	}
 
+	// EndFrame is the last position's frame (when grenade explodes/dissipates)
+	endFrame := -1
+	if len(frames) > 0 {
+		endFrame = int(frames[len(frames)-1])
+	}
+
 	marker := core.Marker{
 		ID:           markerID,
 		MissionID:    p.MissionID,
 		CaptureFrame: p.CaptureFrame,
+		EndFrame:     endFrame,
 		MarkerName:   markerName,
 		MarkerType:   markerType,
 		Text:         p.MagazineDisplay,

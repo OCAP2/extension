@@ -297,11 +297,17 @@ func Build(data *MissionData) Export {
 		// With "#" prefix, browsers interpret the fragment as an anchor, causing 404s
 		markerColor := strings.TrimPrefix(record.Marker.Color, "#")
 
+		// EndFrame: 0 means not set (use -1 to persist), positive means specific end frame
+		endFrame := record.Marker.EndFrame
+		if endFrame == 0 {
+			endFrame = -1
+		}
+
 		marker := []any{
 			record.Marker.MarkerType,            // [0] type
 			record.Marker.Text,                  // [1] text
 			record.Marker.CaptureFrame,          // [2] startFrame
-			-1,                                  // [3] endFrame (-1 = persists until end)
+			endFrame,                            // [3] endFrame (-1 = persists until end, otherwise frame when marker disappears)
 			record.Marker.OwnerID,               // [4] playerId (entity ID of creating player, -1 for system markers)
 			markerColor,                         // [5] color (# prefix stripped for URL compatibility)
 			sideToIndex(record.Marker.Side),     // [6] sideIndex
