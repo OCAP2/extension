@@ -149,14 +149,25 @@ func (m *Manager) handleFiredEvent(e dispatcher.Event) (any, error) {
 }
 
 func (m *Manager) handleProjectileEvent(e dispatcher.Event) (any, error) {
-	// For memory backend, convert projectile to fired event (simpler format)
+	// For memory backend, convert projectile to appropriate format
 	if m.hasBackend() {
 		obj, err := m.deps.HandlerService.LogProjectileEvent(e.Args)
 		if err != nil {
 			return nil, fmt.Errorf("failed to log projectile event: %w", err)
 		}
-		coreObj := convert.ProjectileEventToFiredEvent(obj)
-		m.backend.RecordFiredEvent(&coreObj)
+
+		// Thrown projectiles (grenades, smokes) become markers
+		if obj.Weapon == "throw" {
+			marker, states := convert.ProjectileEventToProjectileMarker(obj)
+			m.backend.AddMarker(&marker)
+			for i := range states {
+				m.backend.RecordMarkerState(&states[i])
+			}
+		} else {
+			// Other projectiles become fire lines
+			coreObj := convert.ProjectileEventToFiredEvent(obj)
+			m.backend.RecordFiredEvent(&coreObj)
+		}
 		return nil, nil
 	}
 

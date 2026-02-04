@@ -705,6 +705,92 @@ func TestProjectileEventToFiredEvent_EmptyPositions(t *testing.T) {
 	}
 }
 
+func TestProjectileEventToProjectileMarker(t *testing.T) {
+	// Create a LineStringZM with 3 points (thrown, mid-flight, impact)
+	coords := []float64{
+		100.0, 200.0, 10.0, 1000.0, // thrown position
+		150.0, 250.0, 15.0, 1001.0, // mid-flight
+		200.0, 300.0, 5.0, 1002.0,  // impact position
+	}
+	seq := geom.NewSequence(coords, geom.DimXYZM)
+	ls, _ := geom.NewLineString(seq)
+
+	gormEvent := model.ProjectileEvent{
+		MissionID:       1,
+		FirerObjectID:   42,
+		CaptureFrame:    100,
+		Weapon:          "throw",
+		MagazineDisplay: "Smoke Grenade (White)",
+		MagazineIcon:    `\A3\Weapons_F\Data\UI\gear_smokegrenade_white_ca.paa`,
+		Positions:       ls.AsGeometry(),
+	}
+
+	marker, states := ProjectileEventToProjectileMarker(gormEvent)
+
+	// Check marker fields
+	if marker.MarkerType != "magIcons/gear_smokegrenade_white_ca.paa" {
+		t.Errorf("expected MarkerType=magIcons/gear_smokegrenade_white_ca.paa, got %s", marker.MarkerType)
+	}
+	if marker.Text != "Smoke Grenade (White)" {
+		t.Errorf("expected Text=Smoke Grenade (White), got %s", marker.Text)
+	}
+	if marker.OwnerID != 42 {
+		t.Errorf("expected OwnerID=42, got %d", marker.OwnerID)
+	}
+	if marker.Side != "GLOBAL" {
+		t.Errorf("expected Side=GLOBAL, got %s", marker.Side)
+	}
+	if marker.Shape != "ICON" {
+		t.Errorf("expected Shape=ICON, got %s", marker.Shape)
+	}
+	if marker.MarkerName != "projectile_100_42" {
+		t.Errorf("expected MarkerName=projectile_100_42, got %s", marker.MarkerName)
+	}
+
+	// First position should be in marker
+	if marker.Position.X != 100.0 || marker.Position.Y != 200.0 {
+		t.Errorf("expected marker Position=(100,200), got (%f,%f)",
+			marker.Position.X, marker.Position.Y)
+	}
+
+	// Remaining positions should be in states
+	if len(states) != 2 {
+		t.Fatalf("expected 2 states, got %d", len(states))
+	}
+	if states[0].Position.X != 150.0 || states[0].Position.Y != 250.0 {
+		t.Errorf("expected state[0] Position=(150,250), got (%f,%f)",
+			states[0].Position.X, states[0].Position.Y)
+	}
+	if states[1].Position.X != 200.0 || states[1].Position.Y != 300.0 {
+		t.Errorf("expected state[1] Position=(200,300), got (%f,%f)",
+			states[1].Position.X, states[1].Position.Y)
+	}
+
+	// States should reference marker ID
+	if states[0].MarkerID != marker.ID {
+		t.Errorf("expected state MarkerID=%d, got %d", marker.ID, states[0].MarkerID)
+	}
+}
+
+func TestProjectileEventToProjectileMarker_EmptyIcon(t *testing.T) {
+	gormEvent := model.ProjectileEvent{
+		MissionID:       1,
+		FirerObjectID:   5,
+		CaptureFrame:    50,
+		Weapon:          "throw",
+		MagazineDisplay: "Unknown Grenade",
+		MagazineIcon:    "", // empty icon
+		Positions:       geom.Geometry{},
+	}
+
+	marker, _ := ProjectileEventToProjectileMarker(gormEvent)
+
+	// Should use fallback icon
+	if marker.MarkerType != "magIcons/gear_unknown_ca.paa" {
+		t.Errorf("expected fallback MarkerType=magIcons/gear_unknown_ca.paa, got %s", marker.MarkerType)
+	}
+}
+
 // Compile-time interface checks
 var (
 	_ core.Soldier              = SoldierToCore(model.Soldier{})

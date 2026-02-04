@@ -3,6 +3,7 @@ package convert
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/OCAP2/extension/v5/internal/model"
 	"github.com/OCAP2/extension/v5/internal/model/core"
@@ -403,6 +404,100 @@ func ProjectileEventToFiredEvent(p model.ProjectileEvent) core.FiredEvent {
 		StartPos:     startPos,
 		EndPos:       endPos,
 	}
+}
+
+// ProjectileEventToProjectileMarker converts a thrown projectile (grenade, smoke) to a marker
+// for the web viewer. Returns the marker and any state changes for trajectory positions.
+// Only call this for projectiles where Weapon == "throw".
+func ProjectileEventToProjectileMarker(p model.ProjectileEvent) (core.Marker, []core.MarkerState) {
+	// Extract filename from icon path: "\A3\...\gear_smokegrenade_white_ca.paa" → "magIcons/gear_smokegrenade_white_ca.paa"
+	// Handle both forward and backslash separators (Arma uses backslashes)
+	iconPath := p.MagazineIcon
+	// Find last separator (either / or \)
+	lastSep := -1
+	for i := len(iconPath) - 1; i >= 0; i-- {
+		if iconPath[i] == '/' || iconPath[i] == '\\' {
+			lastSep = i
+			break
+		}
+	}
+	var iconFilename string
+	if lastSep >= 0 {
+		iconFilename = iconPath[lastSep+1:]
+	} else {
+		iconFilename = iconPath
+	}
+	markerType := "magIcons/" + iconFilename
+	if iconFilename == "" {
+		// Fallback for missing icon
+		markerType = "magIcons/gear_unknown_ca.paa"
+	}
+
+	// Generate unique marker name and ID
+	// ID combines frame and firer to ensure uniqueness
+	markerName := fmt.Sprintf("projectile_%d_%d", p.CaptureFrame, p.FirerObjectID)
+	markerID := uint(p.CaptureFrame)<<16 | uint(p.FirerObjectID)
+
+	var positions []core.Position3D
+	var frames []uint
+
+	// Extract positions from the LineStringZM geometry
+	// Format: [x, y, z, tickTime] where we use tickTime's frame approximation
+	if !p.Positions.IsEmpty() {
+		if ls, ok := p.Positions.AsLineString(); ok {
+			seq := ls.Coordinates()
+			for i := 0; i < seq.Length(); i++ {
+				pt := seq.Get(i)
+				positions = append(positions, core.Position3D{X: pt.X, Y: pt.Y, Z: pt.Z})
+				// M coordinate contains tickTime, but we need frame numbers
+				// The frame numbers are embedded in the original positions array from SQF
+				// For now, estimate frame offset from start
+				frames = append(frames, p.CaptureFrame+uint(i))
+			}
+		}
+	}
+
+	// Use first position for the marker, rest become states
+	var firstPos core.Position3D
+	if len(positions) > 0 {
+		firstPos = positions[0]
+	}
+
+	marker := core.Marker{
+		ID:           markerID,
+		MissionID:    p.MissionID,
+		CaptureFrame: p.CaptureFrame,
+		MarkerName:   markerName,
+		MarkerType:   markerType,
+		Text:         p.MagazineDisplay,
+		OwnerID:      int(p.FirerObjectID),
+		Color:        "FFFFFF",
+		Side:         "GLOBAL",
+		Position:     firstPos,
+		Size:         "[1,1]",
+		Shape:        "ICON",
+		Alpha:        1.0,
+		Brush:        "Solid",
+	}
+
+	// Create states for remaining positions (trajectory)
+	var states []core.MarkerState
+	for i := 1; i < len(positions); i++ {
+		frame := frames[i]
+		if i < len(frames) {
+			frame = frames[i]
+		}
+		states = append(states, core.MarkerState{
+			MarkerID:     markerID,
+			MissionID:    p.MissionID,
+			CaptureFrame: frame,
+			Position:     positions[i],
+			Direction:    0,
+			Alpha:        1.0,
+		})
+	}
+
+	return marker, states
 }
 
 // MissionToCore converts a GORM Mission to a core.Mission
