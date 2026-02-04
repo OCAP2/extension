@@ -442,17 +442,15 @@ func ProjectileEventToProjectileMarker(p model.ProjectileEvent) (core.Marker, []
 	var frames []uint
 
 	// Extract positions from the LineStringZM geometry
-	// Format: [x, y, z, tickTime] where we use tickTime's frame approximation
+	// Format: [x, y, z, frameNo] where M coordinate contains the frame number
 	if !p.Positions.IsEmpty() {
 		if ls, ok := p.Positions.AsLineString(); ok {
 			seq := ls.Coordinates()
 			for i := 0; i < seq.Length(); i++ {
 				pt := seq.Get(i)
 				positions = append(positions, core.Position3D{X: pt.X, Y: pt.Y, Z: pt.Z})
-				// M coordinate contains tickTime, but we need frame numbers
-				// The frame numbers are embedded in the original positions array from SQF
-				// For now, estimate frame offset from start
-				frames = append(frames, p.CaptureFrame+uint(i))
+				// M coordinate contains the frame number
+				frames = append(frames, uint(pt.M))
 			}
 		}
 	}

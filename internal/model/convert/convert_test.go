@@ -707,10 +707,11 @@ func TestProjectileEventToFiredEvent_EmptyPositions(t *testing.T) {
 
 func TestProjectileEventToProjectileMarker(t *testing.T) {
 	// Create a LineStringZM with 3 points (thrown, mid-flight, impact)
+	// Format: [x, y, z, frameNo] where M = frame number
 	coords := []float64{
-		100.0, 200.0, 10.0, 1000.0, // thrown position
-		150.0, 250.0, 15.0, 1001.0, // mid-flight
-		200.0, 300.0, 5.0, 1002.0,  // impact position
+		100.0, 200.0, 10.0, 243.0, // thrown position at frame 243
+		150.0, 250.0, 15.0, 245.0, // mid-flight at frame 245
+		200.0, 300.0, 5.0, 303.0,  // impact position at frame 303
 	}
 	seq := geom.NewSequence(coords, geom.DimXYZM)
 	ls, _ := geom.NewLineString(seq)
@@ -764,6 +765,14 @@ func TestProjectileEventToProjectileMarker(t *testing.T) {
 	if states[1].Position.X != 200.0 || states[1].Position.Y != 300.0 {
 		t.Errorf("expected state[1] Position=(200,300), got (%f,%f)",
 			states[1].Position.X, states[1].Position.Y)
+	}
+
+	// States should have correct frame numbers from M coordinate
+	if states[0].CaptureFrame != 245 {
+		t.Errorf("expected state[0] CaptureFrame=245, got %d", states[0].CaptureFrame)
+	}
+	if states[1].CaptureFrame != 303 {
+		t.Errorf("expected state[1] CaptureFrame=303, got %d", states[1].CaptureFrame)
 	}
 
 	// States should reference marker ID
