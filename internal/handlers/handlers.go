@@ -892,6 +892,24 @@ func (s *Service) LogProjectileEvent(data []string) (model.ProjectileEvent, erro
 		}
 	}
 
+	// [17] sim - simulation type (optional, may not be present in older data)
+	if len(data) > 17 {
+		projectileEvent.SimulationType = data[17]
+	}
+
+	// [18] isSub - is submunition (optional)
+	if len(data) > 18 {
+		isSub, err := strconv.ParseBool(data[18])
+		if err == nil {
+			projectileEvent.IsSubmunition = isSub
+		}
+	}
+
+	// [19] magazineIcon - magazine icon path (optional)
+	if len(data) > 19 {
+		projectileEvent.MagazineIcon = data[19]
+	}
+
 	return projectileEvent, nil
 }
 
@@ -1361,11 +1379,11 @@ func (s *Service) LogAce3UnconsciousEvent(data []string) (model.Ace3UnconsciousE
 	}
 	unconsciousEvent.SoldierObjectID = uint16(ocapID)
 
-	isAwake, err := strconv.ParseBool(data[2])
+	isUnconscious, err := strconv.ParseBool(data[2])
 	if err != nil {
-		return unconsciousEvent, fmt.Errorf(`error converting isAwake to bool: %v`, err)
+		return unconsciousEvent, fmt.Errorf(`error converting isUnconscious to bool: %v`, err)
 	}
-	unconsciousEvent.IsAwake = isAwake
+	unconsciousEvent.IsUnconscious = isUnconscious
 
 	return unconsciousEvent, nil
 }
