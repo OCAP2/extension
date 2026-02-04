@@ -324,12 +324,12 @@ func Ace3DeathEventToCore(e model.Ace3DeathEvent) core.Ace3DeathEvent {
 // Ace3UnconsciousEventToCore converts a GORM Ace3UnconsciousEvent to a core.Ace3UnconsciousEvent
 func Ace3UnconsciousEventToCore(e model.Ace3UnconsciousEvent) core.Ace3UnconsciousEvent {
 	return core.Ace3UnconsciousEvent{
-		ID:           e.ID,
+		ID:            e.ID,
 		MissionID:    e.MissionID,
 		SoldierID:    uint(e.SoldierObjectID), // ObjectID -> uint for core model
 		Time:         e.Time,
 		CaptureFrame: e.CaptureFrame,
-		IsAwake:      e.IsAwake,
+		IsUnconscious: e.IsUnconscious,
 	}
 }
 

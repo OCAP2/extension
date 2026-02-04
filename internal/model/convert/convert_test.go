@@ -551,12 +551,12 @@ func TestAce3UnconsciousEventToCore(t *testing.T) {
 	now := time.Now()
 
 	gormEvent := model.Ace3UnconsciousEvent{
-		ID:            1,
-		MissionID:     1,
+		ID:              1,
+		MissionID:       1,
 		SoldierObjectID: 5,
-		Time:          now,
-		CaptureFrame:  100,
-		IsAwake:       false,
+		Time:            now,
+		CaptureFrame:    100,
+		IsUnconscious:   true, // Unit went unconscious
 	}
 
 	coreEvent := Ace3UnconsciousEventToCore(gormEvent)
@@ -564,8 +564,8 @@ func TestAce3UnconsciousEventToCore(t *testing.T) {
 	if coreEvent.SoldierID != 5 {
 		t.Errorf("expected SoldierID=5, got %d", coreEvent.SoldierID)
 	}
-	if coreEvent.IsAwake {
-		t.Error("expected IsAwake=false")
+	if !coreEvent.IsUnconscious {
+		t.Error("expected IsUnconscious=true")
 	}
 }
 

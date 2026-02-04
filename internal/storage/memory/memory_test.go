@@ -596,9 +596,9 @@ func TestRecordAce3UnconsciousEvent(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
 	evt := &core.Ace3UnconsciousEvent{
-		SoldierID:    1,
-		CaptureFrame: 600,
-		IsAwake:      false,
+		SoldierID:     1,
+		CaptureFrame:  600,
+		IsUnconscious: true,
 	}
 
 	if err := b.RecordAce3UnconsciousEvent(evt); err != nil {
