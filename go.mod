@@ -4,7 +4,7 @@ go 1.24.0
 
 require (
 	github.com/glebarez/sqlite v1.11.0
-	github.com/peterstace/simplefeatures v0.44.0
+	github.com/peterstace/simplefeatures v0.57.0
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1
 	github.com/wroge/wgs84 v1.1.7
