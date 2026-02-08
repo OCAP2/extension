@@ -36,7 +36,8 @@ type Backend struct {
 	mission *core.Mission
 	world   *core.World
 
-	lastExportPath string // path to the last exported file
+	lastExportPath     string           // path to the last exported file
+	lastExportMetadata storage.UploadMetadata // cached metadata from last export
 
 	soldiers map[uint16]*SoldierRecord // keyed by ObjectID
 	vehicles map[uint16]*VehicleRecord // keyed by ObjectID
@@ -110,7 +111,31 @@ func (b *Backend) EndMission() error {
 		return fmt.Errorf("no mission to end: mission was never started")
 	}
 
-	return b.exportJSON()
+	// Cache export metadata before clearing data (needed for upload after export)
+	b.lastExportMetadata = b.computeExportMetadata()
+
+	if err := b.exportJSON(); err != nil {
+		return err
+	}
+
+	// Clear all recorded data so subsequent recordings within the same
+	// mission start fresh (e.g. manual start/stop recording in Liberation).
+	b.mission = nil
+	b.world = nil
+	b.soldiers = make(map[uint16]*SoldierRecord)
+	b.vehicles = make(map[uint16]*VehicleRecord)
+	b.markers = make(map[string]*MarkerRecord)
+	b.generalEvents = nil
+	b.hitEvents = nil
+	b.killEvents = nil
+	b.chatEvents = nil
+	b.radioEvents = nil
+	b.serverFpsEvents = nil
+	b.timeStates = nil
+	b.ace3DeathEvents = nil
+	b.ace3UnconsciousEvents = nil
+
+	return nil
 }
 
 // AddSoldier registers a new soldier.
@@ -319,11 +344,21 @@ func (b *Backend) GetExportedFilePath() string {
 }
 
 // GetExportMetadata returns metadata about the last export.
-// Returns empty metadata if no mission was started.
+// If a mission is active (before EndMission), computes metadata from live data.
+// After EndMission, returns cached metadata from the export.
 func (b *Backend) GetExportMetadata() storage.UploadMetadata {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
+	if b.mission != nil && b.world != nil {
+		return b.computeExportMetadata()
+	}
+	return b.lastExportMetadata
+}
+
+// computeExportMetadata builds upload metadata from the current in-memory data.
+// Caller must hold at least b.mu.RLock.
+func (b *Backend) computeExportMetadata() storage.UploadMetadata {
 	if b.mission == nil || b.world == nil {
 		return storage.UploadMetadata{}
 	}
