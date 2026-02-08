@@ -63,13 +63,14 @@ func TestIntegrationFullExport(t *testing.T) {
 		VehicleID: 10, CaptureFrame: 5, Position: core.Position3D{X: 3000, Y: 4000, Z: 50},
 		Bearing: 180, IsAlive: true, Crew: "[[1,\"driver\"]]",
 	}))
-	require.NoError(t, b.AddMarker(&core.Marker{
+	marker1 := &core.Marker{
 		MarkerName: "objective_1", Text: "Objective Alpha", MarkerType: "mil_objective",
 		Color: "ColorBLUFOR", Side: "WEST", Shape: "ICON", CaptureFrame: 0,
 		Position: core.Position3D{X: 5000, Y: 6000, Z: 0}, Direction: 0, Alpha: 1.0,
-	}))
+	}
+	require.NoError(t, b.AddMarker(marker1))
 	require.NoError(t, b.RecordMarkerState(&core.MarkerState{
-		MarkerID: 0, CaptureFrame: 20, Position: core.Position3D{X: 5100, Y: 6100, Z: 0}, Direction: 45, Alpha: 0.8,
+		MarkerID: marker1.ID, CaptureFrame: 20, Position: core.Position3D{X: 5100, Y: 6100, Z: 0}, Direction: 45, Alpha: 0.8,
 	}))
 	require.NoError(t, b.RecordGeneralEvent(&core.GeneralEvent{
 		CaptureFrame: 15, Name: "connected", Message: "Player1 connected", ExtraData: map[string]any{"uid": "12345"},
@@ -143,8 +144,8 @@ func TestIntegrationFullExport(t *testing.T) {
 	require.NotNil(t, vehicleEntity, "vehicle entity not found")
 	assert.Equal(t, uint16(10), vehicleEntity.ID)
 	assert.Equal(t, "Hunter", vehicleEntity.Name)
-	assert.Equal(t, "car", vehicleEntity.Type)
-	assert.Equal(t, "B_MRAP_01_F", vehicleEntity.Class)
+	assert.Equal(t, "vehicle", vehicleEntity.Type)
+	assert.Equal(t, "car", vehicleEntity.Class)
 	require.Len(t, vehicleEntity.Positions, 1)
 
 	// Verify events (array format: [frameNum, type, message])
@@ -368,12 +369,13 @@ func TestMarkerPositionFormat(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
-	require.NoError(t, b.AddMarker(&core.Marker{
+	testMarker := &core.Marker{
 		MarkerName: "test_marker", Text: "Test Marker", MarkerType: "mil_dot", Color: "ColorRed",
 		Side: "EAST", Shape: "ICON", CaptureFrame: 0, Position: core.Position3D{X: 1000, Y: 2000, Z: 0}, Direction: 90, Alpha: 1.0,
-	}))
+	}
+	require.NoError(t, b.AddMarker(testMarker))
 	require.NoError(t, b.RecordMarkerState(&core.MarkerState{
-		MarkerID: 0, CaptureFrame: 50, Position: core.Position3D{X: 1100, Y: 2100, Z: 0}, Direction: 180, Alpha: 0.5,
+		MarkerID: testMarker.ID, CaptureFrame: 50, Position: core.Position3D{X: 1100, Y: 2100, Z: 0}, Direction: 180, Alpha: 0.5,
 	}))
 
 	export := b.BuildExport()
@@ -497,7 +499,7 @@ func TestMultipleEntitiesExport(t *testing.T) {
 		switch e.Type {
 		case "unit":
 			unitCount++
-		case "car", "heli":
+		case "vehicle":
 			vehicleCount++
 		}
 	}
@@ -672,8 +674,8 @@ func TestVehicleWithJoinFrame(t *testing.T) {
 	require.Len(t, export.Entities, 21) // indices 0-20
 	entity := export.Entities[20]
 	assert.Equal(t, uint(500), entity.StartFrameNum)
-	assert.Equal(t, "plane", entity.Type)
-	assert.Equal(t, "B_Plane_Fighter_01_F", entity.Class)
+	assert.Equal(t, "vehicle", entity.Type)
+	assert.Equal(t, "plane", entity.Class)
 }
 
 // TestJSONFormatValidation validates that JSON output matches the old C++ extension format
@@ -747,7 +749,7 @@ func TestJSONFormatValidation(t *testing.T) {
 	// Entity at index 10 should be the vehicle
 	vehicle := entities[10].(map[string]any)
 	assert.Equal(t, float64(10), vehicle["id"])
-	assert.Equal(t, "tank", vehicle["type"])
+	assert.Equal(t, "vehicle", vehicle["type"])
 
 	// Validate vehicle position format: [[x, y], bearing, alive, crew]
 	vehiclePositions := vehicle["positions"].([]any)
