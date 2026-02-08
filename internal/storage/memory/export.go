@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	v1 "github.com/OCAP2/extension/v5/internal/storage/memory/export/v1"
 )
@@ -20,7 +21,7 @@ func (b *Backend) exportJSON() error {
 	// Build filename
 	missionName := strings.ReplaceAll(b.mission.MissionName, " ", "_")
 	missionName = strings.ReplaceAll(missionName, ":", "_")
-	timestamp := b.mission.StartTime.Format("20060102_150405")
+	timestamp := time.Now().Format("20060102_150405")
 
 	var filename string
 	if b.cfg.CompressOutput {
