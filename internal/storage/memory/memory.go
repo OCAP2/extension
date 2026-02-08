@@ -42,6 +42,7 @@ type Backend struct {
 	soldiers      map[uint16]*SoldierRecord // keyed by ObjectID
 	vehicles      map[uint16]*VehicleRecord // keyed by ObjectID
 	markers       map[string]*MarkerRecord  // keyed by MarkerName
+	markersByID   map[uint]*MarkerRecord   // keyed by Marker.ID
 	nextMarkerID  uint                      // auto-increment ID for markers
 
 	generalEvents         []core.GeneralEvent
@@ -61,9 +62,10 @@ type Backend struct {
 func New(cfg config.MemoryConfig) *Backend {
 	return &Backend{
 		cfg:      cfg,
-		soldiers: make(map[uint16]*SoldierRecord),
-		vehicles: make(map[uint16]*VehicleRecord),
-		markers:  make(map[string]*MarkerRecord),
+		soldiers:    make(map[uint16]*SoldierRecord),
+		vehicles:    make(map[uint16]*VehicleRecord),
+		markers:     make(map[string]*MarkerRecord),
+		markersByID: make(map[uint]*MarkerRecord),
 	}
 }
 
@@ -121,6 +123,7 @@ func (b *Backend) resetCollections() {
 	b.soldiers = make(map[uint16]*SoldierRecord)
 	b.vehicles = make(map[uint16]*VehicleRecord)
 	b.markers = make(map[string]*MarkerRecord)
+	b.markersByID = make(map[uint]*MarkerRecord)
 	b.nextMarkerID = 0
 	b.generalEvents = nil
 	b.hitEvents = nil
@@ -170,10 +173,12 @@ func (b *Backend) AddMarker(m *core.Marker) error {
 	b.nextMarkerID++
 	m.ID = b.nextMarkerID
 
-	b.markers[m.MarkerName] = &MarkerRecord{
+	record := &MarkerRecord{
 		Marker: *m,
 		States: make([]core.MarkerState, 0),
 	}
+	b.markers[m.MarkerName] = record
+	b.markersByID[m.ID] = record
 	return nil
 }
 
@@ -241,11 +246,8 @@ func (b *Backend) RecordMarkerState(s *core.MarkerState) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	for _, record := range b.markers {
-		if record.Marker.ID == s.MarkerID {
-			record.States = append(record.States, *s)
-			return nil
-		}
+	if record, ok := b.markersByID[s.MarkerID]; ok {
+		record.States = append(record.States, *s)
 	}
 	return nil
 }
