@@ -63,14 +63,13 @@ func TestIntegrationFullExport(t *testing.T) {
 		VehicleID: 10, CaptureFrame: 5, Position: core.Position3D{X: 3000, Y: 4000, Z: 50},
 		Bearing: 180, IsAlive: true, Crew: "[[1,\"driver\"]]",
 	}))
-	marker1 := &core.Marker{
+	require.NoError(t, b.AddMarker(&core.Marker{
 		MarkerName: "objective_1", Text: "Objective Alpha", MarkerType: "mil_objective",
 		Color: "ColorBLUFOR", Side: "WEST", Shape: "ICON", CaptureFrame: 0,
 		Position: core.Position3D{X: 5000, Y: 6000, Z: 0}, Direction: 0, Alpha: 1.0,
-	}
-	require.NoError(t, b.AddMarker(marker1))
+	}))
 	require.NoError(t, b.RecordMarkerState(&core.MarkerState{
-		MarkerID: marker1.ID, CaptureFrame: 20, Position: core.Position3D{X: 5100, Y: 6100, Z: 0}, Direction: 45, Alpha: 0.8,
+		MarkerName: "objective_1", CaptureFrame: 20, Position: core.Position3D{X: 5100, Y: 6100, Z: 0}, Direction: 45, Alpha: 0.8,
 	}))
 	require.NoError(t, b.RecordGeneralEvent(&core.GeneralEvent{
 		CaptureFrame: 15, Name: "connected", Message: "Player1 connected", ExtraData: map[string]any{"uid": "12345"},
@@ -369,13 +368,12 @@ func TestMarkerPositionFormat(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
-	testMarker := &core.Marker{
+	require.NoError(t, b.AddMarker(&core.Marker{
 		MarkerName: "test_marker", Text: "Test Marker", MarkerType: "mil_dot", Color: "ColorRed",
 		Side: "EAST", Shape: "ICON", CaptureFrame: 0, Position: core.Position3D{X: 1000, Y: 2000, Z: 0}, Direction: 90, Alpha: 1.0,
-	}
-	require.NoError(t, b.AddMarker(testMarker))
+	}))
 	require.NoError(t, b.RecordMarkerState(&core.MarkerState{
-		MarkerID: testMarker.ID, CaptureFrame: 50, Position: core.Position3D{X: 1100, Y: 2100, Z: 0}, Direction: 180, Alpha: 0.5,
+		MarkerName: "test_marker", CaptureFrame: 50, Position: core.Position3D{X: 1100, Y: 2100, Z: 0}, Direction: 180, Alpha: 0.5,
 	}))
 
 	export := b.BuildExport()
@@ -581,18 +579,17 @@ func TestMultipleMarkersExport(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
-	// Each marker needs a unique ID so RecordMarkerState can find the correct one
 	require.NoError(t, b.AddMarker(&core.Marker{
-		ID: 1, MarkerName: "obj_alpha", Text: "Alpha", MarkerType: "mil_objective", Color: "ColorBLUFOR", Side: "WEST", Shape: "ICON",
+		MarkerName: "obj_alpha", Text: "Alpha", MarkerType: "mil_objective", Color: "ColorBLUFOR", Side: "WEST", Shape: "ICON",
 		CaptureFrame: 0, Position: core.Position3D{X: 1000, Y: 1000}, Direction: 0, Alpha: 1.0,
 	}))
 	require.NoError(t, b.AddMarker(&core.Marker{
-		ID: 2, MarkerName: "obj_bravo", Text: "Bravo", MarkerType: "mil_objective", Color: "ColorOPFOR", Side: "EAST", Shape: "ICON",
+		MarkerName: "obj_bravo", Text: "Bravo", MarkerType: "mil_objective", Color: "ColorOPFOR", Side: "EAST", Shape: "ICON",
 		CaptureFrame: 0, Position: core.Position3D{X: 2000, Y: 2000}, Direction: 45, Alpha: 1.0,
 	}))
-	// States for marker 1 (Alpha)
-	require.NoError(t, b.RecordMarkerState(&core.MarkerState{MarkerID: 1, CaptureFrame: 10, Position: core.Position3D{X: 1100, Y: 1100}, Direction: 90, Alpha: 0.8}))
-	require.NoError(t, b.RecordMarkerState(&core.MarkerState{MarkerID: 1, CaptureFrame: 20, Position: core.Position3D{X: 1200, Y: 1200}, Direction: 180, Alpha: 0.6}))
+	// States for Alpha marker (looked up by name)
+	require.NoError(t, b.RecordMarkerState(&core.MarkerState{MarkerName: "obj_alpha", CaptureFrame: 10, Position: core.Position3D{X: 1100, Y: 1100}, Direction: 90, Alpha: 0.8}))
+	require.NoError(t, b.RecordMarkerState(&core.MarkerState{MarkerName: "obj_alpha", CaptureFrame: 20, Position: core.Position3D{X: 1200, Y: 1200}, Direction: 180, Alpha: 0.6}))
 
 	export := b.BuildExport()
 

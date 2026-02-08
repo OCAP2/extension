@@ -357,7 +357,7 @@ func TestRecordMarkerState(t *testing.T) {
 	_ = b.AddMarker(m)
 
 	state := &core.MarkerState{
-		MarkerID:     m.ID,
+		MarkerName:   "test_marker",
 		CaptureFrame: 10,
 		Position:     core.Position3D{X: 1000, Y: 2000, Z: 0},
 		Direction:    45.0,
@@ -374,7 +374,7 @@ func TestRecordMarkerState(t *testing.T) {
 	}
 
 	// Non-existent marker
-	orphan := &core.MarkerState{MarkerID: 999}
+	orphan := &core.MarkerState{MarkerName: "nonexistent"}
 	if err := b.RecordMarkerState(orphan); err != nil {
 		t.Errorf("RecordMarkerState should not error for missing marker: %v", err)
 	}

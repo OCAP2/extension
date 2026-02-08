@@ -31,6 +31,7 @@ type MarkerState struct {
 	ID           uint
 	MissionID    uint
 	MarkerID     uint
+	MarkerName   string
 	Time         time.Time
 	CaptureFrame uint
 	Position     Position3D

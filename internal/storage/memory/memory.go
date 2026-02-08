@@ -39,11 +39,9 @@ type Backend struct {
 	lastExportPath     string           // path to the last exported file
 	lastExportMetadata storage.UploadMetadata // cached metadata from last export
 
-	soldiers      map[uint16]*SoldierRecord // keyed by ObjectID
-	vehicles      map[uint16]*VehicleRecord // keyed by ObjectID
-	markers       map[string]*MarkerRecord  // keyed by MarkerName
-	markersByID   map[uint]*MarkerRecord   // keyed by Marker.ID
-	nextMarkerID  uint                      // auto-increment ID for markers
+	soldiers map[uint16]*SoldierRecord // keyed by ObjectID
+	vehicles map[uint16]*VehicleRecord // keyed by ObjectID
+	markers  map[string]*MarkerRecord  // keyed by MarkerName
 
 	generalEvents         []core.GeneralEvent
 	hitEvents             []core.HitEvent
@@ -62,10 +60,9 @@ type Backend struct {
 func New(cfg config.MemoryConfig) *Backend {
 	return &Backend{
 		cfg:      cfg,
-		soldiers:    make(map[uint16]*SoldierRecord),
-		vehicles:    make(map[uint16]*VehicleRecord),
-		markers:     make(map[string]*MarkerRecord),
-		markersByID: make(map[uint]*MarkerRecord),
+		soldiers: make(map[uint16]*SoldierRecord),
+		vehicles: make(map[uint16]*VehicleRecord),
+		markers:  make(map[string]*MarkerRecord),
 	}
 }
 
@@ -123,8 +120,6 @@ func (b *Backend) resetCollections() {
 	b.soldiers = make(map[uint16]*SoldierRecord)
 	b.vehicles = make(map[uint16]*VehicleRecord)
 	b.markers = make(map[string]*MarkerRecord)
-	b.markersByID = make(map[uint]*MarkerRecord)
-	b.nextMarkerID = 0
 	b.generalEvents = nil
 	b.hitEvents = nil
 	b.killEvents = nil
@@ -164,21 +159,15 @@ func (b *Backend) AddVehicle(v *core.Vehicle) error {
 	return nil
 }
 
-// AddMarker registers a new marker.
-// Assigns an auto-increment ID so marker state updates can reference it.
+// AddMarker registers a new marker, keyed by MarkerName.
 func (b *Backend) AddMarker(m *core.Marker) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.nextMarkerID++
-	m.ID = b.nextMarkerID
-
-	record := &MarkerRecord{
+	b.markers[m.MarkerName] = &MarkerRecord{
 		Marker: *m,
 		States: make([]core.MarkerState, 0),
 	}
-	b.markers[m.MarkerName] = record
-	b.markersByID[m.ID] = record
 	return nil
 }
 
@@ -246,7 +235,7 @@ func (b *Backend) RecordMarkerState(s *core.MarkerState) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if record, ok := b.markersByID[s.MarkerID]; ok {
+	if record, ok := b.markers[s.MarkerName]; ok {
 		record.States = append(record.States, *s)
 	}
 	return nil

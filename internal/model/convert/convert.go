@@ -365,6 +365,7 @@ func MarkerStateToCore(m model.MarkerState) core.MarkerState {
 		ID:           m.ID,
 		MissionID:    m.MissionID,
 		MarkerID:     m.MarkerID,
+		MarkerName:   m.MarkerName,
 		Time:         m.Time,
 		CaptureFrame: m.CaptureFrame,
 		Position:     pointToPosition3D(m.Position),
@@ -495,6 +496,7 @@ func ProjectileEventToProjectileMarker(p model.ProjectileEvent) (core.Marker, []
 		}
 		states = append(states, core.MarkerState{
 			MarkerID:     markerID,
+			MarkerName:   markerName,
 			MissionID:    p.MissionID,
 			CaptureFrame: frame,
 			Position:     positions[i],

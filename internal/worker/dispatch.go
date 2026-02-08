@@ -359,8 +359,8 @@ func (m *Manager) handleMarkerCreate(e dispatcher.Event) (any, error) {
 	if m.hasBackend() {
 		coreObj := convert.MarkerToCore(marker)
 		m.backend.AddMarker(&coreObj)
-		// Cache the assigned ID so state updates can find this marker
-		m.deps.MarkerCache.Set(marker.MarkerName, coreObj.ID)
+		// Populate cache so LogMarkerMove doesn't error (value unused by memory backend)
+		m.deps.MarkerCache.Set(marker.MarkerName, 0)
 	} else {
 		m.queues.Markers.Push(marker)
 	}

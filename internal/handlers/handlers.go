@@ -1501,6 +1501,7 @@ func (s *Service) LogMarkerMove(data []string) (model.MarkerState, error) {
 
 	// markerName - look up marker ID from cache
 	markerName := data[0]
+	markerState.MarkerName = markerName
 	markerID, ok := s.deps.MarkerCache.Get(markerName)
 	if !ok {
 		return markerState, fmt.Errorf("marker %s not found in cache", markerName)

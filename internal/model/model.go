@@ -787,6 +787,7 @@ type MarkerState struct {
 	Mission      Mission   `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:MissionID;"`
 	MarkerID     uint      `json:"markerId" gorm:"index:idx_markerstate_marker_id"`             // Database ID of parent Marker
 	Marker       Marker    `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:MarkerID;"`
+	MarkerName   string    `json:"-" gorm:"-"`                                                  // Transient: marker name for memory backend lookups
 	CaptureFrame uint      `json:"captureFrame" gorm:"index:idx_markerstate_capture_frame;"`    // Frame number when state recorded
 
 	Position  geom.Point `json:"position"`  // Current marker position ASL
