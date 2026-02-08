@@ -39,9 +39,10 @@ type Backend struct {
 	lastExportPath     string           // path to the last exported file
 	lastExportMetadata storage.UploadMetadata // cached metadata from last export
 
-	soldiers map[uint16]*SoldierRecord // keyed by ObjectID
-	vehicles map[uint16]*VehicleRecord // keyed by ObjectID
-	markers  map[string]*MarkerRecord  // keyed by MarkerName
+	soldiers      map[uint16]*SoldierRecord // keyed by ObjectID
+	vehicles      map[uint16]*VehicleRecord // keyed by ObjectID
+	markers       map[string]*MarkerRecord  // keyed by MarkerName
+	nextMarkerID  uint                      // auto-increment ID for markers
 
 	generalEvents         []core.GeneralEvent
 	hitEvents             []core.HitEvent
@@ -120,6 +121,7 @@ func (b *Backend) resetCollections() {
 	b.soldiers = make(map[uint16]*SoldierRecord)
 	b.vehicles = make(map[uint16]*VehicleRecord)
 	b.markers = make(map[string]*MarkerRecord)
+	b.nextMarkerID = 0
 	b.generalEvents = nil
 	b.hitEvents = nil
 	b.killEvents = nil
@@ -160,9 +162,13 @@ func (b *Backend) AddVehicle(v *core.Vehicle) error {
 }
 
 // AddMarker registers a new marker.
+// Assigns an auto-increment ID so marker state updates can reference it.
 func (b *Backend) AddMarker(m *core.Marker) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	b.nextMarkerID++
+	m.ID = b.nextMarkerID
 
 	b.markers[m.MarkerName] = &MarkerRecord{
 		Marker: *m,

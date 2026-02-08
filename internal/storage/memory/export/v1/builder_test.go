@@ -261,8 +261,8 @@ func TestBuildWithVehicle(t *testing.T) {
 
 	assert.Equal(t, uint16(10), entity.ID)
 	assert.Equal(t, "Hunter", entity.Name)
-	assert.Equal(t, "B_MRAP_01_F", entity.Class)
-	assert.Equal(t, "car", entity.Type)
+	assert.Equal(t, "car", entity.Class)
+	assert.Equal(t, "vehicle", entity.Type)
 	assert.Equal(t, "UNKNOWN", entity.Side)
 	assert.Equal(t, 0, entity.IsPlayer)
 	assert.Equal(t, uint(5), entity.StartFrameNum)

@@ -36,8 +36,9 @@ func (m *Manager) RegisterHandlers(d *dispatcher.Dispatcher) {
 	d.Register(":ACE3:DEATH:", m.handleAce3DeathEvent, dispatcher.Buffered(1000))
 	d.Register(":ACE3:UNCONSCIOUS:", m.handleAce3UnconsciousEvent, dispatcher.Buffered(1000))
 
-	// Marker events - buffered
-	d.Register(":NEW:MARKER:", m.handleMarkerCreate, dispatcher.Buffered(500))
+	// Marker creation - sync (need to cache before states arrive)
+	d.Register(":NEW:MARKER:", m.handleMarkerCreate)
+	// Marker updates - buffered
 	d.Register(":NEW:MARKER:STATE:", m.handleMarkerMove, dispatcher.Buffered(1000))
 	d.Register(":DELETE:MARKER:", m.handleMarkerDelete, dispatcher.Buffered(500))
 }
@@ -358,6 +359,8 @@ func (m *Manager) handleMarkerCreate(e dispatcher.Event) (any, error) {
 	if m.hasBackend() {
 		coreObj := convert.MarkerToCore(marker)
 		m.backend.AddMarker(&coreObj)
+		// Cache the assigned ID so state updates can find this marker
+		m.deps.MarkerCache.Set(marker.MarkerName, coreObj.ID)
 	} else {
 		m.queues.Markers.Push(marker)
 	}
