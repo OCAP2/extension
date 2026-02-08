@@ -83,21 +83,8 @@ func (b *Backend) StartMission(mission *core.Mission, world *core.World) error {
 
 	b.mission = mission
 	b.world = world
-
-	// Reset all collections
-	b.soldiers = make(map[uint16]*SoldierRecord)
-	b.vehicles = make(map[uint16]*VehicleRecord)
-	b.markers = make(map[string]*MarkerRecord)
-	b.generalEvents = nil
-	b.hitEvents = nil
-	b.killEvents = nil
-	b.chatEvents = nil
-	b.radioEvents = nil
-	b.serverFpsEvents = nil
-	b.timeStates = nil
-	b.ace3DeathEvents = nil
-	b.ace3UnconsciousEvents = nil
 	b.lastExportPath = ""
+	b.resetCollections()
 
 	return nil
 }
@@ -122,6 +109,14 @@ func (b *Backend) EndMission() error {
 	// mission start fresh (e.g. manual start/stop recording in Liberation).
 	b.mission = nil
 	b.world = nil
+	b.resetCollections()
+
+	return nil
+}
+
+// resetCollections clears all entity and event data.
+// Caller must hold b.mu.Lock.
+func (b *Backend) resetCollections() {
 	b.soldiers = make(map[uint16]*SoldierRecord)
 	b.vehicles = make(map[uint16]*VehicleRecord)
 	b.markers = make(map[string]*MarkerRecord)
@@ -134,8 +129,6 @@ func (b *Backend) EndMission() error {
 	b.timeStates = nil
 	b.ace3DeathEvents = nil
 	b.ace3UnconsciousEvents = nil
-
-	return nil
 }
 
 // AddSoldier registers a new soldier.
