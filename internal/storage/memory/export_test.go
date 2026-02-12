@@ -1121,6 +1121,78 @@ func TestPolylineMarkerExport(t *testing.T) {
 	assert.Equal(t, 18497.4, coords[2][1])
 }
 
+// TestVehicleCrewExportIntegration verifies that vehicle crew ID arrays survive
+// the full pipeline: memory backend → builder → JSON export → JSON parse.
+// This is a regression test for a bug where bracket stripping in the handler
+// caused multi-crew arrays like "[20,21]" to be stored as "20,21", which
+// failed json.Unmarshal and resulted in empty crew in the export.
+func TestVehicleCrewExportIntegration(t *testing.T) {
+	tempDir := t.TempDir()
+
+	b := New(config.MemoryConfig{OutputDir: tempDir, CompressOutput: false})
+
+	require.NoError(t, b.StartMission(&core.Mission{
+		MissionName: "Crew Test", Author: "Test", StartTime: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+	}, &core.World{WorldName: "Altis"}))
+
+	// Add soldiers that will be crew members
+	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 0, UnitName: "Driver", Side: "EAST", IsPlayer: true}))
+	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 1, UnitName: "Gunner", Side: "EAST", IsPlayer: false}))
+	require.NoError(t, b.RecordSoldierState(&core.SoldierState{SoldierID: 0, CaptureFrame: 0, Lifestate: 1}))
+	require.NoError(t, b.RecordSoldierState(&core.SoldierState{SoldierID: 1, CaptureFrame: 0, Lifestate: 1}))
+
+	// Add vehicle with multi-crew, then single-crew, then empty crew
+	require.NoError(t, b.AddVehicle(&core.Vehicle{ID: 10, DisplayName: "BTR-60PB", OcapType: "apc", JoinFrame: 0}))
+	require.NoError(t, b.RecordVehicleState(&core.VehicleState{
+		VehicleID: 10, CaptureFrame: 0, IsAlive: true, Crew: "[0,1]",
+		Position: core.Position3D{X: 1000, Y: 2000},
+	}))
+	require.NoError(t, b.RecordVehicleState(&core.VehicleState{
+		VehicleID: 10, CaptureFrame: 1, IsAlive: true, Crew: "[0]",
+		Position: core.Position3D{X: 1010, Y: 2010},
+	}))
+	require.NoError(t, b.RecordVehicleState(&core.VehicleState{
+		VehicleID: 10, CaptureFrame: 2, IsAlive: true, Crew: "[]",
+		Position: core.Position3D{X: 1020, Y: 2020},
+	}))
+
+	require.NoError(t, b.EndMission())
+
+	// Read exported JSON and parse
+	matches, err := filepath.Glob(filepath.Join(tempDir, "*.json"))
+	require.NoError(t, err)
+	require.Len(t, matches, 1)
+
+	data, err := os.ReadFile(matches[0])
+	require.NoError(t, err)
+
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal(data, &raw))
+
+	entities := raw["entities"].([]any)
+	vehicle := entities[10].(map[string]any)
+	positions := vehicle["positions"].([]any)
+	require.Len(t, positions, 3)
+
+	// Frame 0: crew=[0,1] — multi-crew must be a 2-element array
+	pos0 := positions[0].([]any)
+	crew0 := pos0[3].([]any)
+	require.Len(t, crew0, 2, "multi-crew should be a 2-element array, not empty")
+	assert.Equal(t, float64(0), crew0[0])
+	assert.Equal(t, float64(1), crew0[1])
+
+	// Frame 1: crew=[0] — single-crew must be a 1-element array, not a scalar
+	pos1 := positions[1].([]any)
+	crew1 := pos1[3].([]any)
+	require.Len(t, crew1, 1, "single-crew should be [0], not scalar 0")
+	assert.Equal(t, float64(0), crew1[0])
+
+	// Frame 2: crew=[] — empty
+	pos2 := positions[2].([]any)
+	crew2 := pos2[3].([]any)
+	assert.Empty(t, crew2)
+}
+
 func TestMarkerSideValues(t *testing.T) {
 	// Test that sideToIndex correctly handles side string values
 	b := New(config.MemoryConfig{})

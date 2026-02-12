@@ -286,6 +286,45 @@ func TestBuildWithVehicle(t *testing.T) {
 	assert.Equal(t, uint(15), export.EndFrame)
 }
 
+func TestBuildWithVehicleCrewIDArray(t *testing.T) {
+	data := &MissionData{
+		Mission:  &core.Mission{MissionName: "Test"},
+		World:    &core.World{WorldName: "Altis"},
+		Soldiers: make(map[uint16]*SoldierRecord),
+		Vehicles: map[uint16]*VehicleRecord{
+			10: {
+				Vehicle: core.Vehicle{ID: 10, OcapType: "apc"},
+				States: []core.VehicleState{
+					{VehicleID: 10, CaptureFrame: 0, Crew: "[20,21]", IsAlive: true},
+					{VehicleID: 10, CaptureFrame: 1, Crew: "[20]", IsAlive: true},
+					{VehicleID: 10, CaptureFrame: 2, Crew: "[]", IsAlive: true},
+				},
+			},
+		},
+		Markers: make(map[string]*MarkerRecord),
+	}
+
+	export := Build(data)
+
+	entity := export.Entities[10]
+	require.Len(t, entity.Positions, 3)
+
+	// Frame 0: multi-crew array [20, 21]
+	crew0 := entity.Positions[0][3].([]any)
+	require.Len(t, crew0, 2)
+	assert.Equal(t, float64(20), crew0[0])
+	assert.Equal(t, float64(21), crew0[1])
+
+	// Frame 1: single-crew array [20]
+	crew1 := entity.Positions[1][3].([]any)
+	require.Len(t, crew1, 1)
+	assert.Equal(t, float64(20), crew1[0])
+
+	// Frame 2: empty crew []
+	crew2 := entity.Positions[2][3].([]any)
+	assert.Empty(t, crew2)
+}
+
 func TestBuildWithVehicleEmptyCrew(t *testing.T) {
 	data := &MissionData{
 		Mission:  &core.Mission{MissionName: "Test"},
