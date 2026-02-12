@@ -256,7 +256,7 @@ func init() {
 		return false
 	}
 
-	SqliteDBFilePath = fmt.Sprintf(`%s\%s_%s.db`, AddonFolder, ExtensionName, SessionStartTime.Format("20060102_150405"))
+	SqliteDBFilePath = filepath.Join(AddonFolder, fmt.Sprintf("%s_%s.db", ExtensionName, SessionStartTime.Format("20060102_150405")))
 	// set up a3interfaces
 	Logger.Info("Setting up a3interface...")
 	err = setupA3Interface()
