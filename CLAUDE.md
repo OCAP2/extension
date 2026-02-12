@@ -9,14 +9,14 @@ Go native DLL extension for ArmA 3 that records gameplay/mission replay data to 
 ## Build Commands
 
 ```bash
-# Pull Docker image
-docker pull x1unix/go-mingw:1.24
-
 # Build x64 Windows DLL
 docker run --rm -v ${PWD}:/go/work -w /go/work x1unix/go-mingw:1.24 go build -buildvcs=false -o dist/ocap_recorder_x64.dll -buildmode=c-shared ./cmd/ocap_recorder
+
+# Build x64 Linux .so (uses Bullseye for glibc 2.31 compatibility)
+docker run --rm -v ${PWD}:/go/work -w /go/work golang:1.24-bullseye go build -buildvcs=false -o dist/ocap_recorder_x64.so -buildmode=c-shared ./cmd/ocap_recorder
 ```
 
-**Output:** `dist/ocap_recorder_x64.dll`
+**Output:** `dist/ocap_recorder_x64.dll`, `dist/ocap_recorder_x64.so`
 
 ## Project Structure (Go Standard Layout)
 
