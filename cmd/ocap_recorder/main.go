@@ -1467,11 +1467,7 @@ func getOcapRecording(missionIDs []string) (err error) {
 			for _, state := range vehicleStates {
 				coord, _ := state.Position.Coordinates()
 				var crew any
-				if state.Crew != "" {
-					if err := json.Unmarshal([]byte(state.Crew), &crew); err != nil {
-						crew = []any{}
-					}
-				} else {
+				if err := json.Unmarshal([]byte(state.Crew), &crew); err != nil {
 					crew = []any{}
 				}
 				position := []any{
