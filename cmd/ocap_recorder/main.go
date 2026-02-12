@@ -188,11 +188,9 @@ func init() {
 		os.Mkdir(viper.GetString("logsDir"), 0755)
 	}
 
-	OcapLogFilePath = fmt.Sprintf(
-		`%s\%s.%s.log`,
+	OcapLogFilePath = filepath.Join(
 		viper.GetString("logsDir"),
-		ExtensionName,
-		SessionStartTime.Format("20060102_150405"),
+		fmt.Sprintf("%s.%s.log", ExtensionName, SessionStartTime.Format("20060102_150405")),
 	)
 
 	// check if OcapLogFilePath exists
