@@ -88,11 +88,11 @@ docker run --rm -v ${PWD}:/go/work -w /go/work x1unix/go-mingw:1.24 \
 ### Linux .so
 
 ```bash
-docker build -t indifox926/build-a3go:linux-so -f ./Dockerfile .
-
-docker run --rm -v ${PWD}:/app -e GOOS=linux -e GOARCH=amd64 -e CGO_ENABLED=1 -e CC=gcc \
-  indifox926/build-a3go:linux-so go build -o dist/ocap_recorder_x64.so -linkshared ./cmd/ocap_recorder
+docker run --rm -v ${PWD}:/go/work -w /go/work golang:1.24-bullseye \
+  go build -buildvcs=false -o dist/ocap_recorder_x64.so -buildmode=c-shared ./cmd/ocap_recorder
 ```
+
+Uses Debian Bullseye (glibc 2.31) for broad compatibility with Linux game servers.
 
 ## Configuration
 
