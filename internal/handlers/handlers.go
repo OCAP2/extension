@@ -542,11 +542,8 @@ func (s *Service) LogVehicleState(data []string) (model.VehicleState, error) {
 	// is alive
 	isAlive, _ := strconv.ParseBool(data[3])
 	vehicleState.IsAlive = isAlive
-	// parse crew, which is an array of ocap ids of soldiers
-	crew := data[4]
-	crew = strings.TrimPrefix(crew, "[")
-	crew = strings.TrimSuffix(crew, "]")
-	vehicleState.Crew = crew
+	// parse crew, which is a JSON array of ocap ids of soldiers (e.g. "[202,203]")
+	vehicleState.Crew = data[4]
 
 	// fuel
 	fuel, err := strconv.ParseFloat(data[6], 32)

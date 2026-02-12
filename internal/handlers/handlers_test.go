@@ -5,6 +5,7 @@ import (
 
 	"github.com/OCAP2/extension/v5/internal/cache"
 	"github.com/OCAP2/extension/v5/internal/logging"
+	"github.com/OCAP2/extension/v5/internal/model"
 	"github.com/OCAP2/extension/v5/internal/model/core"
 	"github.com/OCAP2/extension/v5/internal/storage"
 )
@@ -210,6 +211,62 @@ func TestLogNewMission_AddonsWithoutDB(t *testing.T) {
 	mission := svc.ctx.GetMission()
 	if len(mission.Addons) != 3 {
 		t.Errorf("expected 3 addons, got %d", len(mission.Addons))
+	}
+}
+
+func TestLogVehicleState_CrewPreservesBrackets(t *testing.T) {
+	svc := newTestService()
+	svc.SetBackend(&mockBackend{})
+
+	// Set up mission context
+	mission := &model.Mission{}
+	mission.ID = 1
+	svc.ctx.SetMission(mission, &model.World{})
+
+	// Add a vehicle to the entity cache so LogVehicleState can find it
+	svc.deps.EntityCache.AddVehicle(model.Vehicle{ObjectID: 10, MissionID: 1})
+
+	tests := []struct {
+		name         string
+		crewInput    string
+		expectedCrew string
+	}{
+		{"multi-crew array", "[20,21]", "[20,21]"},
+		{"single-crew array", "[108]", "[108]"},
+		{"empty crew array", "[]", "[]"},
+		{"large crew", "[1,2,3,4,5]", "[1,2,3,4,5]"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Simulate game data: [ocapId, pos, bearing, alive, crew, frame, fuel, damage, engine, locked, side, vecDir, vecUp, turretAz, turretEl]
+			data := []string{
+				"10",                 // 0: ocapId
+				"[100.0,200.0,50.0]", // 1: position
+				"90",                 // 2: bearing
+				"true",               // 3: alive
+				tt.crewInput,         // 4: crew
+				"5",                  // 5: frame
+				"0.85",              // 6: fuel
+				"0.0",               // 7: damage
+				"true",              // 8: engineOn
+				"false",             // 9: locked
+				"EAST",              // 10: side
+				"[0,1,0]",           // 11: vectorDir
+				"[0,0,1]",           // 12: vectorUp
+				"45.0",              // 13: turretAzimuth
+				"10.0",              // 14: turretElevation
+			}
+
+			state, err := svc.LogVehicleState(data)
+			if err != nil {
+				t.Fatalf("LogVehicleState failed: %v", err)
+			}
+
+			if state.Crew != tt.expectedCrew {
+				t.Errorf("expected Crew=%q, got %q", tt.expectedCrew, state.Crew)
+			}
+		})
 	}
 }
 
