@@ -2,7 +2,10 @@ package a3interface
 
 import (
 	"errors"
+	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestFormatDispatchResponse(t *testing.T) {
@@ -74,16 +77,12 @@ func TestFormatDispatchResponse(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := formatDispatchResponse(tt.command, tt.result, tt.err)
-			if got != tt.expected {
-				t.Errorf("formatDispatchResponse() = %q, want %q", got, tt.expected)
-			}
+			assert.Equal(t, tt.expected, got)
 		})
 	}
 }
 
 func TestResponseFormatConsistency(t *testing.T) {
-	// Test that all responses follow the ["ok", result] or ["error", message] format
-
 	t.Run("success responses start with ok", func(t *testing.T) {
 		responses := []struct {
 			result any
@@ -96,17 +95,13 @@ func TestResponseFormatConsistency(t *testing.T) {
 
 		for _, r := range responses {
 			got := formatDispatchResponse(":TEST:", r.result, nil)
-			if len(got) < 5 || got[:5] != `["ok"` {
-				t.Errorf("success response should start with [\"ok\", got %q", got)
-			}
+			assert.True(t, strings.HasPrefix(got, `["ok"`))
 		}
 	})
 
 	t.Run("error responses start with error", func(t *testing.T) {
 		got := formatDispatchResponse(":TEST:", nil, errors.New("test error"))
 		expected := `["error", "test error"]`
-		if got != expected {
-			t.Errorf("error response = %q, want %q", got, expected)
-		}
+		assert.Equal(t, expected, got)
 	})
 }

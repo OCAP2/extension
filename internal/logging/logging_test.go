@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestLogFilePath(t *testing.T) {
@@ -38,9 +40,7 @@ func TestLogFilePath(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := LogFilePath(tt.logsDir, tt.extensionName, sessionStart)
-			if got != tt.want {
-				t.Errorf("LogFilePath() = %q, want %q", got, tt.want)
-			}
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }

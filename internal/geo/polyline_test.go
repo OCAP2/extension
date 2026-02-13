@@ -2,6 +2,9 @@ package geo
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestParsePolyline_Valid(t *testing.T) {
@@ -9,14 +12,10 @@ func TestParsePolyline_Valid(t *testing.T) {
 
 	ls, err := ParsePolyline(input)
 
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 
 	seq := ls.Coordinates()
-	if seq.Length() != 3 {
-		t.Fatalf("expected 3 points, got %d", seq.Length())
-	}
+	require.Equal(t, 3, seq.Length())
 
 	expected := [][2]float64{
 		{100.5, 200.25},
@@ -25,9 +24,8 @@ func TestParsePolyline_Valid(t *testing.T) {
 	}
 	for i := 0; i < seq.Length(); i++ {
 		pt := seq.GetXY(i)
-		if pt.X != expected[i][0] || pt.Y != expected[i][1] {
-			t.Errorf("point %d: expected (%f,%f), got (%f,%f)", i, expected[i][0], expected[i][1], pt.X, pt.Y)
-		}
+		assert.Equal(t, expected[i][0], pt.X)
+		assert.Equal(t, expected[i][1], pt.Y)
 	}
 }
 
@@ -36,12 +34,8 @@ func TestParsePolyline_TwoPoints(t *testing.T) {
 
 	ls, err := ParsePolyline(input)
 
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if ls.Coordinates().Length() != 2 {
-		t.Fatalf("expected 2 points, got %d", ls.Coordinates().Length())
-	}
+	require.NoError(t, err)
+	require.Equal(t, 2, ls.Coordinates().Length())
 }
 
 func TestParsePolyline_InvalidJSON(t *testing.T) {
@@ -49,9 +43,7 @@ func TestParsePolyline_InvalidJSON(t *testing.T) {
 
 	_, err := ParsePolyline(input)
 
-	if err == nil {
-		t.Fatal("expected error for invalid JSON")
-	}
+	require.Error(t, err)
 }
 
 func TestParsePolyline_TooFewPoints(t *testing.T) {
@@ -59,9 +51,7 @@ func TestParsePolyline_TooFewPoints(t *testing.T) {
 
 	_, err := ParsePolyline(input)
 
-	if err == nil {
-		t.Fatal("expected error for single point")
-	}
+	require.Error(t, err)
 }
 
 func TestParsePolyline_EmptyArray(t *testing.T) {
@@ -69,9 +59,7 @@ func TestParsePolyline_EmptyArray(t *testing.T) {
 
 	_, err := ParsePolyline(input)
 
-	if err == nil {
-		t.Fatal("expected error for empty array")
-	}
+	require.Error(t, err)
 }
 
 func TestParsePolyline_InsufficientCoordinates(t *testing.T) {
@@ -79,7 +67,5 @@ func TestParsePolyline_InsufficientCoordinates(t *testing.T) {
 
 	_, err := ParsePolyline(input)
 
-	if err == nil {
-		t.Fatal("expected error for coordinate with single value")
-	}
+	require.Error(t, err)
 }
