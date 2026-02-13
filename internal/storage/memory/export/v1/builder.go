@@ -100,6 +100,7 @@ func Build(data *MissionData) Export {
 			Side:          record.Soldier.Side,
 			IsPlayer:      boolToInt(record.Soldier.IsPlayer),
 			Type:          "unit",
+			Role:          record.Soldier.RoleDescription,
 			StartFrameNum: record.Soldier.JoinFrame,
 			Positions:     make([][]any, 0, len(record.States)),
 			FramesFired:   make([][]any, 0, len(record.FiredEvents)),
@@ -113,7 +114,7 @@ func Build(data *MissionData) Export {
 			}
 
 			pos := []any{
-				[]float64{state.Position.X, state.Position.Y},
+				[]float64{state.Position.X, state.Position.Y, state.Position.Z},
 				state.Bearing,
 				state.Lifestate,
 				inVehicleID,
@@ -165,10 +166,11 @@ func Build(data *MissionData) Export {
 			}
 
 			pos := []any{
-				[]float64{state.Position.X, state.Position.Y},
+				[]float64{state.Position.X, state.Position.Y, state.Position.Z},
 				state.Bearing,
 				boolToInt(state.IsAlive),
 				crew,
+				[]uint{state.CaptureFrame, state.CaptureFrame},
 			}
 			entity.Positions = append(entity.Positions, pos)
 			if state.CaptureFrame > maxFrame {
@@ -276,7 +278,7 @@ func Build(data *MissionData) Export {
 			// For other shapes: pos is a single coordinate
 			posArray = append(posArray, []any{
 				record.Marker.CaptureFrame,
-				[]float64{record.Marker.Position.X, record.Marker.Position.Y},
+				[]float64{record.Marker.Position.X, record.Marker.Position.Y, record.Marker.Position.Z},
 				record.Marker.Direction,
 				record.Marker.Alpha,
 			})
@@ -285,7 +287,7 @@ func Build(data *MissionData) Export {
 			for _, state := range record.States {
 				posArray = append(posArray, []any{
 					state.CaptureFrame,
-					[]float64{state.Position.X, state.Position.Y},
+					[]float64{state.Position.X, state.Position.Y, state.Position.Z},
 					state.Direction,
 					state.Alpha,
 				})

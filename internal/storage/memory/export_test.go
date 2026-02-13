@@ -129,8 +129,10 @@ func TestIntegrationFullExport(t *testing.T) {
 	// Verify soldier position coordinates after JSON round-trip
 	coords, ok := soldierEntity.Positions[0][0].([]any)
 	require.True(t, ok, "position coords should be []any after JSON unmarshal")
+	require.Len(t, coords, 3)
 	assert.Equal(t, 1000.0, coords[0])
 	assert.Equal(t, 2000.0, coords[1])
+	assert.Equal(t, 100.0, coords[2])
 
 	// Verify fired event - v1 format: [frameNum, [x, y, z]]
 	ff := soldierEntity.FramesFired[0]
@@ -302,8 +304,10 @@ func TestSoldierPositionFormat(t *testing.T) {
 
 	coords, ok := pos[0].([]float64)
 	require.True(t, ok, "position[0] should be []float64")
+	require.Len(t, coords, 3)
 	assert.Equal(t, 1234.56, coords[0])
 	assert.Equal(t, 7890.12, coords[1])
+	assert.Equal(t, 50.0, coords[2])
 	assert.Equal(t, uint16(270), pos[1])
 	assert.Equal(t, uint8(1), pos[2])
 	assert.Equal(t, 1, pos[5])
@@ -327,13 +331,19 @@ func TestVehiclePositionFormat(t *testing.T) {
 	require.Len(t, entity.Positions, 1)
 
 	pos := entity.Positions[0]
-	require.Len(t, pos, 4) // [[x, y], bearing, isAlive, crew]
+	require.Len(t, pos, 5) // [[x, y, z], bearing, isAlive, crew, [frameStart, frameEnd]]
 
 	coords, ok := pos[0].([]float64)
 	require.True(t, ok, "position[0] should be []float64")
+	require.Len(t, coords, 3)
 	assert.Equal(t, 5000.0, coords[0])
 	assert.Equal(t, 6000.0, coords[1])
+	assert.Equal(t, 25.0, coords[2])
 	assert.Equal(t, 1, pos[2])
+
+	// Frame range
+	frameRange := pos[4].([]uint)
+	assert.Equal(t, []uint{3, 3}, frameRange)
 }
 
 func TestFiredEventFormat(t *testing.T) {
@@ -384,12 +394,14 @@ func TestMarkerPositionFormat(t *testing.T) {
 	positions := export.Markers[0][7].([][]any) // positions at index 7
 	require.Len(t, positions, 2)                // initial + 1 state
 
-	// Position format: [frameNum, [x, y], direction, alpha]
+	// Position format: [frameNum, [x, y, z], direction, alpha]
 	initialPos := positions[0]
 	assert.Equal(t, uint(0), initialPos[0])      // frameNum
 	coords := initialPos[1].([]float64)
+	require.Len(t, coords, 3)
 	assert.Equal(t, 1000.0, coords[0])           // posX
 	assert.Equal(t, 2000.0, coords[1])           // posY
+	assert.Equal(t, 0.0, coords[2])              // posZ
 
 	assert.Equal(t, uint(50), positions[1][0])   // second position frameNum
 }
@@ -751,11 +763,12 @@ func TestJSONFormatValidation(t *testing.T) {
 	assert.Equal(t, float64(10), vehicle["id"])
 	assert.Equal(t, "vehicle", vehicle["type"])
 
-	// Validate vehicle position format: [[x, y], bearing, alive, crew]
+	// Validate vehicle position format: [[x, y, z], bearing, alive, crew, [frameStart, frameEnd]]
 	vehiclePositions := vehicle["positions"].([]any)
 	require.Len(t, vehiclePositions, 1)
 	vehPos := vehiclePositions[0].([]any)
 	coords := vehPos[0].([]any)
+	require.Len(t, coords, 3)
 	assert.Equal(t, float64(3000), coords[0])
 	assert.Equal(t, float64(4000), coords[1])
 	// Crew should be parsed as array, not string
@@ -763,6 +776,9 @@ func TestJSONFormatValidation(t *testing.T) {
 	require.Len(t, crew, 1)
 	crewEntry := crew[0].([]any)
 	assert.Equal(t, float64(5), crewEntry[0]) // driver ID
+	// Frame range
+	frameRange := vehPos[4].([]any)
+	assert.Equal(t, []any{float64(0), float64(0)}, frameRange)
 
 	// Validate event format: [frameNum, "killed", victimId, [killerId, weapon], distance]
 	events := raw["events"].([]any)
@@ -796,7 +812,7 @@ func TestJSONFormatValidation(t *testing.T) {
 	mCoords := mPos[1].([]any)
 	assert.Equal(t, float64(5000), mCoords[0])  // x
 	assert.Equal(t, float64(6000), mCoords[1])  // y
-	assert.Len(t, mCoords, 2)                   // should be [x, y], not [x, y, z]
+	assert.Len(t, mCoords, 3)                   // should be [x, y, z]
 }
 
 func ptrUint(v uint) *uint {

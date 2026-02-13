@@ -154,7 +154,7 @@ func TestBuildWithSoldier(t *testing.T) {
 		Soldiers: map[uint16]*SoldierRecord{
 			5: {
 				Soldier: core.Soldier{
-					ID: 5, UnitName: "Player1", GroupID: "Alpha", Side: "WEST", IsPlayer: true, JoinFrame: 10,
+					ID: 5, UnitName: "Player1", GroupID: "Alpha", Side: "WEST", IsPlayer: true, JoinFrame: 10, RoleDescription: "Rifleman",
 				},
 				States: []core.SoldierState{
 					{SoldierID: 5, CaptureFrame: 10, Position: core.Position3D{X: 1000, Y: 2000}, Bearing: 90, Lifestate: 1, UnitName: "Player1", IsPlayer: true, CurrentRole: "Rifleman"},
@@ -181,14 +181,17 @@ func TestBuildWithSoldier(t *testing.T) {
 	assert.Equal(t, "WEST", entity.Side)
 	assert.Equal(t, 1, entity.IsPlayer)
 	assert.Equal(t, "unit", entity.Type)
+	assert.Equal(t, "Rifleman", entity.Role)
 	assert.Equal(t, uint(10), entity.StartFrameNum)
 
 	// Check positions
 	require.Len(t, entity.Positions, 2)
 	pos := entity.Positions[0]
 	coords := pos[0].([]float64)
+	require.Len(t, coords, 3)
 	assert.Equal(t, 1000.0, coords[0])
 	assert.Equal(t, 2000.0, coords[1])
+	assert.Equal(t, 0.0, coords[2])
 	assert.Equal(t, uint16(90), pos[1])  // bearing
 	assert.Equal(t, uint8(1), pos[2])    // lifestate
 	assert.Equal(t, 0, pos[3])           // inVehicleID (nil -> 0)
@@ -272,8 +275,10 @@ func TestBuildWithVehicle(t *testing.T) {
 	require.Len(t, entity.Positions, 2)
 	pos := entity.Positions[0]
 	coords := pos[0].([]float64)
+	require.Len(t, coords, 3)
 	assert.Equal(t, 3000.0, coords[0])
 	assert.Equal(t, 4000.0, coords[1])
+	assert.Equal(t, 0.0, coords[2])
 	assert.Equal(t, uint16(180), pos[1]) // bearing
 	assert.Equal(t, 1, pos[2])           // isAlive
 
@@ -282,6 +287,10 @@ func TestBuildWithVehicle(t *testing.T) {
 	require.Len(t, crew, 1)
 	crewEntry := crew[0].([]any)
 	assert.Equal(t, float64(1), crewEntry[0])
+
+	// Frame range
+	frameRange := pos[4].([]uint)
+	assert.Equal(t, []uint{5, 5}, frameRange)
 
 	assert.Equal(t, uint(15), export.EndFrame)
 }
