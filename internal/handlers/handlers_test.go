@@ -38,6 +38,7 @@ func (b *mockBackend) RecordAce3DeathEvent(e *core.Ace3DeathEvent) error   { ret
 func (b *mockBackend) RecordAce3UnconsciousEvent(e *core.Ace3UnconsciousEvent) error {
 	return nil
 }
+func (b *mockBackend) DeleteMarker(name string, endFrame uint)                    {}
 func (b *mockBackend) GetSoldierByObjectID(ocapID uint16) (*core.Soldier, bool) { return nil, false }
 func (b *mockBackend) GetVehicleByObjectID(ocapID uint16) (*core.Vehicle, bool) { return nil, false }
 func (b *mockBackend) GetMarkerByName(name string) (*core.Marker, bool)       { return nil, false }

@@ -543,6 +543,35 @@ func TestBuildWithMarker(t *testing.T) {
 	assert.Equal(t, "Solid", marker[10])            // brush
 }
 
+func TestBuildWithDeletedMarker(t *testing.T) {
+	data := &MissionData{
+		Mission:  &core.Mission{MissionName: "Test"},
+		World:    &core.World{WorldName: "Altis"},
+		Soldiers: make(map[uint16]*SoldierRecord),
+		Vehicles: make(map[uint16]*VehicleRecord),
+		Markers: map[string]*MarkerRecord{
+			"projectile_1": {
+				Marker: core.Marker{
+					ID: 1, MarkerName: "projectile_1", Text: "Grenade", MarkerType: "magIcons/gear_grenade.paa",
+					Color: "FFFFFF", Side: "GLOBAL", Shape: "ICON", Size: "[1,1]", Brush: "Solid",
+					CaptureFrame: 100, EndFrame: 106, Position: core.Position3D{X: 1000, Y: 2000}, Alpha: 1.0,
+				},
+				States: []core.MarkerState{
+					{MarkerID: 1, CaptureFrame: 103, Position: core.Position3D{X: 1050, Y: 2050}, Alpha: 1.0},
+				},
+			},
+		},
+	}
+
+	export := Build(data)
+
+	require.Len(t, export.Markers, 1)
+	marker := export.Markers[0]
+
+	assert.Equal(t, uint(100), marker[2]) // startFrame
+	assert.Equal(t, 106, marker[3])       // endFrame (should NOT be -1)
+}
+
 func TestBuildWithPolylineMarker(t *testing.T) {
 	data := &MissionData{
 		Mission:  &core.Mission{MissionName: "Test"},

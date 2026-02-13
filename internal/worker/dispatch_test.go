@@ -4,6 +4,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/OCAP2/extension/v5/internal/cache"
 	"github.com/OCAP2/extension/v5/internal/dispatcher"
@@ -56,6 +57,7 @@ type mockBackend struct {
 	timeStates     []*core.TimeState
 	ace3Deaths     []*core.Ace3DeathEvent
 	ace3Uncon      []*core.Ace3UnconsciousEvent
+	deletedMarkers map[string]uint // name -> endFrame
 	initCalled     bool
 	closeCalled    bool
 	missionStarted bool
@@ -203,6 +205,15 @@ func (b *mockBackend) RecordAce3UnconsciousEvent(e *core.Ace3UnconsciousEvent) e
 	defer b.mu.Unlock()
 	b.ace3Uncon = append(b.ace3Uncon, e)
 	return nil
+}
+
+func (b *mockBackend) DeleteMarker(name string, endFrame uint) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.deletedMarkers == nil {
+		b.deletedMarkers = make(map[string]uint)
+	}
+	b.deletedMarkers[name] = endFrame
 }
 
 func (b *mockBackend) GetSoldierByObjectID(ocapID uint16) (*core.Soldier, bool) {
@@ -757,6 +768,66 @@ func TestHandleNewSoldier_CachesEntityWithoutBackend(t *testing.T) {
 	}
 	if cachedSoldier.UnitName != "Queue Soldier" {
 		t.Errorf("expected cached soldier name 'Queue Soldier', got '%s'", cachedSoldier.UnitName)
+	}
+}
+
+func TestHandleMarkerDelete_WithBackend(t *testing.T) {
+	d, _ := newTestDispatcher(t)
+	markerCache := cache.NewMarkerCache()
+
+	handlerService := &mockHandlerService{
+		marker:        model.Marker{MarkerName: "Projectile#123"},
+		deletedMarker: "Projectile#123",
+		deleteFrame:   500,
+	}
+
+	deps := Dependencies{
+		IsDatabaseValid: func() bool { return false },
+		ShouldSaveLocal: func() bool { return false },
+		DBInsertsPaused: func() bool { return false },
+		HandlerService:  handlerService,
+		EntityCache:     cache.NewEntityCache(),
+		MarkerCache:     markerCache,
+	}
+	queues := NewQueues()
+	manager := NewManager(deps, queues)
+
+	backend := &mockBackend{}
+	manager.SetBackend(backend)
+	manager.RegisterHandlers(d)
+
+	// First create a marker so it exists in cache (sync handler)
+	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:MARKER:", Args: []string{}})
+	if err != nil {
+		t.Fatalf("failed to create marker: %v", err)
+	}
+
+	// Now delete it (buffered handler - processes asynchronously)
+	_, err = d.Dispatch(dispatcher.Event{Command: ":DELETE:MARKER:", Args: []string{}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Wait for the buffered handler to process
+	deadline := time.After(2 * time.Second)
+	for {
+		backend.mu.Lock()
+		endFrame, ok := backend.deletedMarkers["Projectile#123"]
+		backend.mu.Unlock()
+
+		if ok {
+			if endFrame != 500 {
+				t.Errorf("expected endFrame=500, got %d", endFrame)
+			}
+			return
+		}
+
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for marker delete to be processed")
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
 	}
 }
 
