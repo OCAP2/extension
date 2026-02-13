@@ -761,12 +761,7 @@ func (s *Service) LogProjectileEvent(data []string) (model.ProjectileEvent, erro
 
 	// create the linestring
 	posSeq := geom.NewSequence(positionSequence, geom.DimXYZM)
-	ls, err := geom.NewLineString(posSeq)
-	if err != nil {
-		jsonData, _ := json.Marshal(posSeq)
-		logger.Error("Error creating linestring", "error", err, "json", string(jsonData))
-		return projectileEvent, err
-	}
+	ls := geom.NewLineString(posSeq)
 
 	logger.Debug("Created linestring",
 		"sequence", posSeq,

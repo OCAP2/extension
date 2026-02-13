@@ -15,7 +15,7 @@ import (
 // Helper to create a geom.Point from coordinates
 func makePoint(x, y, z float64) geom.Point {
 	coords := geom.Coordinates{XY: geom.XY{X: x, Y: y}, Z: z}
-	pt, _ := geom.NewPoint(coords)
+	pt := geom.NewPoint(coords)
 	return pt
 }
 
