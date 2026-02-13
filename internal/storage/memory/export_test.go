@@ -776,6 +776,9 @@ func TestJSONFormatValidation(t *testing.T) {
 	require.Len(t, crew, 1)
 	crewEntry := crew[0].([]any)
 	assert.Equal(t, float64(5), crewEntry[0]) // driver ID
+	// Frame range
+	frameRange := vehPos[4].([]any)
+	assert.Equal(t, []any{float64(0), float64(0)}, frameRange)
 
 	// Validate event format: [frameNum, "killed", victimId, [killerId, weapon], distance]
 	events := raw["events"].([]any)
