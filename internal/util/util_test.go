@@ -1,6 +1,10 @@
 package util
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func TestTrimQuotes(t *testing.T) {
 	tests := []struct {
@@ -19,9 +23,7 @@ func TestTrimQuotes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := TrimQuotes(tt.input)
-			if result != tt.expected {
-				t.Errorf("TrimQuotes(%q) = %q, want %q", tt.input, result, tt.expected)
-			}
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
@@ -42,9 +44,7 @@ func TestFixEscapeQuotes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := FixEscapeQuotes(tt.input)
-			if result != tt.expected {
-				t.Errorf("FixEscapeQuotes(%q) = %q, want %q", tt.input, result, tt.expected)
-			}
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }

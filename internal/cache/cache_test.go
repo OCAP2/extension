@@ -4,27 +4,20 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/OCAP2/extension/v5/internal/model"
 )
 
 func TestEntityCache_NewEntityCache(t *testing.T) {
 	cache := NewEntityCache()
 
-	if cache == nil {
-		t.Fatal("expected non-nil cache")
-	}
-	if cache.Soldiers == nil {
-		t.Error("expected Soldiers map to be initialized")
-	}
-	if cache.Vehicles == nil {
-		t.Error("expected Vehicles map to be initialized")
-	}
-	if len(cache.Soldiers) != 0 {
-		t.Errorf("expected empty Soldiers map, got %d entries", len(cache.Soldiers))
-	}
-	if len(cache.Vehicles) != 0 {
-		t.Errorf("expected empty Vehicles map, got %d entries", len(cache.Vehicles))
-	}
+	require.NotNil(t, cache)
+	assert.NotNil(t, cache.Soldiers)
+	assert.NotNil(t, cache.Vehicles)
+	assert.Len(t, cache.Soldiers, 0)
+	assert.Len(t, cache.Vehicles, 0)
 }
 
 func TestEntityCache_AddAndGetSoldier(t *testing.T) {
@@ -38,24 +31,16 @@ func TestEntityCache_AddAndGetSoldier(t *testing.T) {
 	cache.AddSoldier(soldier)
 
 	got, ok := cache.GetSoldier(42)
-	if !ok {
-		t.Fatal("expected to find soldier with ObjectID 42")
-	}
-	if got.ObjectID != 42 {
-		t.Errorf("expected ObjectID 42, got %d", got.ObjectID)
-	}
-	if got.UnitName != "Test Soldier" {
-		t.Errorf("expected UnitName 'Test Soldier', got %s", got.UnitName)
-	}
+	require.True(t, ok, "expected to find soldier with ObjectID 42")
+	assert.Equal(t, uint16(42), got.ObjectID)
+	assert.Equal(t, "Test Soldier", got.UnitName)
 }
 
 func TestEntityCache_GetSoldier_NotFound(t *testing.T) {
 	cache := NewEntityCache()
 
 	_, ok := cache.GetSoldier(999)
-	if ok {
-		t.Error("expected not to find soldier with ObjectID 999")
-	}
+	assert.False(t, ok, "expected not to find soldier with ObjectID 999")
 }
 
 func TestEntityCache_AddAndGetVehicle(t *testing.T) {
@@ -69,24 +54,16 @@ func TestEntityCache_AddAndGetVehicle(t *testing.T) {
 	cache.AddVehicle(vehicle)
 
 	got, ok := cache.GetVehicle(99)
-	if !ok {
-		t.Fatal("expected to find vehicle with ObjectID 99")
-	}
-	if got.ObjectID != 99 {
-		t.Errorf("expected ObjectID 99, got %d", got.ObjectID)
-	}
-	if got.ClassName != "Test_Vehicle" {
-		t.Errorf("expected className 'Test_Vehicle', got %s", got.ClassName)
-	}
+	require.True(t, ok, "expected to find vehicle with ObjectID 99")
+	assert.Equal(t, uint16(99), got.ObjectID)
+	assert.Equal(t, "Test_Vehicle", got.ClassName)
 }
 
 func TestEntityCache_GetVehicle_NotFound(t *testing.T) {
 	cache := NewEntityCache()
 
 	_, ok := cache.GetVehicle(999)
-	if ok {
-		t.Error("expected not to find vehicle with ObjectID 999")
-	}
+	assert.False(t, ok, "expected not to find vehicle with ObjectID 999")
 }
 
 func TestEntityCache_Reset(t *testing.T) {
@@ -98,30 +75,20 @@ func TestEntityCache_Reset(t *testing.T) {
 	cache.AddVehicle(model.Vehicle{ObjectID: 10, ClassName: "Vehicle 1"})
 
 	// Verify data exists
-	if len(cache.Soldiers) != 2 {
-		t.Errorf("expected 2 soldiers before reset, got %d", len(cache.Soldiers))
-	}
-	if len(cache.Vehicles) != 1 {
-		t.Errorf("expected 1 vehicle before reset, got %d", len(cache.Vehicles))
-	}
+	assert.Len(t, cache.Soldiers, 2)
+	assert.Len(t, cache.Vehicles, 1)
 
 	// Reset
 	cache.Reset()
 
 	// Verify data is cleared
-	if len(cache.Soldiers) != 0 {
-		t.Errorf("expected 0 soldiers after reset, got %d", len(cache.Soldiers))
-	}
-	if len(cache.Vehicles) != 0 {
-		t.Errorf("expected 0 vehicles after reset, got %d", len(cache.Vehicles))
-	}
+	assert.Len(t, cache.Soldiers, 0)
+	assert.Len(t, cache.Vehicles, 0)
 
 	// Verify we can still add data after reset
 	cache.AddSoldier(model.Soldier{ObjectID: 3, UnitName: "Soldier 3"})
 	_, ok := cache.GetSoldier(3)
-	if !ok {
-		t.Error("expected to find soldier added after reset")
-	}
+	assert.True(t, ok, "expected to find soldier added after reset")
 }
 
 func TestEntityCache_LockUnlock(t *testing.T) {
@@ -135,12 +102,8 @@ func TestEntityCache_LockUnlock(t *testing.T) {
 
 	// Verify the data was added
 	got, ok := cache.GetSoldier(1)
-	if !ok {
-		t.Fatal("expected to find soldier added while holding lock")
-	}
-	if got.UnitName != "Direct Add" {
-		t.Errorf("expected UnitName 'Direct Add', got %s", got.UnitName)
-	}
+	require.True(t, ok, "expected to find soldier added while holding lock")
+	assert.Equal(t, "Direct Add", got.UnitName)
 }
 
 func TestEntityCache_Concurrent(t *testing.T) {
@@ -162,12 +125,8 @@ func TestEntityCache_Concurrent(t *testing.T) {
 	wg.Wait()
 
 	// Verify counts
-	if len(cache.Soldiers) != 100 {
-		t.Errorf("expected 100 soldiers, got %d", len(cache.Soldiers))
-	}
-	if len(cache.Vehicles) != 100 {
-		t.Errorf("expected 100 vehicles, got %d", len(cache.Vehicles))
-	}
+	assert.Len(t, cache.Soldiers, 100)
+	assert.Len(t, cache.Vehicles, 100)
 
 	// Concurrent reads
 	for i := uint16(0); i < 100; i++ {
@@ -188,43 +147,31 @@ func TestEntityCache_Concurrent(t *testing.T) {
 
 func TestSafeCounter_InitialValue(t *testing.T) {
 	c := &SafeCounter{}
-	if c.Value() != 0 {
-		t.Errorf("expected initial value 0, got %d", c.Value())
-	}
+	assert.Equal(t, int(0), c.Value())
 }
 
 func TestSafeCounter_Set(t *testing.T) {
 	c := &SafeCounter{}
 
 	c.Set(42)
-	if c.Value() != 42 {
-		t.Errorf("expected value 42, got %d", c.Value())
-	}
+	assert.Equal(t, int(42), c.Value())
 
 	c.Set(100)
-	if c.Value() != 100 {
-		t.Errorf("expected value 100, got %d", c.Value())
-	}
+	assert.Equal(t, int(100), c.Value())
 
 	c.Set(0)
-	if c.Value() != 0 {
-		t.Errorf("expected value 0, got %d", c.Value())
-	}
+	assert.Equal(t, int(0), c.Value())
 }
 
 func TestSafeCounter_Inc(t *testing.T) {
 	c := &SafeCounter{}
 
 	c.Inc()
-	if c.Value() != 1 {
-		t.Errorf("expected value 1, got %d", c.Value())
-	}
+	assert.Equal(t, int(1), c.Value())
 
 	c.Inc()
 	c.Inc()
-	if c.Value() != 3 {
-		t.Errorf("expected value 3, got %d", c.Value())
-	}
+	assert.Equal(t, int(3), c.Value())
 }
 
 func TestSafeCounter_Concurrent(t *testing.T) {
@@ -241,7 +188,5 @@ func TestSafeCounter_Concurrent(t *testing.T) {
 	}
 	wg.Wait()
 
-	if c.Value() != 1000 {
-		t.Errorf("expected value 1000, got %d", c.Value())
-	}
+	assert.Equal(t, int(1000), c.Value())
 }

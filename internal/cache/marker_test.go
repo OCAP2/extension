@@ -3,17 +3,16 @@ package cache
 import (
 	"sync"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMarkerCache_NewMarkerCache(t *testing.T) {
 	cache := NewMarkerCache()
 
-	if cache == nil {
-		t.Fatal("expected non-nil cache")
-	}
-	if cache.markers == nil {
-		t.Error("expected markers map to be initialized")
-	}
+	require.NotNil(t, cache)
+	assert.NotNil(t, cache.markers)
 }
 
 func TestMarkerCache_SetAndGet(t *testing.T) {
@@ -22,21 +21,15 @@ func TestMarkerCache_SetAndGet(t *testing.T) {
 	cache.Set("marker1", 42)
 
 	id, ok := cache.Get("marker1")
-	if !ok {
-		t.Fatal("expected to find marker1")
-	}
-	if id != 42 {
-		t.Errorf("expected id 42, got %d", id)
-	}
+	require.True(t, ok, "expected to find marker1")
+	assert.Equal(t, uint(42), id)
 }
 
 func TestMarkerCache_Get_NotFound(t *testing.T) {
 	cache := NewMarkerCache()
 
 	_, ok := cache.Get("nonexistent")
-	if ok {
-		t.Error("expected not to find nonexistent marker")
-	}
+	assert.False(t, ok, "expected not to find nonexistent marker")
 }
 
 func TestMarkerCache_Delete(t *testing.T) {
@@ -47,24 +40,18 @@ func TestMarkerCache_Delete(t *testing.T) {
 
 	// Verify marker exists
 	_, ok := cache.Get("marker1")
-	if !ok {
-		t.Fatal("expected to find marker1 before delete")
-	}
+	require.True(t, ok, "expected to find marker1 before delete")
 
 	// Delete marker
 	cache.Delete("marker1")
 
 	// Verify marker is deleted
 	_, ok = cache.Get("marker1")
-	if ok {
-		t.Error("expected not to find marker1 after delete")
-	}
+	assert.False(t, ok, "expected not to find marker1 after delete")
 
 	// Verify other marker still exists
 	_, ok = cache.Get("marker2")
-	if !ok {
-		t.Error("expected marker2 to still exist")
-	}
+	assert.True(t, ok, "expected marker2 to still exist")
 }
 
 func TestMarkerCache_Delete_NonExistent(t *testing.T) {
@@ -84,21 +71,19 @@ func TestMarkerCache_Reset(t *testing.T) {
 	cache.Reset()
 
 	// Verify all markers are cleared
-	if _, ok := cache.Get("marker1"); ok {
-		t.Error("expected marker1 to be cleared after reset")
-	}
-	if _, ok := cache.Get("marker2"); ok {
-		t.Error("expected marker2 to be cleared after reset")
-	}
-	if _, ok := cache.Get("marker3"); ok {
-		t.Error("expected marker3 to be cleared after reset")
-	}
+	_, ok := cache.Get("marker1")
+	assert.False(t, ok, "expected marker1 to be cleared after reset")
+
+	_, ok = cache.Get("marker2")
+	assert.False(t, ok, "expected marker2 to be cleared after reset")
+
+	_, ok = cache.Get("marker3")
+	assert.False(t, ok, "expected marker3 to be cleared after reset")
 
 	// Verify we can still add markers after reset
 	cache.Set("marker4", 4)
-	if _, ok := cache.Get("marker4"); !ok {
-		t.Error("expected to find marker4 after reset")
-	}
+	_, ok = cache.Get("marker4")
+	assert.True(t, ok, "expected to find marker4 after reset")
 }
 
 func TestMarkerCache_OverwriteExisting(t *testing.T) {
@@ -108,12 +93,8 @@ func TestMarkerCache_OverwriteExisting(t *testing.T) {
 	cache.Set("marker1", 100)
 
 	id, ok := cache.Get("marker1")
-	if !ok {
-		t.Fatal("expected to find marker1")
-	}
-	if id != 100 {
-		t.Errorf("expected id to be overwritten to 100, got %d", id)
-	}
+	require.True(t, ok, "expected to find marker1")
+	assert.Equal(t, uint(100), id)
 }
 
 func TestMarkerCache_Concurrent(t *testing.T) {

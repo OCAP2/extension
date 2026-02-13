@@ -11,6 +11,8 @@ import (
 	"github.com/OCAP2/extension/v5/internal/handlers"
 	"github.com/OCAP2/extension/v5/internal/model"
 	"github.com/OCAP2/extension/v5/internal/model/core"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // mockLogger implements dispatcher.Logger for testing
@@ -470,9 +472,7 @@ func newTestDispatcher(t *testing.T) (*dispatcher.Dispatcher, *mockLogger) {
 	logger := &mockLogger{}
 
 	d, err := dispatcher.New(logger)
-	if err != nil {
-		t.Fatalf("failed to create dispatcher: %v", err)
-	}
+	require.NoError(t, err, "failed to create dispatcher")
 
 	return d, logger
 }
@@ -511,9 +511,7 @@ func TestRegisterHandlers_RegistersAllCommands(t *testing.T) {
 	}
 
 	for _, cmd := range expectedCommands {
-		if !d.HasHandler(cmd) {
-			t.Errorf("expected handler for %s to be registered", cmd)
-		}
+		assert.True(t, d.HasHandler(cmd), "expected handler for %s to be registered", cmd)
 	}
 }
 
@@ -532,12 +530,8 @@ func TestHandler_NoDatabaseNoBackend_ReturnsNil(t *testing.T) {
 	// Test that handlers do nothing when there's no valid database or backend
 	result, err := d.Dispatch(dispatcher.Event{Command: ":NEW:SOLDIER:", Args: []string{}})
 
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-	if result != nil {
-		t.Errorf("expected nil result when no database/backend, got %v", result)
-	}
+	assert.NoError(t, err)
+	assert.Nil(t, result, "expected nil result when no database/backend")
 }
 
 func TestSetBackend(t *testing.T) {
@@ -549,72 +543,34 @@ func TestSetBackend(t *testing.T) {
 	queues := NewQueues()
 	manager := NewManager(deps, queues)
 
-	if manager.hasBackend() {
-		t.Error("expected no backend initially")
-	}
+	assert.False(t, manager.hasBackend(), "expected no backend initially")
 
 	backend := &mockBackend{}
 	manager.SetBackend(backend)
 
-	if !manager.hasBackend() {
-		t.Error("expected backend to be set")
-	}
+	assert.True(t, manager.hasBackend(), "expected backend to be set")
 }
 
 func TestNewQueues(t *testing.T) {
 	queues := NewQueues()
 
-	if queues == nil {
-		t.Fatal("expected non-nil queues")
-	}
-	if queues.Soldiers == nil {
-		t.Error("expected Soldiers queue to be initialized")
-	}
-	if queues.SoldierStates == nil {
-		t.Error("expected SoldierStates queue to be initialized")
-	}
-	if queues.Vehicles == nil {
-		t.Error("expected Vehicles queue to be initialized")
-	}
-	if queues.VehicleStates == nil {
-		t.Error("expected VehicleStates queue to be initialized")
-	}
-	if queues.FiredEvents == nil {
-		t.Error("expected FiredEvents queue to be initialized")
-	}
-	if queues.ProjectileEvents == nil {
-		t.Error("expected ProjectileEvents queue to be initialized")
-	}
-	if queues.GeneralEvents == nil {
-		t.Error("expected GeneralEvents queue to be initialized")
-	}
-	if queues.HitEvents == nil {
-		t.Error("expected HitEvents queue to be initialized")
-	}
-	if queues.KillEvents == nil {
-		t.Error("expected KillEvents queue to be initialized")
-	}
-	if queues.ChatEvents == nil {
-		t.Error("expected ChatEvents queue to be initialized")
-	}
-	if queues.RadioEvents == nil {
-		t.Error("expected RadioEvents queue to be initialized")
-	}
-	if queues.FpsEvents == nil {
-		t.Error("expected FpsEvents queue to be initialized")
-	}
-	if queues.Ace3DeathEvents == nil {
-		t.Error("expected Ace3DeathEvents queue to be initialized")
-	}
-	if queues.Ace3UnconsciousEvents == nil {
-		t.Error("expected Ace3UnconsciousEvents queue to be initialized")
-	}
-	if queues.Markers == nil {
-		t.Error("expected Markers queue to be initialized")
-	}
-	if queues.MarkerStates == nil {
-		t.Error("expected MarkerStates queue to be initialized")
-	}
+	require.NotNil(t, queues, "expected non-nil queues")
+	assert.NotNil(t, queues.Soldiers, "expected Soldiers queue to be initialized")
+	assert.NotNil(t, queues.SoldierStates, "expected SoldierStates queue to be initialized")
+	assert.NotNil(t, queues.Vehicles, "expected Vehicles queue to be initialized")
+	assert.NotNil(t, queues.VehicleStates, "expected VehicleStates queue to be initialized")
+	assert.NotNil(t, queues.FiredEvents, "expected FiredEvents queue to be initialized")
+	assert.NotNil(t, queues.ProjectileEvents, "expected ProjectileEvents queue to be initialized")
+	assert.NotNil(t, queues.GeneralEvents, "expected GeneralEvents queue to be initialized")
+	assert.NotNil(t, queues.HitEvents, "expected HitEvents queue to be initialized")
+	assert.NotNil(t, queues.KillEvents, "expected KillEvents queue to be initialized")
+	assert.NotNil(t, queues.ChatEvents, "expected ChatEvents queue to be initialized")
+	assert.NotNil(t, queues.RadioEvents, "expected RadioEvents queue to be initialized")
+	assert.NotNil(t, queues.FpsEvents, "expected FpsEvents queue to be initialized")
+	assert.NotNil(t, queues.Ace3DeathEvents, "expected Ace3DeathEvents queue to be initialized")
+	assert.NotNil(t, queues.Ace3UnconsciousEvents, "expected Ace3UnconsciousEvents queue to be initialized")
+	assert.NotNil(t, queues.Markers, "expected Markers queue to be initialized")
+	assert.NotNil(t, queues.MarkerStates, "expected MarkerStates queue to be initialized")
 }
 
 func TestNewManager(t *testing.T) {
@@ -627,12 +583,8 @@ func TestNewManager(t *testing.T) {
 
 	manager := NewManager(deps, queues)
 
-	if manager == nil {
-		t.Fatal("expected non-nil manager")
-	}
-	if manager.hasBackend() {
-		t.Error("expected no backend initially")
-	}
+	require.NotNil(t, manager, "expected non-nil manager")
+	assert.False(t, manager.hasBackend(), "expected no backend initially")
 }
 
 func TestHandleNewSoldier_CachesEntityWithBackend(t *testing.T) {
@@ -660,26 +612,16 @@ func TestHandleNewSoldier_CachesEntityWithBackend(t *testing.T) {
 	// Dispatch new soldier event
 	result, err := d.Dispatch(dispatcher.Event{Command: ":NEW:SOLDIER:", Args: []string{}})
 
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result != nil {
-		t.Errorf("expected nil result, got %v", result)
-	}
+	require.NoError(t, err)
+	assert.Nil(t, result, "expected nil result")
 
 	// Verify soldier is in backend
-	if len(backend.soldiers) != 1 {
-		t.Errorf("expected 1 soldier in backend, got %d", len(backend.soldiers))
-	}
+	assert.Equal(t, 1, len(backend.soldiers), "expected 1 soldier in backend")
 
 	// Verify soldier is also in EntityCache
 	cachedSoldier, found := entityCache.GetSoldier(42)
-	if !found {
-		t.Error("expected soldier to be cached in EntityCache")
-	}
-	if cachedSoldier.UnitName != "Test Soldier" {
-		t.Errorf("expected cached soldier name 'Test Soldier', got '%s'", cachedSoldier.UnitName)
-	}
+	assert.True(t, found, "expected soldier to be cached in EntityCache")
+	assert.Equal(t, "Test Soldier", cachedSoldier.UnitName)
 }
 
 func TestHandleNewVehicle_CachesEntityWithBackend(t *testing.T) {
@@ -707,26 +649,16 @@ func TestHandleNewVehicle_CachesEntityWithBackend(t *testing.T) {
 	// Dispatch new vehicle event
 	result, err := d.Dispatch(dispatcher.Event{Command: ":NEW:VEHICLE:", Args: []string{}})
 
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result != nil {
-		t.Errorf("expected nil result, got %v", result)
-	}
+	require.NoError(t, err)
+	assert.Nil(t, result, "expected nil result")
 
 	// Verify vehicle is in backend
-	if len(backend.vehicles) != 1 {
-		t.Errorf("expected 1 vehicle in backend, got %d", len(backend.vehicles))
-	}
+	assert.Equal(t, 1, len(backend.vehicles), "expected 1 vehicle in backend")
 
 	// Verify vehicle is also in EntityCache
 	cachedVehicle, found := entityCache.GetVehicle(99)
-	if !found {
-		t.Error("expected vehicle to be cached in EntityCache")
-	}
-	if cachedVehicle.OcapType != "car" {
-		t.Errorf("expected cached vehicle type 'car', got '%s'", cachedVehicle.OcapType)
-	}
+	assert.True(t, found, "expected vehicle to be cached in EntityCache")
+	assert.Equal(t, "car", cachedVehicle.OcapType)
 }
 
 func TestHandleNewSoldier_CachesEntityWithoutBackend(t *testing.T) {
@@ -752,23 +684,15 @@ func TestHandleNewSoldier_CachesEntityWithoutBackend(t *testing.T) {
 	// Dispatch new soldier event
 	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:SOLDIER:", Args: []string{}})
 
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Verify soldier is in queue
-	if queues.Soldiers.Len() != 1 {
-		t.Errorf("expected 1 soldier in queue, got %d", queues.Soldiers.Len())
-	}
+	assert.Equal(t, 1, queues.Soldiers.Len(), "expected 1 soldier in queue")
 
 	// Verify soldier is also in EntityCache
 	cachedSoldier, found := entityCache.GetSoldier(55)
-	if !found {
-		t.Error("expected soldier to be cached in EntityCache even when using queue")
-	}
-	if cachedSoldier.UnitName != "Queue Soldier" {
-		t.Errorf("expected cached soldier name 'Queue Soldier', got '%s'", cachedSoldier.UnitName)
-	}
+	assert.True(t, found, "expected soldier to be cached in EntityCache even when using queue")
+	assert.Equal(t, "Queue Soldier", cachedSoldier.UnitName)
 }
 
 func TestHandleMarkerDelete_WithBackend(t *testing.T) {
@@ -798,15 +722,11 @@ func TestHandleMarkerDelete_WithBackend(t *testing.T) {
 
 	// First create a marker so it exists in cache (sync handler)
 	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:MARKER:", Args: []string{}})
-	if err != nil {
-		t.Fatalf("failed to create marker: %v", err)
-	}
+	require.NoError(t, err, "failed to create marker")
 
 	// Now delete it (buffered handler - processes asynchronously)
 	_, err = d.Dispatch(dispatcher.Event{Command: ":DELETE:MARKER:", Args: []string{}})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Wait for the buffered handler to process
 	deadline := time.After(2 * time.Second)
@@ -816,15 +736,13 @@ func TestHandleMarkerDelete_WithBackend(t *testing.T) {
 		backend.mu.Unlock()
 
 		if ok {
-			if endFrame != 500 {
-				t.Errorf("expected endFrame=500, got %d", endFrame)
-			}
+			assert.Equal(t, uint(500), endFrame)
 			return
 		}
 
 		select {
 		case <-deadline:
-			t.Fatal("timed out waiting for marker delete to be processed")
+			require.Fail(t, "timed out waiting for marker delete to be processed")
 		default:
 			time.Sleep(10 * time.Millisecond)
 		}

@@ -10,6 +10,8 @@ import (
 	"github.com/OCAP2/extension/v5/internal/config"
 	"github.com/OCAP2/extension/v5/internal/model/core"
 	"github.com/OCAP2/extension/v5/internal/storage"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Verify Backend implements storage.Backend interface
@@ -25,35 +27,19 @@ func TestNew(t *testing.T) {
 	}
 	b := New(cfg)
 
-	if b == nil {
-		t.Fatal("New returned nil")
-	}
-	if b.cfg.OutputDir != "/tmp/test" {
-		t.Errorf("expected OutputDir=/tmp/test, got %s", b.cfg.OutputDir)
-	}
-	if !b.cfg.CompressOutput {
-		t.Error("expected CompressOutput=true")
-	}
-	if b.soldiers == nil {
-		t.Error("soldiers map not initialized")
-	}
-	if b.vehicles == nil {
-		t.Error("vehicles map not initialized")
-	}
-	if b.markers == nil {
-		t.Error("markers map not initialized")
-	}
+	require.NotNil(t, b)
+	assert.Equal(t, "/tmp/test", b.cfg.OutputDir)
+	assert.True(t, b.cfg.CompressOutput, "expected CompressOutput=true")
+	assert.NotNil(t, b.soldiers)
+	assert.NotNil(t, b.vehicles)
+	assert.NotNil(t, b.markers)
 }
 
 func TestInitAndClose(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
-	if err := b.Init(); err != nil {
-		t.Errorf("Init failed: %v", err)
-	}
-	if err := b.Close(); err != nil {
-		t.Errorf("Close failed: %v", err)
-	}
+	assert.NoError(t, b.Init())
+	assert.NoError(t, b.Close())
 }
 
 func TestStartMission(t *testing.T) {
@@ -74,96 +60,64 @@ func TestStartMission(t *testing.T) {
 	_ = b.AddSoldier(soldier)
 
 	// Start a new mission - should reset collections
-	if err := b.StartMission(mission, world); err != nil {
-		t.Fatalf("StartMission failed: %v", err)
-	}
+	require.NoError(t, b.StartMission(mission, world))
 
-	if b.mission != mission {
-		t.Error("mission not set")
-	}
-	if b.world != world {
-		t.Error("world not set")
-	}
-	if len(b.soldiers) != 0 {
-		t.Error("soldiers not reset")
-	}
+	assert.Equal(t, mission, b.mission)
+	assert.Equal(t, world, b.world)
+	assert.Len(t, b.soldiers, 0)
 }
 
 func TestAddSoldier(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
 	s1 := &core.Soldier{
-		ID:   1,
+		ID:       1,
 		UnitName: "Soldier One",
 		Side:     "WEST",
 		IsPlayer: true,
 	}
 	s2 := &core.Soldier{
-		ID:   2,
+		ID:       2,
 		UnitName: "Soldier Two",
 		Side:     "EAST",
 		IsPlayer: false,
 	}
 
-	if err := b.AddSoldier(s1); err != nil {
-		t.Fatalf("AddSoldier failed: %v", err)
-	}
-	if err := b.AddSoldier(s2); err != nil {
-		t.Fatalf("AddSoldier failed: %v", err)
-	}
+	require.NoError(t, b.AddSoldier(s1))
+	require.NoError(t, b.AddSoldier(s2))
 
 	// IDs are ObjectIDs set by caller, not auto-assigned
-	if s1.ID != 1 {
-		t.Errorf("expected s1.ID=1 (ObjectID), got %d", s1.ID)
-	}
-	if s2.ID != 2 {
-		t.Errorf("expected s2.ID=2 (ObjectID), got %d", s2.ID)
-	}
+	assert.Equal(t, uint16(1), s1.ID)
+	assert.Equal(t, uint16(2), s2.ID)
 
 	// Check storage
-	if len(b.soldiers) != 2 {
-		t.Errorf("expected 2 soldiers, got %d", len(b.soldiers))
-	}
-	if b.soldiers[1].Soldier.UnitName != "Soldier One" {
-		t.Error("soldier 1 not stored correctly")
-	}
-	if b.soldiers[2].Soldier.UnitName != "Soldier Two" {
-		t.Error("soldier 2 not stored correctly")
-	}
+	assert.Len(t, b.soldiers, 2)
+	assert.Equal(t, "Soldier One", b.soldiers[1].Soldier.UnitName)
+	assert.Equal(t, "Soldier Two", b.soldiers[2].Soldier.UnitName)
 }
 
 func TestAddVehicle(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
 	v1 := &core.Vehicle{
-		ID:      10,
+		ID:          10,
 		ClassName:   "B_MRAP_01_F",
 		DisplayName: "Hunter",
 	}
 	v2 := &core.Vehicle{
-		ID:      20,
+		ID:          20,
 		ClassName:   "B_Heli_Light_01_F",
 		DisplayName: "MH-9 Hummingbird",
 	}
 
-	if err := b.AddVehicle(v1); err != nil {
-		t.Fatalf("AddVehicle failed: %v", err)
-	}
-	if err := b.AddVehicle(v2); err != nil {
-		t.Fatalf("AddVehicle failed: %v", err)
-	}
+	require.NoError(t, b.AddVehicle(v1))
+	require.NoError(t, b.AddVehicle(v2))
 
 	// IDs are ObjectIDs set by caller, not auto-assigned
-	if v1.ID != 10 {
-		t.Errorf("expected v1.ID=10 (ObjectID), got %d", v1.ID)
-	}
-	if v2.ID != 20 {
-		t.Errorf("expected v2.ID=20 (ObjectID), got %d", v2.ID)
-	}
+	assert.Equal(t, uint16(10), v1.ID)
+	assert.Equal(t, uint16(20), v2.ID)
 
-	if len(b.vehicles) != 2 {
-		t.Errorf("expected 2 vehicles, got %d", len(b.vehicles))
-	}
+	assert.Len(t, b.vehicles, 2)
 }
 
 func TestAddMarker(t *testing.T) {
@@ -182,72 +136,52 @@ func TestAddMarker(t *testing.T) {
 		Color:      "ColorRed",
 	}
 
-	if err := b.AddMarker(m1); err != nil {
-		t.Fatalf("AddMarker failed: %v", err)
-	}
-	if err := b.AddMarker(m2); err != nil {
-		t.Fatalf("AddMarker failed: %v", err)
-	}
+	require.NoError(t, b.AddMarker(m1))
+	require.NoError(t, b.AddMarker(m2))
 
 	// Markers don't have ObjectIDs; ID is not auto-assigned
 	// Just verify storage works
 
-	if len(b.markers) != 2 {
-		t.Errorf("expected 2 markers, got %d", len(b.markers))
-	}
-	if b.markers["marker_1"].Marker.Text != "Base" {
-		t.Error("marker_1 not stored correctly")
-	}
+	assert.Len(t, b.markers, 2)
+	assert.Equal(t, "Base", b.markers["marker_1"].Marker.Text)
 }
 
 func TestGetSoldierByObjectID(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
 	s := &core.Soldier{
-		ID:   42,
+		ID:       42,
 		UnitName: "Test Soldier",
 	}
 	_ = b.AddSoldier(s)
 
 	// Found case
 	found, ok := b.GetSoldierByObjectID(42)
-	if !ok {
-		t.Fatal("soldier not found")
-	}
-	if found.UnitName != "Test Soldier" {
-		t.Errorf("expected UnitName=Test Soldier, got %s", found.UnitName)
-	}
+	require.True(t, ok, "soldier not found")
+	assert.Equal(t, "Test Soldier", found.UnitName)
 
 	// Not found case
 	_, ok = b.GetSoldierByObjectID(999)
-	if ok {
-		t.Error("expected not found for non-existent ObjectID")
-	}
+	assert.False(t, ok, "expected not found for non-existent ObjectID")
 }
 
 func TestGetVehicleByObjectID(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
 	v := &core.Vehicle{
-		ID:    100,
+		ID:        100,
 		ClassName: "B_Truck_01_transport_F",
 	}
 	_ = b.AddVehicle(v)
 
 	// Found case
 	found, ok := b.GetVehicleByObjectID(100)
-	if !ok {
-		t.Fatal("vehicle not found")
-	}
-	if found.ClassName != "B_Truck_01_transport_F" {
-		t.Errorf("expected ClassName=B_Truck_01_transport_F, got %s", found.ClassName)
-	}
+	require.True(t, ok, "vehicle not found")
+	assert.Equal(t, "B_Truck_01_transport_F", found.ClassName)
 
 	// Not found case
 	_, ok = b.GetVehicleByObjectID(999)
-	if ok {
-		t.Error("expected not found for non-existent ObjectID")
-	}
+	assert.False(t, ok, "expected not found for non-existent ObjectID")
 }
 
 func TestGetMarkerByName(t *testing.T) {
@@ -261,18 +195,12 @@ func TestGetMarkerByName(t *testing.T) {
 
 	// Found case
 	found, ok := b.GetMarkerByName("respawn_west")
-	if !ok {
-		t.Fatal("marker not found")
-	}
-	if found.Text != "Respawn West" {
-		t.Errorf("expected Text=Respawn West, got %s", found.Text)
-	}
+	require.True(t, ok, "marker not found")
+	assert.Equal(t, "Respawn West", found.Text)
 
 	// Not found case
 	_, ok = b.GetMarkerByName("nonexistent")
-	if ok {
-		t.Error("expected not found for non-existent marker name")
-	}
+	assert.False(t, ok, "expected not found for non-existent marker name")
 }
 
 func TestRecordSoldierState(t *testing.T) {
@@ -282,43 +210,31 @@ func TestRecordSoldierState(t *testing.T) {
 	_ = b.AddSoldier(s)
 
 	state1 := &core.SoldierState{
-		SoldierID:     s.ID,
-				CaptureFrame:  0,
-		Position:      core.Position3D{X: 100, Y: 200, Z: 0},
-		Bearing:       90,
-		Lifestate:     1,
+		SoldierID:    s.ID,
+		CaptureFrame: 0,
+		Position:     core.Position3D{X: 100, Y: 200, Z: 0},
+		Bearing:      90,
+		Lifestate:    1,
 	}
 	state2 := &core.SoldierState{
-		SoldierID:     s.ID,
-				CaptureFrame:  1,
-		Position:      core.Position3D{X: 105, Y: 205, Z: 0},
-		Bearing:       95,
-		Lifestate:     1,
+		SoldierID:    s.ID,
+		CaptureFrame: 1,
+		Position:     core.Position3D{X: 105, Y: 205, Z: 0},
+		Bearing:      95,
+		Lifestate:    1,
 	}
 
-	if err := b.RecordSoldierState(state1); err != nil {
-		t.Fatalf("RecordSoldierState failed: %v", err)
-	}
-	if err := b.RecordSoldierState(state2); err != nil {
-		t.Fatalf("RecordSoldierState failed: %v", err)
-	}
+	require.NoError(t, b.RecordSoldierState(state1))
+	require.NoError(t, b.RecordSoldierState(state2))
 
 	record := b.soldiers[s.ID]
-	if len(record.States) != 2 {
-		t.Errorf("expected 2 states, got %d", len(record.States))
-	}
-	if record.States[0].CaptureFrame != 0 {
-		t.Error("first state not recorded correctly")
-	}
-	if record.States[1].CaptureFrame != 1 {
-		t.Error("second state not recorded correctly")
-	}
+	assert.Len(t, record.States, 2)
+	assert.Equal(t, uint(0), record.States[0].CaptureFrame)
+	assert.Equal(t, uint(1), record.States[1].CaptureFrame)
 
 	// Recording state for non-existent soldier should not error
 	orphanState := &core.SoldierState{SoldierID: 999, CaptureFrame: 0}
-	if err := b.RecordSoldierState(orphanState); err != nil {
-		t.Errorf("RecordSoldierState should not error for missing soldier: %v", err)
-	}
+	assert.NoError(t, b.RecordSoldierState(orphanState))
 }
 
 func TestRecordVehicleState(t *testing.T) {
@@ -328,26 +244,20 @@ func TestRecordVehicleState(t *testing.T) {
 	_ = b.AddVehicle(v)
 
 	state := &core.VehicleState{
-		VehicleID:     v.ID,
-				CaptureFrame:  5,
-		Position:      core.Position3D{X: 500, Y: 600, Z: 10},
-		IsAlive:       true,
+		VehicleID:    v.ID,
+		CaptureFrame: 5,
+		Position:     core.Position3D{X: 500, Y: 600, Z: 10},
+		IsAlive:      true,
 	}
 
-	if err := b.RecordVehicleState(state); err != nil {
-		t.Fatalf("RecordVehicleState failed: %v", err)
-	}
+	require.NoError(t, b.RecordVehicleState(state))
 
 	record := b.vehicles[v.ID]
-	if len(record.States) != 1 {
-		t.Errorf("expected 1 state, got %d", len(record.States))
-	}
+	assert.Len(t, record.States, 1)
 
 	// Non-existent vehicle
 	orphan := &core.VehicleState{VehicleID: 999}
-	if err := b.RecordVehicleState(orphan); err != nil {
-		t.Errorf("RecordVehicleState should not error for missing vehicle: %v", err)
-	}
+	assert.NoError(t, b.RecordVehicleState(orphan))
 }
 
 func TestRecordMarkerState(t *testing.T) {
@@ -364,20 +274,14 @@ func TestRecordMarkerState(t *testing.T) {
 		Alpha:        1.0,
 	}
 
-	if err := b.RecordMarkerState(state); err != nil {
-		t.Fatalf("RecordMarkerState failed: %v", err)
-	}
+	require.NoError(t, b.RecordMarkerState(state))
 
 	record := b.markers["test_marker"]
-	if len(record.States) != 1 {
-		t.Errorf("expected 1 state, got %d", len(record.States))
-	}
+	assert.Len(t, record.States, 1)
 
 	// Non-existent marker
 	orphan := &core.MarkerState{MarkerID: 999}
-	if err := b.RecordMarkerState(orphan); err != nil {
-		t.Errorf("RecordMarkerState should not error for missing marker: %v", err)
-	}
+	assert.NoError(t, b.RecordMarkerState(orphan))
 }
 
 func TestDeleteMarker(t *testing.T) {
@@ -390,9 +294,7 @@ func TestDeleteMarker(t *testing.T) {
 	b.DeleteMarker("grenade_1", 100)
 
 	record := b.markers["grenade_1"]
-	if record.Marker.EndFrame != 100 {
-		t.Errorf("expected EndFrame=100, got %d", record.Marker.EndFrame)
-	}
+	assert.Equal(t, 100, record.Marker.EndFrame)
 
 	// Deleting non-existent marker should not panic
 	b.DeleteMarker("nonexistent", 50)
@@ -405,32 +307,24 @@ func TestRecordFiredEvent(t *testing.T) {
 	_ = b.AddSoldier(s)
 
 	fired := &core.FiredEvent{
-		SoldierID:     s.ID,
-				CaptureFrame:  100,
-		Weapon:        "arifle_MX_F",
-		Magazine:      "30Rnd_65x39_caseless_mag",
-		FiringMode:    "Single",
-		StartPos:      core.Position3D{X: 100, Y: 100, Z: 1},
-		EndPos:        core.Position3D{X: 200, Y: 200, Z: 1},
+		SoldierID:    s.ID,
+		CaptureFrame: 100,
+		Weapon:       "arifle_MX_F",
+		Magazine:     "30Rnd_65x39_caseless_mag",
+		FiringMode:   "Single",
+		StartPos:     core.Position3D{X: 100, Y: 100, Z: 1},
+		EndPos:       core.Position3D{X: 200, Y: 200, Z: 1},
 	}
 
-	if err := b.RecordFiredEvent(fired); err != nil {
-		t.Fatalf("RecordFiredEvent failed: %v", err)
-	}
+	require.NoError(t, b.RecordFiredEvent(fired))
 
 	record := b.soldiers[s.ID]
-	if len(record.FiredEvents) != 1 {
-		t.Errorf("expected 1 fired event, got %d", len(record.FiredEvents))
-	}
-	if record.FiredEvents[0].Weapon != "arifle_MX_F" {
-		t.Error("fired event not recorded correctly")
-	}
+	assert.Len(t, record.FiredEvents, 1)
+	assert.Equal(t, "arifle_MX_F", record.FiredEvents[0].Weapon)
 
 	// Non-existent soldier
 	orphan := &core.FiredEvent{SoldierID: 999}
-	if err := b.RecordFiredEvent(orphan); err != nil {
-		t.Errorf("RecordFiredEvent should not error for missing soldier: %v", err)
-	}
+	assert.NoError(t, b.RecordFiredEvent(orphan))
 }
 
 func TestRecordGeneralEvent(t *testing.T) {
@@ -443,16 +337,10 @@ func TestRecordGeneralEvent(t *testing.T) {
 		ExtraData:    map[string]any{"playerName": "TestPlayer"},
 	}
 
-	if err := b.RecordGeneralEvent(evt); err != nil {
-		t.Fatalf("RecordGeneralEvent failed: %v", err)
-	}
+	require.NoError(t, b.RecordGeneralEvent(evt))
 
-	if len(b.generalEvents) != 1 {
-		t.Errorf("expected 1 event, got %d", len(b.generalEvents))
-	}
-	if b.generalEvents[0].Name != "connected" {
-		t.Error("event not recorded correctly")
-	}
+	assert.Len(t, b.generalEvents, 1)
+	assert.Equal(t, "connected", b.generalEvents[0].Name)
 }
 
 func TestRecordHitEvent(t *testing.T) {
@@ -468,13 +356,9 @@ func TestRecordHitEvent(t *testing.T) {
 		Distance:         150.5,
 	}
 
-	if err := b.RecordHitEvent(evt); err != nil {
-		t.Fatalf("RecordHitEvent failed: %v", err)
-	}
+	require.NoError(t, b.RecordHitEvent(evt))
 
-	if len(b.hitEvents) != 1 {
-		t.Errorf("expected 1 event, got %d", len(b.hitEvents))
-	}
+	assert.Len(t, b.hitEvents, 1)
 }
 
 func TestRecordKillEvent(t *testing.T) {
@@ -490,13 +374,9 @@ func TestRecordKillEvent(t *testing.T) {
 		Distance:        200.0,
 	}
 
-	if err := b.RecordKillEvent(evt); err != nil {
-		t.Fatalf("RecordKillEvent failed: %v", err)
-	}
+	require.NoError(t, b.RecordKillEvent(evt))
 
-	if len(b.killEvents) != 1 {
-		t.Errorf("expected 1 event, got %d", len(b.killEvents))
-	}
+	assert.Len(t, b.killEvents, 1)
 }
 
 func TestRecordChatEvent(t *testing.T) {
@@ -511,13 +391,9 @@ func TestRecordChatEvent(t *testing.T) {
 		Message:      "Hello team",
 	}
 
-	if err := b.RecordChatEvent(evt); err != nil {
-		t.Fatalf("RecordChatEvent failed: %v", err)
-	}
+	require.NoError(t, b.RecordChatEvent(evt))
 
-	if len(b.chatEvents) != 1 {
-		t.Errorf("expected 1 event, got %d", len(b.chatEvents))
-	}
+	assert.Len(t, b.chatEvents, 1)
 }
 
 func TestRecordRadioEvent(t *testing.T) {
@@ -534,13 +410,9 @@ func TestRecordRadioEvent(t *testing.T) {
 		Frequency:    152.0,
 	}
 
-	if err := b.RecordRadioEvent(evt); err != nil {
-		t.Fatalf("RecordRadioEvent failed: %v", err)
-	}
+	require.NoError(t, b.RecordRadioEvent(evt))
 
-	if len(b.radioEvents) != 1 {
-		t.Errorf("expected 1 event, got %d", len(b.radioEvents))
-	}
+	assert.Len(t, b.radioEvents, 1)
 }
 
 func TestRecordServerFpsEvent(t *testing.T) {
@@ -552,13 +424,9 @@ func TestRecordServerFpsEvent(t *testing.T) {
 		FpsMin:       30.0,
 	}
 
-	if err := b.RecordServerFpsEvent(evt); err != nil {
-		t.Fatalf("RecordServerFpsEvent failed: %v", err)
-	}
+	require.NoError(t, b.RecordServerFpsEvent(evt))
 
-	if len(b.serverFpsEvents) != 1 {
-		t.Errorf("expected 1 event, got %d", len(b.serverFpsEvents))
-	}
+	assert.Len(t, b.serverFpsEvents, 1)
 }
 
 func TestRecordTimeState(t *testing.T) {
@@ -575,19 +443,11 @@ func TestRecordTimeState(t *testing.T) {
 		MissionTime:    3600.5,
 	}
 
-	if err := b.RecordTimeState(state); err != nil {
-		t.Fatalf("RecordTimeState failed: %v", err)
-	}
+	require.NoError(t, b.RecordTimeState(state))
 
-	if len(b.timeStates) != 1 {
-		t.Errorf("expected 1 state, got %d", len(b.timeStates))
-	}
-	if b.timeStates[0].CaptureFrame != 100 {
-		t.Errorf("expected CaptureFrame=100, got %d", b.timeStates[0].CaptureFrame)
-	}
-	if b.timeStates[0].TimeMultiplier != 2.0 {
-		t.Errorf("expected TimeMultiplier=2.0, got %f", b.timeStates[0].TimeMultiplier)
-	}
+	assert.Len(t, b.timeStates, 1)
+	assert.Equal(t, uint(100), b.timeStates[0].CaptureFrame)
+	assert.Equal(t, float32(2.0), b.timeStates[0].TimeMultiplier)
 }
 
 func TestRecordAce3DeathEvent(t *testing.T) {
@@ -601,13 +461,9 @@ func TestRecordAce3DeathEvent(t *testing.T) {
 		LastDamageSourceID: &damageSource,
 	}
 
-	if err := b.RecordAce3DeathEvent(evt); err != nil {
-		t.Fatalf("RecordAce3DeathEvent failed: %v", err)
-	}
+	require.NoError(t, b.RecordAce3DeathEvent(evt))
 
-	if len(b.ace3DeathEvents) != 1 {
-		t.Errorf("expected 1 event, got %d", len(b.ace3DeathEvents))
-	}
+	assert.Len(t, b.ace3DeathEvents, 1)
 }
 
 func TestRecordAce3UnconsciousEvent(t *testing.T) {
@@ -619,13 +475,9 @@ func TestRecordAce3UnconsciousEvent(t *testing.T) {
 		IsUnconscious: true,
 	}
 
-	if err := b.RecordAce3UnconsciousEvent(evt); err != nil {
-		t.Fatalf("RecordAce3UnconsciousEvent failed: %v", err)
-	}
+	require.NoError(t, b.RecordAce3UnconsciousEvent(evt))
 
-	if len(b.ace3UnconsciousEvents) != 1 {
-		t.Errorf("expected 1 event, got %d", len(b.ace3UnconsciousEvents))
-	}
+	assert.Len(t, b.ace3UnconsciousEvents, 1)
 }
 
 func TestConcurrentAccess(t *testing.T) {
@@ -664,9 +516,7 @@ func TestConcurrentAccess(t *testing.T) {
 
 	// Verify all soldiers were added
 	expectedCount := numGoroutines * numOperationsPerGoroutine
-	if len(b.soldiers) != expectedCount {
-		t.Errorf("expected %d soldiers, got %d", expectedCount, len(b.soldiers))
-	}
+	assert.Equal(t, expectedCount, len(b.soldiers))
 }
 
 func TestIDsPreserved(t *testing.T) {
@@ -682,16 +532,10 @@ func TestIDsPreserved(t *testing.T) {
 	_ = b.AddMarker(m)
 
 	// IDs should be preserved as set
-	if s.ID != 1 {
-		t.Errorf("expected soldier ID=1, got %d", s.ID)
-	}
-	if v.ID != 10 {
-		t.Errorf("expected vehicle ID=10, got %d", v.ID)
-	}
+	assert.Equal(t, uint16(1), s.ID)
+	assert.Equal(t, uint16(10), v.ID)
 	// Markers are keyed by name, not ID
-	if b.markers["test"] == nil {
-		t.Error("marker not stored")
-	}
+	assert.NotNil(t, b.markers["test"])
 }
 
 func TestStartMissionResetsEverything(t *testing.T) {
@@ -716,42 +560,18 @@ func TestStartMissionResetsEverything(t *testing.T) {
 	world := &core.World{WorldName: "Stratis"}
 	_ = b.StartMission(mission, world)
 
-	if len(b.soldiers) != 0 {
-		t.Error("soldiers not reset")
-	}
-	if len(b.vehicles) != 0 {
-		t.Error("vehicles not reset")
-	}
-	if len(b.markers) != 0 {
-		t.Error("markers not reset")
-	}
-	if len(b.generalEvents) != 0 {
-		t.Error("generalEvents not reset")
-	}
-	if len(b.hitEvents) != 0 {
-		t.Error("hitEvents not reset")
-	}
-	if len(b.killEvents) != 0 {
-		t.Error("killEvents not reset")
-	}
-	if len(b.chatEvents) != 0 {
-		t.Error("chatEvents not reset")
-	}
-	if len(b.radioEvents) != 0 {
-		t.Error("radioEvents not reset")
-	}
-	if len(b.serverFpsEvents) != 0 {
-		t.Error("serverFpsEvents not reset")
-	}
-	if len(b.timeStates) != 0 {
-		t.Error("timeStates not reset")
-	}
-	if len(b.ace3DeathEvents) != 0 {
-		t.Error("ace3DeathEvents not reset")
-	}
-	if len(b.ace3UnconsciousEvents) != 0 {
-		t.Error("ace3UnconsciousEvents not reset")
-	}
+	assert.Len(t, b.soldiers, 0)
+	assert.Len(t, b.vehicles, 0)
+	assert.Len(t, b.markers, 0)
+	assert.Len(t, b.generalEvents, 0)
+	assert.Len(t, b.hitEvents, 0)
+	assert.Len(t, b.killEvents, 0)
+	assert.Len(t, b.chatEvents, 0)
+	assert.Len(t, b.radioEvents, 0)
+	assert.Len(t, b.serverFpsEvents, 0)
+	assert.Len(t, b.timeStates, 0)
+	assert.Len(t, b.ace3DeathEvents, 0)
+	assert.Len(t, b.ace3UnconsciousEvents, 0)
 }
 
 func TestGetExportedFilePath(t *testing.T) {
@@ -761,9 +581,7 @@ func TestGetExportedFilePath(t *testing.T) {
 	})
 
 	// Before export, should return empty
-	if path := b.GetExportedFilePath(); path != "" {
-		t.Errorf("expected empty path before export, got %s", path)
-	}
+	assert.Empty(t, b.GetExportedFilePath())
 }
 
 func TestGetExportedFilePath_AfterExport(t *testing.T) {
@@ -783,15 +601,9 @@ func TestGetExportedFilePath_AfterExport(t *testing.T) {
 	_ = b.EndMission()
 
 	path := b.GetExportedFilePath()
-	if path == "" {
-		t.Fatal("expected non-empty path after export")
-	}
-	if !strings.HasPrefix(path, tmpDir) {
-		t.Errorf("expected path to start with %s, got %s", tmpDir, path)
-	}
-	if !strings.HasSuffix(path, ".json.gz") {
-		t.Errorf("expected path to end with .json.gz, got %s", path)
-	}
+	require.NotEmpty(t, path)
+	assert.True(t, strings.HasPrefix(path, tmpDir), "expected path to start with tmpDir")
+	assert.True(t, strings.HasSuffix(path, ".json.gz"), "expected path to end with .json.gz")
 }
 
 func TestGetExportedFilePath_UncompressedExport(t *testing.T) {
@@ -811,15 +623,9 @@ func TestGetExportedFilePath_UncompressedExport(t *testing.T) {
 	_ = b.EndMission()
 
 	path := b.GetExportedFilePath()
-	if path == "" {
-		t.Fatal("expected non-empty path after export")
-	}
-	if !strings.HasSuffix(path, ".json") {
-		t.Errorf("expected path to end with .json, got %s", path)
-	}
-	if strings.HasSuffix(path, ".json.gz") {
-		t.Errorf("expected path to NOT end with .json.gz for uncompressed, got %s", path)
-	}
+	require.NotEmpty(t, path)
+	assert.True(t, strings.HasSuffix(path, ".json"), "expected path to end with .json")
+	assert.False(t, strings.HasSuffix(path, ".json.gz"), "expected path to NOT end with .json.gz for uncompressed")
 }
 
 func TestGetExportMetadata(t *testing.T) {
@@ -840,25 +646,17 @@ func TestGetExportMetadata(t *testing.T) {
 	s := &core.Soldier{ID: 1}
 	_ = b.AddSoldier(s)
 	_ = b.RecordSoldierState(&core.SoldierState{
-		SoldierID:     s.ID,
-				CaptureFrame:  100,
+		SoldierID:    s.ID,
+		CaptureFrame: 100,
 	})
 
 	meta := b.GetExportMetadata()
 
-	if meta.WorldName != "Altis" {
-		t.Errorf("expected WorldName=Altis, got %s", meta.WorldName)
-	}
-	if meta.MissionName != "Test Mission" {
-		t.Errorf("expected MissionName=Test Mission, got %s", meta.MissionName)
-	}
-	if meta.Tag != "TvT" {
-		t.Errorf("expected Tag=TvT, got %s", meta.Tag)
-	}
+	assert.Equal(t, "Altis", meta.WorldName)
+	assert.Equal(t, "Test Mission", meta.MissionName)
+	assert.Equal(t, "TvT", meta.Tag)
 	// Duration = endFrame * captureDelay / 1000 = 100 * 1.0 / 1000 = 0.1
-	if meta.MissionDuration != 0.1 {
-		t.Errorf("expected MissionDuration=0.1, got %f", meta.MissionDuration)
-	}
+	assert.Equal(t, 0.1, meta.MissionDuration)
 }
 
 func TestGetExportMetadata_VehicleEndFrame(t *testing.T) {
@@ -877,24 +675,22 @@ func TestGetExportMetadata_VehicleEndFrame(t *testing.T) {
 	s := &core.Soldier{ID: 1}
 	_ = b.AddSoldier(s)
 	_ = b.RecordSoldierState(&core.SoldierState{
-		SoldierID:     s.ID,
-				CaptureFrame:  50,
+		SoldierID:    s.ID,
+		CaptureFrame: 50,
 	})
 
 	// Add vehicle with higher frame - this should determine endFrame
 	v := &core.Vehicle{ID: 10}
 	_ = b.AddVehicle(v)
 	_ = b.RecordVehicleState(&core.VehicleState{
-		VehicleID:     v.ID,
-				CaptureFrame:  200,
+		VehicleID:    v.ID,
+		CaptureFrame: 200,
 	})
 
 	meta := b.GetExportMetadata()
 
 	// Duration should be based on vehicle's higher frame: 200 * 1.0 / 1000 = 0.2
-	if meta.MissionDuration != 0.2 {
-		t.Errorf("expected MissionDuration=0.2 (from vehicle frame 200), got %f", meta.MissionDuration)
-	}
+	assert.Equal(t, 0.2, meta.MissionDuration)
 }
 
 func TestGetExportMetadata_EmptyMission(t *testing.T) {
@@ -913,16 +709,10 @@ func TestGetExportMetadata_EmptyMission(t *testing.T) {
 
 	meta := b.GetExportMetadata()
 
-	if meta.WorldName != "VR" {
-		t.Errorf("expected WorldName=VR, got %s", meta.WorldName)
-	}
-	if meta.MissionName != "Empty Mission" {
-		t.Errorf("expected MissionName=Empty Mission, got %s", meta.MissionName)
-	}
+	assert.Equal(t, "VR", meta.WorldName)
+	assert.Equal(t, "Empty Mission", meta.MissionName)
 	// Duration should be 0 with no frames
-	if meta.MissionDuration != 0 {
-		t.Errorf("expected MissionDuration=0, got %f", meta.MissionDuration)
-	}
+	assert.Equal(t, 0.0, meta.MissionDuration)
 }
 
 func TestStartMissionResetsExportPath(t *testing.T) {
@@ -941,16 +731,12 @@ func TestStartMissionResetsExportPath(t *testing.T) {
 	_ = b.EndMission()
 
 	firstPath := b.GetExportedFilePath()
-	if firstPath == "" {
-		t.Fatal("expected non-empty path after export")
-	}
+	require.NotEmpty(t, firstPath)
 
 	// Start new mission - should reset path
 	_ = b.StartMission(&core.Mission{MissionName: "Second", StartTime: time.Now()}, world)
 
-	if path := b.GetExportedFilePath(); path != "" {
-		t.Errorf("expected empty path after StartMission, got %s", path)
-	}
+	assert.Empty(t, b.GetExportedFilePath())
 }
 
 func TestEndMissionWithoutStartMission(t *testing.T) {
@@ -958,12 +744,8 @@ func TestEndMissionWithoutStartMission(t *testing.T) {
 
 	// EndMission without StartMission should return an error, not panic
 	err := b.EndMission()
-	if err == nil {
-		t.Error("expected error when ending mission that was never started")
-	}
-	if !strings.Contains(err.Error(), "no mission to end") {
-		t.Errorf("expected error message to contain 'no mission to end', got: %s", err.Error())
-	}
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "no mission to end")
 }
 
 func TestGetExportMetadataWithoutStartMission(t *testing.T) {
@@ -972,16 +754,8 @@ func TestGetExportMetadataWithoutStartMission(t *testing.T) {
 	// GetExportMetadata without StartMission should return empty metadata, not panic
 	meta := b.GetExportMetadata()
 
-	if meta.WorldName != "" {
-		t.Errorf("expected empty WorldName, got %s", meta.WorldName)
-	}
-	if meta.MissionName != "" {
-		t.Errorf("expected empty MissionName, got %s", meta.MissionName)
-	}
-	if meta.Tag != "" {
-		t.Errorf("expected empty Tag, got %s", meta.Tag)
-	}
-	if meta.MissionDuration != 0 {
-		t.Errorf("expected MissionDuration=0, got %f", meta.MissionDuration)
-	}
+	assert.Empty(t, meta.WorldName)
+	assert.Empty(t, meta.MissionName)
+	assert.Empty(t, meta.Tag)
+	assert.Equal(t, 0.0, meta.MissionDuration)
 }

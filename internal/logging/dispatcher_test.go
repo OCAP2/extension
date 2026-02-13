@@ -5,15 +5,16 @@ import (
 	"encoding/json"
 	"log/slog"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewDispatcherLogger(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil))
 	dl := NewDispatcherLogger(logger)
 
-	if dl == nil {
-		t.Fatal("expected non-nil DispatcherLogger")
-	}
+	require.NotNil(t, dl)
 }
 
 func TestDispatcherLogger_Debug(t *testing.T) {
@@ -24,22 +25,12 @@ func TestDispatcherLogger_Debug(t *testing.T) {
 	dl.Debug("test message", "key1", "value1", "key2", 42)
 
 	var logEntry map[string]any
-	if err := json.Unmarshal(buf.Bytes(), &logEntry); err != nil {
-		t.Fatalf("failed to parse log output: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &logEntry))
 
-	if logEntry["level"] != "DEBUG" {
-		t.Errorf("expected level 'DEBUG', got %v", logEntry["level"])
-	}
-	if logEntry["msg"] != "test message" {
-		t.Errorf("expected msg 'test message', got %v", logEntry["msg"])
-	}
-	if logEntry["key1"] != "value1" {
-		t.Errorf("expected key1='value1', got %v", logEntry["key1"])
-	}
-	if logEntry["key2"] != float64(42) { // JSON numbers are float64
-		t.Errorf("expected key2=42, got %v", logEntry["key2"])
-	}
+	assert.Equal(t, "DEBUG", logEntry["level"])
+	assert.Equal(t, "test message", logEntry["msg"])
+	assert.Equal(t, "value1", logEntry["key1"])
+	assert.Equal(t, float64(42), logEntry["key2"])
 }
 
 func TestDispatcherLogger_Info(t *testing.T) {
@@ -50,19 +41,11 @@ func TestDispatcherLogger_Info(t *testing.T) {
 	dl.Info("info message", "status", "ok")
 
 	var logEntry map[string]any
-	if err := json.Unmarshal(buf.Bytes(), &logEntry); err != nil {
-		t.Fatalf("failed to parse log output: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &logEntry))
 
-	if logEntry["level"] != "INFO" {
-		t.Errorf("expected level 'INFO', got %v", logEntry["level"])
-	}
-	if logEntry["msg"] != "info message" {
-		t.Errorf("expected msg 'info message', got %v", logEntry["msg"])
-	}
-	if logEntry["status"] != "ok" {
-		t.Errorf("expected status='ok', got %v", logEntry["status"])
-	}
+	assert.Equal(t, "INFO", logEntry["level"])
+	assert.Equal(t, "info message", logEntry["msg"])
+	assert.Equal(t, "ok", logEntry["status"])
 }
 
 func TestDispatcherLogger_Error(t *testing.T) {
@@ -73,22 +56,12 @@ func TestDispatcherLogger_Error(t *testing.T) {
 	dl.Error("error occurred", "code", 500, "reason", "internal")
 
 	var logEntry map[string]any
-	if err := json.Unmarshal(buf.Bytes(), &logEntry); err != nil {
-		t.Fatalf("failed to parse log output: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &logEntry))
 
-	if logEntry["level"] != "ERROR" {
-		t.Errorf("expected level 'ERROR', got %v", logEntry["level"])
-	}
-	if logEntry["msg"] != "error occurred" {
-		t.Errorf("expected msg 'error occurred', got %v", logEntry["msg"])
-	}
-	if logEntry["code"] != float64(500) {
-		t.Errorf("expected code=500, got %v", logEntry["code"])
-	}
-	if logEntry["reason"] != "internal" {
-		t.Errorf("expected reason='internal', got %v", logEntry["reason"])
-	}
+	assert.Equal(t, "ERROR", logEntry["level"])
+	assert.Equal(t, "error occurred", logEntry["msg"])
+	assert.Equal(t, float64(500), logEntry["code"])
+	assert.Equal(t, "internal", logEntry["reason"])
 }
 
 func TestDispatcherLogger_NoKeyValues(t *testing.T) {
@@ -99,23 +72,16 @@ func TestDispatcherLogger_NoKeyValues(t *testing.T) {
 	dl.Debug("simple message")
 
 	var logEntry map[string]any
-	if err := json.Unmarshal(buf.Bytes(), &logEntry); err != nil {
-		t.Fatalf("failed to parse log output: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &logEntry))
 
-	if logEntry["msg"] != "simple message" {
-		t.Errorf("expected msg 'simple message', got %v", logEntry["msg"])
-	}
+	assert.Equal(t, "simple message", logEntry["msg"])
 }
 
 func TestDispatcherLogger_ImplementsInterface(t *testing.T) {
-	// Verify DispatcherLogger satisfies the dispatcher.Logger interface
-	// by ensuring the methods exist with correct signatures
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&buf, nil))
 	dl := NewDispatcherLogger(logger)
 
-	// These calls would fail to compile if the interface isn't satisfied
 	var _ interface {
 		Debug(msg string, keysAndValues ...any)
 		Info(msg string, keysAndValues ...any)

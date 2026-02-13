@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/OCAP2/extension/v5/internal/storage"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestUploadMetadataFields(t *testing.T) {
@@ -15,16 +16,8 @@ func TestUploadMetadataFields(t *testing.T) {
 		Tag:             "TvT",
 	}
 
-	if meta.WorldName != "Altis" {
-		t.Errorf("expected WorldName=Altis, got %s", meta.WorldName)
-	}
-	if meta.MissionName != "Test Mission" {
-		t.Errorf("expected MissionName=Test Mission, got %s", meta.MissionName)
-	}
-	if meta.MissionDuration != 3600.5 {
-		t.Errorf("expected MissionDuration=3600.5, got %f", meta.MissionDuration)
-	}
-	if meta.Tag != "TvT" {
-		t.Errorf("expected Tag=TvT, got %s", meta.Tag)
-	}
+	assert.Equal(t, "Altis", meta.WorldName)
+	assert.Equal(t, "Test Mission", meta.MissionName)
+	assert.Equal(t, 3600.5, meta.MissionDuration)
+	assert.Equal(t, "TvT", meta.Tag)
 }

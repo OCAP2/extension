@@ -8,6 +8,8 @@ import (
 	"github.com/OCAP2/extension/v5/internal/model"
 	"github.com/OCAP2/extension/v5/internal/model/core"
 	"github.com/OCAP2/extension/v5/internal/storage"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // mockBackend implements storage.Backend for testing
@@ -78,13 +80,8 @@ func newTestService() *Service {
 func TestNewService_NilDB(t *testing.T) {
 	svc := newTestService()
 
-	if svc == nil {
-		t.Fatal("expected service to be created")
-	}
-
-	if svc.deps.DB != nil {
-		t.Error("expected DB to be nil")
-	}
+	require.NotNil(t, svc)
+	assert.Nil(t, svc.deps.DB)
 }
 
 func TestSetBackend(t *testing.T) {
@@ -93,9 +90,7 @@ func TestSetBackend(t *testing.T) {
 	backend := &mockBackend{}
 	svc.SetBackend(backend)
 
-	if svc.backend == nil {
-		t.Error("expected backend to be set")
-	}
+	assert.NotNil(t, svc.backend)
 }
 
 func TestLogNewMission_MemoryOnlyMode(t *testing.T) {
@@ -121,33 +116,19 @@ func TestLogNewMission_MemoryOnlyMode(t *testing.T) {
 
 	err := svc.LogNewMission([]string{worldData, missionData})
 
-	if err != nil {
-		t.Fatalf("LogNewMission failed in memory-only mode: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Verify mission context was set
 	mission := svc.ctx.GetMission()
-	if mission.MissionName != "Test Mission" {
-		t.Errorf("expected mission name 'Test Mission', got '%s'", mission.MissionName)
-	}
+	assert.Equal(t, "Test Mission", mission.MissionName)
 
 	world := svc.ctx.GetWorld()
-	if world.WorldName != "Altis" {
-		t.Errorf("expected world name 'Altis', got '%s'", world.WorldName)
-	}
+	assert.Equal(t, "Altis", world.WorldName)
 
 	// Verify backend was called
-	if !backend.missionStarted {
-		t.Error("expected backend.StartMission to be called")
-	}
-
-	if backend.startedMission == nil {
-		t.Error("expected mission to be passed to backend")
-	}
-
-	if backend.startedWorld == nil {
-		t.Error("expected world to be passed to backend")
-	}
+	assert.True(t, backend.missionStarted, "expected backend.StartMission to be called")
+	assert.NotNil(t, backend.startedMission, "expected mission to be passed to backend")
+	assert.NotNil(t, backend.startedWorld, "expected world to be passed to backend")
 }
 
 func TestLogNewMission_MemoryOnlyMode_NoBackend(t *testing.T) {
@@ -172,15 +153,11 @@ func TestLogNewMission_MemoryOnlyMode_NoBackend(t *testing.T) {
 
 	err := svc.LogNewMission([]string{worldData, missionData})
 
-	if err != nil {
-		t.Fatalf("LogNewMission failed without backend: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Verify mission context was still set
 	mission := svc.ctx.GetMission()
-	if mission.MissionName != "No Backend Mission" {
-		t.Errorf("expected mission name 'No Backend Mission', got '%s'", mission.MissionName)
-	}
+	assert.Equal(t, "No Backend Mission", mission.MissionName)
 }
 
 func TestLogNewMission_AddonsWithoutDB(t *testing.T) {
@@ -204,15 +181,11 @@ func TestLogNewMission_AddonsWithoutDB(t *testing.T) {
 
 	err := svc.LogNewMission([]string{worldData, missionData})
 
-	if err != nil {
-		t.Fatalf("LogNewMission with addons failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Verify addons were processed (even without DB)
 	mission := svc.ctx.GetMission()
-	if len(mission.Addons) != 3 {
-		t.Errorf("expected 3 addons, got %d", len(mission.Addons))
-	}
+	assert.Len(t, mission.Addons, 3)
 }
 
 func TestLogVehicleState_CrewPreservesBrackets(t *testing.T) {
@@ -260,13 +233,9 @@ func TestLogVehicleState_CrewPreservesBrackets(t *testing.T) {
 			}
 
 			state, err := svc.LogVehicleState(data)
-			if err != nil {
-				t.Fatalf("LogVehicleState failed: %v", err)
-			}
+			require.NoError(t, err)
 
-			if state.Crew != tt.expectedCrew {
-				t.Errorf("expected Crew=%q, got %q", tt.expectedCrew, state.Crew)
-			}
+			assert.Equal(t, tt.expectedCrew, state.Crew)
 		})
 	}
 }
@@ -276,12 +245,8 @@ func TestMissionContext_ThreadSafe(t *testing.T) {
 
 	// Should have default values
 	mission := ctx.GetMission()
-	if mission.MissionName != "No mission loaded" {
-		t.Errorf("expected default mission name, got '%s'", mission.MissionName)
-	}
+	assert.Equal(t, "No mission loaded", mission.MissionName)
 
 	world := ctx.GetWorld()
-	if world.WorldName != "No world loaded" {
-		t.Errorf("expected default world name, got '%s'", world.WorldName)
-	}
+	assert.Equal(t, "No world loaded", world.WorldName)
 }

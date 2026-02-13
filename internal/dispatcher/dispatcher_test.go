@@ -6,6 +6,9 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // testLogger implements Logger for testing
@@ -36,9 +39,7 @@ func newTestDispatcher(t *testing.T) (*Dispatcher, *testLogger) {
 	logger := &testLogger{}
 
 	d, err := New(logger)
-	if err != nil {
-		t.Fatalf("failed to create dispatcher: %v", err)
-	}
+	require.NoError(t, err, "failed to create dispatcher")
 
 	return d, logger
 }
@@ -54,15 +55,9 @@ func TestDispatcher_SyncHandler(t *testing.T) {
 
 	result, err := d.Dispatch(Event{Command: ":TEST:", Args: []string{"arg1"}})
 
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-	if !called {
-		t.Error("handler was not called")
-	}
-	if result != "result" {
-		t.Errorf("expected 'result', got %v", result)
-	}
+	assert.NoError(t, err)
+	assert.True(t, called, "handler was not called")
+	assert.Equal(t, "result", result)
 }
 
 func TestDispatcher_UnknownCommand(t *testing.T) {
@@ -70,9 +65,7 @@ func TestDispatcher_UnknownCommand(t *testing.T) {
 
 	_, err := d.Dispatch(Event{Command: ":UNKNOWN:"})
 
-	if err == nil {
-		t.Error("expected error for unknown command")
-	}
+	assert.Error(t, err)
 }
 
 func TestDispatcher_BufferedHandler(t *testing.T) {
@@ -91,20 +84,14 @@ func TestDispatcher_BufferedHandler(t *testing.T) {
 	// Dispatch 3 events
 	for i := 0; i < 3; i++ {
 		result, err := d.Dispatch(Event{Command: ":BUFFERED:"})
-		if err != nil {
-			t.Errorf("unexpected error: %v", err)
-		}
-		if result != "queued" {
-			t.Errorf("expected 'queued', got %v", result)
-		}
+		assert.NoError(t, err)
+		assert.Equal(t, "queued", result)
 	}
 
 	// Wait for processing
 	wg.Wait()
 
-	if processed.Load() != 3 {
-		t.Errorf("expected 3 processed, got %d", processed.Load())
-	}
+	assert.Equal(t, int32(3), processed.Load())
 }
 
 func TestDispatcher_BufferedDropsWhenFull(t *testing.T) {
@@ -125,9 +112,7 @@ func TestDispatcher_BufferedDropsWhenFull(t *testing.T) {
 	// This should be dropped
 	_, err := d.Dispatch(Event{Command: ":FULL:"})
 
-	if err == nil {
-		t.Error("expected error when queue is full")
-	}
+	assert.Error(t, err)
 
 	close(block)
 }
@@ -178,9 +163,7 @@ func TestDispatcher_LoggedHandler(t *testing.T) {
 	logger.mu.Lock()
 	defer logger.mu.Unlock()
 
-	if len(logger.messages) < 2 {
-		t.Errorf("expected at least 2 log messages, got %d", len(logger.messages))
-	}
+	assert.GreaterOrEqual(t, len(logger.messages), 2)
 }
 
 func TestDispatcher_LoggedHandlerError(t *testing.T) {
@@ -203,9 +186,7 @@ func TestDispatcher_LoggedHandlerError(t *testing.T) {
 		}
 	}
 
-	if !hasError {
-		t.Error("expected error log message")
-	}
+	assert.True(t, hasError, "expected error log message")
 }
 
 func TestDispatcher_HasHandler(t *testing.T) {
@@ -213,13 +194,8 @@ func TestDispatcher_HasHandler(t *testing.T) {
 
 	d.Register(":EXISTS:", func(e Event) (any, error) { return nil, nil })
 
-	if !d.HasHandler(":EXISTS:") {
-		t.Error("expected handler to exist")
-	}
-
-	if d.HasHandler(":NOT_EXISTS:") {
-		t.Error("expected handler to not exist")
-	}
+	assert.True(t, d.HasHandler(":EXISTS:"), "expected handler to exist")
+	assert.False(t, d.HasHandler(":NOT_EXISTS:"), "expected handler to not exist")
 }
 
 func TestDispatcher_CombinedOptions(t *testing.T) {
@@ -237,25 +213,17 @@ func TestDispatcher_CombinedOptions(t *testing.T) {
 
 	result, err := d.Dispatch(Event{Command: ":COMBINED:"})
 
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-	if result != "queued" {
-		t.Errorf("expected 'queued', got %v", result)
-	}
+	assert.NoError(t, err)
+	assert.Equal(t, "queued", result)
 
 	wg.Wait()
 
-	if processed.Load() != 1 {
-		t.Errorf("expected 1 processed, got %d", processed.Load())
-	}
+	assert.Equal(t, int32(1), processed.Load())
 
 	logger.mu.Lock()
 	defer logger.mu.Unlock()
 
-	if len(logger.messages) < 2 {
-		t.Errorf("expected log messages, got %d", len(logger.messages))
-	}
+	assert.GreaterOrEqual(t, len(logger.messages), 2)
 }
 
 func TestDispatcher_GatedHandler(t *testing.T) {
@@ -275,19 +243,13 @@ func TestDispatcher_GatedHandler(t *testing.T) {
 	// Dispatch events before gate opens
 	for i := 0; i < 3; i++ {
 		result, err := d.Dispatch(Event{Command: ":GATED:"})
-		if err != nil {
-			t.Errorf("unexpected error: %v", err)
-		}
-		if result != "queued" {
-			t.Errorf("expected 'queued', got %v", result)
-		}
+		assert.NoError(t, err)
+		assert.Equal(t, "queued", result)
 	}
 
 	// Verify nothing processed yet
 	time.Sleep(50 * time.Millisecond)
-	if processed.Load() != 0 {
-		t.Errorf("expected 0 processed before gate opens, got %d", processed.Load())
-	}
+	assert.Equal(t, int32(0), processed.Load())
 
 	// Open the gate
 	close(ready)
@@ -295,9 +257,7 @@ func TestDispatcher_GatedHandler(t *testing.T) {
 	// Wait for processing
 	wg.Wait()
 
-	if processed.Load() != 3 {
-		t.Errorf("expected 3 processed after gate opens, got %d", processed.Load())
-	}
+	assert.Equal(t, int32(3), processed.Load())
 }
 
 func TestDispatcher_GatedHandlerProcessesInOrder(t *testing.T) {
@@ -329,12 +289,8 @@ func TestDispatcher_GatedHandlerProcessesInOrder(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	if len(order) != 3 {
-		t.Fatalf("expected 3 items, got %d", len(order))
-	}
-	if order[0] != "first" || order[1] != "second" || order[2] != "third" {
-		t.Errorf("expected [first, second, third], got %v", order)
-	}
+	require.Len(t, order, 3)
+	assert.Equal(t, []string{"first", "second", "third"}, order)
 }
 
 func TestDispatcher_GatedWithBlocking(t *testing.T) {
@@ -373,9 +329,7 @@ func TestDispatcher_GatedWithBlocking(t *testing.T) {
 	close(ready)
 	wg.Wait()
 
-	if processed.Load() != 2 {
-		t.Errorf("expected 2 processed, got %d", processed.Load())
-	}
+	assert.Equal(t, int32(2), processed.Load())
 }
 
 func TestDispatcher_ConcurrentRegisterAndDispatch(t *testing.T) {
@@ -443,7 +397,5 @@ func TestDispatcher_GatedLogsWhenOpened(t *testing.T) {
 		}
 	}
 
-	if !found {
-		t.Error("expected INFO log when gate opens")
-	}
+	assert.True(t, found, "expected INFO log when gate opens")
 }

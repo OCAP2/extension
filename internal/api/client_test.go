@@ -7,54 +7,40 @@ import (
 	"testing"
 
 	"github.com/OCAP2/extension/v5/internal/storage"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNew(t *testing.T) {
 	c := New("http://localhost:5000", "secret123")
 
-	if c == nil {
-		t.Fatal("New returned nil")
-	}
-	if c.baseURL != "http://localhost:5000" {
-		t.Errorf("expected baseURL=http://localhost:5000, got %s", c.baseURL)
-	}
-	if c.apiKey != "secret123" {
-		t.Errorf("expected apiKey=secret123, got %s", c.apiKey)
-	}
-	if c.httpClient == nil {
-		t.Error("httpClient is nil")
-	}
+	require.NotNil(t, c)
+	assert.Equal(t, "http://localhost:5000", c.baseURL)
+	assert.Equal(t, "secret123", c.apiKey)
+	assert.NotNil(t, c.httpClient)
 }
 
 func TestNew_TrimsTrailingSlash(t *testing.T) {
 	c := New("http://localhost:5000/", "secret")
-	if c.baseURL != "http://localhost:5000" {
-		t.Errorf("expected trailing slash trimmed, got %s", c.baseURL)
-	}
+	assert.Equal(t, "http://localhost:5000", c.baseURL)
 }
 
 func TestHealthcheck_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/healthcheck" {
-			t.Errorf("expected path /healthcheck, got %s", r.URL.Path)
-		}
+		assert.Equal(t, "/healthcheck", r.URL.Path)
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
 
 	c := New(server.URL, "")
 	err := c.Healthcheck()
-	if err != nil {
-		t.Errorf("Healthcheck failed: %v", err)
-	}
+	assert.NoError(t, err)
 }
 
 func TestHealthcheck_ServerDown(t *testing.T) {
-	c := New("http://localhost:59999", "") // unlikely to be listening
+	c := New("http://localhost:59999", "")
 	err := c.Healthcheck()
-	if err == nil {
-		t.Error("expected error for unreachable server")
-	}
+	assert.Error(t, err)
 }
 
 func TestHealthcheck_ServerError(t *testing.T) {
@@ -65,9 +51,7 @@ func TestHealthcheck_ServerError(t *testing.T) {
 
 	c := New(server.URL, "")
 	err := c.Healthcheck()
-	if err == nil {
-		t.Error("expected error for 500 response")
-	}
+	assert.Error(t, err)
 }
 
 func TestUpload_Success(t *testing.T) {
@@ -77,17 +61,11 @@ func TestUpload_Success(t *testing.T) {
 	var receivedFileContent []byte
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/operations/add" {
-			t.Errorf("expected path /api/v1/operations/add, got %s", r.URL.Path)
-		}
-		if r.Method != http.MethodPost {
-			t.Errorf("expected POST, got %s", r.Method)
-		}
+		assert.Equal(t, "/api/v1/operations/add", r.URL.Path)
+		assert.Equal(t, http.MethodPost, r.Method)
 
 		err := r.ParseMultipartForm(10 << 20)
-		if err != nil {
-			t.Fatalf("failed to parse multipart form: %v", err)
-		}
+		require.NoError(t, err)
 
 		receivedSecret = r.FormValue("secret")
 		receivedFilename = r.FormValue("filename")
@@ -97,9 +75,7 @@ func TestUpload_Success(t *testing.T) {
 		receivedTag = r.FormValue("tag")
 
 		file, _, err := r.FormFile("file")
-		if err != nil {
-			t.Fatalf("failed to get file: %v", err)
-		}
+		require.NoError(t, err)
 		defer file.Close()
 
 		receivedFileContent = make([]byte, 1024)
@@ -110,12 +86,10 @@ func TestUpload_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Create temp file
 	tmpDir := t.TempDir()
 	testFile := tmpDir + "/test_mission.json.gz"
-	if err := writeTestFile(testFile, []byte("test content")); err != nil {
-		t.Fatalf("failed to create test file: %v", err)
-	}
+	err := writeTestFile(testFile, []byte("test content"))
+	require.NoError(t, err)
 
 	c := New(server.URL, "mysecret")
 	meta := storage.UploadMetadata{
@@ -125,40 +99,22 @@ func TestUpload_Success(t *testing.T) {
 		Tag:             "TvT",
 	}
 
-	err := c.Upload(testFile, meta)
-	if err != nil {
-		t.Fatalf("Upload failed: %v", err)
-	}
+	err = c.Upload(testFile, meta)
+	require.NoError(t, err)
 
-	if receivedSecret != "mysecret" {
-		t.Errorf("expected secret=mysecret, got %s", receivedSecret)
-	}
-	if receivedFilename != "test_mission.json.gz" {
-		t.Errorf("expected filename=test_mission.json.gz, got %s", receivedFilename)
-	}
-	if receivedWorldName != "Altis" {
-		t.Errorf("expected worldName=Altis, got %s", receivedWorldName)
-	}
-	if receivedMissionName != "Test Mission" {
-		t.Errorf("expected missionName=Test Mission, got %s", receivedMissionName)
-	}
-	if receivedDuration != "3600.500000" {
-		t.Errorf("expected missionDuration=3600.500000, got %s", receivedDuration)
-	}
-	if receivedTag != "TvT" {
-		t.Errorf("expected tag=TvT, got %s", receivedTag)
-	}
-	if string(receivedFileContent) != "test content" {
-		t.Errorf("expected file content 'test content', got '%s'", string(receivedFileContent))
-	}
+	assert.Equal(t, "mysecret", receivedSecret)
+	assert.Equal(t, "test_mission.json.gz", receivedFilename)
+	assert.Equal(t, "Altis", receivedWorldName)
+	assert.Equal(t, "Test Mission", receivedMissionName)
+	assert.Equal(t, "3600.500000", receivedDuration)
+	assert.Equal(t, "TvT", receivedTag)
+	assert.Equal(t, "test content", string(receivedFileContent))
 }
 
 func TestUpload_FileNotFound(t *testing.T) {
 	c := New("http://localhost:5000", "secret")
 	err := c.Upload("/nonexistent/file.json.gz", storage.UploadMetadata{})
-	if err == nil {
-		t.Error("expected error for missing file")
-	}
+	assert.Error(t, err)
 }
 
 func TestUpload_ServerError(t *testing.T) {
@@ -173,9 +129,7 @@ func TestUpload_ServerError(t *testing.T) {
 
 	c := New(server.URL, "wrong-secret")
 	err := c.Upload(testFile, storage.UploadMetadata{})
-	if err == nil {
-		t.Error("expected error for 403 response")
-	}
+	assert.Error(t, err)
 }
 
 func writeTestFile(path string, content []byte) error {
