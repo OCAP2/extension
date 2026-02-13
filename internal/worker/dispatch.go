@@ -389,13 +389,18 @@ func (m *Manager) handleMarkerMove(e dispatcher.Event) (any, error) {
 }
 
 func (m *Manager) handleMarkerDelete(e dispatcher.Event) (any, error) {
-	if !m.deps.IsDatabaseValid() {
+	if !m.deps.IsDatabaseValid() && !m.hasBackend() {
 		return nil, nil
 	}
 
 	markerName, frameNo, err := m.deps.HandlerService.LogMarkerDelete(e.Args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete marker: %w", err)
+	}
+
+	if m.hasBackend() {
+		m.backend.DeleteMarker(markerName, frameNo)
+		return nil, nil
 	}
 
 	markerID, ok := m.deps.MarkerCache.Get(markerName)

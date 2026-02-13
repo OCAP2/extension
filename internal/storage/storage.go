@@ -22,6 +22,7 @@ type Backend interface {
 	RecordSoldierState(s *core.SoldierState) error
 	RecordVehicleState(v *core.VehicleState) error
 	RecordMarkerState(s *core.MarkerState) error
+	DeleteMarker(name string, endFrame uint)
 
 	// Event recording
 	RecordFiredEvent(e *core.FiredEvent) error

@@ -380,6 +380,24 @@ func TestRecordMarkerState(t *testing.T) {
 	}
 }
 
+func TestDeleteMarker(t *testing.T) {
+	b := New(config.MemoryConfig{})
+
+	m := &core.Marker{MarkerName: "grenade_1", EndFrame: -1}
+	_ = b.AddMarker(m)
+
+	// Delete marker at frame 100
+	b.DeleteMarker("grenade_1", 100)
+
+	record := b.markers["grenade_1"]
+	if record.Marker.EndFrame != 100 {
+		t.Errorf("expected EndFrame=100, got %d", record.Marker.EndFrame)
+	}
+
+	// Deleting non-existent marker should not panic
+	b.DeleteMarker("nonexistent", 50)
+}
+
 func TestRecordFiredEvent(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
