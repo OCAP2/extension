@@ -9,6 +9,7 @@ type Marker struct {
 	MissionID    uint
 	Time         time.Time
 	CaptureFrame uint
+	EndFrame     int // -1 means persist until end, otherwise frame when marker disappears
 	MarkerName   string
 	Direction    float32
 	MarkerType   string
@@ -18,6 +19,7 @@ type Marker struct {
 	Size         string
 	Side         string
 	Position     Position3D
+	Polyline     Polyline
 	Shape        string
 	Alpha        float32
 	Brush        string

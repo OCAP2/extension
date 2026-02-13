@@ -109,12 +109,12 @@ type Ace3DeathEvent struct {
 
 // Ace3UnconsciousEvent represents ACE3 unconscious state change
 type Ace3UnconsciousEvent struct {
-	ID           uint
-	MissionID    uint
-	SoldierID    uint
-	Time         time.Time
-	CaptureFrame uint
-	IsAwake      bool
+	ID            uint
+	MissionID     uint
+	SoldierID     uint
+	Time          time.Time
+	CaptureFrame  uint
+	IsUnconscious bool // true = went unconscious, false = regained consciousness
 }
 
 // TimeState represents mission time synchronization data

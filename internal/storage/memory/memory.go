@@ -2,11 +2,13 @@
 package memory
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/OCAP2/extension/v5/internal/config"
 	"github.com/OCAP2/extension/v5/internal/model/core"
 	"github.com/OCAP2/extension/v5/internal/storage"
+	v1 "github.com/OCAP2/extension/v5/internal/storage/memory/export/v1"
 )
 
 // SoldierRecord groups a soldier with all its time-series data
@@ -34,11 +36,14 @@ type Backend struct {
 	mission *core.Mission
 	world   *core.World
 
-	lastExportPath string // path to the last exported file
+	lastExportPath     string           // path to the last exported file
+	lastExportMetadata storage.UploadMetadata // cached metadata from last export
 
-	soldiers map[uint16]*SoldierRecord // keyed by ObjectID
-	vehicles map[uint16]*VehicleRecord // keyed by ObjectID
-	markers  map[string]*MarkerRecord  // keyed by MarkerName
+	soldiers      map[uint16]*SoldierRecord // keyed by ObjectID
+	vehicles      map[uint16]*VehicleRecord // keyed by ObjectID
+	markers       map[string]*MarkerRecord  // keyed by MarkerName
+	markersByID   map[uint]*MarkerRecord   // keyed by Marker.ID
+	nextMarkerID  uint                      // auto-increment ID for markers
 
 	generalEvents         []core.GeneralEvent
 	hitEvents             []core.HitEvent
@@ -57,9 +62,10 @@ type Backend struct {
 func New(cfg config.MemoryConfig) *Backend {
 	return &Backend{
 		cfg:      cfg,
-		soldiers: make(map[uint16]*SoldierRecord),
-		vehicles: make(map[uint16]*VehicleRecord),
-		markers:  make(map[string]*MarkerRecord),
+		soldiers:    make(map[uint16]*SoldierRecord),
+		vehicles:    make(map[uint16]*VehicleRecord),
+		markers:     make(map[string]*MarkerRecord),
+		markersByID: make(map[uint]*MarkerRecord),
 	}
 }
 
@@ -80,21 +86,8 @@ func (b *Backend) StartMission(mission *core.Mission, world *core.World) error {
 
 	b.mission = mission
 	b.world = world
-
-	// Reset all collections
-	b.soldiers = make(map[uint16]*SoldierRecord)
-	b.vehicles = make(map[uint16]*VehicleRecord)
-	b.markers = make(map[string]*MarkerRecord)
-	b.generalEvents = nil
-	b.hitEvents = nil
-	b.killEvents = nil
-	b.chatEvents = nil
-	b.radioEvents = nil
-	b.serverFpsEvents = nil
-	b.timeStates = nil
-	b.ace3DeathEvents = nil
-	b.ace3UnconsciousEvents = nil
 	b.lastExportPath = ""
+	b.resetCollections()
 
 	return nil
 }
@@ -104,7 +97,43 @@ func (b *Backend) EndMission() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	return b.exportJSON()
+	if b.mission == nil {
+		return fmt.Errorf("no mission to end: mission was never started")
+	}
+
+	// Cache export metadata before clearing data (needed for upload after export)
+	b.lastExportMetadata = b.computeExportMetadata()
+
+	if err := b.exportJSON(); err != nil {
+		return err
+	}
+
+	// Clear all recorded data so subsequent recordings within the same
+	// mission start fresh (e.g. manual start/stop recording in Liberation).
+	b.mission = nil
+	b.world = nil
+	b.resetCollections()
+
+	return nil
+}
+
+// resetCollections clears all entity and event data.
+// Caller must hold b.mu.Lock.
+func (b *Backend) resetCollections() {
+	b.soldiers = make(map[uint16]*SoldierRecord)
+	b.vehicles = make(map[uint16]*VehicleRecord)
+	b.markers = make(map[string]*MarkerRecord)
+	b.markersByID = make(map[uint]*MarkerRecord)
+	b.nextMarkerID = 0
+	b.generalEvents = nil
+	b.hitEvents = nil
+	b.killEvents = nil
+	b.chatEvents = nil
+	b.radioEvents = nil
+	b.serverFpsEvents = nil
+	b.timeStates = nil
+	b.ace3DeathEvents = nil
+	b.ace3UnconsciousEvents = nil
 }
 
 // AddSoldier registers a new soldier.
@@ -136,14 +165,20 @@ func (b *Backend) AddVehicle(v *core.Vehicle) error {
 }
 
 // AddMarker registers a new marker.
+// Assigns an auto-increment ID so marker state updates can reference it.
 func (b *Backend) AddMarker(m *core.Marker) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.markers[m.MarkerName] = &MarkerRecord{
+	b.nextMarkerID++
+	m.ID = b.nextMarkerID
+
+	record := &MarkerRecord{
 		Marker: *m,
 		States: make([]core.MarkerState, 0),
 	}
+	b.markers[m.MarkerName] = record
+	b.markersByID[m.ID] = record
 	return nil
 }
 
@@ -211,13 +246,20 @@ func (b *Backend) RecordMarkerState(s *core.MarkerState) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	for _, record := range b.markers {
-		if record.Marker.ID == s.MarkerID {
-			record.States = append(record.States, *s)
-			return nil
-		}
+	if record, ok := b.markersByID[s.MarkerID]; ok {
+		record.States = append(record.States, *s)
 	}
 	return nil
+}
+
+// DeleteMarker sets the end frame for a marker, marking it as deleted at that frame
+func (b *Backend) DeleteMarker(name string, endFrame uint) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if record, ok := b.markers[name]; ok {
+		record.Marker.EndFrame = int(endFrame)
+	}
 }
 
 // RecordFiredEvent records a fired event.
@@ -313,9 +355,24 @@ func (b *Backend) GetExportedFilePath() string {
 }
 
 // GetExportMetadata returns metadata about the last export.
+// If a mission is active (before EndMission), computes metadata from live data.
+// After EndMission, returns cached metadata from the export.
 func (b *Backend) GetExportMetadata() storage.UploadMetadata {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
+
+	if b.mission != nil && b.world != nil {
+		return b.computeExportMetadata()
+	}
+	return b.lastExportMetadata
+}
+
+// computeExportMetadata builds upload metadata from the current in-memory data.
+// Caller must hold at least b.mu.RLock.
+func (b *Backend) computeExportMetadata() storage.UploadMetadata {
+	if b.mission == nil || b.world == nil {
+		return storage.UploadMetadata{}
+	}
 
 	var endFrame uint
 	for _, record := range b.soldiers {
@@ -341,4 +398,52 @@ func (b *Backend) GetExportMetadata() storage.UploadMetadata {
 		MissionDuration: duration,
 		Tag:             b.mission.Tag,
 	}
+}
+
+// BuildExport creates a v1 export from the current mission data.
+// This is safe for concurrent use.
+func (b *Backend) BuildExport() v1.Export {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.buildExportUnlocked()
+}
+
+// buildExportUnlocked creates a v1 export from the current mission data.
+// Caller must hold at least b.mu.RLock.
+func (b *Backend) buildExportUnlocked() v1.Export {
+	data := &v1.MissionData{
+		Mission:       b.mission,
+		World:         b.world,
+		Soldiers:      make(map[uint16]*v1.SoldierRecord),
+		Vehicles:      make(map[uint16]*v1.VehicleRecord),
+		Markers:       make(map[string]*v1.MarkerRecord),
+		GeneralEvents: b.generalEvents,
+		HitEvents:     b.hitEvents,
+		KillEvents:    b.killEvents,
+		TimeStates:    b.timeStates,
+	}
+
+	for id, record := range b.soldiers {
+		data.Soldiers[id] = &v1.SoldierRecord{
+			Soldier:     record.Soldier,
+			States:      record.States,
+			FiredEvents: record.FiredEvents,
+		}
+	}
+
+	for id, record := range b.vehicles {
+		data.Vehicles[id] = &v1.VehicleRecord{
+			Vehicle: record.Vehicle,
+			States:  record.States,
+		}
+	}
+
+	for name, record := range b.markers {
+		data.Markers[name] = &v1.MarkerRecord{
+			Marker: record.Marker,
+			States: record.States,
+		}
+	}
+
+	return v1.Build(data)
 }

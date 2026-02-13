@@ -21,7 +21,7 @@ jobs:
       contents: write
 
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v5
         with:
@@ -32,7 +32,22 @@ jobs:
         run: go vet ./internal/...
 
       - name: Run tests
-        run: go test -coverprofile=cover.out -coverpkg=./internal/... ./internal/...
+        run: go test -coverprofile=cover.out.raw -coverpkg=./internal/... ./internal/...
+
+      - name: Deduplicate coverage blocks
+        # Workaround for fgrosse/go-coverage-report#61: merge duplicate coverage blocks
+        # When using -coverpkg, Go creates duplicate entries for each test package
+        run: |
+          head -1 cover.out.raw > cover.out
+          tail -n +2 cover.out.raw | awk '{
+            key = $1
+            stmt = $2
+            count = $3 + 0
+            if (count > counts[key]) counts[key] = count
+            stmts[key] = stmt
+          } END {
+            for (key in stmts) print key, stmts[key], counts[key] + 0
+          }' | sort >> cover.out
 
       - name: Archive code coverage results
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v4
@@ -42,7 +57,7 @@ jobs:
 
       - name: Download artifact (main.breakdown)
         id: download-main-breakdown
-        uses: dawidd6/action-download-artifact@883bc3da0e2f55ddd0a8fc8e99378551c1991a55 # v13
+        uses: dawidd6/action-download-artifact@5c98f0b039f36ef966fdb7dfa9779262785ecb05 # v14
         if: github.event_name == 'pull_request'
         with:
           branch: main
@@ -73,7 +88,7 @@ jobs:
     if: github.event_name != 'pull_request' || (!github.event.pull_request.draft && !contains(github.event.pull_request.title, 'WIP'))
 
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Build x64 DLL
         run: |
@@ -98,7 +113,7 @@ jobs:
       pull-requests: write
 
     steps:
-      - uses: fgrosse/go-coverage-report@5226a7eae769f316df554bead7a716fcfd78130f # v1.2.0
+      - uses: fgrosse/go-coverage-report@8c1d1a09864211d258937b1b1a5b849f7e4f2682 # v1.2.0
         with:
           coverage-artifact-name: "code-coverage"
           coverage-file-name: "cover.out"

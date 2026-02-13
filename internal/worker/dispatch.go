@@ -36,8 +36,9 @@ func (m *Manager) RegisterHandlers(d *dispatcher.Dispatcher) {
 	d.Register(":ACE3:DEATH:", m.handleAce3DeathEvent, dispatcher.Buffered(1000))
 	d.Register(":ACE3:UNCONSCIOUS:", m.handleAce3UnconsciousEvent, dispatcher.Buffered(1000))
 
-	// Marker events - buffered
-	d.Register(":NEW:MARKER:", m.handleMarkerCreate, dispatcher.Buffered(500))
+	// Marker creation - sync (need to cache before states arrive)
+	d.Register(":NEW:MARKER:", m.handleMarkerCreate)
+	// Marker updates - buffered
 	d.Register(":NEW:MARKER:STATE:", m.handleMarkerMove, dispatcher.Buffered(1000))
 	d.Register(":DELETE:MARKER:", m.handleMarkerDelete, dispatcher.Buffered(500))
 }
@@ -149,6 +150,28 @@ func (m *Manager) handleFiredEvent(e dispatcher.Event) (any, error) {
 }
 
 func (m *Manager) handleProjectileEvent(e dispatcher.Event) (any, error) {
+	// For memory backend, convert projectile to appropriate format
+	if m.hasBackend() {
+		obj, err := m.deps.HandlerService.LogProjectileEvent(e.Args)
+		if err != nil {
+			return nil, fmt.Errorf("failed to log projectile event: %w", err)
+		}
+
+		// Thrown projectiles (grenades, smokes) become markers
+		if obj.Weapon == "throw" {
+			marker, states := convert.ProjectileEventToProjectileMarker(obj)
+			m.backend.AddMarker(&marker)
+			for i := range states {
+				m.backend.RecordMarkerState(&states[i])
+			}
+		} else {
+			// Other projectiles become fire lines
+			coreObj := convert.ProjectileEventToFiredEvent(obj)
+			m.backend.RecordFiredEvent(&coreObj)
+		}
+		return nil, nil
+	}
+
 	// Projectile events use linestringzm geo format, not supported by SQLite
 	if !m.deps.IsDatabaseValid() || m.deps.ShouldSaveLocal() {
 		return nil, nil
@@ -336,6 +359,8 @@ func (m *Manager) handleMarkerCreate(e dispatcher.Event) (any, error) {
 	if m.hasBackend() {
 		coreObj := convert.MarkerToCore(marker)
 		m.backend.AddMarker(&coreObj)
+		// Cache the assigned ID so state updates can find this marker
+		m.deps.MarkerCache.Set(marker.MarkerName, coreObj.ID)
 	} else {
 		m.queues.Markers.Push(marker)
 	}
@@ -364,13 +389,18 @@ func (m *Manager) handleMarkerMove(e dispatcher.Event) (any, error) {
 }
 
 func (m *Manager) handleMarkerDelete(e dispatcher.Event) (any, error) {
-	if !m.deps.IsDatabaseValid() {
+	if !m.deps.IsDatabaseValid() && !m.hasBackend() {
 		return nil, nil
 	}
 
 	markerName, frameNo, err := m.deps.HandlerService.LogMarkerDelete(e.Args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete marker: %w", err)
+	}
+
+	if m.hasBackend() {
+		m.backend.DeleteMarker(markerName, frameNo)
+		return nil, nil
 	}
 
 	markerID, ok := m.deps.MarkerCache.Get(markerName)

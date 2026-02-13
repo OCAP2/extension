@@ -79,6 +79,12 @@ func RVExtensionArgs(output *C.char, outputsize C.size_t, input *C.char, argv **
 	command := C.GoString(input)
 	args := parseArgsFromC(argv, argc)
 
+	// Handle built-in timestamp command
+	if command == ":TIMESTAMP:" {
+		replyToSyncArmaCall(fmt.Sprintf(`["ok", "%s"]`, getTimestamp()), output, outputsize)
+		return
+	}
+
 	// Use dispatcher
 	if Config.dispatcher != nil && Config.dispatcher.HasHandler(command) {
 		event := dispatcher.Event{

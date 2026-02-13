@@ -188,12 +188,7 @@ func init() {
 		os.Mkdir(viper.GetString("logsDir"), 0755)
 	}
 
-	OcapLogFilePath = fmt.Sprintf(
-		`%s\%s.%s.log`,
-		viper.GetString("logsDir"),
-		ExtensionName,
-		SessionStartTime.Format("20060102_150405"),
-	)
+	OcapLogFilePath = logging.LogFilePath(viper.GetString("logsDir"), ExtensionName, SessionStartTime)
 
 	// check if OcapLogFilePath exists
 	// if it does, move it to OcapLogFilePath.old
@@ -261,7 +256,7 @@ func init() {
 		return false
 	}
 
-	SqliteDBFilePath = fmt.Sprintf(`%s\%s_%s.db`, AddonFolder, ExtensionName, SessionStartTime.Format("20060102_150405"))
+	SqliteDBFilePath = filepath.Join(AddonFolder, fmt.Sprintf("%s_%s.db", ExtensionName, SessionStartTime.Format("20060102_150405")))
 	// set up a3interfaces
 	Logger.Info("Setting up a3interface...")
 	err = setupA3Interface()
@@ -1463,15 +1458,18 @@ func getOcapRecording(missionIDs []string) (err error) {
 			if err != nil {
 				return fmt.Errorf("error getting vehicle states: %w", err)
 			}
-
 			positions := []any{}
 			for _, state := range vehicleStates {
 				coord, _ := state.Position.Coordinates()
+				var crew any
+				if err := json.Unmarshal([]byte(state.Crew), &crew); err != nil {
+					crew = []any{}
+				}
 				position := []any{
 					[]float64{coord.XY.X, coord.XY.Y},
 					state.Bearing,
 					state.IsAlive,
-					state.Crew,
+					crew,
 				}
 				positions = append(positions, position)
 			}
