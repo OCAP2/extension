@@ -15,7 +15,7 @@ import (
 // Helper to create a geom.Point from coordinates
 func makePoint(x, y, z float64) geom.Point {
 	coords := geom.Coordinates{XY: geom.XY{X: x, Y: y}, Z: z}
-	pt, _ := geom.NewPoint(coords)
+	pt := geom.NewPoint(coords)
 	return pt
 }
 
@@ -636,7 +636,7 @@ func TestProjectileEventToFiredEvent(t *testing.T) {
 		200.0, 300.0, 5.0, 1002.0, // end position (impact)
 	}
 	seq := geom.NewSequence(coords, geom.DimXYZM)
-	ls, _ := geom.NewLineString(seq)
+	ls := geom.NewLineString(seq)
 
 	gormEvent := model.ProjectileEvent{
 		MissionID:     1,
@@ -714,7 +714,7 @@ func TestProjectileEventToProjectileMarker(t *testing.T) {
 		200.0, 300.0, 5.0, 303.0,  // impact position at frame 303
 	}
 	seq := geom.NewSequence(coords, geom.DimXYZM)
-	ls, _ := geom.NewLineString(seq)
+	ls := geom.NewLineString(seq)
 
 	gormEvent := model.ProjectileEvent{
 		MissionID:       1,

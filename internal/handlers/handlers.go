@@ -803,12 +803,8 @@ func (s *Service) LogProjectileEvent(data []string) (model.ProjectileEvent, erro
 	// create the linestring if we have positions
 	if len(positionSequence) >= 8 { // at least 2 points (4 values each)
 		posSeq := geom.NewSequence(positionSequence, geom.DimXYZM)
-		ls, err := geom.NewLineString(posSeq)
-		if err != nil {
-			logger.Warn("Error creating linestring", "error", err)
-		} else {
-			projectileEvent.Positions = ls.AsGeometry()
-		}
+		ls := geom.NewLineString(posSeq)
+		projectileEvent.Positions = ls.AsGeometry()
 	}
 
 	// [15] initialVelocity

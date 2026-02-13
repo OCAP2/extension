@@ -47,16 +47,13 @@ func Coord3857FromString(
 		}
 	}
 	// create the point
-	point, err = geom.NewPoint(
+	point = geom.NewPoint(
 		geom.Coordinates{
 			XY:   geom.XY{X: long, Y: lat},
 			Z:    elev,
 			Type: geom.CoordinatesType(geom.DimXYZ),
 		},
 	)
-	if err != nil {
-		return geom.NewEmptyPoint(geom.DimXYZ), 0, ErrInvalidCoordinates
-	}
 	return point, elev, nil
 }
 
@@ -73,14 +70,11 @@ func Coords3857From4326(
 	epsg := wgs84.EPSG()
 	f := epsg.Transform(4326, 3857)
 	x, y, _ = f(longitude, latitude, 0)
-	point, err = geom.NewPoint(
+	point = geom.NewPoint(
 		geom.Coordinates{
 			XY: geom.XY{X: x, Y: y},
 			Z:  0,
 		},
 	)
-	if err != nil {
-		return geom.NewEmptyPoint(geom.DimXYZ), err
-	}
 	return point, nil
 }

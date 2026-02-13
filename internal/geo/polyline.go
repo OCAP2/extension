@@ -29,10 +29,7 @@ func ParsePolyline(input string) (geom.LineString, error) {
 	}
 
 	seq := geom.NewSequence(flatCoords, geom.DimXY)
-	ls, err := geom.NewLineString(seq)
-	if err != nil {
-		return geom.LineString{}, fmt.Errorf("failed to create LineString: %w", err)
-	}
+	ls := geom.NewLineString(seq)
 
 	return ls, nil
 }
