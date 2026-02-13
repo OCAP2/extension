@@ -156,12 +156,16 @@ func (d *Dispatcher) Register(command string, h HandlerFunc, opts ...Option) {
 		handler = d.withLogging(command, handler)
 	}
 
+	d.mu.Lock()
 	d.handlers[command] = handler
+	d.mu.Unlock()
 }
 
 // Dispatch routes an event to its registered handler.
 func (d *Dispatcher) Dispatch(e Event) (any, error) {
+	d.mu.RLock()
 	h, ok := d.handlers[e.Command]
+	d.mu.RUnlock()
 	if !ok {
 		return nil, fmt.Errorf("unknown command: %s", e.Command)
 	}
@@ -170,7 +174,9 @@ func (d *Dispatcher) Dispatch(e Event) (any, error) {
 
 // HasHandler returns true if a handler is registered for the command.
 func (d *Dispatcher) HasHandler(command string) bool {
+	d.mu.RLock()
 	_, ok := d.handlers[command]
+	d.mu.RUnlock()
 	return ok
 }
 

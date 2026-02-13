@@ -378,6 +378,41 @@ func TestDispatcher_GatedWithBlocking(t *testing.T) {
 	}
 }
 
+func TestDispatcher_ConcurrentRegisterAndDispatch(t *testing.T) {
+	d, _ := newTestDispatcher(t)
+
+	// Pre-register a handler so Dispatch/HasHandler have something to hit
+	d.Register(":EXISTING:", func(e Event) (any, error) {
+		return "ok", nil
+	})
+
+	var wg sync.WaitGroup
+
+	// Goroutine 1: continuously register new handlers
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 100; i++ {
+			cmd := fmt.Sprintf(":REG_%d:", i)
+			d.Register(cmd, func(e Event) (any, error) {
+				return nil, nil
+			}, Buffered(10))
+		}
+	}()
+
+	// Goroutine 2: continuously check HasHandler and Dispatch
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 200; i++ {
+			d.HasHandler(":EXISTING:")
+			d.Dispatch(Event{Command: ":EXISTING:"})
+		}
+	}()
+
+	wg.Wait()
+}
+
 func TestDispatcher_GatedLogsWhenOpened(t *testing.T) {
 	d, logger := newTestDispatcher(t)
 
