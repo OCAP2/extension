@@ -157,8 +157,8 @@ func (d *Dispatcher) Register(command string, h HandlerFunc, opts ...Option) {
 	}
 
 	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.handlers[command] = handler
-	d.mu.Unlock()
 }
 
 // Dispatch routes an event to its registered handler.
