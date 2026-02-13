@@ -37,6 +37,7 @@ type Entity struct {
 	Side          string  `json:"side"`
 	IsPlayer      int     `json:"isPlayer"`
 	Type          string  `json:"type"`
+	Role          string  `json:"role,omitempty"`
 	Class         string  `json:"class,omitempty"`
 	StartFrameNum uint    `json:"startFrameNum"`
 	Positions     [][]any `json:"positions"`
