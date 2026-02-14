@@ -51,13 +51,10 @@ char* GetModulePath() {
 
 char* GetModulePath() {
     Dl_info dl_info;
-    dladdr((void*)GetModulePath, &dl_info);
-
-    char* path = dl_info.dli_fname;
-    char* result = (char*)malloc(strlen(path) + 1);
-    strcpy(result, path);
-
-    return result;
+    if (dladdr((void*)GetModulePath, &dl_info) == 0 || dl_info.dli_fname == NULL) {
+        return NULL;
+    }
+    return strdup(dl_info.dli_fname);
 }
 
 #endif
