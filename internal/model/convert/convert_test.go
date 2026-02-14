@@ -84,6 +84,8 @@ func TestSoldierStateToCore(t *testing.T) {
 		HasStableVitals: true,
 		IsDraggedCarried: false,
 		Stance:          "Up",
+		GroupID:         "Alpha 1-1",
+		Side:            "WEST",
 		Scores: model.SoldierScores{
 			InfantryKills: 5,
 			VehicleKills:  2,
@@ -104,6 +106,8 @@ func TestSoldierStateToCore(t *testing.T) {
 	require.NotNil(t, coreState.InVehicleObjectID)
 	assert.Equal(t, uint16(5), *coreState.InVehicleObjectID)
 	assert.Equal(t, uint8(5), coreState.Scores.InfantryKills)
+	assert.Equal(t, "Alpha 1-1", coreState.GroupID)
+	assert.Equal(t, "WEST", coreState.Side)
 }
 
 func TestVehicleToCore(t *testing.T) {
