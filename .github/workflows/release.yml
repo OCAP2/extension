@@ -42,7 +42,6 @@ jobs:
           mkdir -p release
           cp dist/${{ matrix.binary }} release/
           cp ocap_recorder.cfg.json.example release/
-          cp createViews.sql release/
           cd release && ${{ matrix.archiver }} ../${{ matrix.archive }} .
 
       - name: Upload release asset
