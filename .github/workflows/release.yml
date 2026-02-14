@@ -35,7 +35,9 @@ jobs:
       - name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
         run: |
           docker run --rm -v "${{ github.workspace }}:/go/work" -w /go/work ${{ matrix.docker_image }} \
-            go build -buildvcs=false -o dist/${{ matrix.binary }} -buildmode=c-shared ./cmd/ocap_recorder
+            go build -buildvcs=false \
+              -ldflags "-X main.BuildVersion=${{ github.ref_name }} -X main.BuildDate=$(date -u +'%Y-%m-%dT%H:%M:%SZ') -X main.BuildCommit=${{ github.sha }}" \
+              -o dist/${{ matrix.binary }} -buildmode=c-shared ./cmd/ocap_recorder
 
       - name: Create release archive
         run: |

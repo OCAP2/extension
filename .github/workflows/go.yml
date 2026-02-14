@@ -93,7 +93,9 @@ jobs:
       - name: Build x64 DLL
         run: |
           docker run --rm -v "${{ github.workspace }}:/go/work" -w /go/work x1unix/go-mingw:1.24 \
-            go build -buildvcs=false -o dist/ocap_recorder_x64.dll -buildmode=c-shared ./cmd/ocap_recorder
+            go build -buildvcs=false \
+              -ldflags "-X main.BuildDate=$(date -u +'%Y-%m-%dT%H:%M:%SZ') -X main.BuildCommit=${{ github.sha }}" \
+              -o dist/ocap_recorder_x64.dll -buildmode=c-shared ./cmd/ocap_recorder
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v4
