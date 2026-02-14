@@ -240,6 +240,95 @@ func TestLogVehicleState_CrewPreservesBrackets(t *testing.T) {
 	}
 }
 
+func TestLogSoldierState_ScoresParsingPanic(t *testing.T) {
+	svc := newTestService()
+	svc.SetBackend(&mockBackend{})
+
+	// Set up mission context
+	mission := &model.Mission{}
+	mission.ID = 1
+	svc.ctx.SetMission(mission, &model.World{})
+
+	// Add a soldier to the entity cache so LogSoldierState can find it
+	svc.deps.EntityCache.AddSoldier(model.Soldier{ObjectID: 42, MissionID: 1})
+
+	// Base data shared by all subtests: 15 fields matching the expected format
+	// [ocapId, pos, bearing, lifestate, inVehicle, name, isPlayer, currentRole, frame,
+	//  hasStableVitals, isDraggedCarried, scores, vehicleRole, inVehicleID, stance]
+	makeData := func(isPlayer string, scores string) []string {
+		return []string{
+			"42",                 // 0: ocapId
+			"[100.0,200.0,50.0]", // 1: position
+			"90",                 // 2: bearing
+			"1",                  // 3: lifestate
+			"false",              // 4: inVehicle
+			"TestUnit",           // 5: name
+			isPlayer,             // 6: isPlayer
+			"rifleman",           // 7: currentRole
+			"10",                 // 8: frame
+			"true",               // 9: hasStableVitals
+			"false",              // 10: isDraggedCarried
+			scores,               // 11: scores
+			"",                   // 12: vehicleRole
+			"-1",                 // 13: inVehicleID
+			"STAND",              // 14: stance
+		}
+	}
+
+	tests := []struct {
+		name           string
+		isPlayer       string
+		scores         string
+		expectScores   model.SoldierScores
+	}{
+		{
+			name:     "valid 6 scores",
+			isPlayer: "true",
+			scores:   "1,2,3,4,5,100",
+			expectScores: model.SoldierScores{
+				InfantryKills: 1, VehicleKills: 2, ArmorKills: 3,
+				AirKills: 4, Deaths: 5, TotalScore: 100,
+			},
+		},
+		{
+			name:         "single score value should not panic",
+			isPlayer:     "true",
+			scores:       "0",
+			expectScores: model.SoldierScores{},
+		},
+		{
+			name:         "empty scores string should not panic",
+			isPlayer:     "true",
+			scores:       "",
+			expectScores: model.SoldierScores{},
+		},
+		{
+			name:         "partial scores should not panic",
+			isPlayer:     "true",
+			scores:       "1,2,3",
+			expectScores: model.SoldierScores{},
+		},
+		{
+			name:         "non-player ignores scores",
+			isPlayer:     "false",
+			scores:       "garbage",
+			expectScores: model.SoldierScores{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data := makeData(tt.isPlayer, tt.scores)
+
+			// Must not panic
+			state, err := svc.LogSoldierState(data)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.expectScores, state.Scores)
+		})
+	}
+}
+
 func TestMissionContext_ThreadSafe(t *testing.T) {
 	ctx := NewMissionContext()
 

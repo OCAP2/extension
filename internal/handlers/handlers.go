@@ -410,19 +410,23 @@ func (s *Service) LogSoldierState(data []string) (model.SoldierState, error) {
 	if isPlayer {
 		scoresStr := data[11]
 		scoresArr := strings.Split(scoresStr, ",")
-		scoresInt := make([]uint8, len(scoresArr))
-		for i, v := range scoresArr {
-			num, _ := strconv.Atoi(v)
-			scoresInt[i] = uint8(num)
-		}
+		if len(scoresArr) >= 6 {
+			scoresInt := make([]uint8, len(scoresArr))
+			for i, v := range scoresArr {
+				num, _ := strconv.Atoi(v)
+				scoresInt[i] = uint8(num)
+			}
 
-		soldierState.Scores = model.SoldierScores{
-			InfantryKills: scoresInt[0],
-			VehicleKills:  scoresInt[1],
-			ArmorKills:    scoresInt[2],
-			AirKills:      scoresInt[3],
-			Deaths:        scoresInt[4],
-			TotalScore:    scoresInt[5],
+			soldierState.Scores = model.SoldierScores{
+				InfantryKills: scoresInt[0],
+				VehicleKills:  scoresInt[1],
+				ArmorKills:    scoresInt[2],
+				AirKills:      scoresInt[3],
+				Deaths:        scoresInt[4],
+				TotalScore:    scoresInt[5],
+			}
+		} else {
+			s.writeLog(functionName, fmt.Sprintf("expected 6 score values, got %d: %q", len(scoresArr), scoresStr), "WARN")
 		}
 	}
 
