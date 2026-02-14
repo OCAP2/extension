@@ -157,8 +157,8 @@ func TestBuildWithSoldier(t *testing.T) {
 					ID: 5, UnitName: "Player1", GroupID: "Alpha", Side: "WEST", IsPlayer: true, JoinFrame: 10, RoleDescription: "Rifleman",
 				},
 				States: []core.SoldierState{
-					{SoldierID: 5, CaptureFrame: 10, Position: core.Position3D{X: 1000, Y: 2000}, Bearing: 90, Lifestate: 1, UnitName: "Player1", IsPlayer: true, CurrentRole: "Rifleman"},
-					{SoldierID: 5, CaptureFrame: 20, Position: core.Position3D{X: 1100, Y: 2100}, Bearing: 95, Lifestate: 1, UnitName: "Player1", IsPlayer: true, CurrentRole: "Rifleman"},
+					{SoldierID: 5, CaptureFrame: 10, Position: core.Position3D{X: 1000, Y: 2000}, Bearing: 90, Lifestate: 1, UnitName: "Player1", IsPlayer: true, CurrentRole: "Rifleman", GroupID: "Alpha", Side: "WEST"},
+					{SoldierID: 5, CaptureFrame: 20, Position: core.Position3D{X: 1100, Y: 2100}, Bearing: 95, Lifestate: 1, UnitName: "Player1", IsPlayer: true, CurrentRole: "Rifleman", GroupID: "Bravo", Side: "WEST"},
 				},
 				FiredEvents: []core.FiredEvent{
 					{SoldierID: 5, CaptureFrame: 15, Weapon: "arifle_MX_F", Magazine: "30Rnd_65x39", FiringMode: "Single", StartPos: core.Position3D{X: 1050, Y: 2050}, EndPos: core.Position3D{X: 1200, Y: 2200}},
@@ -198,6 +198,12 @@ func TestBuildWithSoldier(t *testing.T) {
 	assert.Equal(t, "Player1", pos[4])   // unitName
 	assert.Equal(t, 1, pos[5])           // isPlayer
 	assert.Equal(t, "Rifleman", pos[6])  // currentRole
+	assert.Equal(t, "Alpha", pos[7])    // groupID
+	assert.Equal(t, "WEST", pos[8])     // side
+
+	// Second position has different group
+	pos2 := entity.Positions[1]
+	assert.Equal(t, "Bravo", pos2[7])   // groupID changed mid-mission
 
 	// Check fired events - v1 format: [frameNum, [x, y, z]]
 	require.Len(t, entity.FramesFired, 1)

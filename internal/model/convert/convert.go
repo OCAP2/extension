@@ -85,6 +85,8 @@ func SoldierStateToCore(s model.SoldierState) core.SoldierState {
 		HasStableVitals:   s.HasStableVitals,
 		IsDraggedCarried:  s.IsDraggedCarried,
 		Stance:            s.Stance,
+		GroupID:           s.GroupID,
+		Side:              s.Side,
 		Scores: core.SoldierScores{
 			InfantryKills: s.Scores.InfantryKills,
 			VehicleKills:  s.Scores.VehicleKills,

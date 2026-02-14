@@ -334,7 +334,7 @@ func (s *Soldier) Get(db *gorm.DB) (err error) {
 // References Soldier by (MissionID, SoldierObjectID) composite FK
 //
 // SQF Command: :NEW:SOLDIER:STATE:
-// Args: [ocapId, pos, dir, lifeState, inVehicle, name, isPlayer, role, frameNo, hasStableVitals, isDragged, scores, vehicleRole, vehicleOcapId, stance]
+// Args: [ocapId, pos, dir, lifeState, inVehicle, name, isPlayer, role, frameNo, hasStableVitals, isDragged, scores, vehicleRole, vehicleOcapId, stance, groupID, side]
 type SoldierState struct {
 	ID              uint      `json:"id" gorm:"primarykey;autoIncrement;"`
 	Time            time.Time `json:"time" gorm:"type:timestamptz;"`                                // Server time when state was recorded
@@ -357,6 +357,8 @@ type SoldierState struct {
 	HasStableVitals  bool          `json:"hasStableVitals" gorm:"default:true"`         // ACE Medical: has stable vitals (true if ACE not present)
 	IsDraggedCarried bool          `json:"isDraggedCarried" gorm:"default:false"`       // ACE Medical: is being dragged or carried
 	Stance           string        `json:"stance" gorm:"size:64"`                       // Stance: STAND, CROUCH, PRONE, etc.
+	GroupID          string        `json:"groupId" gorm:"size:64"`                      // Group name (dynamic, may change mid-mission)
+	Side             string        `json:"side" gorm:"size:16"`                         // Side (dynamic, may change mid-mission)
 	Scores           SoldierScores `json:"scores" gorm:"embedded;embeddedPrefix:scores_"` // Player score data (only for players)
 }
 

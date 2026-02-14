@@ -41,5 +41,7 @@ type SoldierState struct {
 	HasStableVitals   bool
 	IsDraggedCarried  bool
 	Stance            string
+	GroupID           string
+	Side              string
 	Scores            SoldierScores
 }
