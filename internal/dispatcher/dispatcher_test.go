@@ -2,6 +2,7 @@ package dispatcher
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -330,6 +331,47 @@ func TestDispatcher_GatedWithBlocking(t *testing.T) {
 	wg.Wait()
 
 	assert.Equal(t, int32(2), processed.Load())
+}
+
+func TestDispatcher_BufferedPanicRecovery(t *testing.T) {
+	d, logger := newTestDispatcher(t)
+
+	var wg sync.WaitGroup
+	wg.Add(3)
+
+	callCount := atomic.Int32{}
+
+	d.Register(":PANIC:", func(e Event) (any, error) {
+		defer wg.Done()
+		n := callCount.Add(1)
+		if n == 2 {
+			panic("test panic in handler")
+		}
+		return nil, nil
+	}, Buffered(10))
+
+	// Dispatch 3 events: #1 ok, #2 panics, #3 should still be processed
+	for i := 0; i < 3; i++ {
+		_, err := d.Dispatch(Event{Command: ":PANIC:"})
+		assert.NoError(t, err)
+	}
+
+	wg.Wait()
+
+	// All 3 events were processed (goroutine survived the panic)
+	assert.Equal(t, int32(3), callCount.Load())
+
+	// Panic was logged
+	logger.mu.Lock()
+	defer logger.mu.Unlock()
+	hasPanicLog := false
+	for _, msg := range logger.messages {
+		if strings.HasPrefix(msg, "ERROR") && strings.Contains(msg, "panic") {
+			hasPanicLog = true
+			break
+		}
+	}
+	assert.True(t, hasPanicLog, "expected panic recovery to be logged")
 }
 
 func TestDispatcher_ConcurrentRegisterAndDispatch(t *testing.T) {
