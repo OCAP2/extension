@@ -1,0 +1,51 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+
+  release:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    strategy:
+      matrix:
+        include:
+          - goos: windows
+            goarch: amd64
+            docker_image: x1unix/go-mingw:1.24
+            binary: ocap_recorder_x64.dll
+            archive: ocap_recorder-windows-amd64.zip
+            archiver: zip -r
+          - goos: linux
+            goarch: amd64
+            docker_image: golang:1.24-bullseye
+            binary: ocap_recorder_x64.so
+            archive: ocap_recorder-linux-amd64.tar.gz
+            archiver: tar -czvf
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/go/work" -w /go/work ${{ matrix.docker_image }} \
+            go build -buildvcs=false -o dist/${{ matrix.binary }} -buildmode=c-shared ./cmd/ocap_recorder
+
+      - name: Create release archive
+        run: |
+          mkdir -p release
+          cp dist/${{ matrix.binary }} release/
+          cp ocap_recorder.cfg.json.example release/
+          cp createViews.sql release/
+          cd release && ${{ matrix.archiver }} ../${{ matrix.archive }} .
+
+      - name: Upload release asset
+        uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda # v2
+        with:
+          files: ${{ matrix.archive }}
