@@ -47,10 +47,11 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// module defs - BuildDate can be set at build time via ldflags
+// module defs - can be set at build time via ldflags
 var (
-	CurrentExtensionVersion string = "0.0.1"
-	BuildDate               string = "unknown"
+	BuildVersion string = "dev"
+	BuildCommit  string = "unknown"
+	BuildDate    string = "unknown"
 
 	Addon         string = "ocap"
 	ExtensionName string = "ocap_recorder"
@@ -290,7 +291,7 @@ func initExtension() {
 	// send ready callback to Arma
 	a3interface.WriteArmaCallback(ExtensionName, ":EXT:READY:")
 	// send extension version
-	a3interface.WriteArmaCallback(ExtensionName, ":VERSION:", CurrentExtensionVersion)
+	a3interface.WriteArmaCallback(ExtensionName, ":VERSION:", BuildVersion)
 }
 
 func initStorage() error {
@@ -326,7 +327,7 @@ func initStorage() error {
 }
 
 func setupA3Interface() (err error) {
-	a3interface.SetVersion(CurrentExtensionVersion)
+	a3interface.SetVersion(BuildVersion)
 
 	// Create early dispatcher for commands that don't need DB/workers
 	// This ensures :VERSION:, :INIT:, etc. work immediately when the DLL loads
@@ -529,7 +530,7 @@ func startGoroutines() (err error) {
 		LogManager:       SlogManager,
 		ExtensionName:    ExtensionName,
 		AddonVersion:     addonVersion,
-		ExtensionVersion: CurrentExtensionVersion,
+		ExtensionVersion: BuildVersion,
 	}, missionCtx)
 
 	// Initialize worker manager
@@ -810,7 +811,7 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 
 	// Simple queries - sync return is sufficient, no callback needed
 	d.Register(":VERSION:", func(e dispatcher.Event) (any, error) {
-		return []string{CurrentExtensionVersion, BuildDate}, nil
+		return []string{BuildVersion, BuildCommit, BuildDate}, nil
 	})
 
 	d.Register(":GETDIR:ARMA:", func(e dispatcher.Event) (any, error) {
