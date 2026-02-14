@@ -366,12 +366,14 @@ func TestDispatcher_BufferedPanicRecovery(t *testing.T) {
 	defer logger.mu.Unlock()
 	hasPanicLog := false
 	for _, msg := range logger.messages {
-		if strings.HasPrefix(msg, "ERROR") && strings.Contains(msg, "panic") {
+		if strings.Contains(msg, "panic in buffered handler (recovered)") &&
+			strings.Contains(msg, ":PANIC:") &&
+			strings.Contains(msg, "test panic in handler") {
 			hasPanicLog = true
 			break
 		}
 	}
-	assert.True(t, hasPanicLog, "expected panic recovery to be logged")
+	assert.True(t, hasPanicLog, "expected panic recovery to be logged with command and panic details")
 }
 
 func TestDispatcher_ConcurrentRegisterAndDispatch(t *testing.T) {
