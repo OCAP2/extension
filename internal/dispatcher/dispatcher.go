@@ -197,11 +197,7 @@ func (d *Dispatcher) withBuffer(command string, cfg *config, h HandlerFunc) Hand
 		}
 
 		for e := range buffer {
-			_, err := h(e)
-			if err != nil {
-				d.logger.Error("buffered handler failed", "command", command, "error", err)
-			}
-			d.processed.Add(context.Background(), 1, metric.WithAttributes(cmdAttr))
+			d.safeHandle(command, cmdAttr, h, e)
 		}
 	}()
 
@@ -221,6 +217,22 @@ func (d *Dispatcher) withBuffer(command string, cfg *config, h HandlerFunc) Hand
 			return nil, fmt.Errorf("queue full: %s", command)
 		}
 	}
+}
+
+// safeHandle calls the handler with panic recovery so a single bad event
+// cannot crash the host process (ArmA 3).
+func (d *Dispatcher) safeHandle(command string, cmdAttr attribute.KeyValue, h HandlerFunc, e Event) {
+	defer func() {
+		if r := recover(); r != nil {
+			d.logger.Error("panic in buffered handler (recovered)", "command", command, "panic", r)
+		}
+	}()
+
+	_, err := h(e)
+	if err != nil {
+		d.logger.Error("buffered handler failed", "command", command, "error", err)
+	}
+	d.processed.Add(context.Background(), 1, metric.WithAttributes(cmdAttr))
 }
 
 func (d *Dispatcher) withLogging(command string, h HandlerFunc) HandlerFunc {
