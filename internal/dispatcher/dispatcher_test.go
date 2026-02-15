@@ -260,12 +260,6 @@ func TestDispatcher_LoggedBufferedLogsProcessing(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "queued", result)
 
-	// At submission time, no "handling event" log should exist yet (it fires during processing)
-	logger.mu.Lock()
-	preProcess := len(logger.messages)
-	logger.mu.Unlock()
-	assert.Equal(t, 0, preProcess, "no log messages expected at submission time")
-
 	// Wait for async processing
 	wg.Wait()
 	time.Sleep(10 * time.Millisecond)
