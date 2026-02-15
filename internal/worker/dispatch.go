@@ -13,32 +13,32 @@ import (
 // This replaces the channel-based StartAsyncProcessors approach.
 func (m *Manager) RegisterHandlers(d *dispatcher.Dispatcher) {
 	// Entity creation - sync (need to cache before states arrive)
-	d.Register(":NEW:SOLDIER:", m.handleNewSoldier)
-	d.Register(":NEW:VEHICLE:", m.handleNewVehicle)
+	d.Register(":NEW:SOLDIER:", m.handleNewSoldier, dispatcher.Logged())
+	d.Register(":NEW:VEHICLE:", m.handleNewVehicle, dispatcher.Logged())
 
 	// High-volume state updates - buffered
-	d.Register(":NEW:SOLDIER:STATE:", m.handleSoldierState, dispatcher.Buffered(10000))
-	d.Register(":NEW:VEHICLE:STATE:", m.handleVehicleState, dispatcher.Buffered(10000))
+	d.Register(":NEW:SOLDIER:STATE:", m.handleSoldierState, dispatcher.Buffered(10000), dispatcher.Logged())
+	d.Register(":NEW:VEHICLE:STATE:", m.handleVehicleState, dispatcher.Buffered(10000), dispatcher.Logged())
 
 	// Combat events - buffered
-	d.Register(":PROJECTILE:", m.handleProjectileEvent, dispatcher.Buffered(5000))
-	d.Register(":KILL:", m.handleKillEvent, dispatcher.Buffered(2000))
+	d.Register(":PROJECTILE:", m.handleProjectileEvent, dispatcher.Buffered(5000), dispatcher.Logged())
+	d.Register(":KILL:", m.handleKillEvent, dispatcher.Buffered(2000), dispatcher.Logged())
 
 	// General events - buffered
-	d.Register(":EVENT:", m.handleGeneralEvent, dispatcher.Buffered(1000))
-	d.Register(":CHAT:", m.handleChatEvent, dispatcher.Buffered(1000))
-	d.Register(":RADIO:", m.handleRadioEvent, dispatcher.Buffered(1000))
-	d.Register(":FPS:", m.handleFpsEvent, dispatcher.Buffered(1000))
+	d.Register(":EVENT:", m.handleGeneralEvent, dispatcher.Buffered(1000), dispatcher.Logged())
+	d.Register(":CHAT:", m.handleChatEvent, dispatcher.Buffered(1000), dispatcher.Logged())
+	d.Register(":RADIO:", m.handleRadioEvent, dispatcher.Buffered(1000), dispatcher.Logged())
+	d.Register(":FPS:", m.handleFpsEvent, dispatcher.Buffered(1000), dispatcher.Logged())
 
 	// ACE3 events - buffered
-	d.Register(":ACE3:DEATH:", m.handleAce3DeathEvent, dispatcher.Buffered(1000))
-	d.Register(":ACE3:UNCONSCIOUS:", m.handleAce3UnconsciousEvent, dispatcher.Buffered(1000))
+	d.Register(":ACE3:DEATH:", m.handleAce3DeathEvent, dispatcher.Buffered(1000), dispatcher.Logged())
+	d.Register(":ACE3:UNCONSCIOUS:", m.handleAce3UnconsciousEvent, dispatcher.Buffered(1000), dispatcher.Logged())
 
 	// Marker creation - sync (need to cache before states arrive)
-	d.Register(":NEW:MARKER:", m.handleMarkerCreate)
+	d.Register(":NEW:MARKER:", m.handleMarkerCreate, dispatcher.Logged())
 	// Marker updates - buffered
-	d.Register(":NEW:MARKER:STATE:", m.handleMarkerMove, dispatcher.Buffered(1000))
-	d.Register(":DELETE:MARKER:", m.handleMarkerDelete, dispatcher.Buffered(500))
+	d.Register(":NEW:MARKER:STATE:", m.handleMarkerMove, dispatcher.Buffered(1000), dispatcher.Logged())
+	d.Register(":DELETE:MARKER:", m.handleMarkerDelete, dispatcher.Buffered(500), dispatcher.Logged())
 }
 
 func (m *Manager) handleNewSoldier(e dispatcher.Event) (any, error) {

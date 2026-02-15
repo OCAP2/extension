@@ -148,12 +148,12 @@ func (d *Dispatcher) Register(command string, h HandlerFunc, opts ...Option) {
 
 	handler := h
 
-	if cfg.bufferSize > 0 {
-		handler = d.withBuffer(command, cfg, handler)
-	}
-
 	if cfg.logged {
 		handler = d.withLogging(command, handler)
+	}
+
+	if cfg.bufferSize > 0 {
+		handler = d.withBuffer(command, cfg, handler)
 	}
 
 	d.mu.Lock()
@@ -238,7 +238,7 @@ func (d *Dispatcher) safeHandle(command string, cmdAttr attribute.KeyValue, h Ha
 func (d *Dispatcher) withLogging(command string, h HandlerFunc) HandlerFunc {
 	return func(e Event) (any, error) {
 		start := time.Now()
-		d.logger.Debug("handling event", "command", command, "args", len(e.Args))
+		d.logger.Debug("handling event", "command", command, "numArgs", len(e.Args), "args", truncateArgs(e.Args, 3))
 
 		result, err := h(e)
 
@@ -250,4 +250,11 @@ func (d *Dispatcher) withLogging(command string, h HandlerFunc) HandlerFunc {
 
 		return result, err
 	}
+}
+
+func truncateArgs(args []string, n int) []string {
+	if len(args) <= n {
+		return args
+	}
+	return args[:n]
 }

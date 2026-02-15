@@ -221,10 +221,90 @@ func TestDispatcher_CombinedOptions(t *testing.T) {
 
 	assert.Equal(t, int32(1), processed.Load())
 
+	// Allow goroutine to finish logging after handler returns
+	time.Sleep(10 * time.Millisecond)
+
 	logger.mu.Lock()
 	defer logger.mu.Unlock()
 
-	assert.GreaterOrEqual(t, len(logger.messages), 2)
+	// Logging wraps the inner handler, so logs fire during processing (not submission)
+	assert.GreaterOrEqual(t, len(logger.messages), 2, "expected at least 2 log messages from withLogging")
+
+	hasHandling := false
+	hasComplete := false
+	for _, msg := range logger.messages {
+		if strings.Contains(msg, "handling event") && strings.Contains(msg, ":COMBINED:") {
+			hasHandling = true
+		}
+		if strings.Contains(msg, "event complete") && strings.Contains(msg, ":COMBINED:") {
+			hasComplete = true
+		}
+	}
+	assert.True(t, hasHandling, "expected 'handling event' log from inner handler processing")
+	assert.True(t, hasComplete, "expected 'event complete' log from inner handler processing")
+}
+
+func TestDispatcher_LoggedBufferedLogsProcessing(t *testing.T) {
+	d, logger := newTestDispatcher(t)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	d.Register(":LOG_BUF:", func(e Event) (any, error) {
+		wg.Done()
+		return nil, nil
+	}, Buffered(10), Logged())
+
+	// Dispatch — returns immediately with "queued"
+	result, err := d.Dispatch(Event{Command: ":LOG_BUF:", Args: []string{"620", "350.811", "1"}})
+	assert.NoError(t, err)
+	assert.Equal(t, "queued", result)
+
+	// At submission time, no "handling event" log should exist yet (it fires during processing)
+	logger.mu.Lock()
+	preProcess := len(logger.messages)
+	logger.mu.Unlock()
+	assert.Equal(t, 0, preProcess, "no log messages expected at submission time")
+
+	// Wait for async processing
+	wg.Wait()
+	time.Sleep(10 * time.Millisecond)
+
+	// Now the log messages should be present
+	logger.mu.Lock()
+	defer logger.mu.Unlock()
+
+	hasHandling := false
+	for _, msg := range logger.messages {
+		if strings.Contains(msg, "handling event") && strings.Contains(msg, ":LOG_BUF:") {
+			hasHandling = true
+		}
+	}
+	assert.True(t, hasHandling, "expected 'handling event' log after async processing")
+}
+
+func TestDispatcher_LoggedArgPreview(t *testing.T) {
+	d, logger := newTestDispatcher(t)
+
+	d.Register(":ARGS:", func(e Event) (any, error) {
+		return nil, nil
+	}, Logged())
+
+	d.Dispatch(Event{Command: ":ARGS:", Args: []string{"620", "350.811", "1", "extra1", "extra2"}})
+
+	logger.mu.Lock()
+	defer logger.mu.Unlock()
+
+	found := false
+	for _, msg := range logger.messages {
+		if strings.Contains(msg, "handling event") && strings.Contains(msg, "620") && strings.Contains(msg, "350.811") {
+			found = true
+			// Should NOT contain the 4th+ args (truncated to 3)
+			assert.NotContains(t, msg, "extra1", "args should be truncated to 3")
+			break
+		}
+	}
+	assert.True(t, found, "expected arg preview in handling event log")
 }
 
 func TestDispatcher_GatedHandler(t *testing.T) {
