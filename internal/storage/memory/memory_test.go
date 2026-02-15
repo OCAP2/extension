@@ -487,7 +487,6 @@ func TestRecordProjectileEvent(t *testing.T) {
 		MissionID:      1,
 		CaptureFrame:   100,
 		FirerObjectID:  42,
-		Weapon:         "throw",
 		SimulationType: "",
 		MagazineDisplay: "RGO Grenade",
 		Trajectory: []core.TrajectoryPoint{

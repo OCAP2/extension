@@ -751,7 +751,6 @@ func TestHandleProjectile_RecordsProjectileEvent(t *testing.T) {
 	assert.Equal(t, uint(1), pe.MissionID)
 	assert.Equal(t, uint16(1), pe.FirerObjectID)
 	assert.Equal(t, uint(620), pe.CaptureFrame)
-	assert.Equal(t, "throw", pe.Weapon)
 	assert.Equal(t, "RGO Grenade", pe.MagazineDisplay)
 
 	// Trajectory should have 3 points from the LineStringZM

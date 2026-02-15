@@ -337,13 +337,9 @@ func ProjectileEventToCore(p model.ProjectileEvent) core.ProjectileEvent {
 		MissionID:       p.MissionID,
 		CaptureFrame:    p.CaptureFrame,
 		FirerObjectID:   p.FirerObjectID,
-		Weapon:          p.Weapon,
 		WeaponDisplay:   p.WeaponDisplay,
-		Magazine:        p.Magazine,
 		MagazineDisplay: p.MagazineDisplay,
-		Muzzle:          p.Muzzle,
 		MuzzleDisplay:   p.MuzzleDisplay,
-		Mode:            p.Mode,
 		SimulationType:  p.SimulationType,
 		MagazineIcon:    p.MagazineIcon,
 	}

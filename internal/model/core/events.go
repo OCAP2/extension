@@ -144,13 +144,9 @@ type ProjectileEvent struct {
 	FirerObjectID   uint16
 	VehicleObjectID *uint16 // nil if not fired from vehicle
 
-	Weapon          string
 	WeaponDisplay   string
-	Magazine        string
 	MagazineDisplay string
-	Muzzle          string
 	MuzzleDisplay   string
-	Mode            string
 
 	SimulationType string
 	MagazineIcon   string

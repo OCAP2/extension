@@ -527,13 +527,9 @@ func TestProjectileEventToCore(t *testing.T) {
 	assert.Equal(t, uint(1), result.MissionID)
 	assert.Equal(t, uint16(42), result.FirerObjectID)
 	assert.Equal(t, uint(100), result.CaptureFrame)
-	assert.Equal(t, "cannon_120mm", result.Weapon)
 	assert.Equal(t, "Cannon 120mm", result.WeaponDisplay)
-	assert.Equal(t, "120mm_APFSDS", result.Magazine)
 	assert.Equal(t, "APFSDS-T", result.MagazineDisplay)
-	assert.Equal(t, "cannon_120mm", result.Muzzle)
 	assert.Equal(t, "Cannon 120mm", result.MuzzleDisplay)
-	assert.Equal(t, "Single", result.Mode)
 	assert.Equal(t, "shotShell", result.SimulationType)
 	assert.Equal(t, `\A3\weapons_f\data\ui\icon_shell.paa`, result.MagazineIcon)
 

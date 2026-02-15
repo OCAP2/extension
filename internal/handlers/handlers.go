@@ -647,19 +647,20 @@ func (s *Service) LogVehicleState(data []string) (model.VehicleState, error) {
 //	3:  vehicleID (uint, -1 if not in vehicle)
 //	4:  vehicleRole (string)
 //	5:  remoteControllerID (uint)
-//	6:  weapon (string)
-//	7:  weaponDisplay (string)
-//	8:  muzzle (string)
-//	9:  muzzleDisplay (string)
-//	10: magazine (string)
-//	11: magazineDisplay (string)
-//	12: ammo (string)
+//	6:  weapon (string - CfgWeapons class name, e.g. "arifle_katiba_f")
+//	7:  weaponDisplay (string - display name, e.g. "Katiba 6.5 mm")
+//	8:  muzzle (string - CfgWeapons muzzle class name, e.g. "arifle_Katiba_pointer_F")
+//	9:  muzzleDisplay (string - muzzle display name, e.g. "Katiba 6.5 mm")
+//	10: magazine (string - CfgMagazines class name, e.g. "30Rnd_65x39_caseless_green")
+//	11: magazineDisplay (string - magazine display name, e.g. "6.5 mm 30Rnd Caseless Mag")
+//	12: ammo (string - CfgAmmo class name, e.g. "B_65x39_Caseless_green")
 //	13: fireMode (string)
 //	14: positions (array string "[[tickTime,frameNo,\"x,y,z\"],...]")
 //	15: initialVelocity (string "x,y,z")
 //	16: hitParts (array string)
-//	17: sim (string - simulation type)
+//	17: sim (string - simulation type, required: "shotBullet", "shotGrenade", "shotRocket", "shotMissile", "shotShell", etc.)
 //	18: isSub (bool - is submunition)
+//	19: magazineIcon (string - path to magazine icon texture)
 func (s *Service) LogProjectileEvent(data []string) (model.ProjectileEvent, error) {
 	var projectileEvent model.ProjectileEvent
 	logger := s.deps.LogManager.Logger()
@@ -669,8 +670,8 @@ func (s *Service) LogProjectileEvent(data []string) (model.ProjectileEvent, erro
 		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
 	}
 
-	if len(data) < 17 {
-		return projectileEvent, fmt.Errorf("insufficient data fields: got %d, need at least 17", len(data))
+	if len(data) < 20 {
+		return projectileEvent, fmt.Errorf("insufficient data fields: got %d, need 20", len(data))
 	}
 
 	projectileEvent.MissionID = s.ctx.GetMission().ID
@@ -862,23 +863,17 @@ func (s *Service) LogProjectileEvent(data []string) (model.ProjectileEvent, erro
 		}
 	}
 
-	// [17] sim - simulation type (optional, may not be present in older data)
-	if len(data) > 17 {
-		projectileEvent.SimulationType = data[17]
+	// [17] sim - simulation type
+	projectileEvent.SimulationType = data[17]
+
+	// [18] isSub - is submunition
+	isSub, err := strconv.ParseBool(data[18])
+	if err == nil {
+		projectileEvent.IsSubmunition = isSub
 	}
 
-	// [18] isSub - is submunition (optional)
-	if len(data) > 18 {
-		isSub, err := strconv.ParseBool(data[18])
-		if err == nil {
-			projectileEvent.IsSubmunition = isSub
-		}
-	}
-
-	// [19] magazineIcon - magazine icon path (optional)
-	if len(data) > 19 {
-		projectileEvent.MagazineIcon = data[19]
-	}
+	// [19] magazineIcon - magazine icon path
+	projectileEvent.MagazineIcon = data[19]
 
 	return projectileEvent, nil
 }

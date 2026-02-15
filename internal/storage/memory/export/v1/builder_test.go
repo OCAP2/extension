@@ -795,7 +795,6 @@ func TestBuildWithBulletProjectile(t *testing.T) {
 				MissionID:      1,
 				CaptureFrame:   15,
 				FirerObjectID:  5,
-				Weapon:         "arifle_MX_F",
 				SimulationType: "shotBullet",
 				Trajectory: []core.TrajectoryPoint{
 					{Position: core.Position3D{X: 1000, Y: 2000, Z: 1.5}, Frame: 15},
@@ -835,7 +834,7 @@ func TestBuildWithThrownGrenade(t *testing.T) {
 				MissionID:       1,
 				CaptureFrame:    100,
 				FirerObjectID:   3,
-				Weapon:          "throw",
+				SimulationType:  "shotGrenade",
 				MagazineDisplay: "Smoke Grenade (White)",
 				MagazineIcon:    `\A3\Weapons_F\Data\UI\gear_smokegrenade_white_ca.paa`,
 				Trajectory: []core.TrajectoryPoint{
@@ -887,7 +886,6 @@ func TestBuildWithVehicleProjectile(t *testing.T) {
 				CaptureFrame:    50,
 				FirerObjectID:   5,
 				VehicleObjectID: &vehicleID,
-				Weapon:          "cannon_120mm",
 				SimulationType:  "shotShell",
 				MuzzleDisplay:   "Mk30 HMG .50",
 				MagazineDisplay: ".50 BMG 200Rnd",
@@ -923,7 +921,6 @@ func TestBuildWithOnFootLauncher(t *testing.T) {
 				MissionID:       1,
 				CaptureFrame:    80,
 				FirerObjectID:   7,
-				Weapon:          "launch_NLAW_F",
 				SimulationType:  "shotRocket",
 				MuzzleDisplay:   "MAAWS Mk4 Mod 1",
 				MagazineDisplay: "HEAT Rocket",
@@ -957,7 +954,6 @@ func TestBuildWithShotGrenade(t *testing.T) {
 				MissionID:       1,
 				CaptureFrame:    60,
 				FirerObjectID:   3,
-				Weapon:          "GL_3GL_F",
 				SimulationType:  "shotGrenade",
 				MuzzleDisplay:   "3GL",
 				MagazineDisplay: "40mm HE",
@@ -991,7 +987,6 @@ func TestBuildWithProjectileHitEvents(t *testing.T) {
 				MissionID:       1,
 				CaptureFrame:    50,
 				FirerObjectID:   5,
-				Weapon:          "arifle_MX_F",
 				SimulationType:  "shotBullet",
 				MuzzleDisplay:   "MX 6.5 mm",
 				MagazineDisplay: "6.5 mm 30Rnd",
@@ -1036,7 +1031,6 @@ func TestBuildWithEmptyMagazineIcon(t *testing.T) {
 				MissionID:       1,
 				CaptureFrame:    50,
 				FirerObjectID:   5,
-				Weapon:          "throw",
 				MagazineDisplay: "Unknown",
 				MagazineIcon:    "", // empty → fallback
 				Trajectory: []core.TrajectoryPoint{
@@ -1069,7 +1063,6 @@ func TestBuildWithProjectileHitOnVehicle(t *testing.T) {
 				MissionID:       1,
 				CaptureFrame:    60,
 				FirerObjectID:   5,
-				Weapon:          "launch_NLAW_F",
 				SimulationType:  "shotRocket",
 				MuzzleDisplay:   "PCML",
 				MagazineDisplay: "PCML Missile",
@@ -1110,7 +1103,6 @@ func TestBuildWithProjectileHitEmptyMuzzleDisplay(t *testing.T) {
 				MissionID:       1,
 				CaptureFrame:    50,
 				FirerObjectID:   5,
-				Weapon:          "arifle_MX_F",
 				WeaponDisplay:   "MX Rifle",
 				SimulationType:  "shotBullet",
 				MuzzleDisplay:   "", // empty → falls back to WeaponDisplay
@@ -1137,23 +1129,21 @@ func TestBuildWithProjectileHitEmptyMuzzleDisplay(t *testing.T) {
 
 func TestIsProjectileMarker(t *testing.T) {
 	tests := []struct {
-		name   string
-		sim    string
-		weapon string
-		want   bool
+		name string
+		sim  string
+		want bool
 	}{
-		{"bullet is not marker", "shotBullet", "arifle_MX_F", false},
-		{"rocket is marker", "shotRocket", "launch_NLAW_F", true},
-		{"grenade is marker", "shotGrenade", "GL_3GL_F", true},
-		{"shell is marker", "shotShell", "cannon_120mm", true},
-		{"missile is marker", "shotMissile", "missiles_DAGR", true},
-		{"no sim + throw is marker", "", "throw", true},
-		{"no sim + rifle is not marker", "", "arifle_MX_F", false},
+		{"bullet is not marker", "shotBullet", false},
+		{"rocket is marker", "shotRocket", true},
+		{"grenade is marker", "shotGrenade", true},
+		{"shell is marker", "shotShell", true},
+		{"missile is marker", "shotMissile", true},
+		{"empty sim is marker", "", true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, isProjectileMarker(tt.sim, tt.weapon))
+			assert.Equal(t, tt.want, isProjectileMarker(tt.sim))
 		})
 	}
 }

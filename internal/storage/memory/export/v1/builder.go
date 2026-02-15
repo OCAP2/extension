@@ -330,7 +330,7 @@ func Build(data *MissionData) Export {
 
 	// Convert projectile events into firelines, markers, and hit events
 	for _, pe := range data.ProjectileEvents {
-		if !isProjectileMarker(pe.SimulationType, pe.Weapon) {
+		if !isProjectileMarker(pe.SimulationType) {
 			// Bullets become fire lines on the soldier entity
 			if len(pe.Trajectory) >= 2 && int(pe.FirerObjectID) < len(export.Entities) {
 				endPt := pe.Trajectory[len(pe.Trajectory)-1]
@@ -364,7 +364,7 @@ func Build(data *MissionData) Export {
 					vehicleName = vr.Vehicle.DisplayName
 				}
 				text = fmt.Sprintf("%s %s - %s", vehicleName, pe.MuzzleDisplay, pe.MagazineDisplay)
-			case pe.SimulationType == "shotGrenade" || pe.Weapon == "throw":
+			case pe.SimulationType == "shotGrenade":
 				text = pe.MagazineDisplay
 			default:
 				text = fmt.Sprintf("%s - %s", pe.MuzzleDisplay, pe.MagazineDisplay)
@@ -483,11 +483,8 @@ func boolToInt(b bool) int {
 // isProjectileMarker returns true if the projectile should be rendered as a
 // moving marker rather than a fire-line. Bullets are fire-lines; everything
 // else (grenades, rockets, missiles, shells, etc.) becomes a marker.
-func isProjectileMarker(sim, weapon string) bool {
-	if sim != "" {
-		return sim != "shotBullet"
-	}
-	return weapon == "throw"
+func isProjectileMarker(sim string) bool {
+	return sim != "shotBullet"
 }
 
 // extractFilename returns the last path component from a file path.
