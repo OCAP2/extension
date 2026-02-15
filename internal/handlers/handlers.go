@@ -32,7 +32,10 @@ func parseUintFromFloat(s string) (uint64, error) {
 	}
 	f, err := strconv.ParseFloat(s, 64)
 	if err != nil {
-		return 0, fmt.Errorf("strconv.ParseUint/Float: parsing %q: invalid syntax", s)
+		return 0, err
+	}
+	if f < 0 || f != float64(uint64(f)) {
+		return 0, fmt.Errorf("parseUintFromFloat: %q is not a valid uint64", s)
 	}
 	return uint64(f), nil
 }
@@ -44,7 +47,10 @@ func parseIntFromFloat(s string) (int64, error) {
 	}
 	f, err := strconv.ParseFloat(s, 64)
 	if err != nil {
-		return 0, fmt.Errorf("strconv.ParseInt/Float: parsing %q: invalid syntax", s)
+		return 0, err
+	}
+	if f != float64(int64(f)) {
+		return 0, fmt.Errorf("parseIntFromFloat: %q is not a valid int64", s)
 	}
 	return int64(f), nil
 }

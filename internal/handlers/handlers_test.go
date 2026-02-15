@@ -340,12 +340,12 @@ func TestParseUintFromFloat(t *testing.T) {
 		{"zero", "0", 0, false},
 		{"float with decimals", "32.00", 32, false},
 		{"float with trailing zero", "30.0", 30, false},
-		{"float truncates", "10.99", 10, false},
 		{"large integer", "65535", 65535, false},
 		{"large float", "65535.00", 65535, false},
+		{"fractional rejects", "10.99", 0, true},
 		{"empty string", "", 0, true},
 		{"non-numeric", "abc", 0, true},
-		{"negative wraps", "-1", ^uint64(0), false}, // float-to-uint wraps; callers use parseIntFromFloat for signed IDs
+		{"negative", "-1", 0, true},
 	}
 
 	for _, tt := range tests {
@@ -373,8 +373,8 @@ func TestParseIntFromFloat(t *testing.T) {
 		{"negative integer", "-1", -1, false},
 		{"float with decimals", "32.00", 32, false},
 		{"negative float", "-1.00", -1, false},
-		{"float truncates", "10.99", 10, false},
 		{"large integer", "65535", 65535, false},
+		{"fractional rejects", "10.99", 0, true},
 		{"empty string", "", 0, true},
 		{"non-numeric", "abc", 0, true},
 	}
