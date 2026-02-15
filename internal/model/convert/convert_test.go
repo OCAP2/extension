@@ -166,56 +166,6 @@ func TestVehicleStateToCore(t *testing.T) {
 	assert.True(t, coreState.EngineOn)
 }
 
-func TestFiredEventToCore(t *testing.T) {
-	now := time.Now()
-
-	gormEvent := model.FiredEvent{
-		ID:                1,
-		MissionID:         1,
-		SoldierObjectID:     2,
-		Time:              now,
-		CaptureFrame:      100,
-		Weapon:            "arifle_MX_F",
-		Magazine:          "30Rnd_65x39_caseless_mag",
-		FiringMode:        "Single",
-		StartPosition:     makePoint(100.0, 100.0, 1.5),
-		StartElevationASL: 1.5,
-		EndPosition:       makePoint(200.0, 200.0, 1.0),
-		EndElevationASL:   1.0,
-	}
-
-	coreEvent := FiredEventToCore(gormEvent)
-
-	// SoldierID maps from SoldierObjectID
-	assert.Equal(t, uint16(2), coreEvent.SoldierID)
-	assert.Equal(t, "arifle_MX_F", coreEvent.Weapon)
-	assert.Equal(t, 100.0, coreEvent.StartPos.X)
-	assert.Equal(t, 200.0, coreEvent.EndPos.X)
-}
-
-func TestHitEventToCore(t *testing.T) {
-	now := time.Now()
-
-	gormEvent := model.HitEvent{
-		ID:                   1,
-		MissionID:            1,
-		Time:                 now,
-		CaptureFrame:         100,
-		VictimSoldierObjectID:  sql.NullInt32{Int32: 5, Valid: true},
-		ShooterSoldierObjectID: sql.NullInt32{Int32: 10, Valid: true},
-		EventText:            "Hit event",
-		Distance:             50.5,
-	}
-
-	coreEvent := HitEventToCore(gormEvent)
-
-	require.NotNil(t, coreEvent.VictimSoldierID)
-	assert.Equal(t, uint(5), *coreEvent.VictimSoldierID)
-	require.NotNil(t, coreEvent.ShooterSoldierID)
-	assert.Equal(t, uint(10), *coreEvent.ShooterSoldierID)
-	assert.Equal(t, float32(50.5), coreEvent.Distance)
-}
-
 func TestKillEventToCore(t *testing.T) {
 	now := time.Now()
 
@@ -495,18 +445,6 @@ func TestSoldierStateToCore_NilInVehicleID(t *testing.T) {
 	assert.Nil(t, coreState.InVehicleObjectID)
 }
 
-func TestHitEventToCore_NilIDs(t *testing.T) {
-	gormEvent := model.HitEvent{
-		VictimSoldierObjectID:  sql.NullInt32{Valid: false},
-		ShooterSoldierObjectID: sql.NullInt32{Valid: false},
-	}
-
-	coreEvent := HitEventToCore(gormEvent)
-
-	assert.Nil(t, coreEvent.VictimSoldierID)
-	assert.Nil(t, coreEvent.ShooterSoldierID)
-}
-
 func TestProjectileEventToFiredEvent(t *testing.T) {
 	now := time.Now()
 
@@ -645,10 +583,8 @@ var (
 	_ core.SoldierState         = SoldierStateToCore(model.SoldierState{})
 	_ core.Vehicle              = VehicleToCore(model.Vehicle{})
 	_ core.VehicleState         = VehicleStateToCore(model.VehicleState{})
-	_ core.FiredEvent           = FiredEventToCore(model.FiredEvent{})
-	_ core.FiredEvent           = ProjectileEventToFiredEvent(model.ProjectileEvent{})
-	_ core.GeneralEvent         = GeneralEventToCore(model.GeneralEvent{})
-	_ core.HitEvent             = HitEventToCore(model.HitEvent{})
+	_ core.FiredEvent   = ProjectileEventToFiredEvent(model.ProjectileEvent{})
+	_ core.GeneralEvent = GeneralEventToCore(model.GeneralEvent{})
 	_ core.KillEvent            = KillEventToCore(model.KillEvent{})
 	_ core.ChatEvent            = ChatEventToCore(model.ChatEvent{})
 	_ core.RadioEvent           = RadioEventToCore(model.RadioEvent{})

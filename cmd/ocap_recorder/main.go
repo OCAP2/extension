@@ -675,11 +675,6 @@ func migrateBackupsSqlite() (err error) {
 			tx.Rollback()
 			return fmt.Errorf("error migrating vehicle_states: %v", err)
 		}
-		err = migrateTable(sqliteDB, tx, model.FiredEvent{}, "fired_events")
-		if err != nil {
-			tx.Rollback()
-			return fmt.Errorf("error migrating fired_events: %v", err)
-		}
 		err = migrateTable(sqliteDB, tx, model.ProjectileEvent{}, "projectile_events")
 		if err != nil {
 			tx.Rollback()
@@ -689,11 +684,6 @@ func migrateBackupsSqlite() (err error) {
 		if err != nil {
 			tx.Rollback()
 			return fmt.Errorf("error migrating general_events: %v", err)
-		}
-		err = migrateTable(sqliteDB, tx, model.HitEvent{}, "hit_events")
-		if err != nil {
-			tx.Rollback()
-			return fmt.Errorf("error migrating hit_events: %v", err)
 		}
 		err = migrateTable(sqliteDB, tx, model.KillEvent{}, "kill_events")
 		if err != nil {
@@ -935,8 +925,7 @@ func populateDemoData() {
 		missionDuration          int = 60 * 15
 		numUnitsPerMission       int = 60
 		numSoldiers              int = int(math.Ceil(float64(numUnitsPerMission) * float64(0.8)))
-		numFiredEventsPerSoldier int = 2700
-		numVehicles              int = numUnitsPerMission - numSoldiers
+		numVehicles int = numUnitsPerMission - numSoldiers
 
 		waitGroup = sync.WaitGroup{}
 
@@ -969,23 +958,6 @@ func populateDemoData() {
 			"Assistant Auto Rifleman@Bravo", "Grenadier@Bravo", "Machine Gunner@Bravo",
 			"Assistant Machine Gunner@Bravo", "Medic@Bravo",
 		}
-
-		weapons []string = []string{
-			"Katiba", "MXC 6.5 mm", "MX 6.5 mm", "MX SW 6.5 mm", "MXM 6.5 mm",
-			"SPAR-16 5.56 mm", "SPAR-16S 5.56 mm", "SPAR-17 7.62 mm",
-			"TAR-21 5.56 mm", "TRG-21 5.56 mm", "TRG-20 5.56 mm",
-			"TRG-21 EGLM 5.56 mm", "CAR-95 5.8 mm", "CAR-95-1 5.8 mm", "CAR-95 GL 5.8 mm",
-		}
-
-		magazines []string = []string{
-			"30rnd 6.5 mm Caseless Mag", "30rnd 6.5 mm Caseless Mag Tracer",
-			"100rnd 6.5 mm Caseless Mag", "100rnd 6.5 mm Caseless Mag Tracer",
-			"200rnd 6.5 mm Caseless Mag", "200rnd 6.5 mm Caseless Mag Tracer",
-			"30rnd 5.56 mm STANAG", "30rnd 5.56 mm STANAG Tracer (Yellow)",
-			"30rnd 5.56 mm STANAG Tracer (Red)", "30rnd 5.56 mm STANAG Tracer (Green)",
-		}
-
-		firemodes []string = []string{"Single", "FullAuto", "Burst3", "Burst5"}
 
 		worldNames []string = []string{
 			"Altis", "Stratis", "VR", "Bootcamp_ACR", "Malden",
@@ -1233,34 +1205,6 @@ func populateDemoData() {
 		waitGroup.Wait()
 
 		fmt.Println("Finished creating units and states.")
-		fmt.Println("Creating fired events...")
-
-		wg2 := sync.WaitGroup{}
-		for i := 0; i <= numSoldiers*numFiredEventsPerSoldier; i++ {
-			wg2.Add(1)
-
-			go func() {
-				var randomStartPos []float64 = []float64{rand.Float64()*30720 + 1, rand.Float64()*30720 + 1, rand.Float64()*30720 + 1}
-				var randomEndPos []float64
-				for j := 0; j < 3; j++ {
-					randomEndPos = append(randomEndPos, randomStartPos[j]+rand.Float64()*400-200)
-				}
-
-				firedEvent := []string{
-					strconv.FormatInt(int64(rand.Intn(numSoldiers)+1), 10),
-					strconv.FormatInt(int64(rand.Intn(missionDuration)), 10),
-					fmt.Sprintf("%f,%f,%f", randomStartPos[0], randomStartPos[1], randomStartPos[2]),
-					fmt.Sprintf("%f,%f,%f", randomEndPos[0], randomEndPos[1], randomEndPos[2]),
-					weapons[rand.Intn(len(weapons))],
-					magazines[rand.Intn(len(magazines))],
-					firemodes[rand.Intn(len(firemodes))],
-				}
-
-				dispatchDemoEvent(":FIRED:", firedEvent)
-				wg2.Done()
-			}()
-		}
-		wg2.Wait()
 
 		// demo markers
 		markerTypes := []string{"mil_dot", "mil_triangle", "mil_box", "hd_flag"}
@@ -1409,26 +1353,36 @@ func getOcapRecording(missionIDs []string) (err error) {
 			}
 			entity["positions"] = positions
 
-			firedEvents := []model.FiredEvent{}
-			err = DB.Model(&model.FiredEvent{}).
-				Where("mission_id = ? AND soldier_ocap_id = ?", missionIDInt, soldier.ObjectID).
+			projectileEvents := []model.ProjectileEvent{}
+			err = DB.Model(&model.ProjectileEvent{}).
+				Where("mission_id = ? AND firer_object_id = ?", missionIDInt, soldier.ObjectID).
 				Order("capture_frame ASC").
-				Find(&firedEvents).Error
+				Find(&projectileEvents).Error
 			if err != nil {
-				return fmt.Errorf("error getting fired events: %w", err)
+				return fmt.Errorf("error getting projectile events: %w", err)
 			}
 
 			framesFired := []any{}
-			for _, event := range firedEvents {
-				startCoord, _ := event.StartPosition.Coordinates()
-				endCoord, _ := event.EndPosition.Coordinates()
+			for _, event := range projectileEvents {
+				var startX, startY, endX, endY float64
+				if !event.Positions.IsEmpty() {
+					if ls, ok := event.Positions.AsLineString(); ok {
+						seq := ls.Coordinates()
+						if seq.Length() > 0 {
+							start := seq.Get(0)
+							startX, startY = start.X, start.Y
+							end := seq.Get(seq.Length() - 1)
+							endX, endY = end.X, end.Y
+						}
+					}
+				}
 				frameFired := []any{
 					event.CaptureFrame,
-					[]float64{endCoord.XY.X, endCoord.XY.Y},
-					[]float64{startCoord.XY.X, startCoord.XY.Y},
-					event.Weapon,
-					event.Magazine,
-					event.FiringMode,
+					[]float64{endX, endY},
+					[]float64{startX, startY},
+					event.WeaponDisplay,
+					event.MagazineDisplay,
+					event.Mode,
 				}
 				framesFired = append(framesFired, frameFired)
 			}

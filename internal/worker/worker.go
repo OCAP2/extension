@@ -23,10 +23,8 @@ type HandlerService interface {
 	LogNewVehicle(args []string) (model.Vehicle, error)
 	LogSoldierState(args []string) (model.SoldierState, error)
 	LogVehicleState(args []string) (model.VehicleState, error)
-	LogFiredEvent(args []string) (model.FiredEvent, error)
 	LogProjectileEvent(args []string) (model.ProjectileEvent, error)
 	LogGeneralEvent(args []string) (model.GeneralEvent, error)
-	LogHitEvent(args []string) (model.HitEvent, error)
 	LogKillEvent(args []string) (model.KillEvent, error)
 	LogChatEvent(args []string) (model.ChatEvent, error)
 	LogRadioEvent(args []string) (model.RadioEvent, error)
@@ -46,10 +44,8 @@ type Queues struct {
 	SoldierStates         *queue.Queue[model.SoldierState]
 	Vehicles              *queue.Queue[model.Vehicle]
 	VehicleStates         *queue.Queue[model.VehicleState]
-	FiredEvents           *queue.Queue[model.FiredEvent]
 	ProjectileEvents      *queue.Queue[model.ProjectileEvent]
 	GeneralEvents         *queue.Queue[model.GeneralEvent]
-	HitEvents             *queue.Queue[model.HitEvent]
 	KillEvents            *queue.Queue[model.KillEvent]
 	ChatEvents            *queue.Queue[model.ChatEvent]
 	RadioEvents           *queue.Queue[model.RadioEvent]
@@ -67,10 +63,8 @@ func NewQueues() *Queues {
 		SoldierStates:         queue.New[model.SoldierState](),
 		Vehicles:              queue.New[model.Vehicle](),
 		VehicleStates:         queue.New[model.VehicleState](),
-		FiredEvents:           queue.New[model.FiredEvent](),
 		ProjectileEvents:      queue.New[model.ProjectileEvent](),
 		GeneralEvents:         queue.New[model.GeneralEvent](),
-		HitEvents:             queue.New[model.HitEvent](),
 		KillEvents:            queue.New[model.KillEvent](),
 		ChatEvents:            queue.New[model.ChatEvent](),
 		RadioEvents:           queue.New[model.RadioEvent](),
@@ -191,10 +185,8 @@ func (m *Manager) StartDBWriters() {
 			writeQueue(m.deps.DB, m.queues.MarkerStates, "marker states", log, nil)
 
 			// Events (no post-processing)
-			writeQueue(m.deps.DB, m.queues.FiredEvents, "fired events", log, nil)
 			writeQueue(m.deps.DB, m.queues.ProjectileEvents, "projectile events", log, nil)
 			writeQueue(m.deps.DB, m.queues.GeneralEvents, "general events", log, nil)
-			writeQueue(m.deps.DB, m.queues.HitEvents, "hit events", log, nil)
 			writeQueue(m.deps.DB, m.queues.KillEvents, "kill events", log, nil)
 			writeQueue(m.deps.DB, m.queues.ChatEvents, "chat events", log, nil)
 			writeQueue(m.deps.DB, m.queues.RadioEvents, "radio events", log, nil)

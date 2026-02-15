@@ -23,12 +23,10 @@ var DatabaseModels = []interface{}{
 	&SoldierState{},
 	&Vehicle{},
 	&VehicleState{},
-	&FiredEvent{},
 	&ProjectileEvent{},
 	&ProjectileHitsSoldier{},
 	&ProjectileHitsVehicle{},
 	&GeneralEvent{},
-	&HitEvent{},
 	&KillEvent{},
 	&ChatEvent{},
 	&RadioEvent{},
@@ -49,12 +47,10 @@ var DatabaseModelsSQLite = []interface{}{
 	&SoldierState{},
 	&Vehicle{},
 	&VehicleState{},
-	&FiredEvent{},
 	&ProjectileEvent{},
 	&ProjectileHitsSoldier{},
 	&ProjectileHitsVehicle{},
 	&GeneralEvent{},
-	&HitEvent{},
 	&KillEvent{},
 	&ChatEvent{},
 	&RadioEvent{},
@@ -104,9 +100,6 @@ type BufferLengths struct {
 	SoldierStates         uint16 `json:"soldierStates"`
 	VehicleStates         uint16 `json:"vehicleStates"`
 	GeneralEvents         uint16 `json:"generalEvents"`
-	FiredEvents           uint16 `json:"firedEvents"`
-	FiredEventsNew        uint16 `json:"firedEventsNew"`
-	HitEvents             uint16 `json:"hitEvents"`
 	KillEvents            uint16 `json:"killEvents"`
 	ChatEvents            uint16 `json:"chatEvents"`
 	RadioEvents           uint16 `json:"radioEvents"`
@@ -125,9 +118,6 @@ type WriteQueueLengths struct {
 	SoldierStates         uint16 `json:"soldierStates"`
 	VehicleStates         uint16 `json:"vehicleStates"`
 	GeneralEvents         uint16 `json:"generalEvents"`
-	FiredEvents           uint16 `json:"firedEvents"`
-	FiredEventsNew        uint16 `json:"firedEventsNew"`
-	HitEvents             uint16 `json:"hitEvents"`
 	KillEvents            uint16 `json:"killEvents"`
 	ChatEvents            uint16 `json:"chatEvents"`
 	RadioEvents           uint16 `json:"radioEvents"`
@@ -247,11 +237,9 @@ type Mission struct {
 	Addons        []Addon       `json:"-" gorm:"many2many:mission_addons;"`
 	PlayableSlots PlayableSlots `json:"playableSlots" gorm:"embedded;embeddedPrefix:playable_"`
 	SideFriendly          SideFriendly  `json:"sideFriendly" gorm:"embedded;embeddedPrefix:sidefriendly_"`
-	GeneralEvents         []GeneralEvent
-	HitEvents             []HitEvent
-	KillEvents            []KillEvent
-	FiredEvents           []FiredEvent
-	ProjectileEvents      []ProjectileEvent
+	GeneralEvents    []GeneralEvent
+	KillEvents       []KillEvent
+	ProjectileEvents []ProjectileEvent
 	ChatEvents            []ChatEvent
 	RadioEvents           []RadioEvent
 	ServerFpsEvents       []ServerFpsEvent
@@ -434,33 +422,6 @@ func (*VehicleState) TableName() string {
 	return "vehicle_states"
 }
 
-// FiredEvent represents a weapon being fired (legacy bullet tracking)
-// References Soldier by (MissionID, SoldierObjectID) composite FK
-//
-// SQF Command: :FIRED:
-// Args: [firerOcapId, frameNo, endPos, startPos, weaponDisplay, magazineDisplay, fireMode]
-type FiredEvent struct {
-	ID              uint      `json:"id" gorm:"primarykey;autoIncrement;"`
-	Time            time.Time `json:"time" gorm:"type:timestamptz;"`                                            // Server time when fired
-	MissionID       uint      `json:"missionId" gorm:"index:idx_firedevent_mission_id"`
-	Mission         Mission   `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:MissionID;"`
-	SoldierObjectID uint16    `json:"soldierOcapId" gorm:"index:idx_firedevent_soldier_ocap_id"`                // OCAP ID of the firer
-	Soldier         Soldier   `gorm:"foreignkey:MissionID,SoldierObjectID;references:MissionID,ObjectID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
-	CaptureFrame    uint      `json:"captureFrame" gorm:"index:idx_firedevent_capture_frame;"`                  // Frame number when fired
-	Weapon          string    `json:"weapon" gorm:"size:64"`                                                    // Weapon/muzzle display name
-	Magazine        string    `json:"magazine" gorm:"size:64"`                                                  // Magazine display name
-	FiringMode      string    `json:"mode" gorm:"size:64"`                                                      // Fire mode: single, burst, auto
-
-	StartPosition     geom.Point `json:"startPos"`  // Bullet origin position ASL (firer position)
-	StartElevationASL float32    `json:"startElev"` // Bullet origin Z coordinate
-	EndPosition       geom.Point `json:"endPos"`    // Bullet destination/impact position ASL
-	EndElevationASL   float32    `json:"endElev"`   // Bullet destination Z coordinate
-}
-
-func (*FiredEvent) TableName() string {
-	return "fired_events"
-}
-
 // ProjectileEvent represents a weapon being fired and its full lifetime tracking
 // References Soldier by ObjectID for Firer and ActualFirer (remote controller)
 //
@@ -555,36 +516,6 @@ type GeneralEvent struct {
 
 func (g *GeneralEvent) TableName() string {
 	return "general_events"
-}
-
-// HitEvent represents an entity being hit by a projectile or explosion
-// Stores ObjectIDs directly - victim/shooter could be soldier or vehicle
-//
-// SQF Command: :HIT:
-// Args: [frameNo, victimOcapId, shooterOcapId, weaponText, distance]
-type HitEvent struct {
-	ID           uint      `json:"id" gorm:"primarykey;autoIncrement;"`
-	Time         time.Time `json:"time" gorm:"type:timestamptz;"`                              // Server time when hit occurred
-	MissionID    uint      `json:"missionId" gorm:"index:idx_hitevent_mission_id"`
-	Mission      Mission   `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:MissionID;"`
-	CaptureFrame uint      `json:"captureFrame" gorm:"index:idx_hitevent_capture_frame;"`      // Frame number when hit occurred
-
-	// Victim OCAP ID - one of these will be set based on entity type
-	VictimSoldierObjectID  sql.NullInt32 `json:"victimSoldierOcapId" gorm:"index:idx_hitevent_victim_soldier_ocap;default:NULL"`  // OCAP ID if victim is soldier
-	VictimVehicleObjectID  sql.NullInt32 `json:"victimVehicleOcapId" gorm:"index:idx_hitevent_victim_vehicle_ocap;default:NULL"`  // OCAP ID if victim is vehicle
-	// Shooter OCAP ID - one of these will be set based on entity type
-	ShooterSoldierObjectID sql.NullInt32 `json:"shooterSoldierOcapId" gorm:"index:idx_hitevent_shooter_soldier_ocap;default:NULL"` // OCAP ID if shooter is soldier
-	ShooterVehicleObjectID sql.NullInt32 `json:"shooterVehicleOcapId" gorm:"index:idx_hitevent_shooter_vehicle_ocap;default:NULL"` // OCAP ID if shooter is vehicle
-
-	WeaponVehicle  string `json:"weaponVehicle" gorm:"size:80"`  // Vehicle display name (e.g. "Hunter HMG"), empty if on foot
-	WeaponName     string `json:"weaponName" gorm:"size:80"`     // Weapon/muzzle display name (e.g. "Mk30 HMG .50")
-	WeaponMagazine string `json:"weaponMagazine" gorm:"size:80"` // Magazine display name (e.g. ".50 BMG 200Rnd")
-	EventText      string `json:"eventText" gorm:"size:160"`     // Composed display string for backward compatibility
-	Distance       float32 `json:"distance"`                     // Distance between shooter and victim in meters
-}
-
-func (h *HitEvent) TableName() string {
-	return "hit_events"
 }
 
 // KillEvent represents an entity being killed/destroyed

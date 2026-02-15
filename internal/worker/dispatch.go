@@ -21,9 +21,7 @@ func (m *Manager) RegisterHandlers(d *dispatcher.Dispatcher) {
 	d.Register(":NEW:VEHICLE:STATE:", m.handleVehicleState, dispatcher.Buffered(10000))
 
 	// Combat events - buffered
-	d.Register(":FIRED:", m.handleFiredEvent, dispatcher.Buffered(10000))
 	d.Register(":PROJECTILE:", m.handleProjectileEvent, dispatcher.Buffered(5000))
-	d.Register(":HIT:", m.handleHitEvent, dispatcher.Buffered(2000))
 	d.Register(":KILL:", m.handleKillEvent, dispatcher.Buffered(2000))
 
 	// General events - buffered
@@ -129,26 +127,6 @@ func (m *Manager) handleVehicleState(e dispatcher.Event) (any, error) {
 	return nil, nil
 }
 
-func (m *Manager) handleFiredEvent(e dispatcher.Event) (any, error) {
-	if !m.deps.IsDatabaseValid() && !m.hasBackend() {
-		return nil, nil
-	}
-
-	obj, err := m.deps.HandlerService.LogFiredEvent(e.Args)
-	if err != nil {
-		return nil, fmt.Errorf("failed to log fired event: %w", err)
-	}
-
-	if m.hasBackend() {
-		coreObj := convert.FiredEventToCore(obj)
-		m.backend.RecordFiredEvent(&coreObj)
-	} else {
-		m.queues.FiredEvents.Push(obj)
-	}
-
-	return nil, nil
-}
-
 func (m *Manager) handleProjectileEvent(e dispatcher.Event) (any, error) {
 	// For memory backend, convert projectile to appropriate format
 	if m.hasBackend() {
@@ -169,6 +147,13 @@ func (m *Manager) handleProjectileEvent(e dispatcher.Event) (any, error) {
 			coreObj := convert.ProjectileEventToFiredEvent(obj)
 			m.backend.RecordFiredEvent(&coreObj)
 		}
+
+		// Record hit events from projectile hitParts
+		hitEvents := convert.ProjectileEventToHitEvents(obj)
+		for i := range hitEvents {
+			m.backend.RecordHitEvent(&hitEvents[i])
+		}
+
 		return nil, nil
 	}
 
@@ -201,26 +186,6 @@ func (m *Manager) handleGeneralEvent(e dispatcher.Event) (any, error) {
 		m.backend.RecordGeneralEvent(&coreObj)
 	} else {
 		m.queues.GeneralEvents.Push(obj)
-	}
-
-	return nil, nil
-}
-
-func (m *Manager) handleHitEvent(e dispatcher.Event) (any, error) {
-	if !m.deps.IsDatabaseValid() && !m.hasBackend() {
-		return nil, nil
-	}
-
-	obj, err := m.deps.HandlerService.LogHitEvent(e.Args)
-	if err != nil {
-		return nil, fmt.Errorf("failed to log hit event: %w", err)
-	}
-
-	if m.hasBackend() {
-		coreObj := convert.HitEventToCore(obj)
-		m.backend.RecordHitEvent(&coreObj)
-	} else {
-		m.queues.HitEvents.Push(obj)
 	}
 
 	return nil, nil

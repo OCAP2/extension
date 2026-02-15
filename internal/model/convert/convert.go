@@ -4,9 +4,11 @@ package convert
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 
 	"github.com/OCAP2/extension/v5/internal/model"
 	"github.com/OCAP2/extension/v5/internal/model/core"
+	"github.com/OCAP2/extension/v5/internal/util"
 	geom "github.com/peterstace/simplefeatures/geom"
 )
 
@@ -137,22 +139,6 @@ func VehicleStateToCore(v model.VehicleState) core.VehicleState {
 	}
 }
 
-// FiredEventToCore converts a GORM FiredEvent to a core.FiredEvent.
-// SoldierObjectID in GORM maps directly to SoldierID in core (both are ObjectID).
-func FiredEventToCore(e model.FiredEvent) core.FiredEvent {
-	return core.FiredEvent{
-		MissionID:    e.MissionID,
-		SoldierID:    e.SoldierObjectID, // Direct mapping: GORM SoldierObjectID = core SoldierID
-		Time:         e.Time,
-		CaptureFrame: e.CaptureFrame,
-		Weapon:       e.Weapon,
-		Magazine:     e.Magazine,
-		FiringMode:   e.FiringMode,
-		StartPos:     pointToPosition3D(e.StartPosition),
-		EndPos:       pointToPosition3D(e.EndPosition),
-	}
-}
-
 // GeneralEventToCore converts a GORM GeneralEvent to a core.GeneralEvent
 func GeneralEventToCore(e model.GeneralEvent) core.GeneralEvent {
 	var extraData map[string]any
@@ -169,41 +155,6 @@ func GeneralEventToCore(e model.GeneralEvent) core.GeneralEvent {
 		Message:      e.Message,
 		ExtraData:    extraData,
 	}
-}
-
-// HitEventToCore converts a GORM HitEvent to a core.HitEvent
-// ObjectID fields in GORM map to uint IDs in core (cast to uint for compatibility)
-func HitEventToCore(e model.HitEvent) core.HitEvent {
-	result := core.HitEvent{
-		ID:             e.ID,
-		MissionID:      e.MissionID,
-		Time:           e.Time,
-		CaptureFrame:   e.CaptureFrame,
-		WeaponVehicle:  e.WeaponVehicle,
-		WeaponName:     e.WeaponName,
-		WeaponMagazine: e.WeaponMagazine,
-		EventText:      e.EventText,
-		Distance:       e.Distance,
-	}
-
-	if e.VictimSoldierObjectID.Valid {
-		id := uint(e.VictimSoldierObjectID.Int32)
-		result.VictimSoldierID = &id
-	}
-	if e.VictimVehicleObjectID.Valid {
-		id := uint(e.VictimVehicleObjectID.Int32)
-		result.VictimVehicleID = &id
-	}
-	if e.ShooterSoldierObjectID.Valid {
-		id := uint(e.ShooterSoldierObjectID.Int32)
-		result.ShooterSoldierID = &id
-	}
-	if e.ShooterVehicleObjectID.Valid {
-		id := uint(e.ShooterVehicleObjectID.Int32)
-		result.ShooterVehicleID = &id
-	}
-
-	return result
 }
 
 // KillEventToCore converts a GORM KillEvent to a core.KillEvent
@@ -512,6 +463,76 @@ func ProjectileEventToProjectileMarker(p model.ProjectileEvent) (core.Marker, []
 	}
 
 	return marker, states
+}
+
+// ProjectileEventToHitEvents converts a ProjectileEvent's hit data into core.HitEvent objects
+// for the memory backend / JSON export. Each entry in HitSoldiers and HitVehicles becomes
+// a separate HitEvent with the firer as shooter and weapon info from the projectile.
+func ProjectileEventToHitEvents(p model.ProjectileEvent) []core.HitEvent {
+	if len(p.HitSoldiers) == 0 && len(p.HitVehicles) == 0 {
+		return nil
+	}
+
+	// Build weapon display text from projectile weapon info
+	weaponName := p.MuzzleDisplay
+	if weaponName == "" {
+		weaponName = p.WeaponDisplay
+	}
+	eventText := util.FormatWeaponText("", weaponName, p.MagazineDisplay)
+
+	// Extract start position for distance calculation
+	var startPos core.Position3D
+	if !p.Positions.IsEmpty() {
+		if ls, ok := p.Positions.AsLineString(); ok {
+			seq := ls.Coordinates()
+			if seq.Length() > 0 {
+				start := seq.Get(0)
+				startPos = core.Position3D{X: start.X, Y: start.Y, Z: start.Z}
+			}
+		}
+	}
+
+	shooterID := uint(p.FirerObjectID)
+	events := make([]core.HitEvent, 0, len(p.HitSoldiers)+len(p.HitVehicles))
+
+	for _, hit := range p.HitSoldiers {
+		victimID := uint(hit.SoldierObjectID)
+		hitPos := pointToPosition3D(hit.Position)
+		events = append(events, core.HitEvent{
+			MissionID:        p.MissionID,
+			CaptureFrame:     hit.CaptureFrame,
+			VictimSoldierID:  &victimID,
+			ShooterSoldierID: &shooterID,
+			WeaponName:       weaponName,
+			WeaponMagazine:   p.MagazineDisplay,
+			EventText:        eventText,
+			Distance:         distance2D(startPos, hitPos),
+		})
+	}
+
+	for _, hit := range p.HitVehicles {
+		victimID := uint(hit.VehicleObjectID)
+		hitPos := pointToPosition3D(hit.Position)
+		events = append(events, core.HitEvent{
+			MissionID:        p.MissionID,
+			CaptureFrame:     hit.CaptureFrame,
+			VictimVehicleID:  &victimID,
+			ShooterSoldierID: &shooterID,
+			WeaponName:       weaponName,
+			WeaponMagazine:   p.MagazineDisplay,
+			EventText:        eventText,
+			Distance:         distance2D(startPos, hitPos),
+		})
+	}
+
+	return events
+}
+
+// distance2D returns the 2D Euclidean distance between two positions.
+func distance2D(a, b core.Position3D) float32 {
+	dx := a.X - b.X
+	dy := a.Y - b.Y
+	return float32(math.Sqrt(dx*dx + dy*dy))
 }
 
 // MissionToCore converts a GORM Mission to a core.Mission

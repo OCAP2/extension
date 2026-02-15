@@ -260,10 +260,8 @@ type mockHandlerService struct {
 	vehicle       model.Vehicle
 	soldierState  model.SoldierState
 	vehicleState  model.VehicleState
-	firedEvent    model.FiredEvent
-	projectile    model.ProjectileEvent
-	generalEvent  model.GeneralEvent
-	hitEvent      model.HitEvent
+	projectile   model.ProjectileEvent
+	generalEvent model.GeneralEvent
 	killEvent     model.KillEvent
 	chatEvent     model.ChatEvent
 	radioEvent    model.RadioEvent
@@ -324,16 +322,6 @@ func (h *mockHandlerService) LogVehicleState(args []string) (model.VehicleState,
 	return h.vehicleState, nil
 }
 
-func (h *mockHandlerService) LogFiredEvent(args []string) (model.FiredEvent, error) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.calls = append(h.calls, "LogFiredEvent")
-	if h.returnError {
-		return model.FiredEvent{}, errors.New(h.errorMsg)
-	}
-	return h.firedEvent, nil
-}
-
 func (h *mockHandlerService) LogProjectileEvent(args []string) (model.ProjectileEvent, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -352,16 +340,6 @@ func (h *mockHandlerService) LogGeneralEvent(args []string) (model.GeneralEvent,
 		return model.GeneralEvent{}, errors.New(h.errorMsg)
 	}
 	return h.generalEvent, nil
-}
-
-func (h *mockHandlerService) LogHitEvent(args []string) (model.HitEvent, error) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.calls = append(h.calls, "LogHitEvent")
-	if h.returnError {
-		return model.HitEvent{}, errors.New(h.errorMsg)
-	}
-	return h.hitEvent, nil
 }
 
 func (h *mockHandlerService) LogKillEvent(args []string) (model.KillEvent, error) {
@@ -495,9 +473,7 @@ func TestRegisterHandlers_RegistersAllCommands(t *testing.T) {
 		":NEW:VEHICLE:",
 		":NEW:SOLDIER:STATE:",
 		":NEW:VEHICLE:STATE:",
-		":FIRED:",
 		":PROJECTILE:",
-		":HIT:",
 		":KILL:",
 		":EVENT:",
 		":CHAT:",
@@ -559,10 +535,8 @@ func TestNewQueues(t *testing.T) {
 	assert.NotNil(t, queues.SoldierStates, "expected SoldierStates queue to be initialized")
 	assert.NotNil(t, queues.Vehicles, "expected Vehicles queue to be initialized")
 	assert.NotNil(t, queues.VehicleStates, "expected VehicleStates queue to be initialized")
-	assert.NotNil(t, queues.FiredEvents, "expected FiredEvents queue to be initialized")
 	assert.NotNil(t, queues.ProjectileEvents, "expected ProjectileEvents queue to be initialized")
 	assert.NotNil(t, queues.GeneralEvents, "expected GeneralEvents queue to be initialized")
-	assert.NotNil(t, queues.HitEvents, "expected HitEvents queue to be initialized")
 	assert.NotNil(t, queues.KillEvents, "expected KillEvents queue to be initialized")
 	assert.NotNil(t, queues.ChatEvents, "expected ChatEvents queue to be initialized")
 	assert.NotNil(t, queues.RadioEvents, "expected RadioEvents queue to be initialized")
