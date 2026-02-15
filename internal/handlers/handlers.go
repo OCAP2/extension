@@ -930,6 +930,11 @@ func (s *Service) LogGeneralEvent(data []string) (model.GeneralEvent, error) {
 func (s *Service) LogKillEvent(data []string) (model.KillEvent, error) {
 	var killEvent model.KillEvent
 
+	// Save weapon array before FixEscapeQuotes — it corrupts SQF array
+	// delimiters (e.g. ["","",""] → [",","]) by treating the adjacent
+	// quotes as escape sequences rather than array syntax.
+	rawWeapon := util.TrimQuotes(data[3])
+
 	// fix received data
 	for i, v := range data {
 		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
@@ -978,7 +983,7 @@ func (s *Service) LogKillEvent(data []string) (model.KillEvent, error) {
 	}
 
 	// get weapon info - parse SQF array [vehicleName, weaponDisp, magDisp]
-	killEvent.WeaponVehicle, killEvent.WeaponName, killEvent.WeaponMagazine = util.ParseSQFStringArray(data[3])
+	killEvent.WeaponVehicle, killEvent.WeaponName, killEvent.WeaponMagazine = util.ParseSQFStringArray(rawWeapon)
 	killEvent.EventText = util.FormatWeaponText(killEvent.WeaponVehicle, killEvent.WeaponName, killEvent.WeaponMagazine)
 
 	// get event distance
