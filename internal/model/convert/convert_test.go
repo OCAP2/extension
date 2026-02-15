@@ -577,6 +577,122 @@ func TestProjectileEventToProjectileMarker_EmptyIcon(t *testing.T) {
 	assert.Equal(t, "magIcons/gear_unknown_ca.paa", marker.MarkerType)
 }
 
+func TestProjectileEventToHitEvents_NoHits(t *testing.T) {
+	p := model.ProjectileEvent{
+		MissionID:     1,
+		FirerObjectID: 42,
+		HitSoldiers:   nil,
+		HitVehicles:   nil,
+	}
+
+	events := ProjectileEventToHitEvents(p)
+	assert.Nil(t, events)
+}
+
+func TestProjectileEventToHitEvents_SoldierHits(t *testing.T) {
+	coords := []float64{
+		100.0, 200.0, 10.0, 50.0, // start
+		300.0, 400.0, 5.0, 52.0,  // end
+	}
+	seq := geom.NewSequence(coords, geom.DimXYZM)
+	ls := geom.NewLineString(seq)
+
+	p := model.ProjectileEvent{
+		MissionID:      1,
+		FirerObjectID:  42,
+		MuzzleDisplay:  "MX 6.5 mm",
+		MagazineDisplay: "6.5 mm 30Rnd",
+		Positions:      ls.AsGeometry(),
+		HitSoldiers: []model.ProjectileHitsSoldier{
+			{SoldierObjectID: 10, CaptureFrame: 52, Position: makePoint(300.0, 400.0, 5.0)},
+		},
+	}
+
+	events := ProjectileEventToHitEvents(p)
+
+	require.Len(t, events, 1)
+	e := events[0]
+	assert.Equal(t, uint(1), e.MissionID)
+	assert.Equal(t, uint(52), e.CaptureFrame)
+
+	require.NotNil(t, e.VictimSoldierID)
+	assert.Equal(t, uint(10), *e.VictimSoldierID)
+	assert.Nil(t, e.VictimVehicleID)
+
+	require.NotNil(t, e.ShooterSoldierID)
+	assert.Equal(t, uint(42), *e.ShooterSoldierID)
+
+	assert.Equal(t, "MX 6.5 mm", e.WeaponName)
+	assert.Equal(t, "6.5 mm 30Rnd", e.WeaponMagazine)
+	assert.Equal(t, "MX 6.5 mm [6.5 mm 30Rnd]", e.EventText)
+
+	// Distance: sqrt((300-100)^2 + (400-200)^2) = sqrt(80000) ≈ 282.84
+	assert.InDelta(t, 282.84, float64(e.Distance), 0.1)
+}
+
+func TestProjectileEventToHitEvents_VehicleHits(t *testing.T) {
+	p := model.ProjectileEvent{
+		MissionID:       1,
+		FirerObjectID:   42,
+		WeaponDisplay:   "RPG-42",
+		MagazineDisplay: "HEAT",
+		Positions:       geom.Geometry{}, // no positions → zero start pos
+		HitVehicles: []model.ProjectileHitsVehicle{
+			{VehicleObjectID: 20, CaptureFrame: 60, Position: makePoint(500.0, 600.0, 0.0)},
+		},
+	}
+
+	events := ProjectileEventToHitEvents(p)
+
+	require.Len(t, events, 1)
+	e := events[0]
+
+	require.NotNil(t, e.VictimVehicleID)
+	assert.Equal(t, uint(20), *e.VictimVehicleID)
+	assert.Nil(t, e.VictimSoldierID)
+
+	// WeaponDisplay used as fallback when MuzzleDisplay is empty
+	assert.Equal(t, "RPG-42", e.WeaponName)
+	assert.Equal(t, "RPG-42 [HEAT]", e.EventText)
+}
+
+func TestProjectileEventToHitEvents_MixedHits(t *testing.T) {
+	p := model.ProjectileEvent{
+		MissionID:       1,
+		FirerObjectID:   42,
+		MuzzleDisplay:   "MX SW 6.5 mm",
+		MagazineDisplay: "6.5 mm 100Rnd",
+		Positions:       geom.Geometry{},
+		HitSoldiers: []model.ProjectileHitsSoldier{
+			{SoldierObjectID: 10, CaptureFrame: 50, Position: makePoint(100.0, 100.0, 0.0)},
+			{SoldierObjectID: 11, CaptureFrame: 51, Position: makePoint(110.0, 100.0, 0.0)},
+		},
+		HitVehicles: []model.ProjectileHitsVehicle{
+			{VehicleObjectID: 30, CaptureFrame: 52, Position: makePoint(200.0, 200.0, 0.0)},
+		},
+	}
+
+	events := ProjectileEventToHitEvents(p)
+
+	require.Len(t, events, 3)
+
+	// First two are soldier hits
+	assert.NotNil(t, events[0].VictimSoldierID)
+	assert.Equal(t, uint(10), *events[0].VictimSoldierID)
+	assert.NotNil(t, events[1].VictimSoldierID)
+	assert.Equal(t, uint(11), *events[1].VictimSoldierID)
+
+	// Third is vehicle hit
+	assert.NotNil(t, events[2].VictimVehicleID)
+	assert.Equal(t, uint(30), *events[2].VictimVehicleID)
+
+	// All share same weapon info
+	for _, e := range events {
+		assert.Equal(t, "MX SW 6.5 mm", e.WeaponName)
+		assert.Equal(t, "MX SW 6.5 mm [6.5 mm 100Rnd]", e.EventText)
+	}
+}
+
 // Compile-time interface checks
 var (
 	_ core.Soldier              = SoldierToCore(model.Soldier{})
