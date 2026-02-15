@@ -1054,6 +1054,87 @@ func TestBuildWithEmptyMagazineIcon(t *testing.T) {
 	assert.Equal(t, "ColorRed", marker[5])     // fallback color
 }
 
+func TestBuildWithProjectileHitOnVehicle(t *testing.T) {
+	vehicleVictim := uint16(20)
+	data := &MissionData{
+		Mission:  &core.Mission{MissionName: "Test"},
+		World:    &core.World{WorldName: "Altis"},
+		Soldiers: map[uint16]*SoldierRecord{
+			5: {Soldier: core.Soldier{ID: 5}},
+		},
+		Vehicles: make(map[uint16]*VehicleRecord),
+		Markers:  make(map[string]*MarkerRecord),
+		ProjectileEvents: []core.ProjectileEvent{
+			{
+				MissionID:       1,
+				CaptureFrame:    60,
+				FirerObjectID:   5,
+				Weapon:          "launch_NLAW_F",
+				SimulationType:  "shotRocket",
+				MuzzleDisplay:   "PCML",
+				MagazineDisplay: "PCML Missile",
+				Trajectory: []core.TrajectoryPoint{
+					{Position: core.Position3D{X: 0, Y: 0, Z: 10}, Frame: 60},
+					{Position: core.Position3D{X: 300, Y: 400, Z: 5}, Frame: 65},
+				},
+				Hits: []core.ProjectileHit{
+					{CaptureFrame: 65, Position: core.Position3D{X: 300, Y: 400, Z: 5}, VehicleID: &vehicleVictim},
+				},
+			},
+		},
+	}
+
+	export := Build(data)
+
+	require.Len(t, export.Events, 1)
+	evt := export.Events[0]
+	assert.Equal(t, uint(65), evt[0])
+	assert.Equal(t, "hit", evt[1])
+	assert.Equal(t, uint(20), evt[2]) // victimID from VehicleID
+	causedBy := evt[3].([]any)
+	assert.Equal(t, uint(5), causedBy[0])
+}
+
+func TestBuildWithProjectileHitEmptyMuzzleDisplay(t *testing.T) {
+	soldierVictim := uint16(10)
+	data := &MissionData{
+		Mission:  &core.Mission{MissionName: "Test"},
+		World:    &core.World{WorldName: "Altis"},
+		Soldiers: map[uint16]*SoldierRecord{
+			5: {Soldier: core.Soldier{ID: 5}},
+		},
+		Vehicles: make(map[uint16]*VehicleRecord),
+		Markers:  make(map[string]*MarkerRecord),
+		ProjectileEvents: []core.ProjectileEvent{
+			{
+				MissionID:       1,
+				CaptureFrame:    50,
+				FirerObjectID:   5,
+				Weapon:          "arifle_MX_F",
+				WeaponDisplay:   "MX Rifle",
+				SimulationType:  "shotBullet",
+				MuzzleDisplay:   "", // empty → falls back to WeaponDisplay
+				MagazineDisplay: "6.5 mm 30Rnd",
+				Trajectory: []core.TrajectoryPoint{
+					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, Frame: 50},
+					{Position: core.Position3D{X: 300, Y: 400, Z: 5}, Frame: 52},
+				},
+				Hits: []core.ProjectileHit{
+					{CaptureFrame: 52, Position: core.Position3D{X: 300, Y: 400, Z: 5}, SoldierID: &soldierVictim},
+				},
+			},
+		},
+	}
+
+	export := Build(data)
+
+	require.Len(t, export.Events, 1)
+	evt := export.Events[0]
+	causedBy := evt[3].([]any)
+	// Should use WeaponDisplay ("MX Rifle") since MuzzleDisplay is empty
+	assert.Equal(t, "MX Rifle [6.5 mm 30Rnd]", causedBy[1])
+}
+
 func TestIsProjectileMarker(t *testing.T) {
 	tests := []struct {
 		name   string

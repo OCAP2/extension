@@ -188,6 +188,48 @@ func TestKillEventToCore(t *testing.T) {
 	assert.Equal(t, uint(10), *coreEvent.KillerSoldierID)
 }
 
+func TestKillEventToCore_VehicleIDs(t *testing.T) {
+	now := time.Now()
+
+	gormEvent := model.KillEvent{
+		ID:                    2,
+		MissionID:             1,
+		Time:                  now,
+		CaptureFrame:          200,
+		VictimVehicleObjectID: sql.NullInt32{Int32: 20, Valid: true},
+		KillerVehicleObjectID: sql.NullInt32{Int32: 30, Valid: true},
+		EventText:             "Vehicle kill",
+		Distance:              500.0,
+	}
+
+	coreEvent := KillEventToCore(gormEvent)
+
+	require.NotNil(t, coreEvent.VictimVehicleID)
+	assert.Equal(t, uint(20), *coreEvent.VictimVehicleID)
+	require.NotNil(t, coreEvent.KillerVehicleID)
+	assert.Equal(t, uint(30), *coreEvent.KillerVehicleID)
+}
+
+func TestLineStringToPolyline(t *testing.T) {
+	coords := []float64{
+		100.0, 200.0,
+		300.0, 400.0,
+		500.0, 600.0,
+	}
+	seq := geom.NewSequence(coords, geom.DimXY)
+	ls := geom.NewLineString(seq)
+
+	polyline := lineStringToPolyline(ls)
+
+	require.Len(t, polyline, 3)
+	assert.Equal(t, 100.0, polyline[0].X)
+	assert.Equal(t, 200.0, polyline[0].Y)
+	assert.Equal(t, 300.0, polyline[1].X)
+	assert.Equal(t, 400.0, polyline[1].Y)
+	assert.Equal(t, 500.0, polyline[2].X)
+	assert.Equal(t, 600.0, polyline[2].Y)
+}
+
 func TestMarkerToCore(t *testing.T) {
 	now := time.Now()
 
