@@ -9,8 +9,7 @@ import (
 )
 
 func newTestParser() *Parser {
-	p := NewParser(slog.Default(), "1.0.0", "2.0.0")
-	return p
+	return NewParser(slog.Default())
 }
 
 func TestNewParser(t *testing.T) {

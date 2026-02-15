@@ -158,10 +158,6 @@ func (p *Parser) ParseMission(data []string) (model.Mission, model.World, error)
 	mission.SideFriendly.EastIndependent = sideFriendlyJSON[1].(bool)
 	mission.SideFriendly.WestIndependent = sideFriendlyJSON[2].(bool)
 
-	// received at extension init and saved to local memory
-	mission.AddonVersion = p.addonVersion
-	mission.ExtensionVersion = p.extensionVersion
-
 	p.logger.Debug("Parsed mission data",
 		"missionName", mission.MissionName,
 		"worldName", world.WorldName)

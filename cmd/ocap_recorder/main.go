@@ -525,7 +525,7 @@ func startGoroutines() (err error) {
 	missionCtx = mission.NewContext()
 
 	// Initialize handler service
-	parserService = parser.NewParser(Logger, addonVersion, BuildVersion)
+	parserService = parser.NewParser(Logger)
 
 	// Initialize worker manager
 	workerManager = worker.NewManager(worker.Dependencies{
@@ -788,6 +788,8 @@ func handleNewMission(e dispatcher.Event) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	mission.AddonVersion = addonVersion
+	mission.ExtensionVersion = BuildVersion
 
 	// 2. DB operations (addon lookup/create, world get/insert, mission create)
 	if DB != nil {

@@ -42,19 +42,10 @@ func parseIntFromFloat(s string) (int64, error) {
 // It has zero external dependencies beyond a logger.
 type Parser struct {
 	logger *slog.Logger
-
-	// Static config set at creation time
-	addonVersion     string
-	extensionVersion string
 }
 
 // NewParser creates a new parser with only a logger dependency
-func NewParser(logger *slog.Logger, addonVersion, extensionVersion string) *Parser {
-	p := &Parser{
-		logger:           logger,
-		addonVersion:     addonVersion,
-		extensionVersion: extensionVersion,
-	}
-	return p
+func NewParser(logger *slog.Logger) *Parser {
+	return &Parser{logger: logger}
 }
 

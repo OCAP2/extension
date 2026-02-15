@@ -32,8 +32,8 @@ func TestParseMission(t *testing.T) {
 	assert.Equal(t, "Test Mission", mission.MissionName)
 	assert.Equal(t, "Altis", world.WorldName)
 	assert.Len(t, mission.Addons, 2)
-	assert.Equal(t, "1.0.0", mission.AddonVersion)
-	assert.Equal(t, "2.0.0", mission.ExtensionVersion)
+	assert.Empty(t, mission.AddonVersion, "parser should not set version")
+	assert.Empty(t, mission.ExtensionVersion, "parser should not set version")
 }
 
 func TestParseMission_EmptyAddons(t *testing.T) {
