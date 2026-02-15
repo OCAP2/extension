@@ -1,0 +1,85 @@
+package parser
+
+import (
+	"database/sql"
+	"fmt"
+	"strconv"
+	"time"
+
+	"github.com/OCAP2/extension/v5/internal/model"
+	"github.com/OCAP2/extension/v5/internal/util"
+)
+
+// ParseAce3DeathEvent parses ACE3 death event data and returns an Ace3DeathEvent model.
+// SoldierObjectID and LastDamageSourceObjectID are set directly (no cache validation).
+func (p *Parser) ParseAce3DeathEvent(data []string) (model.Ace3DeathEvent, error) {
+	var deathEvent model.Ace3DeathEvent
+
+	// fix received data
+	for i, v := range data {
+		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
+	}
+
+	capframe, err := strconv.ParseFloat(data[0], 64)
+	if err != nil {
+		return deathEvent, fmt.Errorf("error converting capture frame to int: %w", err)
+	}
+
+	deathEvent.Time = time.Now()
+	deathEvent.CaptureFrame = uint(capframe)
+	deathEvent.MissionID = p.getMissionID()
+
+	// parse victim ObjectID - set directly
+	victimObjectID, err := parseUintFromFloat(data[1])
+	if err != nil {
+		return deathEvent, fmt.Errorf("error converting victim ocap id to uint: %w", err)
+	}
+	deathEvent.SoldierObjectID = uint16(victimObjectID)
+
+	deathEvent.Reason = data[2]
+
+	// get last damage source id [3]
+	lastDamageSourceID, err := parseIntFromFloat(data[3])
+	if err != nil {
+		return deathEvent, fmt.Errorf("error converting last damage source id to uint: %w", err)
+	}
+
+	if lastDamageSourceID > -1 {
+		deathEvent.LastDamageSourceObjectID = sql.NullInt32{Int32: int32(lastDamageSourceID), Valid: true}
+	}
+
+	return deathEvent, nil
+}
+
+// ParseAce3UnconsciousEvent parses ACE3 unconscious event data and returns an Ace3UnconsciousEvent model.
+// SoldierObjectID is set directly (no cache validation - worker validates).
+func (p *Parser) ParseAce3UnconsciousEvent(data []string) (model.Ace3UnconsciousEvent, error) {
+	var unconsciousEvent model.Ace3UnconsciousEvent
+
+	// fix received data
+	for i, v := range data {
+		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
+	}
+
+	capframe, err := strconv.ParseFloat(data[0], 64)
+	if err != nil {
+		return unconsciousEvent, fmt.Errorf("error converting capture frame to int: %w", err)
+	}
+
+	unconsciousEvent.CaptureFrame = uint(capframe)
+	unconsciousEvent.MissionID = p.getMissionID()
+
+	ocapID, err := parseUintFromFloat(data[1])
+	if err != nil {
+		return unconsciousEvent, fmt.Errorf("error converting ocap id to uint: %w", err)
+	}
+	unconsciousEvent.SoldierObjectID = uint16(ocapID)
+
+	isUnconscious, err := strconv.ParseBool(data[2])
+	if err != nil {
+		return unconsciousEvent, fmt.Errorf("error converting isUnconscious to bool: %w", err)
+	}
+	unconsciousEvent.IsUnconscious = isUnconscious
+
+	return unconsciousEvent, nil
+}
