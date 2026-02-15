@@ -256,5 +256,5 @@ func truncateArgs(args []string, n int) []string {
 	if len(args) <= n {
 		return args
 	}
-	return args[:n]
+	return append(args[:n:n], fmt.Sprintf("...(+%d more)", len(args)-n))
 }
