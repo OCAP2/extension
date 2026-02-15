@@ -26,6 +26,7 @@ type Backend interface {
 
 	// Event recording
 	RecordFiredEvent(e *core.FiredEvent) error
+	RecordProjectileEvent(e *core.ProjectileEvent) error
 	RecordGeneralEvent(e *core.GeneralEvent) error
 	RecordHitEvent(e *core.HitEvent) error
 	RecordKillEvent(e *core.KillEvent) error

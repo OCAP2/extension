@@ -3,12 +3,9 @@ package convert
 
 import (
 	"encoding/json"
-	"fmt"
-	"math"
 
 	"github.com/OCAP2/extension/v5/internal/model"
 	"github.com/OCAP2/extension/v5/internal/model/core"
-	"github.com/OCAP2/extension/v5/internal/util"
 	geom "github.com/peterstace/simplefeatures/geom"
 )
 
@@ -332,207 +329,67 @@ func MarkerStateToCore(m model.MarkerState) core.MarkerState {
 	}
 }
 
-// ProjectileEventToFiredEvent converts a ProjectileEvent to a FiredEvent for the memory backend.
-// This extracts start/end positions from the projectile trajectory for fireline rendering.
-func ProjectileEventToFiredEvent(p model.ProjectileEvent) core.FiredEvent {
-	var startPos, endPos core.Position3D
+// ProjectileEventToCore converts a GORM ProjectileEvent to a core.ProjectileEvent.
+// It converts the geom.Geometry LineStringZM into trajectory points and merges
+// HitSoldiers/HitVehicles into a unified hit list.
+func ProjectileEventToCore(p model.ProjectileEvent) core.ProjectileEvent {
+	result := core.ProjectileEvent{
+		MissionID:       p.MissionID,
+		CaptureFrame:    p.CaptureFrame,
+		FirerObjectID:   p.FirerObjectID,
+		Weapon:          p.Weapon,
+		WeaponDisplay:   p.WeaponDisplay,
+		Magazine:        p.Magazine,
+		MagazineDisplay: p.MagazineDisplay,
+		Muzzle:          p.Muzzle,
+		MuzzleDisplay:   p.MuzzleDisplay,
+		Mode:            p.Mode,
+		SimulationType:  p.SimulationType,
+		MagazineIcon:    p.MagazineIcon,
+	}
 
-	// Extract positions from the LineStringZM geometry
+	// Convert VehicleObjectID
+	if p.VehicleObjectID.Valid {
+		id := uint16(p.VehicleObjectID.Int32)
+		result.VehicleObjectID = &id
+	}
+
+	// Convert LineStringZM → TrajectoryPoints
 	if !p.Positions.IsEmpty() {
 		if ls, ok := p.Positions.AsLineString(); ok {
 			seq := ls.Coordinates()
-			if seq.Length() > 0 {
-				// First point is start position
-				start := seq.Get(0)
-				startPos = core.Position3D{X: start.X, Y: start.Y, Z: start.Z}
-
-				// Last point is end position
-				end := seq.Get(seq.Length() - 1)
-				endPos = core.Position3D{X: end.X, Y: end.Y, Z: end.Z}
-			}
-		}
-	}
-
-	return core.FiredEvent{
-		MissionID:    p.MissionID,
-		SoldierID:    p.FirerObjectID,
-		Time:         p.Time,
-		CaptureFrame: p.CaptureFrame,
-		Weapon:       p.Weapon,
-		Magazine:     p.Magazine,
-		FiringMode:   p.Mode,
-		StartPos:     startPos,
-		EndPos:       endPos,
-	}
-}
-
-// ProjectileEventToProjectileMarker converts a thrown projectile (grenade, smoke) to a marker
-// for the web viewer. Returns the marker and any state changes for trajectory positions.
-// Only call this for projectiles where Weapon == "throw".
-func ProjectileEventToProjectileMarker(p model.ProjectileEvent) (core.Marker, []core.MarkerState) {
-	// Extract filename from icon path: "\A3\...\gear_smokegrenade_white_ca.paa" → "magIcons/gear_smokegrenade_white_ca.paa"
-	// Handle both forward and backslash separators (Arma uses backslashes)
-	iconPath := p.MagazineIcon
-	// Find last separator (either / or \)
-	lastSep := -1
-	for i := len(iconPath) - 1; i >= 0; i-- {
-		if iconPath[i] == '/' || iconPath[i] == '\\' {
-			lastSep = i
-			break
-		}
-	}
-	var iconFilename string
-	if lastSep >= 0 {
-		iconFilename = iconPath[lastSep+1:]
-	} else {
-		iconFilename = iconPath
-	}
-	markerType := "magIcons/" + iconFilename
-	if iconFilename == "" {
-		// Fallback for missing icon
-		markerType = "magIcons/gear_unknown_ca.paa"
-	}
-
-	// Generate unique marker name and ID
-	// ID combines frame and firer to ensure uniqueness
-	markerName := fmt.Sprintf("projectile_%d_%d", p.CaptureFrame, p.FirerObjectID)
-	markerID := uint(p.CaptureFrame)<<16 | uint(p.FirerObjectID)
-
-	var positions []core.Position3D
-	var frames []uint
-
-	// Extract positions from the LineStringZM geometry
-	// Format: [x, y, z, frameNo] where M coordinate contains the frame number
-	if !p.Positions.IsEmpty() {
-		if ls, ok := p.Positions.AsLineString(); ok {
-			seq := ls.Coordinates()
+			result.Trajectory = make([]core.TrajectoryPoint, seq.Length())
 			for i := 0; i < seq.Length(); i++ {
 				pt := seq.Get(i)
-				positions = append(positions, core.Position3D{X: pt.X, Y: pt.Y, Z: pt.Z})
-				// M coordinate contains the frame number
-				frames = append(frames, uint(pt.M))
+				result.Trajectory[i] = core.TrajectoryPoint{
+					Position: core.Position3D{X: pt.X, Y: pt.Y, Z: pt.Z},
+					Frame:    uint(pt.M),
+				}
 			}
 		}
 	}
 
-	// Use first position for the marker, rest become states
-	var firstPos core.Position3D
-	if len(positions) > 0 {
-		firstPos = positions[0]
-	}
-
-	// EndFrame is the last position's frame (when grenade explodes/dissipates)
-	endFrame := -1
-	if len(frames) > 0 {
-		endFrame = int(frames[len(frames)-1])
-	}
-
-	marker := core.Marker{
-		ID:           markerID,
-		MissionID:    p.MissionID,
-		CaptureFrame: p.CaptureFrame,
-		EndFrame:     endFrame,
-		MarkerName:   markerName,
-		MarkerType:   markerType,
-		Text:         p.MagazineDisplay,
-		OwnerID:      int(p.FirerObjectID),
-		Color:        "FFFFFF",
-		Side:         "GLOBAL",
-		Position:     firstPos,
-		Size:         "[1,1]",
-		Shape:        "ICON",
-		Alpha:        1.0,
-		Brush:        "Solid",
-	}
-
-	// Create states for remaining positions (trajectory)
-	var states []core.MarkerState
-	for i := 1; i < len(positions); i++ {
-		frame := frames[i]
-		if i < len(frames) {
-			frame = frames[i]
-		}
-		states = append(states, core.MarkerState{
-			MarkerID:     markerID,
-			MissionID:    p.MissionID,
-			CaptureFrame: frame,
-			Position:     positions[i],
-			Direction:    0,
-			Alpha:        1.0,
+	// Merge HitSoldiers + HitVehicles → Hits
+	hits := make([]core.ProjectileHit, 0, len(p.HitSoldiers)+len(p.HitVehicles))
+	for _, h := range p.HitSoldiers {
+		id := h.SoldierObjectID
+		hits = append(hits, core.ProjectileHit{
+			CaptureFrame: h.CaptureFrame,
+			Position:     pointToPosition3D(h.Position),
+			SoldierID:    &id,
 		})
 	}
-
-	return marker, states
-}
-
-// ProjectileEventToHitEvents converts a ProjectileEvent's hit data into core.HitEvent objects
-// for the memory backend / JSON export. Each entry in HitSoldiers and HitVehicles becomes
-// a separate HitEvent with the firer as shooter and weapon info from the projectile.
-func ProjectileEventToHitEvents(p model.ProjectileEvent) []core.HitEvent {
-	if len(p.HitSoldiers) == 0 && len(p.HitVehicles) == 0 {
-		return nil
-	}
-
-	// Build weapon display text from projectile weapon info
-	weaponName := p.MuzzleDisplay
-	if weaponName == "" {
-		weaponName = p.WeaponDisplay
-	}
-	eventText := util.FormatWeaponText("", weaponName, p.MagazineDisplay)
-
-	// Extract start position for distance calculation
-	var startPos core.Position3D
-	if !p.Positions.IsEmpty() {
-		if ls, ok := p.Positions.AsLineString(); ok {
-			seq := ls.Coordinates()
-			if seq.Length() > 0 {
-				start := seq.Get(0)
-				startPos = core.Position3D{X: start.X, Y: start.Y, Z: start.Z}
-			}
-		}
-	}
-
-	shooterID := uint(p.FirerObjectID)
-	events := make([]core.HitEvent, 0, len(p.HitSoldiers)+len(p.HitVehicles))
-
-	for _, hit := range p.HitSoldiers {
-		victimID := uint(hit.SoldierObjectID)
-		hitPos := pointToPosition3D(hit.Position)
-		events = append(events, core.HitEvent{
-			MissionID:        p.MissionID,
-			CaptureFrame:     hit.CaptureFrame,
-			VictimSoldierID:  &victimID,
-			ShooterSoldierID: &shooterID,
-			WeaponName:       weaponName,
-			WeaponMagazine:   p.MagazineDisplay,
-			EventText:        eventText,
-			Distance:         distance2D(startPos, hitPos),
+	for _, h := range p.HitVehicles {
+		id := h.VehicleObjectID
+		hits = append(hits, core.ProjectileHit{
+			CaptureFrame: h.CaptureFrame,
+			Position:     pointToPosition3D(h.Position),
+			VehicleID:    &id,
 		})
 	}
+	result.Hits = hits
 
-	for _, hit := range p.HitVehicles {
-		victimID := uint(hit.VehicleObjectID)
-		hitPos := pointToPosition3D(hit.Position)
-		events = append(events, core.HitEvent{
-			MissionID:        p.MissionID,
-			CaptureFrame:     hit.CaptureFrame,
-			VictimVehicleID:  &victimID,
-			ShooterSoldierID: &shooterID,
-			WeaponName:       weaponName,
-			WeaponMagazine:   p.MagazineDisplay,
-			EventText:        eventText,
-			Distance:         distance2D(startPos, hitPos),
-		})
-	}
-
-	return events
-}
-
-// distance2D returns the 2D Euclidean distance between two positions.
-func distance2D(a, b core.Position3D) float32 {
-	dx := a.X - b.X
-	dy := a.Y - b.Y
-	return float32(math.Sqrt(dx*dx + dy*dy))
+	return result
 }
 
 // MissionToCore converts a GORM Mission to a core.Mission

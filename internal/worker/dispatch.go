@@ -128,33 +128,13 @@ func (m *Manager) handleVehicleState(e dispatcher.Event) (any, error) {
 }
 
 func (m *Manager) handleProjectileEvent(e dispatcher.Event) (any, error) {
-	// For memory backend, convert projectile to appropriate format
 	if m.hasBackend() {
 		obj, err := m.deps.HandlerService.LogProjectileEvent(e.Args)
 		if err != nil {
 			return nil, fmt.Errorf("failed to log projectile event: %w", err)
 		}
-
-		// Thrown projectiles (grenades, smokes) become markers
-		if obj.Weapon == "throw" {
-			marker, states := convert.ProjectileEventToProjectileMarker(obj)
-			m.backend.AddMarker(&marker) // AddMarker assigns a new ID
-			for i := range states {
-				states[i].MarkerID = marker.ID // sync with backend-assigned ID
-				m.backend.RecordMarkerState(&states[i])
-			}
-		} else {
-			// Other projectiles become fire lines
-			coreObj := convert.ProjectileEventToFiredEvent(obj)
-			m.backend.RecordFiredEvent(&coreObj)
-		}
-
-		// Record hit events from projectile hitParts
-		hitEvents := convert.ProjectileEventToHitEvents(obj)
-		for i := range hitEvents {
-			m.backend.RecordHitEvent(&hitEvents[i])
-		}
-
+		coreObj := convert.ProjectileEventToCore(obj)
+		m.backend.RecordProjectileEvent(&coreObj)
 		return nil, nil
 	}
 
@@ -386,4 +366,5 @@ func (m *Manager) handleMarkerDelete(e dispatcher.Event) (any, error) {
 
 	return nil, nil
 }
+
 

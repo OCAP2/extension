@@ -28,8 +28,9 @@ func (b *mockBackend) AddMarker(m *core.Marker) error                      { ret
 func (b *mockBackend) RecordSoldierState(s *core.SoldierState) error       { return nil }
 func (b *mockBackend) RecordVehicleState(v *core.VehicleState) error       { return nil }
 func (b *mockBackend) RecordMarkerState(s *core.MarkerState) error         { return nil }
-func (b *mockBackend) RecordFiredEvent(e *core.FiredEvent) error           { return nil }
-func (b *mockBackend) RecordGeneralEvent(e *core.GeneralEvent) error       { return nil }
+func (b *mockBackend) RecordFiredEvent(e *core.FiredEvent) error             { return nil }
+func (b *mockBackend) RecordProjectileEvent(e *core.ProjectileEvent) error   { return nil }
+func (b *mockBackend) RecordGeneralEvent(e *core.GeneralEvent) error         { return nil }
 func (b *mockBackend) RecordHitEvent(e *core.HitEvent) error               { return nil }
 func (b *mockBackend) RecordKillEvent(e *core.KillEvent) error             { return nil }
 func (b *mockBackend) RecordChatEvent(e *core.ChatEvent) error             { return nil }

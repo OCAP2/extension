@@ -54,6 +54,7 @@ type Backend struct {
 	timeStates            []core.TimeState
 	ace3DeathEvents       []core.Ace3DeathEvent
 	ace3UnconsciousEvents []core.Ace3UnconsciousEvent
+	projectileEvents      []core.ProjectileEvent
 
 	mu sync.RWMutex
 }
@@ -134,6 +135,7 @@ func (b *Backend) resetCollections() {
 	b.timeStates = nil
 	b.ace3DeathEvents = nil
 	b.ace3UnconsciousEvents = nil
+	b.projectileEvents = nil
 }
 
 // AddSoldier registers a new soldier.
@@ -275,6 +277,14 @@ func (b *Backend) RecordFiredEvent(e *core.FiredEvent) error {
 	return nil
 }
 
+// RecordProjectileEvent records a raw projectile event
+func (b *Backend) RecordProjectileEvent(e *core.ProjectileEvent) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.projectileEvents = append(b.projectileEvents, *e)
+	return nil
+}
+
 // RecordGeneralEvent records a general event
 func (b *Backend) RecordGeneralEvent(e *core.GeneralEvent) error {
 	b.mu.Lock()
@@ -412,15 +422,16 @@ func (b *Backend) BuildExport() v1.Export {
 // Caller must hold at least b.mu.RLock.
 func (b *Backend) buildExportUnlocked() v1.Export {
 	data := &v1.MissionData{
-		Mission:       b.mission,
-		World:         b.world,
-		Soldiers:      make(map[uint16]*v1.SoldierRecord),
-		Vehicles:      make(map[uint16]*v1.VehicleRecord),
-		Markers:       make(map[string]*v1.MarkerRecord),
-		GeneralEvents: b.generalEvents,
-		HitEvents:     b.hitEvents,
-		KillEvents:    b.killEvents,
-		TimeStates:    b.timeStates,
+		Mission:          b.mission,
+		World:            b.world,
+		Soldiers:         make(map[uint16]*v1.SoldierRecord),
+		Vehicles:         make(map[uint16]*v1.VehicleRecord),
+		Markers:          make(map[string]*v1.MarkerRecord),
+		GeneralEvents:    b.generalEvents,
+		HitEvents:        b.hitEvents,
+		KillEvents:       b.killEvents,
+		TimeStates:       b.timeStates,
+		ProjectileEvents: b.projectileEvents,
 	}
 
 	for id, record := range b.soldiers {

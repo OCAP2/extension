@@ -480,6 +480,29 @@ func TestRecordAce3UnconsciousEvent(t *testing.T) {
 	assert.Len(t, b.ace3UnconsciousEvents, 1)
 }
 
+func TestRecordProjectileEvent(t *testing.T) {
+	b := New(config.MemoryConfig{})
+
+	evt := &core.ProjectileEvent{
+		MissionID:      1,
+		CaptureFrame:   100,
+		FirerObjectID:  42,
+		Weapon:         "throw",
+		SimulationType: "",
+		MagazineDisplay: "RGO Grenade",
+		Trajectory: []core.TrajectoryPoint{
+			{Position: core.Position3D{X: 100, Y: 200, Z: 10}, Frame: 100},
+			{Position: core.Position3D{X: 150, Y: 250, Z: 5}, Frame: 105},
+		},
+	}
+
+	require.NoError(t, b.RecordProjectileEvent(evt))
+
+	assert.Len(t, b.projectileEvents, 1)
+	assert.Equal(t, uint16(42), b.projectileEvents[0].FirerObjectID)
+	assert.Len(t, b.projectileEvents[0].Trajectory, 2)
+}
+
 func TestConcurrentAccess(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
@@ -554,6 +577,7 @@ func TestStartMissionResetsEverything(t *testing.T) {
 	_ = b.RecordTimeState(&core.TimeState{})
 	_ = b.RecordAce3DeathEvent(&core.Ace3DeathEvent{})
 	_ = b.RecordAce3UnconsciousEvent(&core.Ace3UnconsciousEvent{})
+	_ = b.RecordProjectileEvent(&core.ProjectileEvent{})
 
 	// Start new mission
 	mission := &core.Mission{MissionName: "New"}
@@ -572,6 +596,7 @@ func TestStartMissionResetsEverything(t *testing.T) {
 	assert.Len(t, b.timeStates, 0)
 	assert.Len(t, b.ace3DeathEvents, 0)
 	assert.Len(t, b.ace3UnconsciousEvents, 0)
+	assert.Len(t, b.projectileEvents, 0)
 }
 
 func TestGetExportedFilePath(t *testing.T) {

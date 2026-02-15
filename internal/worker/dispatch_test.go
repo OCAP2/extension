@@ -54,13 +54,14 @@ type mockBackend struct {
 	generalEvents  []*core.GeneralEvent
 	hitEvents      []*core.HitEvent
 	killEvents     []*core.KillEvent
-	chatEvents     []*core.ChatEvent
-	radioEvents    []*core.RadioEvent
-	fpsEvents      []*core.ServerFpsEvent
-	timeStates     []*core.TimeState
-	ace3Deaths     []*core.Ace3DeathEvent
-	ace3Uncon      []*core.Ace3UnconsciousEvent
-	deletedMarkers map[string]uint // name -> endFrame
+	chatEvents        []*core.ChatEvent
+	radioEvents       []*core.RadioEvent
+	fpsEvents         []*core.ServerFpsEvent
+	timeStates        []*core.TimeState
+	ace3Deaths        []*core.Ace3DeathEvent
+	ace3Uncon         []*core.Ace3UnconsciousEvent
+	projectileEvents  []*core.ProjectileEvent
+	deletedMarkers    map[string]uint // name -> endFrame
 	initCalled     bool
 	closeCalled    bool
 	missionStarted bool
@@ -144,6 +145,13 @@ func (b *mockBackend) RecordFiredEvent(e *core.FiredEvent) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.firedEvents = append(b.firedEvents, e)
+	return nil
+}
+
+func (b *mockBackend) RecordProjectileEvent(e *core.ProjectileEvent) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.projectileEvents = append(b.projectileEvents, e)
 	return nil
 }
 
@@ -670,15 +678,14 @@ func TestHandleNewSoldier_CachesEntityWithoutBackend(t *testing.T) {
 	assert.Equal(t, "Queue Soldier", cachedSoldier.UnitName)
 }
 
-func TestHandleProjectile_ThrownGrenade_MarkerStatesUseBackendID(t *testing.T) {
+func TestHandleProjectile_RecordsProjectileEvent(t *testing.T) {
 	d, _ := newTestDispatcher(t)
 
 	// Create a LineStringZM with 3 positions (thrown, mid-flight, impact)
-	// Format: [x, y, z, frameNo] where M = frame number
 	coords := []float64{
-		6456.5, 5345.7, 10.443, 620.0, // thrown position at frame 620
-		6448.0, 5337.0, 15.0, 625.0,   // mid-flight at frame 625
-		6441.55, 5328.46, 9.88, 630.0,  // impact position at frame 630
+		6456.5, 5345.7, 10.443, 620.0,
+		6448.0, 5337.0, 15.0, 625.0,
+		6441.55, 5328.46, 9.88, 630.0,
 	}
 	seq := geom.NewSequence(coords, geom.DimXYZM)
 	ls := geom.NewLineString(seq)
@@ -712,7 +719,7 @@ func TestHandleProjectile_ThrownGrenade_MarkerStatesUseBackendID(t *testing.T) {
 	manager.SetBackend(backend)
 	manager.RegisterHandlers(d)
 
-	// Dispatch a thrown grenade projectile event
+	// Dispatch a projectile event
 	_, err := d.Dispatch(dispatcher.Event{Command: ":PROJECTILE:", Args: []string{}})
 	require.NoError(t, err)
 
@@ -720,17 +727,16 @@ func TestHandleProjectile_ThrownGrenade_MarkerStatesUseBackendID(t *testing.T) {
 	deadline := time.After(2 * time.Second)
 	for {
 		backend.mu.Lock()
-		numMarkers := len(backend.markers)
-		numStates := len(backend.markerStates)
+		numEvents := len(backend.projectileEvents)
 		backend.mu.Unlock()
 
-		if numMarkers > 0 && numStates > 0 {
+		if numEvents > 0 {
 			break
 		}
 
 		select {
 		case <-deadline:
-			require.Fail(t, "timed out waiting for projectile marker to be processed")
+			require.Fail(t, "timed out waiting for projectile event to be processed")
 		default:
 			time.Sleep(10 * time.Millisecond)
 		}
@@ -739,23 +745,26 @@ func TestHandleProjectile_ThrownGrenade_MarkerStatesUseBackendID(t *testing.T) {
 	backend.mu.Lock()
 	defer backend.mu.Unlock()
 
-	// Verify marker was created
-	require.Equal(t, 1, len(backend.markers), "expected 1 marker")
-	marker := backend.markers[0]
-	assert.Equal(t, "RGO Grenade", marker.Text)
-	assert.Equal(t, "magIcons/gear_M67_CA.paa", marker.MarkerType)
+	// Verify a core.ProjectileEvent was recorded (not markers/fired events)
+	require.Equal(t, 1, len(backend.projectileEvents), "expected 1 projectile event")
+	pe := backend.projectileEvents[0]
+	assert.Equal(t, uint(1), pe.MissionID)
+	assert.Equal(t, uint16(1), pe.FirerObjectID)
+	assert.Equal(t, uint(620), pe.CaptureFrame)
+	assert.Equal(t, "throw", pe.Weapon)
+	assert.Equal(t, "RGO Grenade", pe.MagazineDisplay)
 
-	// Verify marker states have the backend-assigned ID (not the pre-computed one)
-	// This is the core of the test: AddMarker assigns a new ID, and states must match it
-	require.Equal(t, 2, len(backend.markerStates), "expected 2 marker states (positions 2 and 3)")
-	for i, state := range backend.markerStates {
-		assert.Equal(t, marker.ID, state.MarkerID,
-			"marker state %d MarkerID should match backend-assigned marker ID", i)
-	}
+	// Trajectory should have 3 points from the LineStringZM
+	require.Len(t, pe.Trajectory, 3)
+	assert.Equal(t, 6456.5, pe.Trajectory[0].Position.X)
+	assert.Equal(t, uint(620), pe.Trajectory[0].Frame)
+	assert.Equal(t, 6441.55, pe.Trajectory[2].Position.X)
+	assert.Equal(t, uint(630), pe.Trajectory[2].Frame)
 
-	// Verify state positions match the trajectory
-	assert.Equal(t, 6448.0, backend.markerStates[0].Position.X)
-	assert.Equal(t, 6441.55, backend.markerStates[1].Position.X)
+	// No markers or fired events should be created (dispatch is raw now)
+	assert.Empty(t, backend.markers, "dispatch should not create markers")
+	assert.Empty(t, backend.firedEvents, "dispatch should not create fired events")
+	assert.Empty(t, backend.hitEvents, "dispatch should not create hit events")
 }
 
 func TestHandleMarkerDelete_WithBackend(t *testing.T) {
@@ -811,4 +820,5 @@ func TestHandleMarkerDelete_WithBackend(t *testing.T) {
 		}
 	}
 }
+
 

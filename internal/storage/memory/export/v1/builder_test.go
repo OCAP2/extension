@@ -775,3 +775,304 @@ func TestBuildHitEventPrioritizesVehicleOverSoldier(t *testing.T) {
 	causedBy := evt[3].([]any)
 	assert.Equal(t, uint(10), causedBy[0]) // Vehicle shooter ID takes precedence
 }
+
+func TestBuildWithBulletProjectile(t *testing.T) {
+	data := &MissionData{
+		Mission: &core.Mission{MissionName: "Test"},
+		World:   &core.World{WorldName: "Altis"},
+		Soldiers: map[uint16]*SoldierRecord{
+			5: {
+				Soldier: core.Soldier{ID: 5, UnitName: "Shooter"},
+				States: []core.SoldierState{
+					{SoldierID: 5, CaptureFrame: 10, Position: core.Position3D{X: 1000, Y: 2000}},
+				},
+			},
+		},
+		Vehicles: make(map[uint16]*VehicleRecord),
+		Markers:  make(map[string]*MarkerRecord),
+		ProjectileEvents: []core.ProjectileEvent{
+			{
+				MissionID:      1,
+				CaptureFrame:   15,
+				FirerObjectID:  5,
+				Weapon:         "arifle_MX_F",
+				SimulationType: "shotBullet",
+				Trajectory: []core.TrajectoryPoint{
+					{Position: core.Position3D{X: 1000, Y: 2000, Z: 1.5}, Frame: 15},
+					{Position: core.Position3D{X: 1200, Y: 2200, Z: 1.0}, Frame: 16},
+				},
+			},
+		},
+	}
+
+	export := Build(data)
+
+	// Bullet should become a fired event on the soldier entity
+	entity := export.Entities[5]
+	require.Len(t, entity.FramesFired, 1)
+	ff := entity.FramesFired[0]
+	assert.Equal(t, uint(15), ff[0]) // captureFrame
+	endPos := ff[1].([]float64)
+	assert.Equal(t, 1200.0, endPos[0])
+	assert.Equal(t, 2200.0, endPos[1])
+	assert.Equal(t, 1.0, endPos[2])
+
+	// Should NOT create a marker
+	assert.Empty(t, export.Markers)
+}
+
+func TestBuildWithThrownGrenade(t *testing.T) {
+	data := &MissionData{
+		Mission: &core.Mission{MissionName: "Test"},
+		World:   &core.World{WorldName: "Altis"},
+		Soldiers: map[uint16]*SoldierRecord{
+			3: {Soldier: core.Soldier{ID: 3, UnitName: "Thrower"}},
+		},
+		Vehicles: make(map[uint16]*VehicleRecord),
+		Markers:  make(map[string]*MarkerRecord),
+		ProjectileEvents: []core.ProjectileEvent{
+			{
+				MissionID:       1,
+				CaptureFrame:    100,
+				FirerObjectID:   3,
+				Weapon:          "throw",
+				MagazineDisplay: "Smoke Grenade (White)",
+				MagazineIcon:    `\A3\Weapons_F\Data\UI\gear_smokegrenade_white_ca.paa`,
+				Trajectory: []core.TrajectoryPoint{
+					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, Frame: 100},
+					{Position: core.Position3D{X: 150, Y: 250, Z: 5}, Frame: 105},
+				},
+			},
+		},
+	}
+
+	export := Build(data)
+
+	require.Len(t, export.Markers, 1)
+	marker := export.Markers[0]
+	assert.Equal(t, "magIcons/gear_smokegrenade_white_ca.paa", marker[0]) // type
+	assert.Equal(t, "Smoke Grenade (White)", marker[1])                   // text (thrown = magDisp only)
+	assert.Equal(t, uint(100), marker[2])                                 // startFrame
+	assert.Equal(t, 105, marker[3])                                       // endFrame
+	assert.Equal(t, 3, marker[4])                                         // ownerID
+	assert.Equal(t, "ColorWhite", marker[5])                              // color
+	assert.Equal(t, -1, marker[6])                                        // sideIndex (GLOBAL)
+	assert.Equal(t, "ICON", marker[9])                                    // shape
+	assert.Equal(t, "Solid", marker[10])                                  // brush
+
+	// Check positions array
+	posArray := marker[7].([][]any)
+	require.Len(t, posArray, 2)
+	assert.Equal(t, uint(100), posArray[0][0])
+	pos0 := posArray[0][1].([]float64)
+	assert.Equal(t, 100.0, pos0[0])
+	assert.Equal(t, 200.0, pos0[1])
+}
+
+func TestBuildWithVehicleProjectile(t *testing.T) {
+	vehicleID := uint16(20)
+	data := &MissionData{
+		Mission:  &core.Mission{MissionName: "Test"},
+		World:    &core.World{WorldName: "Altis"},
+		Soldiers: map[uint16]*SoldierRecord{
+			5: {Soldier: core.Soldier{ID: 5, UnitName: "Gunner"}},
+		},
+		Vehicles: map[uint16]*VehicleRecord{
+			20: {Vehicle: core.Vehicle{ID: 20, DisplayName: "Hunter HMG"}},
+		},
+		Markers: make(map[string]*MarkerRecord),
+		ProjectileEvents: []core.ProjectileEvent{
+			{
+				MissionID:       1,
+				CaptureFrame:    50,
+				FirerObjectID:   5,
+				VehicleObjectID: &vehicleID,
+				Weapon:          "cannon_120mm",
+				SimulationType:  "shotShell",
+				MuzzleDisplay:   "Mk30 HMG .50",
+				MagazineDisplay: ".50 BMG 200Rnd",
+				MagazineIcon:    `\A3\weapons_f\data\ui\icon_mg_ca.paa`,
+				Trajectory: []core.TrajectoryPoint{
+					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, Frame: 50},
+					{Position: core.Position3D{X: 200, Y: 300, Z: 5}, Frame: 55},
+				},
+			},
+		},
+	}
+
+	export := Build(data)
+
+	require.Len(t, export.Markers, 1)
+	marker := export.Markers[0]
+	assert.Equal(t, "Hunter HMG Mk30 HMG .50 - .50 BMG 200Rnd", marker[1]) // vehicle name in text
+	assert.Equal(t, "magIcons/icon_mg_ca.paa", marker[0])
+	assert.Equal(t, "ColorWhite", marker[5])
+}
+
+func TestBuildWithOnFootLauncher(t *testing.T) {
+	data := &MissionData{
+		Mission:  &core.Mission{MissionName: "Test"},
+		World:    &core.World{WorldName: "Altis"},
+		Soldiers: map[uint16]*SoldierRecord{
+			7: {Soldier: core.Soldier{ID: 7}},
+		},
+		Vehicles: make(map[uint16]*VehicleRecord),
+		Markers:  make(map[string]*MarkerRecord),
+		ProjectileEvents: []core.ProjectileEvent{
+			{
+				MissionID:       1,
+				CaptureFrame:    80,
+				FirerObjectID:   7,
+				Weapon:          "launch_NLAW_F",
+				SimulationType:  "shotRocket",
+				MuzzleDisplay:   "MAAWS Mk4 Mod 1",
+				MagazineDisplay: "HEAT Rocket",
+				MagazineIcon:    `\A3\weapons_f\data\ui\icon_at_ca.paa`,
+				Trajectory: []core.TrajectoryPoint{
+					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, Frame: 80},
+					{Position: core.Position3D{X: 300, Y: 400, Z: 0}, Frame: 85},
+				},
+			},
+		},
+	}
+
+	export := Build(data)
+
+	require.Len(t, export.Markers, 1)
+	marker := export.Markers[0]
+	assert.Equal(t, "MAAWS Mk4 Mod 1 - HEAT Rocket", marker[1])
+}
+
+func TestBuildWithShotGrenade(t *testing.T) {
+	data := &MissionData{
+		Mission:  &core.Mission{MissionName: "Test"},
+		World:    &core.World{WorldName: "Altis"},
+		Soldiers: map[uint16]*SoldierRecord{
+			3: {Soldier: core.Soldier{ID: 3}},
+		},
+		Vehicles: make(map[uint16]*VehicleRecord),
+		Markers:  make(map[string]*MarkerRecord),
+		ProjectileEvents: []core.ProjectileEvent{
+			{
+				MissionID:       1,
+				CaptureFrame:    60,
+				FirerObjectID:   3,
+				Weapon:          "GL_3GL_F",
+				SimulationType:  "shotGrenade",
+				MuzzleDisplay:   "3GL",
+				MagazineDisplay: "40mm HE",
+				Trajectory: []core.TrajectoryPoint{
+					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, Frame: 60},
+				},
+			},
+		},
+	}
+
+	export := Build(data)
+
+	require.Len(t, export.Markers, 1)
+	marker := export.Markers[0]
+	// shotGrenade uses just magazine display
+	assert.Equal(t, "40mm HE", marker[1])
+}
+
+func TestBuildWithProjectileHitEvents(t *testing.T) {
+	soldierVictim := uint16(10)
+	data := &MissionData{
+		Mission:  &core.Mission{MissionName: "Test"},
+		World:    &core.World{WorldName: "Altis"},
+		Soldiers: map[uint16]*SoldierRecord{
+			5: {Soldier: core.Soldier{ID: 5}},
+		},
+		Vehicles: make(map[uint16]*VehicleRecord),
+		Markers:  make(map[string]*MarkerRecord),
+		ProjectileEvents: []core.ProjectileEvent{
+			{
+				MissionID:       1,
+				CaptureFrame:    50,
+				FirerObjectID:   5,
+				Weapon:          "arifle_MX_F",
+				SimulationType:  "shotBullet",
+				MuzzleDisplay:   "MX 6.5 mm",
+				MagazineDisplay: "6.5 mm 30Rnd",
+				Trajectory: []core.TrajectoryPoint{
+					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, Frame: 50},
+					{Position: core.Position3D{X: 300, Y: 400, Z: 5}, Frame: 52},
+				},
+				Hits: []core.ProjectileHit{
+					{CaptureFrame: 52, Position: core.Position3D{X: 300, Y: 400, Z: 5}, SoldierID: &soldierVictim},
+				},
+			},
+		},
+	}
+
+	export := Build(data)
+
+	// Should generate a hit event
+	require.Len(t, export.Events, 1)
+	evt := export.Events[0]
+	assert.Equal(t, uint(52), evt[0])
+	assert.Equal(t, "hit", evt[1])
+	assert.Equal(t, uint(10), evt[2]) // victimID
+	causedBy := evt[3].([]any)
+	assert.Equal(t, uint(5), causedBy[0]) // firerID
+	assert.Equal(t, "MX 6.5 mm [6.5 mm 30Rnd]", causedBy[1])
+
+	// Distance: sqrt((300-100)^2 + (400-200)^2) ≈ 282.84
+	assert.InDelta(t, 282.84, float64(evt[4].(float32)), 0.1)
+}
+
+func TestBuildWithEmptyMagazineIcon(t *testing.T) {
+	data := &MissionData{
+		Mission:  &core.Mission{MissionName: "Test"},
+		World:    &core.World{WorldName: "Altis"},
+		Soldiers: map[uint16]*SoldierRecord{
+			5: {Soldier: core.Soldier{ID: 5}},
+		},
+		Vehicles: make(map[uint16]*VehicleRecord),
+		Markers:  make(map[string]*MarkerRecord),
+		ProjectileEvents: []core.ProjectileEvent{
+			{
+				MissionID:       1,
+				CaptureFrame:    50,
+				FirerObjectID:   5,
+				Weapon:          "throw",
+				MagazineDisplay: "Unknown",
+				MagazineIcon:    "", // empty → fallback
+				Trajectory: []core.TrajectoryPoint{
+					{Position: core.Position3D{X: 100, Y: 200}, Frame: 50},
+				},
+			},
+		},
+	}
+
+	export := Build(data)
+
+	require.Len(t, export.Markers, 1)
+	marker := export.Markers[0]
+	assert.Equal(t, "mil_triangle", marker[0]) // fallback type
+	assert.Equal(t, "ColorRed", marker[5])     // fallback color
+}
+
+func TestIsProjectileMarker(t *testing.T) {
+	tests := []struct {
+		name   string
+		sim    string
+		weapon string
+		want   bool
+	}{
+		{"bullet is not marker", "shotBullet", "arifle_MX_F", false},
+		{"rocket is marker", "shotRocket", "launch_NLAW_F", true},
+		{"grenade is marker", "shotGrenade", "GL_3GL_F", true},
+		{"shell is marker", "shotShell", "cannon_120mm", true},
+		{"missile is marker", "shotMissile", "missiles_DAGR", true},
+		{"no sim + throw is marker", "", "throw", true},
+		{"no sim + rifle is not marker", "", "arifle_MX_F", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, isProjectileMarker(tt.sim, tt.weapon))
+		})
+	}
+}
