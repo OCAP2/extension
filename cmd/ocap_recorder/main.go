@@ -125,6 +125,7 @@ var (
 
 	// Services
 	parserService   *parser.Parser
+	missionCtx      *parser.MissionContext
 	workerManager   *worker.Manager
 	monitorService  *monitor.Service
 	queues          *worker.Queues
@@ -238,14 +239,14 @@ func init() {
 
 	// Set up dynamic state callbacks for logging
 	SlogManager.GetMissionName = func() string {
-		if parserService != nil {
-			return parserService.GetMissionContext().GetMission().MissionName
+		if missionCtx != nil {
+			return missionCtx.GetMission().MissionName
 		}
 		return ""
 	}
 	SlogManager.GetMissionID = func() uint {
-		if parserService != nil {
-			return parserService.GetMissionContext().GetMission().ID
+		if missionCtx != nil {
+			return missionCtx.GetMission().ID
 		}
 		return 0
 	}
@@ -520,18 +521,10 @@ func startGoroutines() (err error) {
 	queues = worker.NewQueues()
 
 	// Initialize mission context
-	missionCtx := parser.NewMissionContext()
+	missionCtx = parser.NewMissionContext()
 
 	// Initialize handler service
-	parserService = parser.NewParser(parser.Dependencies{
-		DB:               DB,
-		EntityCache:      EntityCache,
-		MarkerCache:      MarkerCache,
-		LogManager:       SlogManager,
-		ExtensionName:    ExtensionName,
-		AddonVersion:     addonVersion,
-		ExtensionVersion: BuildVersion,
-	}, missionCtx)
+	parserService = parser.NewParser(Logger, addonVersion, BuildVersion)
 
 	// Initialize worker manager
 	workerManager = worker.NewManager(worker.Dependencies{
@@ -540,6 +533,7 @@ func startGoroutines() (err error) {
 		MarkerCache:     MarkerCache,
 		LogManager:      SlogManager,
 		ParserService:   parserService,
+		MissionContext:  missionCtx,
 		IsDatabaseValid: func() bool { return IsDatabaseValid },
 		ShouldSaveLocal: func() bool { return ShouldSaveLocal },
 		DBInsertsPaused: func() bool { return DBInsertsPaused },
@@ -551,7 +545,6 @@ func startGoroutines() (err error) {
 		storageBackend = memory.New(storageCfg.Memory)
 		storageBackend.Init()
 		workerManager.SetBackend(storageBackend)
-		parserService.SetBackend(storageBackend)
 		Logger.Info("Memory storage backend initialized")
 	}
 
@@ -566,12 +559,12 @@ func startGoroutines() (err error) {
 
 	// Initialize monitor service
 	monitorService = monitor.NewService(monitor.Dependencies{
-		DB:             DB,
-		LogManager:     SlogManager,
-		ParserService:  parserService,
-		WorkerManager:  workerManager,
-		Queues:         queues,
-		AddonFolder:    AddonFolder,
+		DB:              DB,
+		LogManager:      SlogManager,
+		MissionContext:  missionCtx,
+		WorkerManager:   workerManager,
+		Queues:          queues,
+		AddonFolder:     AddonFolder,
 		IsDatabaseValid: func() bool { return IsDatabaseValid },
 	})
 
@@ -841,32 +834,75 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 	})
 
 	d.Register(":NEW:MISSION:", func(e dispatcher.Event) (any, error) {
-		if parserService != nil {
-			if err := parserService.InitMission(e.Args); err != nil {
-				return nil, err
-			}
-		}
-		return nil, nil
-	}, dispatcher.Buffered(1), dispatcher.Blocking(), dispatcher.Gated(storageReady))
-
-	// Time state tracking - records mission time sync data
-	d.Register(":NEW:TIME:STATE:", func(e dispatcher.Event) (any, error) {
 		if parserService == nil {
 			return nil, nil
 		}
 
-		obj, err := parserService.ParseTimeState(e.Args)
+		// 1. Parse
+		mission, world, err := parserService.ParseMission(e.Args)
 		if err != nil {
-			return nil, fmt.Errorf("failed to log time state: %w", err)
+			return nil, err
 		}
 
+		// 2. DB operations (addon lookup/create, world get/insert, mission create)
+		if DB != nil {
+			for i, addon := range mission.Addons {
+				err = DB.Where("name = ?", addon.Name).First(&mission.Addons[i]).Error
+				if err != nil {
+					if err == gorm.ErrRecordNotFound {
+						if err = DB.Create(&mission.Addons[i]).Error; err != nil {
+							Logger.Error("Failed to create addon", "error", err, "name", addon.Name)
+							return nil, err
+						}
+					} else {
+						Logger.Error("Failed to check addon", "error", err, "name", addon.Name)
+						return nil, err
+					}
+				}
+			}
+
+			created, err := world.GetOrInsert(DB)
+			if err != nil {
+				Logger.Error("Failed to get or insert world", "error", err)
+				return nil, err
+			}
+			if created {
+				Logger.Debug("New world inserted", "worldName", world.WorldName)
+			}
+
+			mission.World = world
+			if err = DB.Create(&mission).Error; err != nil {
+				Logger.Error("Failed to insert new mission", "error", err)
+				return nil, err
+			}
+		} else {
+			mission.World = world
+			Logger.Debug("Memory-only mode: mission context set without DB persistence", "missionName", mission.MissionName)
+		}
+
+		// 3. Set mission context + parser state
+		missionCtx.SetMission(&mission, &world)
+		parserService.SetMission(&mission)
+
+		// 4. Reset caches
+		MarkerCache.Reset()
+		EntityCache.Reset()
+
+		// 5. Start backend
 		if storageBackend != nil {
-			coreObj := convert.TimeStateToCore(obj)
-			storageBackend.RecordTimeState(&coreObj)
+			coreMission := convert.MissionToCore(&mission)
+			coreWorld := convert.WorldToCore(&world)
+			if err := storageBackend.StartMission(&coreMission, &coreWorld); err != nil {
+				Logger.Error("Failed to start mission in storage backend", "error", err)
+			}
 		}
 
+		Logger.Info("New mission logged", "missionName", mission.MissionName)
+
+		// 6. ArmA callback
+		a3interface.WriteArmaCallback(ExtensionName, ":MISSION:OK:", "OK")
 		return nil, nil
-	}, dispatcher.Buffered(100))
+	}, dispatcher.Buffered(1), dispatcher.Blocking(), dispatcher.Gated(storageReady))
 
 	d.Register(":SAVE:MISSION:", func(e dispatcher.Event) (any, error) {
 		Logger.Info("Received :SAVE:MISSION: command, ending mission recording")
@@ -1048,8 +1084,11 @@ func populateDemoData() {
 
 	waitGroup = sync.WaitGroup{}
 	for _, mission := range missions {
+		if missionCtx != nil {
+			missionCtx.SetMission(&mission, nil)
+		}
 		if parserService != nil {
-			parserService.GetMissionContext().SetMission(&mission, nil)
+			parserService.SetMission(&mission)
 		}
 
 		fmt.Printf("Populating mission with ID %d\n", mission.ID)

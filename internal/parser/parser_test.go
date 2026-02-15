@@ -1,103 +1,26 @@
 package parser
 
 import (
+	"log/slog"
 	"testing"
 
-	"github.com/OCAP2/extension/v5/internal/cache"
-	"github.com/OCAP2/extension/v5/internal/logging"
 	"github.com/OCAP2/extension/v5/internal/model"
-	"github.com/OCAP2/extension/v5/internal/model/core"
-	"github.com/OCAP2/extension/v5/internal/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// mockBackend implements storage.Backend for testing
-type mockBackend struct {
-	missionStarted bool
-	missionEnded   bool
-	startedMission *core.Mission
-	startedWorld   *core.World
-}
-
-func (b *mockBackend) Init() error                                         { return nil }
-func (b *mockBackend) Close() error                                        { return nil }
-func (b *mockBackend) AddSoldier(s *core.Soldier) error                    { return nil }
-func (b *mockBackend) AddVehicle(v *core.Vehicle) error                    { return nil }
-func (b *mockBackend) AddMarker(m *core.Marker) error                      { return nil }
-func (b *mockBackend) RecordSoldierState(s *core.SoldierState) error       { return nil }
-func (b *mockBackend) RecordVehicleState(v *core.VehicleState) error       { return nil }
-func (b *mockBackend) RecordMarkerState(s *core.MarkerState) error         { return nil }
-func (b *mockBackend) RecordFiredEvent(e *core.FiredEvent) error             { return nil }
-func (b *mockBackend) RecordProjectileEvent(e *core.ProjectileEvent) error   { return nil }
-func (b *mockBackend) RecordGeneralEvent(e *core.GeneralEvent) error         { return nil }
-func (b *mockBackend) RecordHitEvent(e *core.HitEvent) error               { return nil }
-func (b *mockBackend) RecordKillEvent(e *core.KillEvent) error             { return nil }
-func (b *mockBackend) RecordChatEvent(e *core.ChatEvent) error             { return nil }
-func (b *mockBackend) RecordRadioEvent(e *core.RadioEvent) error           { return nil }
-func (b *mockBackend) RecordServerFpsEvent(e *core.ServerFpsEvent) error   { return nil }
-func (b *mockBackend) RecordTimeState(t *core.TimeState) error             { return nil }
-func (b *mockBackend) RecordAce3DeathEvent(e *core.Ace3DeathEvent) error   { return nil }
-func (b *mockBackend) RecordAce3UnconsciousEvent(e *core.Ace3UnconsciousEvent) error {
-	return nil
-}
-func (b *mockBackend) DeleteMarker(name string, endFrame uint)                    {}
-func (b *mockBackend) GetSoldierByObjectID(ocapID uint16) (*core.Soldier, bool) { return nil, false }
-func (b *mockBackend) GetVehicleByObjectID(ocapID uint16) (*core.Vehicle, bool) { return nil, false }
-func (b *mockBackend) GetMarkerByName(name string) (*core.Marker, bool)       { return nil, false }
-
-func (b *mockBackend) StartMission(mission *core.Mission, world *core.World) error {
-	b.missionStarted = true
-	b.startedMission = mission
-	b.startedWorld = world
-	return nil
-}
-
-func (b *mockBackend) EndMission() error {
-	b.missionEnded = true
-	return nil
-}
-
-var _ storage.Backend = (*mockBackend)(nil)
-
 func newTestParser() *Parser {
-	logManager := logging.NewSlogManager()
-	logManager.Setup(nil, "info", nil)
-
-	deps := Dependencies{
-		DB:               nil, // memory-only mode
-		EntityCache:      cache.NewEntityCache(),
-		MarkerCache:      cache.NewMarkerCache(),
-		LogManager:       logManager,
-		ExtensionName:    "test",
-		AddonVersion:     "1.0.0",
-		ExtensionVersion: "2.0.0",
-	}
-
-	ctx := NewMissionContext()
-	return NewParser(deps, ctx)
+	p := NewParser(slog.Default(), "1.0.0", "2.0.0")
+	return p
 }
 
-func TestNewParser_NilDB(t *testing.T) {
-	svc := newTestParser()
-
-	require.NotNil(t, svc)
-	assert.Nil(t, svc.deps.DB)
+func TestNewParser(t *testing.T) {
+	p := newTestParser()
+	require.NotNil(t, p)
 }
 
-func TestSetBackend(t *testing.T) {
-	svc := newTestParser()
-
-	backend := &mockBackend{}
-	svc.SetBackend(backend)
-
-	assert.NotNil(t, svc.backend)
-}
-
-func TestInitMission_MemoryOnlyMode(t *testing.T) {
-	svc := newTestParser()
-	backend := &mockBackend{}
-	svc.SetBackend(backend)
+func TestParseMission(t *testing.T) {
+	p := newTestParser()
 
 	worldData := `{"worldName":"Altis","displayName":"Altis","worldSize":30720,"latitude":-40.0,"longitude":30.0}`
 	missionData := `{
@@ -115,30 +38,22 @@ func TestInitMission_MemoryOnlyMode(t *testing.T) {
 		"sideFriendly":[false,false,true]
 	}`
 
-	err := svc.InitMission([]string{worldData, missionData})
+	mission, world, err := p.ParseMission([]string{worldData, missionData})
 
 	require.NoError(t, err)
-
-	// Verify mission context was set
-	mission := svc.ctx.GetMission()
 	assert.Equal(t, "Test Mission", mission.MissionName)
-
-	world := svc.ctx.GetWorld()
 	assert.Equal(t, "Altis", world.WorldName)
-
-	// Verify backend was called
-	assert.True(t, backend.missionStarted, "expected backend.StartMission to be called")
-	assert.NotNil(t, backend.startedMission, "expected mission to be passed to backend")
-	assert.NotNil(t, backend.startedWorld, "expected world to be passed to backend")
+	assert.Len(t, mission.Addons, 2)
+	assert.Equal(t, "1.0.0", mission.AddonVersion)
+	assert.Equal(t, "2.0.0", mission.ExtensionVersion)
 }
 
-func TestInitMission_MemoryOnlyMode_NoBackend(t *testing.T) {
-	svc := newTestParser()
-	// No backend set
+func TestParseMission_EmptyAddons(t *testing.T) {
+	p := newTestParser()
 
 	worldData := `{"worldName":"Stratis","displayName":"Stratis","worldSize":8192,"latitude":-40.0,"longitude":30.0}`
 	missionData := `{
-		"missionName":"No Backend Mission",
+		"missionName":"No Addons",
 		"missionNameSource":"file",
 		"briefingName":"Test",
 		"serverName":"Server",
@@ -152,17 +67,14 @@ func TestInitMission_MemoryOnlyMode_NoBackend(t *testing.T) {
 		"sideFriendly":[false,false,false]
 	}`
 
-	err := svc.InitMission([]string{worldData, missionData})
-
+	mission, _, err := p.ParseMission([]string{worldData, missionData})
 	require.NoError(t, err)
-
-	// Verify mission context was still set
-	mission := svc.ctx.GetMission()
-	assert.Equal(t, "No Backend Mission", mission.MissionName)
+	assert.Equal(t, "No Addons", mission.MissionName)
+	assert.Len(t, mission.Addons, 0)
 }
 
-func TestInitMission_AddonsWithoutDB(t *testing.T) {
-	svc := newTestParser()
+func TestParseMission_AddonsWithMixedTypes(t *testing.T) {
+	p := newTestParser()
 
 	worldData := `{"worldName":"Tanoa","displayName":"Tanoa","worldSize":15360,"latitude":-40.0,"longitude":30.0}`
 	missionData := `{
@@ -180,26 +92,18 @@ func TestInitMission_AddonsWithoutDB(t *testing.T) {
 		"sideFriendly":[false,false,false]
 	}`
 
-	err := svc.InitMission([]string{worldData, missionData})
-
+	mission, _, err := p.ParseMission([]string{worldData, missionData})
 	require.NoError(t, err)
-
-	// Verify addons were processed (even without DB)
-	mission := svc.ctx.GetMission()
 	assert.Len(t, mission.Addons, 3)
 }
 
 func TestParseVehicleState_CrewPreservesBrackets(t *testing.T) {
-	svc := newTestParser()
-	svc.SetBackend(&mockBackend{})
+	p := newTestParser()
 
 	// Set up mission context
 	mission := &model.Mission{}
 	mission.ID = 1
-	svc.ctx.SetMission(mission, &model.World{})
-
-	// Add a vehicle to the entity cache so ParseVehicleState can find it
-	svc.deps.EntityCache.AddVehicle(model.Vehicle{ObjectID: 10, MissionID: 1})
+	p.SetMission(mission)
 
 	tests := []struct {
 		name         string
@@ -214,7 +118,6 @@ func TestParseVehicleState_CrewPreservesBrackets(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Simulate game data: [ocapId, pos, bearing, alive, crew, frame, fuel, damage, engine, locked, side, vecDir, vecUp, turretAz, turretEl]
 			data := []string{
 				"10",                 // 0: ocapId
 				"[100.0,200.0,50.0]", // 1: position
@@ -233,29 +136,21 @@ func TestParseVehicleState_CrewPreservesBrackets(t *testing.T) {
 				"10.0",              // 14: turretElevation
 			}
 
-			state, err := svc.ParseVehicleState(data)
+			state, err := p.ParseVehicleState(data)
 			require.NoError(t, err)
-
 			assert.Equal(t, tt.expectedCrew, state.Crew)
+			assert.Equal(t, uint16(10), state.VehicleObjectID)
 		})
 	}
 }
 
 func TestParseSoldierState_ScoresParsingPanic(t *testing.T) {
-	svc := newTestParser()
-	svc.SetBackend(&mockBackend{})
+	p := newTestParser()
 
-	// Set up mission context
 	mission := &model.Mission{}
 	mission.ID = 1
-	svc.ctx.SetMission(mission, &model.World{})
+	p.SetMission(mission)
 
-	// Add a soldier to the entity cache so ParseSoldierState can find it
-	svc.deps.EntityCache.AddSoldier(model.Soldier{ObjectID: 42, MissionID: 1})
-
-	// Base data shared by all subtests: 15 fields matching the expected format
-	// [ocapId, pos, bearing, lifestate, inVehicle, name, isPlayer, currentRole, frame,
-	//  hasStableVitals, isDraggedCarried, scores, vehicleRole, inVehicleID, stance]
 	makeData := func(isPlayer string, scores string) []string {
 		return []string{
 			"42",                 // 0: ocapId
@@ -277,10 +172,10 @@ func TestParseSoldierState_ScoresParsingPanic(t *testing.T) {
 	}
 
 	tests := []struct {
-		name           string
-		isPlayer       string
-		scores         string
-		expectScores   model.SoldierScores
+		name         string
+		isPlayer     string
+		scores       string
+		expectScores model.SoldierScores
 	}{
 		{
 			name:     "valid 6 scores",
@@ -321,11 +216,10 @@ func TestParseSoldierState_ScoresParsingPanic(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			data := makeData(tt.isPlayer, tt.scores)
 
-			// Must not panic
-			state, err := svc.ParseSoldierState(data)
+			state, err := p.ParseSoldierState(data)
 			require.NoError(t, err)
-
 			assert.Equal(t, tt.expectScores, state.Scores)
+			assert.Equal(t, uint16(42), state.SoldierObjectID)
 		})
 	}
 }
@@ -394,17 +288,11 @@ func TestParseIntFromFloat(t *testing.T) {
 }
 
 func TestParseSoldierState_GroupAndSide(t *testing.T) {
-	svc := newTestParser()
-	svc.SetBackend(&mockBackend{})
+	p := newTestParser()
 
 	mission := &model.Mission{}
 	mission.ID = 1
-	svc.ctx.SetMission(mission, &model.World{})
-
-	svc.deps.EntityCache.AddSoldier(model.Soldier{
-		ObjectID: 42, MissionID: 1,
-		GroupID: "InitGroup", Side: "WEST",
-	})
+	p.SetMission(mission)
 
 	baseData := []string{
 		"42",                  // 0: ocapId
@@ -426,31 +314,27 @@ func TestParseSoldierState_GroupAndSide(t *testing.T) {
 
 	t.Run("17 fields parses group and side", func(t *testing.T) {
 		data := append(append([]string{}, baseData...), "Alpha 1-1", "EAST")
-		state, err := svc.ParseSoldierState(data)
+		state, err := p.ParseSoldierState(data)
 		require.NoError(t, err)
 		assert.Equal(t, "Alpha 1-1", state.GroupID)
 		assert.Equal(t, "EAST", state.Side)
 	})
 
-	t.Run("15 fields falls back to initial soldier data", func(t *testing.T) {
-		state, err := svc.ParseSoldierState(append([]string{}, baseData...))
+	t.Run("15 fields leaves group and side empty for worker to fill", func(t *testing.T) {
+		state, err := p.ParseSoldierState(append([]string{}, baseData...))
 		require.NoError(t, err)
-		assert.Equal(t, "InitGroup", state.GroupID)
-		assert.Equal(t, "WEST", state.Side)
+		assert.Equal(t, "", state.GroupID)
+		assert.Equal(t, "", state.Side)
 	})
 }
 
 func TestParseVehicleState_FloatOcapId(t *testing.T) {
-	svc := newTestParser()
-	svc.SetBackend(&mockBackend{})
+	p := newTestParser()
 
 	mission := &model.Mission{}
 	mission.ID = 1
-	svc.ctx.SetMission(mission, &model.World{})
+	p.SetMission(mission)
 
-	svc.deps.EntityCache.AddVehicle(model.Vehicle{ObjectID: 32, MissionID: 1})
-
-	// Simulate ArmA sending ocapId as "32.00" instead of "32"
 	data := []string{
 		"32.00",              // 0: ocapId (float format from ArmA)
 		"[100.0,200.0,50.0]", // 1: position
@@ -469,20 +353,17 @@ func TestParseVehicleState_FloatOcapId(t *testing.T) {
 		"0",                  // 14: turretElevation
 	}
 
-	state, err := svc.ParseVehicleState(data)
+	state, err := p.ParseVehicleState(data)
 	require.NoError(t, err)
 	assert.Equal(t, uint16(32), state.VehicleObjectID)
 }
 
 func TestParseSoldierState_FloatOcapId(t *testing.T) {
-	svc := newTestParser()
-	svc.SetBackend(&mockBackend{})
+	p := newTestParser()
 
 	mission := &model.Mission{}
 	mission.ID = 1
-	svc.ctx.SetMission(mission, &model.World{})
-
-	svc.deps.EntityCache.AddSoldier(model.Soldier{ObjectID: 30, MissionID: 1})
+	p.SetMission(mission)
 
 	data := []string{
 		"30.00",              // 0: ocapId (float format from ArmA)
@@ -502,20 +383,17 @@ func TestParseSoldierState_FloatOcapId(t *testing.T) {
 		"STAND",              // 14: stance
 	}
 
-	state, err := svc.ParseSoldierState(data)
+	state, err := p.ParseSoldierState(data)
 	require.NoError(t, err)
 	assert.Equal(t, uint16(30), state.SoldierObjectID)
 }
 
-func TestParseKillEvent_EmptyWeaponArray(t *testing.T) {
-	svc := newTestParser()
+func TestParseKillEvent_WeaponParsing(t *testing.T) {
+	p := newTestParser()
 
 	mission := &model.Mission{}
 	mission.ID = 1
-	svc.ctx.SetMission(mission, &model.World{})
-
-	// Victim and killer are the same soldier (suicide)
-	svc.deps.EntityCache.AddSoldier(model.Soldier{ObjectID: 5, MissionID: 1})
+	p.SetMission(mission)
 
 	tests := []struct {
 		name        string
@@ -554,20 +432,22 @@ func TestParseKillEvent_EmptyWeaponArray(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			data := []string{
-				"100",       // 0: frame
-				"5",         // 1: victimID (suicide)
-				"5",         // 2: killerID (suicide)
+				"100",        // 0: frame
+				"5",          // 1: victimID
+				"5",          // 2: killerID
 				tt.weaponArg, // 3: weapon array
-				"0",         // 4: distance
+				"0",          // 4: distance
 			}
 
-			killEvent, err := svc.ParseKillEvent(data)
+			result, err := p.ParseKillEvent(data)
 			require.NoError(t, err)
 
-			assert.Equal(t, tt.wantVehicle, killEvent.WeaponVehicle)
-			assert.Equal(t, tt.wantWeapon, killEvent.WeaponName)
-			assert.Equal(t, tt.wantMag, killEvent.WeaponMagazine)
-			assert.Equal(t, tt.wantText, killEvent.EventText)
+			assert.Equal(t, tt.wantVehicle, result.Event.WeaponVehicle)
+			assert.Equal(t, tt.wantWeapon, result.Event.WeaponName)
+			assert.Equal(t, tt.wantMag, result.Event.WeaponMagazine)
+			assert.Equal(t, tt.wantText, result.Event.EventText)
+			assert.Equal(t, uint16(5), result.VictimID)
+			assert.Equal(t, uint16(5), result.KillerID)
 		})
 	}
 }
@@ -575,7 +455,6 @@ func TestParseKillEvent_EmptyWeaponArray(t *testing.T) {
 func TestMissionContext_ThreadSafe(t *testing.T) {
 	ctx := NewMissionContext()
 
-	// Should have default values
 	mission := ctx.GetMission()
 	assert.Equal(t, "No mission loaded", mission.MissionName)
 

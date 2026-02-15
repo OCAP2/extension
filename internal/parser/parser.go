@@ -3,25 +3,20 @@ package parser
 import (
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"log/slog"
 	"reflect"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
-	"github.com/OCAP2/extension/v5/internal/cache"
 	"github.com/OCAP2/extension/v5/internal/geo"
-	"github.com/OCAP2/extension/v5/internal/logging"
 	"github.com/OCAP2/extension/v5/internal/model"
-	"github.com/OCAP2/extension/v5/internal/model/convert"
-	"github.com/OCAP2/extension/v5/internal/storage"
 	"github.com/OCAP2/extension/v5/internal/util"
-	"github.com/OCAP2/extension/v5/pkg/a3interface"
 
 	geom "github.com/peterstace/simplefeatures/geom"
-	"gorm.io/gorm"
 )
 
 // parseUintFromFloat parses a string that may be an integer ("32") or float ("32.00") into uint64.
@@ -92,70 +87,55 @@ func (mc *MissionContext) SetMission(mission *model.Mission, world *model.World)
 	mc.World = world
 }
 
-// Dependencies holds all dependencies needed by the parser
-type Dependencies struct {
-	DB               *gorm.DB
-	EntityCache      *cache.EntityCache
-	MarkerCache      *cache.MarkerCache
-	LogManager       *logging.SlogManager
-	ExtensionName    string
-	AddonVersion     string
-	ExtensionVersion string
-}
-
-// Parser provides methods for parsing game data into model structs
+// Parser provides pure []string -> model struct conversion.
+// It has zero external dependencies beyond a logger.
 type Parser struct {
-	deps         Dependencies
-	ctx          *MissionContext
-	writeLogFunc func(functionName, data, level string)
-	backend      storage.Backend
+	logger  *slog.Logger
+	mission atomic.Pointer[model.Mission]
+
+	// Static config set at creation time
+	addonVersion     string
+	extensionVersion string
 }
 
-// NewParser creates a new parser
-func NewParser(deps Dependencies, ctx *MissionContext) *Parser {
-	s := &Parser{
-		deps: deps,
-		ctx:  ctx,
+// NewParser creates a new parser with only a logger dependency
+func NewParser(logger *slog.Logger, addonVersion, extensionVersion string) *Parser {
+	p := &Parser{
+		logger:           logger,
+		addonVersion:     addonVersion,
+		extensionVersion: extensionVersion,
 	}
-	// Default writeLog function uses the logging manager
-	s.writeLogFunc = func(functionName, data, level string) {
-		if deps.LogManager != nil {
-			deps.LogManager.WriteLog(functionName, data, level)
-		}
+	return p
+}
+
+// SetMission sets the current mission for MissionID lookups
+func (p *Parser) SetMission(m *model.Mission) {
+	p.mission.Store(m)
+}
+
+func (p *Parser) getMissionID() uint {
+	m := p.mission.Load()
+	if m == nil {
+		return 0
 	}
-	return s
+	return m.ID
 }
 
-// GetMissionContext returns the mission context
-func (s *Parser) GetMissionContext() *MissionContext {
-	return s.ctx
-}
-
-// SetBackend sets the storage backend for mission start/end handling
-func (s *Parser) SetBackend(b storage.Backend) {
-	s.backend = b
-}
-
-func (s *Parser) writeLog(functionName, data, level string) {
-	s.writeLogFunc(functionName, data, level)
-}
-
-// InitMission logs a new mission to the database
-func (s *Parser) InitMission(data []string) error {
-	functionName := ":NEW:MISSION:"
+// ParseMission parses mission and world data from raw args.
+// Returns parsed mission + world. NO DB operations, NO cache resets, NO callbacks.
+func (p *Parser) ParseMission(data []string) (model.Mission, model.World, error) {
+	var mission model.Mission
+	var world model.World
 
 	// fix received data
 	for i, v := range data {
 		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
 	}
 
-	world := model.World{}
-	mission := model.Mission{}
-	// unmarshal data[0]
+	// unmarshal data[0] -> world
 	err := json.Unmarshal([]byte(data[0]), &world)
 	if err != nil {
-		s.writeLog(functionName, fmt.Sprintf(`Error unmarshalling world data: %v`, err), "ERROR")
-		return err
+		return mission, world, fmt.Errorf("error unmarshalling world data: %w", err)
 	}
 
 	// preprocess the world 'location' to geopoint
@@ -164,47 +144,26 @@ func (s *Parser) InitMission(data []string) error {
 		float64(world.Latitude),
 	)
 	if err != nil {
-		s.writeLog(functionName, fmt.Sprintf(`Error converting world location to geopoint: %v`, err), "ERROR")
-		return err
+		return mission, world, fmt.Errorf("error converting world location to geopoint: %w", err)
 	}
 	world.Location = worldLocation
 
-	// unmarshal data[1]
-	// unmarshal to temp object too to extract addons
-	missionTemp := map[string]interface{}{}
+	// unmarshal data[1] -> mission (via temp map for addons extraction)
+	missionTemp := map[string]any{}
 	if err = json.Unmarshal([]byte(data[1]), &missionTemp); err != nil {
-		s.writeLog(functionName, fmt.Sprintf(`Error unmarshalling mission data: %v`, err), "ERROR")
-		return err
+		return mission, world, fmt.Errorf("error unmarshalling mission data: %w", err)
 	}
 
-	// add addons
+	// extract addons (without DB lookup - just parse)
 	addons := []model.Addon{}
-	for _, addon := range missionTemp["addons"].([]interface{}) {
+	for _, addon := range missionTemp["addons"].([]any) {
 		thisAddon := model.Addon{
-			Name: addon.([]interface{})[0].(string),
+			Name: addon.([]any)[0].(string),
 		}
-		// if addon[1] workshopId is int, convert to string
-		if reflect.TypeOf(addon.([]interface{})[1]).Kind() == reflect.Float64 {
-			thisAddon.WorkshopID = strconv.Itoa(int(addon.([]interface{})[1].(float64)))
+		if reflect.TypeOf(addon.([]any)[1]).Kind() == reflect.Float64 {
+			thisAddon.WorkshopID = strconv.Itoa(int(addon.([]any)[1].(float64)))
 		} else {
-			thisAddon.WorkshopID = addon.([]interface{})[1].(string)
-		}
-
-		// Only use DB for addon lookup/create if DB is available
-		if s.deps.DB != nil {
-			// if addon doesn't exist, insert it
-			err = s.deps.DB.Where("name = ?", thisAddon.Name).First(&thisAddon).Error
-			if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-				s.writeLog(functionName, fmt.Sprintf(`Error checking if addon exists: %v`, err), "ERROR")
-				return err
-			}
-			if thisAddon.ID == 0 {
-				// addon does not exist, create it
-				if err = s.deps.DB.Create(&thisAddon).Error; err != nil {
-					s.writeLog(functionName, fmt.Sprintf(`Error creating addon: %v`, err), "ERROR")
-					return err
-				}
-			}
+			thisAddon.WorkshopID = addon.([]any)[1].(string)
 		}
 		addons = append(addons, thisAddon)
 	}
@@ -223,7 +182,7 @@ func (s *Parser) InitMission(data []string) error {
 	mission.Tag = missionTemp["tag"].(string)
 
 	// playableSlots
-	playableSlotsJSON := missionTemp["playableSlots"].([]interface{})
+	playableSlotsJSON := missionTemp["playableSlots"].([]any)
 	mission.PlayableSlots.East = uint8(playableSlotsJSON[0].(float64))
 	mission.PlayableSlots.West = uint8(playableSlotsJSON[1].(float64))
 	mission.PlayableSlots.Independent = uint8(playableSlotsJSON[2].(float64))
@@ -231,84 +190,24 @@ func (s *Parser) InitMission(data []string) error {
 	mission.PlayableSlots.Logic = uint8(playableSlotsJSON[4].(float64))
 
 	// sideFriendly
-	sideFriendlyJSON := missionTemp["sideFriendly"].([]interface{})
+	sideFriendlyJSON := missionTemp["sideFriendly"].([]any)
 	mission.SideFriendly.EastWest = sideFriendlyJSON[0].(bool)
 	mission.SideFriendly.EastIndependent = sideFriendlyJSON[1].(bool)
 	mission.SideFriendly.WestIndependent = sideFriendlyJSON[2].(bool)
 
 	// received at extension init and saved to local memory
-	mission.AddonVersion = s.deps.AddonVersion
-	mission.ExtensionVersion = s.deps.ExtensionVersion
+	mission.AddonVersion = p.addonVersion
+	mission.ExtensionVersion = p.extensionVersion
 
-	logger := s.deps.LogManager.Logger()
-
-	// Only use DB for world/mission persistence if DB is available
-	if s.deps.DB != nil {
-		// get or insert world
-		created, err := world.GetOrInsert(s.deps.DB)
-		if err != nil {
-			logger.Error("Failed to get or insert world", "error", err)
-			return err
-		}
-		if created {
-			logger.Debug("New world inserted", "worldName", world.WorldName)
-		} else {
-			logger.Debug("World already exists", "worldName", world.WorldName)
-		}
-
-		// always write new mission
-		mission.World = world
-		err = s.deps.DB.Create(&mission).Error
-		if err != nil {
-			logger.Error("Failed to insert new mission", "error", err)
-			return err
-		} else {
-			logger.Debug("New mission inserted", "missionName", mission.MissionName)
-		}
-	} else {
-		// Memory-only mode: just set the world reference
-		mission.World = world
-		logger.Debug("Memory-only mode: mission context set without DB persistence", "missionName", mission.MissionName)
-	}
-
-	// set current world and mission
-	s.ctx.SetMission(&mission, &world)
-
-	// Clear marker cache for new mission
-	s.deps.MarkerCache.Reset()
-
-	// Start mission in storage backend if configured
-	if s.backend != nil {
-		coreMission := convert.MissionToCore(&mission)
-		coreWorld := convert.WorldToCore(&world)
-		if err := s.backend.StartMission(&coreMission, &coreWorld); err != nil {
-			logger.Error("Failed to start mission in storage backend", "error", err)
-		}
-	}
-
-	// write to log
-	s.writeLog(functionName, `New mission logged`, "INFO")
-
-	logger.Debug("World data",
-		"worldName", world.WorldName,
-		"displayName", world.DisplayName)
-	logger.Debug("Mission data",
+	p.logger.Debug("Parsed mission data",
 		"missionName", mission.MissionName,
-		"briefingName", mission.BriefingName,
-		"serverName", mission.ServerName,
-		"serverProfile", mission.ServerProfile,
-		"onLoadName", mission.OnLoadName,
-		"author", mission.Author,
-		"tag", mission.Tag)
+		"worldName", world.WorldName)
 
-	// callback to addon to begin sending data
-	a3interface.WriteArmaCallback(s.deps.ExtensionName, `:MISSION:OK:`, "OK")
-	return nil
+	return mission, world, nil
 }
 
 // ParseSoldier parses soldier data and returns a Soldier model
-func (s *Parser) ParseSoldier(data []string) (model.Soldier, error) {
-	functionName := ":NEW:SOLDIER:"
+func (p *Parser) ParseSoldier(data []string) (model.Soldier, error) {
 	var soldier model.Soldier
 
 	// fix received data
@@ -317,23 +216,18 @@ func (s *Parser) ParseSoldier(data []string) (model.Soldier, error) {
 	}
 
 	// get frame
-	frameStr := data[0]
-	capframe, err := strconv.ParseFloat(frameStr, 64)
+	capframe, err := strconv.ParseFloat(data[0], 64)
 	if err != nil {
-		s.writeLog(functionName, fmt.Sprintf(`Error converting capture frame to int: %s`, err), "ERROR")
-		return soldier, err
+		return soldier, fmt.Errorf("error converting capture frame to int: %w", err)
 	}
 
-	// parse array
-	soldier.MissionID = s.ctx.GetMission().ID
+	soldier.MissionID = p.getMissionID()
 	soldier.JoinFrame = uint(capframe)
-
 	soldier.JoinTime = time.Now()
 
 	ocapID, err := parseUintFromFloat(data[1])
 	if err != nil {
-		s.writeLog(functionName, fmt.Sprintf(`Error converting ocapId to uint: %v`, err), "ERROR")
-		return soldier, err
+		return soldier, fmt.Errorf("error converting ocapId to uint: %w", err)
 	}
 	soldier.ObjectID = uint16(ocapID)
 	soldier.UnitName = data[2]
@@ -341,29 +235,27 @@ func (s *Parser) ParseSoldier(data []string) (model.Soldier, error) {
 	soldier.Side = data[4]
 	soldier.IsPlayer, err = strconv.ParseBool(data[5])
 	if err != nil {
-		s.writeLog(functionName, fmt.Sprintf(`Error converting isPlayer to bool: %v`, err), "ERROR")
-		return soldier, err
+		return soldier, fmt.Errorf("error converting isPlayer to bool: %w", err)
 	}
 	soldier.RoleDescription = data[6]
 	soldier.ClassName = data[7]
 	soldier.DisplayName = data[8]
-	// player uid
 	soldier.PlayerUID = data[9]
 
 	// marshal squadparams
-	squadParams := data[10]
-	err = json.Unmarshal([]byte(squadParams), &soldier.SquadParams)
+	err = json.Unmarshal([]byte(data[10]), &soldier.SquadParams)
 	if err != nil {
-		s.writeLog(functionName, fmt.Sprintf(`Error unmarshalling squadParams: %v`, err), "ERROR")
-		return soldier, err
+		return soldier, fmt.Errorf("error unmarshalling squadParams: %w", err)
 	}
 
 	return soldier, nil
 }
 
-// ParseSoldierState parses soldier state data and returns a SoldierState model
-func (s *Parser) ParseSoldierState(data []string) (model.SoldierState, error) {
-	functionName := ":NEW:SOLDIER:STATE:"
+// ParseSoldierState parses soldier state data and returns a SoldierState model.
+// Sets SoldierObjectID directly from the parsed ocapID (no cache lookup).
+// If groupID/side fields are not in the data (len < 17), they are left empty
+// for the worker layer to fill from cache.
+func (p *Parser) ParseSoldierState(data []string) (model.SoldierState, error) {
 	var soldierState model.SoldierState
 
 	// fix received data
@@ -371,28 +263,21 @@ func (s *Parser) ParseSoldierState(data []string) (model.SoldierState, error) {
 		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
 	}
 
-	soldierState.MissionID = s.ctx.GetMission().ID
+	soldierState.MissionID = p.getMissionID()
 
 	frameStr := data[8]
 	capframe, err := strconv.ParseFloat(frameStr, 64)
 	if err != nil {
-		return soldierState, fmt.Errorf(`error converting capture frame to int: %s`, err)
+		return soldierState, fmt.Errorf("error converting capture frame to int: %w", err)
 	}
 	soldierState.CaptureFrame = uint(capframe)
 
-	// parse data in array
+	// parse ocapID and set directly (worker validates against cache)
 	ocapID, err := parseUintFromFloat(data[0])
 	if err != nil {
-		return soldierState, fmt.Errorf(`error converting ocapId to uint: %v`, err)
+		return soldierState, fmt.Errorf("error converting ocapId to uint: %w", err)
 	}
-
-	// try and find soldier in DB to associate
-	soldier, ok := s.deps.EntityCache.GetSoldier(uint16(ocapID))
-	if !ok {
-		return soldierState, fmt.Errorf("soldier %d not found in cache", ocapID)
-	}
-
-	soldierState.SoldierObjectID = soldier.ObjectID
+	soldierState.SoldierObjectID = uint16(ocapID)
 
 	soldierState.Time = time.Now()
 
@@ -403,7 +288,7 @@ func (s *Parser) ParseSoldierState(data []string) (model.SoldierState, error) {
 	point, elev, err := geo.Coord3857FromString(pos)
 	if err != nil {
 		jsonData, _ := json.Marshal(data)
-		s.writeLog(functionName, fmt.Sprintf("Error converting position to Point:\n%s\n%v", jsonData, err), "ERROR")
+		p.logger.Error("Error converting position to Point", "data", string(jsonData), "error", err)
 		return soldierState, err
 	}
 	soldierState.Position = point
@@ -422,18 +307,15 @@ func (s *Parser) ParseSoldierState(data []string) (model.SoldierState, error) {
 	// is player
 	isPlayer, err := strconv.ParseBool(data[6])
 	if err != nil {
-		s.writeLog(functionName, fmt.Sprintf(`Error converting isPlayer to bool: %v`, err), "ERROR")
-		return soldierState, err
+		return soldierState, fmt.Errorf("error converting isPlayer to bool: %w", err)
 	}
 	soldierState.IsPlayer = isPlayer
 	// current role
 	soldierState.CurrentRole = data[7]
 
-	// parse ace3/medical data, is true/false default for vanilla
-	// has stable vitals
+	// parse ace3/medical data
 	hasStableVitals, _ := strconv.ParseBool(data[9])
 	soldierState.HasStableVitals = hasStableVitals
-	// is dragged/carried
 	isDraggedCarried, _ := strconv.ParseBool(data[10])
 	soldierState.IsDraggedCarried = isDraggedCarried
 
@@ -457,7 +339,7 @@ func (s *Parser) ParseSoldierState(data []string) (model.SoldierState, error) {
 				TotalScore:    scoresInt[5],
 			}
 		} else {
-			s.writeLog(functionName, fmt.Sprintf("expected 6 score values, got %d: %q", len(scoresArr), scoresStr), "WARN")
+			p.logger.Warn("Unexpected score count", "expected", 6, "got", len(scoresArr), "data", scoresStr)
 		}
 	}
 
@@ -467,36 +349,26 @@ func (s *Parser) ParseSoldierState(data []string) (model.SoldierState, error) {
 	// InVehicleObjectID, if -1 not in a vehicle
 	inVehicleID, _ := strconv.Atoi(data[13])
 	if inVehicleID == -1 {
-		soldierState.InVehicleObjectID = sql.NullInt32{
-			Int32: 0,
-			Valid: false,
-		}
+		soldierState.InVehicleObjectID = sql.NullInt32{Int32: 0, Valid: false}
 	} else {
-		soldierState.InVehicleObjectID = sql.NullInt32{
-			Int32: int32(inVehicleID),
-			Valid: true,
-		}
+		soldierState.InVehicleObjectID = sql.NullInt32{Int32: int32(inVehicleID), Valid: true}
 	}
 
 	// stance
 	soldierState.Stance = data[14]
 
 	// groupID and side (added by addon PR#55, backward compatible)
+	// If not present, leave empty - worker fills from cached soldier
 	if len(data) >= 17 {
 		soldierState.GroupID = data[15]
 		soldierState.Side = data[16]
-	} else {
-		// Fall back to initial registration data
-		soldierState.GroupID = soldier.GroupID
-		soldierState.Side = soldier.Side
 	}
 
 	return soldierState, nil
 }
 
 // ParseVehicle parses vehicle data and returns a Vehicle model
-func (s *Parser) ParseVehicle(data []string) (model.Vehicle, error) {
-	functionName := ":NEW:VEHICLE:"
+func (p *Parser) ParseVehicle(data []string) (model.Vehicle, error) {
 	var vehicle model.Vehicle
 
 	// fix received data
@@ -505,22 +377,18 @@ func (s *Parser) ParseVehicle(data []string) (model.Vehicle, error) {
 	}
 
 	// get frame
-	frameStr := data[0]
-	capframe, err := strconv.ParseFloat(frameStr, 64)
+	capframe, err := strconv.ParseFloat(data[0], 64)
 	if err != nil {
-		s.writeLog(functionName, fmt.Sprintf(`Error converting capture frame to int: %s`, err), "ERROR")
-		return vehicle, err
+		return vehicle, fmt.Errorf("error converting capture frame to int: %w", err)
 	}
 
 	vehicle.JoinTime = time.Now()
 
-	// parse array
-	vehicle.MissionID = s.ctx.GetMission().ID
+	vehicle.MissionID = p.getMissionID()
 	vehicle.JoinFrame = uint(capframe)
 	ocapID, err := parseUintFromFloat(data[1])
 	if err != nil {
-		s.writeLog(functionName, fmt.Sprintf(`Error converting ocapID to uint: %v`, err), "ERROR")
-		return vehicle, err
+		return vehicle, fmt.Errorf("error converting ocapID to uint: %w", err)
 	}
 	vehicle.ObjectID = uint16(ocapID)
 	vehicle.OcapType = data[2]
@@ -531,9 +399,9 @@ func (s *Parser) ParseVehicle(data []string) (model.Vehicle, error) {
 	return vehicle, nil
 }
 
-// ParseVehicleState parses vehicle state data and returns a VehicleState model
-func (s *Parser) ParseVehicleState(data []string) (model.VehicleState, error) {
-	functionName := ":NEW:VEHICLE:STATE:"
+// ParseVehicleState parses vehicle state data and returns a VehicleState model.
+// Sets VehicleObjectID directly from the parsed ocapID (no cache lookup).
+func (p *Parser) ParseVehicleState(data []string) (model.VehicleState, error) {
 	var vehicleState model.VehicleState
 
 	// fix received data
@@ -541,30 +409,21 @@ func (s *Parser) ParseVehicleState(data []string) (model.VehicleState, error) {
 		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
 	}
 
-	vehicleState.MissionID = s.ctx.GetMission().ID
+	vehicleState.MissionID = p.getMissionID()
 
 	// get frame
-	frameStr := data[5]
-	capframe, err := strconv.ParseFloat(frameStr, 64)
+	capframe, err := strconv.ParseFloat(data[5], 64)
 	if err != nil {
-		s.writeLog(functionName, fmt.Sprintf(`Error converting capture frame to int: %s`, err), "ERROR")
-		return vehicleState, err
+		return vehicleState, fmt.Errorf("error converting capture frame to int: %w", err)
 	}
 	vehicleState.CaptureFrame = uint(capframe)
 
-	// parse data in array
+	// parse ocapID and set directly (worker validates against cache)
 	ocapID, err := parseUintFromFloat(data[0])
 	if err != nil {
-		s.writeLog(functionName, fmt.Sprintf(`Error converting ocapId to uint: %v`, err), "ERROR")
-		return vehicleState, err
+		return vehicleState, fmt.Errorf("error converting ocapId to uint: %w", err)
 	}
-
-	// try and find vehicle in DB to associate
-	vehicle, ok := s.deps.EntityCache.GetVehicle(uint16(ocapID))
-	if !ok {
-		return vehicleState, fmt.Errorf("vehicle %d not found in cache", ocapID)
-	}
-	vehicleState.VehicleObjectID = vehicle.ObjectID
+	vehicleState.VehicleObjectID = uint16(ocapID)
 
 	vehicleState.Time = time.Now()
 
@@ -575,7 +434,7 @@ func (s *Parser) ParseVehicleState(data []string) (model.VehicleState, error) {
 	point, elev, err := geo.Coord3857FromString(pos)
 	if err != nil {
 		jsonData, _ := json.Marshal(data)
-		s.writeLog(functionName, fmt.Sprintf("Error converting position to Point:\n%s\n%v", jsonData, err), "ERROR")
+		p.logger.Error("Error converting position to Point", "data", string(jsonData), "error", err)
 		return vehicleState, err
 	}
 	vehicleState.Position = point
@@ -587,83 +446,62 @@ func (s *Parser) ParseVehicleState(data []string) (model.VehicleState, error) {
 	// is alive
 	isAlive, _ := strconv.ParseBool(data[3])
 	vehicleState.IsAlive = isAlive
-	// parse crew, which is a JSON array of ocap ids of soldiers (e.g. "[202,203]")
+	// parse crew
 	vehicleState.Crew = data[4]
 
 	// fuel
 	fuel, err := strconv.ParseFloat(data[6], 32)
 	if err != nil {
-		return vehicleState, fmt.Errorf(`error converting fuel to float: %v`, err)
+		return vehicleState, fmt.Errorf("error converting fuel to float: %w", err)
 	}
 	vehicleState.Fuel = float32(fuel)
 
 	// damage
 	damage, err := strconv.ParseFloat(data[7], 32)
 	if err != nil {
-		return vehicleState, fmt.Errorf(`error converting damage to float: %v`, err)
+		return vehicleState, fmt.Errorf("error converting damage to float: %w", err)
 	}
 	vehicleState.Damage = float32(damage)
 
 	// isEngineOn
 	isEngineOn, err := strconv.ParseBool(data[8])
 	if err != nil {
-		return vehicleState, fmt.Errorf(`error converting isEngineOn to bool: %v`, err)
+		return vehicleState, fmt.Errorf("error converting isEngineOn to bool: %w", err)
 	}
 	vehicleState.EngineOn = isEngineOn
 
 	// locked
 	locked, err := strconv.ParseBool(data[9])
 	if err != nil {
-		return vehicleState, fmt.Errorf(`error converting locked to bool: %v`, err)
+		return vehicleState, fmt.Errorf("error converting locked to bool: %w", err)
 	}
 	vehicleState.Locked = locked
 
 	vehicleState.Side = data[10]
-
 	vehicleState.VectorDir = data[11]
 	vehicleState.VectorUp = data[12]
 
 	turretAzimuth, err := strconv.ParseFloat(data[13], 32)
 	if err != nil {
-		return vehicleState, fmt.Errorf(`error converting turretAzimuth to float: %v`, err)
+		return vehicleState, fmt.Errorf("error converting turretAzimuth to float: %w", err)
 	}
 	vehicleState.TurretAzimuth = float32(turretAzimuth)
 
 	turretElevation, err := strconv.ParseFloat(data[14], 32)
 	if err != nil {
-		return vehicleState, fmt.Errorf(`error converting turretElevation to float: %v`, err)
+		return vehicleState, fmt.Errorf("error converting turretElevation to float: %w", err)
 	}
 	vehicleState.TurretElevation = float32(turretElevation)
 
 	return vehicleState, nil
 }
 
-// ParseProjectileEvent parses projectile event data and returns a ProjectileEvent model
-// New SQF array format (indices):
-//
-//	0:  firedFrame (uint)
-//	1:  firedTime (float - diag_tickTime)
-//	2:  firerID (uint)
-//	3:  vehicleID (uint, -1 if not in vehicle)
-//	4:  vehicleRole (string)
-//	5:  remoteControllerID (uint)
-//	6:  weapon (string - CfgWeapons class name, e.g. "arifle_katiba_f")
-//	7:  weaponDisplay (string - display name, e.g. "Katiba 6.5 mm")
-//	8:  muzzle (string - CfgWeapons muzzle class name, e.g. "arifle_Katiba_pointer_F")
-//	9:  muzzleDisplay (string - muzzle display name, e.g. "Katiba 6.5 mm")
-//	10: magazine (string - CfgMagazines class name, e.g. "30Rnd_65x39_caseless_green")
-//	11: magazineDisplay (string - magazine display name, e.g. "6.5 mm 30Rnd Caseless Mag")
-//	12: ammo (string - CfgAmmo class name, e.g. "B_65x39_Caseless_green")
-//	13: fireMode (string)
-//	14: positions (array string "[[tickTime,frameNo,\"x,y,z\"],...]")
-//	15: initialVelocity (string "x,y,z")
-//	16: hitParts (array string)
-//	17: sim (string - simulation type, required: "shotBullet", "shotGrenade", "shotRocket", "shotMissile", "shotShell", etc.)
-//	18: isSub (bool - is submunition)
-//	19: magazineIcon (string - path to magazine icon texture)
-func (s *Parser) ParseProjectileEvent(data []string) (model.ProjectileEvent, error) {
+// ParseProjectileEvent parses projectile event data and returns a ParsedProjectileEvent.
+// FirerObjectID, VehicleObjectID, and ActualFirerObjectID are set directly from parsed IDs.
+// Hit parts are returned as RawHitPart for the worker to classify as soldier/vehicle.
+func (p *Parser) ParseProjectileEvent(data []string) (ParsedProjectileEvent, error) {
+	var result ParsedProjectileEvent
 	var projectileEvent model.ProjectileEvent
-	logger := s.deps.LogManager.Logger()
 
 	// fix received data
 	for i, v := range data {
@@ -671,58 +509,46 @@ func (s *Parser) ParseProjectileEvent(data []string) (model.ProjectileEvent, err
 	}
 
 	if len(data) < 20 {
-		return projectileEvent, fmt.Errorf("insufficient data fields: got %d, need 20", len(data))
+		return result, fmt.Errorf("insufficient data fields: got %d, need 20", len(data))
 	}
 
-	projectileEvent.MissionID = s.ctx.GetMission().ID
+	projectileEvent.MissionID = p.getMissionID()
 
 	// [0] firedFrame
 	capframe, err := strconv.ParseFloat(data[0], 64)
 	if err != nil {
-		return projectileEvent, fmt.Errorf("error parsing firedFrame: %v", err)
+		return result, fmt.Errorf("error parsing firedFrame: %v", err)
 	}
 	projectileEvent.CaptureFrame = uint(capframe)
 
-	// [1] firedTime (diag_tickTime) - convert to Time using current time as base
-	// diag_tickTime is seconds since game start, so we just store current time
+	// [1] firedTime
 	projectileEvent.Time = time.Now()
 
-	// [2] firerID
+	// [2] firerID - set directly
 	firerID, err := parseUintFromFloat(data[2])
 	if err != nil {
-		return projectileEvent, fmt.Errorf("error parsing firerID: %v", err)
+		return result, fmt.Errorf("error parsing firerID: %v", err)
 	}
-	soldierFired, ok := s.deps.EntityCache.GetSoldier(uint16(firerID))
-	if !ok {
-		return projectileEvent, fmt.Errorf("soldier %d not found in cache", firerID)
-	}
-	projectileEvent.FirerObjectID = soldierFired.ObjectID
+	projectileEvent.FirerObjectID = uint16(firerID)
 
 	// [3] vehicleID (-1 if not in vehicle)
 	vehicleID, err := parseIntFromFloat(data[3])
 	if err != nil {
-		return projectileEvent, fmt.Errorf("error parsing vehicleID: %v", err)
+		return result, fmt.Errorf("error parsing vehicleID: %v", err)
 	}
 	if vehicleID >= 0 {
-		vehicle, ok := s.deps.EntityCache.GetVehicle(uint16(vehicleID))
-		if ok {
-			projectileEvent.VehicleObjectID = sql.NullInt32{Int32: int32(vehicle.ObjectID), Valid: true}
-		}
+		projectileEvent.VehicleObjectID = sql.NullInt32{Int32: int32(vehicleID), Valid: true}
 	}
 
 	// [4] vehicleRole
 	projectileEvent.VehicleRole = data[4]
 
-	// [5] remoteControllerID
+	// [5] remoteControllerID - set directly
 	remoteControllerID, err := parseUintFromFloat(data[5])
 	if err != nil {
-		return projectileEvent, fmt.Errorf("error parsing remoteControllerID: %v", err)
+		return result, fmt.Errorf("error parsing remoteControllerID: %v", err)
 	}
-	actualFirer, ok := s.deps.EntityCache.GetSoldier(uint16(remoteControllerID))
-	if !ok {
-		return projectileEvent, fmt.Errorf("soldier %d (remoteController) not found in cache", remoteControllerID)
-	}
-	projectileEvent.ActualFirerObjectID = actualFirer.ObjectID
+	projectileEvent.ActualFirerObjectID = uint16(remoteControllerID)
 
 	// [6-13] weapon info
 	projectileEvent.Weapon = data[6]
@@ -735,9 +561,9 @@ func (s *Parser) ParseProjectileEvent(data []string) (model.ProjectileEvent, err
 	projectileEvent.Mode = data[13]
 
 	// [14] positions - SQF array "[[tickTime,frameNo,\"x,y,z\"],...]"
-	var positions [][]interface{}
+	var positions [][]any
 	if err := json.Unmarshal([]byte(data[14]), &positions); err != nil {
-		return projectileEvent, fmt.Errorf("error parsing positions: %v", err)
+		return result, fmt.Errorf("error parsing positions: %v", err)
 	}
 
 	positionSequence := []float64{}
@@ -746,28 +572,25 @@ func (s *Parser) ParseProjectileEvent(data []string) (model.ProjectileEvent, err
 			continue
 		}
 
-		// posArr[1] = frameNo (float64 from JSON)
 		frameNo, ok := posArr[1].(float64)
 		if !ok {
-			logger.Warn("Invalid frameNo in position", "value", posArr[1])
+			p.logger.Warn("Invalid frameNo in position", "value", posArr[1])
 			continue
 		}
 
-		// posArr[2] = "x,y,z" position string
 		posStr, ok := posArr[2].(string)
 		if !ok {
-			logger.Warn("Invalid position string", "value", posArr[2])
+			p.logger.Warn("Invalid position string", "value", posArr[2])
 			continue
 		}
 
 		point, _, err := geo.Coord3857FromString(posStr)
 		if err != nil {
-			logger.Warn("Error converting position to Point", "error", err, "pos", posStr)
+			p.logger.Warn("Error converting position to Point", "error", err, "pos", posStr)
 			continue
 		}
 		coords, _ := point.Coordinates()
 
-		// Store as XYZM where M = frame number (used by projectile markers)
 		positionSequence = append(
 			positionSequence,
 			coords.XY.X,
@@ -787,33 +610,26 @@ func (s *Parser) ParseProjectileEvent(data []string) (model.ProjectileEvent, err
 	// [15] initialVelocity
 	projectileEvent.InitialVelocity = data[15]
 
-	// [16] hitParts - SQF array "[[entityID,[components],\"x,y,z\",frameNo],...]"
-	projectileEvent.HitSoldiers = []model.ProjectileHitsSoldier{}
-	projectileEvent.HitVehicles = []model.ProjectileHitsVehicle{}
-
-	var hitParts [][]interface{}
+	// [16] hitParts - parse into RawHitPart for worker classification
+	var hitParts [][]any
 	if err := json.Unmarshal([]byte(data[16]), &hitParts); err != nil {
-		logger.Warn("Error parsing hitParts", "error", err, "data", data[16])
+		p.logger.Warn("Error parsing hitParts", "error", err, "data", data[16])
 	} else {
 		for _, eventArr := range hitParts {
 			if len(eventArr) < 4 {
 				continue
 			}
 
-			// [0] hit entity ocap id
 			hitEntityID, ok := eventArr[0].(float64)
 			if !ok {
 				continue
 			}
 
-			// [1] hit component(s) - string for HitPart, array for HitExplosion
 			hitComponents := []string{}
 			switch comp := eventArr[1].(type) {
 			case string:
-				// Single component (HitPart event)
 				hitComponents = append(hitComponents, comp)
-			case []interface{}:
-				// Multiple components (HitExplosion event)
+			case []any:
 				for _, v := range comp {
 					if s, ok := v.(string); ok {
 						hitComponents = append(hitComponents, s)
@@ -821,18 +637,16 @@ func (s *Parser) ParseProjectileEvent(data []string) (model.ProjectileEvent, err
 				}
 			}
 
-			// [2] hit position "x,y,z"
 			hitPosStr, ok := eventArr[2].(string)
 			if !ok {
 				continue
 			}
 			hitPoint, _, err := geo.Coord3857FromString(hitPosStr)
 			if err != nil {
-				logger.Warn("Error converting hit position", "error", err)
+				p.logger.Warn("Error converting hit position", "error", err)
 				continue
 			}
 
-			// [3] capture frame
 			hitFrame, ok := eventArr[3].(float64)
 			if !ok {
 				continue
@@ -840,26 +654,12 @@ func (s *Parser) ParseProjectileEvent(data []string) (model.ProjectileEvent, err
 
 			hitComponentsJSON, _ := json.Marshal(hitComponents)
 
-			// Try soldier first, then vehicle
-			if hitEntity, ok := s.deps.EntityCache.GetSoldier(uint16(hitEntityID)); ok {
-				projectileEvent.HitSoldiers = append(projectileEvent.HitSoldiers,
-					model.ProjectileHitsSoldier{
-						SoldierObjectID: hitEntity.ObjectID,
-						ComponentsHit:   hitComponentsJSON,
-						CaptureFrame:    uint(hitFrame),
-						Position:        hitPoint,
-					})
-			} else if hitVehicle, ok := s.deps.EntityCache.GetVehicle(uint16(hitEntityID)); ok {
-				projectileEvent.HitVehicles = append(projectileEvent.HitVehicles,
-					model.ProjectileHitsVehicle{
-						VehicleObjectID: hitVehicle.ObjectID,
-						ComponentsHit:   hitComponentsJSON,
-						CaptureFrame:    uint(hitFrame),
-						Position:        hitPoint,
-					})
-			} else {
-				logger.Warn("Hit entity not found in cache", "hitEntityID", uint16(hitEntityID))
-			}
+			result.HitParts = append(result.HitParts, RawHitPart{
+				EntityID:      uint16(hitEntityID),
+				ComponentsHit: hitComponentsJSON,
+				CaptureFrame:  uint(hitFrame),
+				Position:      hitPoint,
+			})
 		}
 	}
 
@@ -872,15 +672,19 @@ func (s *Parser) ParseProjectileEvent(data []string) (model.ProjectileEvent, err
 		projectileEvent.IsSubmunition = isSub
 	}
 
-	// [19] magazineIcon - magazine icon path
+	// [19] magazineIcon
 	projectileEvent.MagazineIcon = data[19]
 
-	return projectileEvent, nil
+	// Initialize empty hit slices on the event
+	projectileEvent.HitSoldiers = []model.ProjectileHitsSoldier{}
+	projectileEvent.HitVehicles = []model.ProjectileHitsVehicle{}
+
+	result.Event = projectileEvent
+	return result, nil
 }
 
 // ParseGeneralEvent parses general event data and returns a GeneralEvent model
-func (s *Parser) ParseGeneralEvent(data []string) (model.GeneralEvent, error) {
-	functionName := ":EVENT:"
+func (p *Parser) ParseGeneralEvent(data []string) (model.GeneralEvent, error) {
 	var thisEvent model.GeneralEvent
 
 	// fix received data
@@ -889,45 +693,34 @@ func (s *Parser) ParseGeneralEvent(data []string) (model.GeneralEvent, error) {
 	}
 
 	// get frame
-	frameStr := data[0]
-	capframe, err := strconv.ParseFloat(frameStr, 64)
+	capframe, err := strconv.ParseFloat(data[0], 64)
 	if err != nil {
-		s.writeLog("processEvent", fmt.Sprintf(`Error converting capture frame to int: %s`, err), "ERROR")
-		return thisEvent, err
+		return thisEvent, fmt.Errorf("error converting capture frame to int: %w", err)
 	}
 
 	thisEvent.Time = time.Now()
-
-	thisEvent.Mission = *s.ctx.GetMission()
-
-	// get event type
+	thisEvent.MissionID = p.getMissionID()
 	thisEvent.CaptureFrame = uint(capframe)
-
-	// get event type
 	thisEvent.Name = data[1]
-
-	// get event message
 	thisEvent.Message = data[2]
 
 	// get extra event data
 	if len(data) > 3 {
 		err = json.Unmarshal([]byte(data[3]), &thisEvent.ExtraData)
 		if err != nil {
-			s.writeLog(functionName, fmt.Sprintf(`Error unmarshalling extra data: %s`, err), "ERROR")
-			return thisEvent, err
+			return thisEvent, fmt.Errorf("error unmarshalling extra data: %w", err)
 		}
 	}
 
 	return thisEvent, nil
 }
 
-// ParseKillEvent parses kill event data and returns a KillEvent model
-func (s *Parser) ParseKillEvent(data []string) (model.KillEvent, error) {
-	var killEvent model.KillEvent
+// ParseKillEvent parses kill event data and returns a ParsedKillEvent.
+// Raw victim/killer IDs are returned for the worker to classify as soldier vs vehicle.
+func (p *Parser) ParseKillEvent(data []string) (ParsedKillEvent, error) {
+	var result ParsedKillEvent
 
-	// Save weapon array before FixEscapeQuotes — it corrupts SQF array
-	// delimiters (e.g. ["","",""] → [",","]) by treating the adjacent
-	// quotes as escape sequences rather than array syntax.
+	// Save weapon array before FixEscapeQuotes
 	rawWeapon := util.TrimQuotes(data[3])
 
 	// fix received data
@@ -936,63 +729,46 @@ func (s *Parser) ParseKillEvent(data []string) (model.KillEvent, error) {
 	}
 
 	// get frame
-	frameStr := data[0]
-	capframe, err := strconv.ParseFloat(frameStr, 64)
+	capframe, err := strconv.ParseFloat(data[0], 64)
 	if err != nil {
-		return killEvent, fmt.Errorf(`error converting capture frame to int: %s`, err)
+		return result, fmt.Errorf("error converting capture frame to int: %w", err)
 	}
 
-	killEvent.Time = time.Now()
+	result.Event.Time = time.Now()
+	result.Event.CaptureFrame = uint(capframe)
+	result.Event.MissionID = p.getMissionID()
 
-	killEvent.CaptureFrame = uint(capframe)
-	killEvent.Mission = *s.ctx.GetMission()
-
-	// parse data in array
+	// parse victim ObjectID
 	victimObjectID, err := parseUintFromFloat(data[1])
 	if err != nil {
-		return killEvent, fmt.Errorf(`error converting victim ocap id to uint: %v`, err)
+		return result, fmt.Errorf("error converting victim ocap id to uint: %w", err)
 	}
-
-	// Set victim ObjectID - check if soldier or vehicle
-	if _, ok := s.deps.EntityCache.GetSoldier(uint16(victimObjectID)); ok {
-		killEvent.VictimSoldierObjectID = sql.NullInt32{Int32: int32(victimObjectID), Valid: true}
-	} else if _, ok := s.deps.EntityCache.GetVehicle(uint16(victimObjectID)); ok {
-		killEvent.VictimVehicleObjectID = sql.NullInt32{Int32: int32(victimObjectID), Valid: true}
-	} else {
-		return killEvent, fmt.Errorf(`victim ocap id not found in cache: %d`, victimObjectID)
-	}
+	result.VictimID = uint16(victimObjectID)
 
 	// parse killer ObjectID
 	killerObjectID, err := parseUintFromFloat(data[2])
 	if err != nil {
-		return killEvent, fmt.Errorf(`error converting killer ocap id to uint: %v`, err)
+		return result, fmt.Errorf("error converting killer ocap id to uint: %w", err)
 	}
+	result.KillerID = uint16(killerObjectID)
 
-	// Set killer ObjectID - check if soldier or vehicle
-	if _, ok := s.deps.EntityCache.GetSoldier(uint16(killerObjectID)); ok {
-		killEvent.KillerSoldierObjectID = sql.NullInt32{Int32: int32(killerObjectID), Valid: true}
-	} else if _, ok := s.deps.EntityCache.GetVehicle(uint16(killerObjectID)); ok {
-		killEvent.KillerVehicleObjectID = sql.NullInt32{Int32: int32(killerObjectID), Valid: true}
-	} else {
-		return killEvent, fmt.Errorf(`killer ocap id not found in cache: %d`, killerObjectID)
-	}
-
-	// get weapon info - parse SQF array [vehicleName, weaponDisp, magDisp]
-	killEvent.WeaponVehicle, killEvent.WeaponName, killEvent.WeaponMagazine = util.ParseSQFStringArray(rawWeapon)
-	killEvent.EventText = util.FormatWeaponText(killEvent.WeaponVehicle, killEvent.WeaponName, killEvent.WeaponMagazine)
+	// get weapon info
+	result.Event.WeaponVehicle, result.Event.WeaponName, result.Event.WeaponMagazine = util.ParseSQFStringArray(rawWeapon)
+	result.Event.EventText = util.FormatWeaponText(result.Event.WeaponVehicle, result.Event.WeaponName, result.Event.WeaponMagazine)
 
 	// get event distance
 	distance, err := strconv.ParseFloat(data[4], 64)
 	if err != nil {
-		return killEvent, fmt.Errorf(`error converting distance to float: %v`, err)
+		return result, fmt.Errorf("error converting distance to float: %w", err)
 	}
-	killEvent.Distance = float32(distance)
+	result.Event.Distance = float32(distance)
 
-	return killEvent, nil
+	return result, nil
 }
 
-// ParseChatEvent parses chat event data and returns a ChatEvent model
-func (s *Parser) ParseChatEvent(data []string) (model.ChatEvent, error) {
+// ParseChatEvent parses chat event data and returns a ChatEvent model.
+// SoldierObjectID is set directly (no cache validation - worker validates).
+func (p *Parser) ParseChatEvent(data []string) (model.ChatEvent, error) {
 	var chatEvent model.ChatEvent
 
 	// fix received data
@@ -1001,35 +777,30 @@ func (s *Parser) ParseChatEvent(data []string) (model.ChatEvent, error) {
 	}
 
 	// get frame
-	frameStr := data[0]
-	capframe, err := strconv.ParseFloat(frameStr, 64)
+	capframe, err := strconv.ParseFloat(data[0], 64)
 	if err != nil {
-		return chatEvent, fmt.Errorf(`error converting capture frame to int: %s`, err)
+		return chatEvent, fmt.Errorf("error converting capture frame to int: %w", err)
 	}
 
 	chatEvent.Time = time.Now()
-
 	chatEvent.CaptureFrame = uint(capframe)
-	chatEvent.Mission = *s.ctx.GetMission()
+	chatEvent.MissionID = p.getMissionID()
 
-	// parse data in array
+	// parse sender ObjectID
 	senderObjectID, err := parseIntFromFloat(data[1])
 	if err != nil {
-		return chatEvent, fmt.Errorf(`error converting sender ocap id to uint: %v`, err)
+		return chatEvent, fmt.Errorf("error converting sender ocap id to uint: %w", err)
 	}
 
 	// Set sender ObjectID if not -1
 	if senderObjectID > -1 {
-		if _, ok := s.deps.EntityCache.GetSoldier(uint16(senderObjectID)); !ok {
-			return chatEvent, fmt.Errorf(`sender ocap id not found in cache: %d`, senderObjectID)
-		}
 		chatEvent.SoldierObjectID = sql.NullInt32{Int32: int32(senderObjectID), Valid: true}
 	}
 
-	// channel is the 3rd element, compare against map
+	// channel
 	channelInt, err := parseIntFromFloat(data[2])
 	if err != nil {
-		return chatEvent, fmt.Errorf(`error converting channel to int: %v`, err)
+		return chatEvent, fmt.Errorf("error converting channel to int: %w", err)
 	}
 	channelName, ok := model.ChatChannels[int(channelInt)]
 	if ok {
@@ -1042,23 +813,17 @@ func (s *Parser) ParseChatEvent(data []string) (model.ChatEvent, error) {
 		}
 	}
 
-	// next is from (formatted as the game message)
 	chatEvent.FromName = data[3]
-
-	// next is actual name
 	chatEvent.SenderName = data[4]
-
-	// next is message
 	chatEvent.Message = data[5]
-
-	// next is playerUID
 	chatEvent.PlayerUID = data[6]
 
 	return chatEvent, nil
 }
 
-// ParseRadioEvent parses radio event data and returns a RadioEvent model
-func (s *Parser) ParseRadioEvent(data []string) (model.RadioEvent, error) {
+// ParseRadioEvent parses radio event data and returns a RadioEvent model.
+// SoldierObjectID is set directly (no cache validation - worker validates).
+func (p *Parser) ParseRadioEvent(data []string) (model.RadioEvent, error) {
 	var radioEvent model.RadioEvent
 
 	// fix received data
@@ -1067,54 +832,45 @@ func (s *Parser) ParseRadioEvent(data []string) (model.RadioEvent, error) {
 	}
 
 	// get frame
-	frameStr := data[0]
-	capframe, err := strconv.ParseFloat(frameStr, 64)
+	capframe, err := strconv.ParseFloat(data[0], 64)
 	if err != nil {
-		return radioEvent, fmt.Errorf(`error converting capture frame to int: %s`, err)
+		return radioEvent, fmt.Errorf("error converting capture frame to int: %w", err)
 	}
 
 	radioEvent.Time = time.Now()
-
 	radioEvent.CaptureFrame = uint(capframe)
-	radioEvent.Mission = *s.ctx.GetMission()
+	radioEvent.MissionID = p.getMissionID()
 
-	// parse data in array
+	// parse sender ObjectID
 	senderObjectID, err := parseIntFromFloat(data[1])
 	if err != nil {
-		return radioEvent, fmt.Errorf(`error converting sender ocap id to uint: %v`, err)
+		return radioEvent, fmt.Errorf("error converting sender ocap id to uint: %w", err)
 	}
 
 	// Set sender ObjectID if not -1
 	if senderObjectID > -1 {
-		if _, ok := s.deps.EntityCache.GetSoldier(uint16(senderObjectID)); !ok {
-			return radioEvent, fmt.Errorf(`sender ocap id not found in cache: %d`, senderObjectID)
-		}
 		radioEvent.SoldierObjectID = sql.NullInt32{Int32: int32(senderObjectID), Valid: true}
 	}
 
-	// radio
 	radioEvent.Radio = data[2]
-	// radio type (SW or LR)
 	radioEvent.RadioType = data[3]
-	// transmission type (start/end)
 	radioEvent.StartEnd = data[4]
-	// channel on radio (1-8) int8
+
 	channelInt, err := parseIntFromFloat(data[5])
 	if err != nil {
-		return radioEvent, fmt.Errorf(`error converting channel to int: %v`, err)
+		return radioEvent, fmt.Errorf("error converting channel to int: %w", err)
 	}
 	radioEvent.Channel = int8(channelInt)
-	// is primary or additional channel
+
 	isAddtl, err := strconv.ParseBool(data[6])
 	if err != nil {
-		return radioEvent, fmt.Errorf(`error converting isAddtl to bool: %v`, err)
+		return radioEvent, fmt.Errorf("error converting isAddtl to bool: %w", err)
 	}
 	radioEvent.IsAdditional = isAddtl
 
-	// frequency
 	freq, err := strconv.ParseFloat(data[7], 64)
 	if err != nil {
-		return radioEvent, fmt.Errorf(`error converting freq to float: %v`, err)
+		return radioEvent, fmt.Errorf("error converting freq to float: %w", err)
 	}
 	radioEvent.Frequency = float32(freq)
 
@@ -1124,7 +880,7 @@ func (s *Parser) ParseRadioEvent(data []string) (model.RadioEvent, error) {
 }
 
 // ParseFpsEvent parses FPS event data and returns a ServerFpsEvent model
-func (s *Parser) ParseFpsEvent(data []string) (model.ServerFpsEvent, error) {
+func (p *Parser) ParseFpsEvent(data []string) (model.ServerFpsEvent, error) {
 	var fpsEvent model.ServerFpsEvent
 
 	// fix received data
@@ -1132,27 +888,24 @@ func (s *Parser) ParseFpsEvent(data []string) (model.ServerFpsEvent, error) {
 		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
 	}
 
-	// get frame
-	frameStr := data[0]
-	capframe, err := strconv.ParseFloat(frameStr, 64)
+	capframe, err := strconv.ParseFloat(data[0], 64)
 	if err != nil {
-		return fpsEvent, fmt.Errorf(`error converting capture frame to int: %s`, err)
+		return fpsEvent, fmt.Errorf("error converting capture frame to int: %w", err)
 	}
 
 	fpsEvent.CaptureFrame = uint(capframe)
 	fpsEvent.Time = time.Now()
-	fpsEvent.Mission = *s.ctx.GetMission()
+	fpsEvent.MissionID = p.getMissionID()
 
-	// parse data in array
 	fps, err := strconv.ParseFloat(data[1], 64)
 	if err != nil {
-		return fpsEvent, fmt.Errorf(`error converting fps to float: %v`, err)
+		return fpsEvent, fmt.Errorf("error converting fps to float: %w", err)
 	}
 	fpsEvent.FpsAverage = float32(fps)
 
 	fpsMin, err := strconv.ParseFloat(data[2], 64)
 	if err != nil {
-		return fpsEvent, fmt.Errorf(`error converting fpsMin to float: %v`, err)
+		return fpsEvent, fmt.Errorf("error converting fpsMin to float: %w", err)
 	}
 	fpsEvent.FpsMin = float32(fpsMin)
 
@@ -1161,7 +914,7 @@ func (s *Parser) ParseFpsEvent(data []string) (model.ServerFpsEvent, error) {
 
 // ParseTimeState parses time state data and returns a TimeState model
 // Args: [frameNo, systemTimeUTC, missionDateTime, timeMultiplier, missionTime]
-func (s *Parser) ParseTimeState(data []string) (model.TimeState, error) {
+func (p *Parser) ParseTimeState(data []string) (model.TimeState, error) {
 	var timeState model.TimeState
 
 	// fix received data
@@ -1169,42 +922,36 @@ func (s *Parser) ParseTimeState(data []string) (model.TimeState, error) {
 		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
 	}
 
-	// get frame
-	frameStr := data[0]
-	capframe, err := strconv.ParseFloat(frameStr, 64)
+	capframe, err := strconv.ParseFloat(data[0], 64)
 	if err != nil {
-		return timeState, fmt.Errorf(`error converting capture frame to int: %s`, err)
+		return timeState, fmt.Errorf("error converting capture frame to int: %w", err)
 	}
 
 	timeState.CaptureFrame = uint(capframe)
 	timeState.Time = time.Now()
-	timeState.Mission = *s.ctx.GetMission()
+	timeState.MissionID = p.getMissionID()
 
-	// systemTimeUTC - e.g., "2024-01-15T14:30:45.123"
 	timeState.SystemTimeUTC = data[1]
-
-	// missionDateTime - e.g., "2035-06-15T06:00:00"
 	timeState.MissionDate = data[2]
 
-	// timeMultiplier
 	timeMult, err := strconv.ParseFloat(data[3], 64)
 	if err != nil {
-		return timeState, fmt.Errorf(`error converting timeMultiplier to float: %v`, err)
+		return timeState, fmt.Errorf("error converting timeMultiplier to float: %w", err)
 	}
 	timeState.TimeMultiplier = float32(timeMult)
 
-	// missionTime (seconds since start)
 	missionTime, err := strconv.ParseFloat(data[4], 64)
 	if err != nil {
-		return timeState, fmt.Errorf(`error converting missionTime to float: %v`, err)
+		return timeState, fmt.Errorf("error converting missionTime to float: %w", err)
 	}
 	timeState.MissionTime = float32(missionTime)
 
 	return timeState, nil
 }
 
-// ParseAce3DeathEvent parses ACE3 death event data and returns an Ace3DeathEvent model
-func (s *Parser) ParseAce3DeathEvent(data []string) (model.Ace3DeathEvent, error) {
+// ParseAce3DeathEvent parses ACE3 death event data and returns an Ace3DeathEvent model.
+// SoldierObjectID and LastDamageSourceObjectID are set directly (no cache validation).
+func (p *Parser) ParseAce3DeathEvent(data []string) (model.Ace3DeathEvent, error) {
 	var deathEvent model.Ace3DeathEvent
 
 	// fix received data
@@ -1212,27 +959,19 @@ func (s *Parser) ParseAce3DeathEvent(data []string) (model.Ace3DeathEvent, error
 		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
 	}
 
-	// get frame
-	frameStr := data[0]
-	capframe, err := strconv.ParseFloat(frameStr, 64)
+	capframe, err := strconv.ParseFloat(data[0], 64)
 	if err != nil {
-		return deathEvent, fmt.Errorf(`error converting capture frame to int: %s`, err)
+		return deathEvent, fmt.Errorf("error converting capture frame to int: %w", err)
 	}
 
 	deathEvent.Time = time.Now()
-
 	deathEvent.CaptureFrame = uint(capframe)
-	deathEvent.Mission = *s.ctx.GetMission()
+	deathEvent.MissionID = p.getMissionID()
 
-	// parse data in array
+	// parse victim ObjectID - set directly
 	victimObjectID, err := parseUintFromFloat(data[1])
 	if err != nil {
-		return deathEvent, fmt.Errorf(`error converting victim ocap id to uint: %v`, err)
-	}
-
-	// Set victim ObjectID
-	if _, ok := s.deps.EntityCache.GetSoldier(uint16(victimObjectID)); !ok {
-		return deathEvent, fmt.Errorf(`victim ocap id not found in cache: %d`, victimObjectID)
+		return deathEvent, fmt.Errorf("error converting victim ocap id to uint: %w", err)
 	}
 	deathEvent.SoldierObjectID = uint16(victimObjectID)
 
@@ -1241,22 +980,19 @@ func (s *Parser) ParseAce3DeathEvent(data []string) (model.Ace3DeathEvent, error
 	// get last damage source id [3]
 	lastDamageSourceID, err := parseIntFromFloat(data[3])
 	if err != nil {
-		return deathEvent, fmt.Errorf(`error converting last damage source id to uint: %v`, err)
+		return deathEvent, fmt.Errorf("error converting last damage source id to uint: %w", err)
 	}
 
 	if lastDamageSourceID > -1 {
-		lastDamageSource, ok := s.deps.EntityCache.GetSoldier(uint16(lastDamageSourceID))
-		if !ok {
-			return deathEvent, fmt.Errorf(`last damage source id not found in cache: %d`, lastDamageSourceID)
-		}
-		deathEvent.LastDamageSourceObjectID = sql.NullInt32{Int32: int32(lastDamageSource.ObjectID), Valid: true}
+		deathEvent.LastDamageSourceObjectID = sql.NullInt32{Int32: int32(lastDamageSourceID), Valid: true}
 	}
 
 	return deathEvent, nil
 }
 
-// ParseAce3UnconsciousEvent parses ACE3 unconscious event data and returns an Ace3UnconsciousEvent model
-func (s *Parser) ParseAce3UnconsciousEvent(data []string) (model.Ace3UnconsciousEvent, error) {
+// ParseAce3UnconsciousEvent parses ACE3 unconscious event data and returns an Ace3UnconsciousEvent model.
+// SoldierObjectID is set directly (no cache validation - worker validates).
+func (p *Parser) ParseAce3UnconsciousEvent(data []string) (model.Ace3UnconsciousEvent, error) {
 	var unconsciousEvent model.Ace3UnconsciousEvent
 
 	// fix received data
@@ -1264,31 +1000,23 @@ func (s *Parser) ParseAce3UnconsciousEvent(data []string) (model.Ace3Unconscious
 		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
 	}
 
-	// get frame
-	frameStr := data[0]
-	capframe, err := strconv.ParseFloat(frameStr, 64)
+	capframe, err := strconv.ParseFloat(data[0], 64)
 	if err != nil {
-		return unconsciousEvent, fmt.Errorf(`error converting capture frame to int: %s`, err)
+		return unconsciousEvent, fmt.Errorf("error converting capture frame to int: %w", err)
 	}
 
 	unconsciousEvent.CaptureFrame = uint(capframe)
-	unconsciousEvent.Mission = *s.ctx.GetMission()
+	unconsciousEvent.MissionID = p.getMissionID()
 
-	// parse data in array
 	ocapID, err := parseUintFromFloat(data[1])
 	if err != nil {
-		return unconsciousEvent, fmt.Errorf(`error converting ocap id to uint: %v`, err)
-	}
-
-	// Set soldier ObjectID
-	if _, ok := s.deps.EntityCache.GetSoldier(uint16(ocapID)); !ok {
-		return unconsciousEvent, fmt.Errorf("soldier %d not found in cache", ocapID)
+		return unconsciousEvent, fmt.Errorf("error converting ocap id to uint: %w", err)
 	}
 	unconsciousEvent.SoldierObjectID = uint16(ocapID)
 
 	isUnconscious, err := strconv.ParseBool(data[2])
 	if err != nil {
-		return unconsciousEvent, fmt.Errorf(`error converting isUnconscious to bool: %v`, err)
+		return unconsciousEvent, fmt.Errorf("error converting isUnconscious to bool: %w", err)
 	}
 	unconsciousEvent.IsUnconscious = isUnconscious
 
@@ -1296,8 +1024,7 @@ func (s *Parser) ParseAce3UnconsciousEvent(data []string) (model.Ace3Unconscious
 }
 
 // ParseMarkerCreate parses marker create data and returns a Marker model
-func (s *Parser) ParseMarkerCreate(data []string) (model.Marker, error) {
-	functionName := ":NEW:MARKER:"
+func (p *Parser) ParseMarkerCreate(data []string) (model.Marker, error) {
 	var marker model.Marker
 
 	// fix received data
@@ -1305,7 +1032,7 @@ func (s *Parser) ParseMarkerCreate(data []string) (model.Marker, error) {
 		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
 	}
 
-	marker.MissionID = s.ctx.GetMission().ID
+	marker.MissionID = p.getMissionID()
 
 	// markerName
 	marker.MarkerName = data[0]
@@ -1313,8 +1040,7 @@ func (s *Parser) ParseMarkerCreate(data []string) (model.Marker, error) {
 	// direction
 	dir, err := strconv.ParseFloat(data[1], 32)
 	if err != nil {
-		s.writeLog(functionName, fmt.Sprintf("Error parsing direction: %v", err), "ERROR")
-		return marker, err
+		return marker, fmt.Errorf("error parsing direction: %w", err)
 	}
 	marker.Direction = float32(dir)
 
@@ -1325,11 +1051,9 @@ func (s *Parser) ParseMarkerCreate(data []string) (model.Marker, error) {
 	marker.Text = data[3]
 
 	// frameNo
-	frameStr := data[4]
-	capframe, err := strconv.ParseFloat(frameStr, 64)
+	capframe, err := strconv.ParseFloat(data[4], 64)
 	if err != nil {
-		s.writeLog(functionName, fmt.Sprintf("Error parsing capture frame: %v", err), "ERROR")
-		return marker, err
+		return marker, fmt.Errorf("error parsing capture frame: %w", err)
 	}
 	marker.CaptureFrame = uint(capframe)
 
@@ -1338,7 +1062,7 @@ func (s *Parser) ParseMarkerCreate(data []string) (model.Marker, error) {
 	// ownerId
 	ownerId, err := strconv.Atoi(data[6])
 	if err != nil {
-		s.writeLog(functionName, fmt.Sprintf("Error parsing ownerId: %v", err), "WARN")
+		p.logger.Warn("Error parsing ownerId", "error", err)
 		ownerId = -1
 	}
 	marker.OwnerID = ownerId
@@ -1346,7 +1070,7 @@ func (s *Parser) ParseMarkerCreate(data []string) (model.Marker, error) {
 	// color
 	marker.Color = data[7]
 
-	// size (stored as string "[w,h]")
+	// size
 	marker.Size = data[8]
 
 	// side
@@ -1360,8 +1084,7 @@ func (s *Parser) ParseMarkerCreate(data []string) (model.Marker, error) {
 	if marker.Shape == "POLYLINE" {
 		polyline, err := geo.ParsePolyline(pos)
 		if err != nil {
-			s.writeLog(functionName, fmt.Sprintf("Error parsing polyline: %v", err), "ERROR")
-			return marker, err
+			return marker, fmt.Errorf("error parsing polyline: %w", err)
 		}
 		marker.Polyline = polyline
 	} else {
@@ -1369,8 +1092,7 @@ func (s *Parser) ParseMarkerCreate(data []string) (model.Marker, error) {
 		pos = strings.TrimSuffix(pos, "]")
 		point, _, err := geo.Coord3857FromString(pos)
 		if err != nil {
-			s.writeLog(functionName, fmt.Sprintf("Error parsing position: %v", err), "ERROR")
-			return marker, err
+			return marker, fmt.Errorf("error parsing position: %w", err)
 		}
 		marker.Position = point
 	}
@@ -1378,7 +1100,7 @@ func (s *Parser) ParseMarkerCreate(data []string) (model.Marker, error) {
 	// alpha
 	alpha, err := strconv.ParseFloat(data[12], 32)
 	if err != nil {
-		s.writeLog(functionName, fmt.Sprintf("Error parsing alpha: %v", err), "WARN")
+		p.logger.Warn("Error parsing alpha", "error", err)
 		alpha = 1.0
 	}
 	marker.Alpha = float32(alpha)
@@ -1387,40 +1109,32 @@ func (s *Parser) ParseMarkerCreate(data []string) (model.Marker, error) {
 	marker.Brush = data[13]
 
 	marker.Time = time.Now()
-
 	marker.IsDeleted = false
 
 	return marker, nil
 }
 
-// ParseMarkerMove parses marker move data and returns a MarkerState model
-func (s *Parser) ParseMarkerMove(data []string) (model.MarkerState, error) {
-	functionName := ":NEW:MARKER:STATE:"
-	var markerState model.MarkerState
+// ParseMarkerMove parses marker move data and returns a ParsedMarkerMove.
+// The MarkerName is returned for the worker to resolve to a MarkerID via MarkerCache.
+func (p *Parser) ParseMarkerMove(data []string) (ParsedMarkerMove, error) {
+	var result ParsedMarkerMove
 
 	// fix received data
 	for i, v := range data {
 		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
 	}
 
-	markerState.MissionID = s.ctx.GetMission().ID
+	result.State.MissionID = p.getMissionID()
 
-	// markerName - look up marker ID from cache
-	markerName := data[0]
-	markerID, ok := s.deps.MarkerCache.Get(markerName)
-	if !ok {
-		return markerState, fmt.Errorf("marker %s not found in cache", markerName)
-	}
-	markerState.MarkerID = markerID
+	// markerName - return for worker to resolve
+	result.MarkerName = data[0]
 
 	// frameNo
-	frameStr := data[1]
-	capframe, err := strconv.ParseFloat(frameStr, 64)
+	capframe, err := strconv.ParseFloat(data[1], 64)
 	if err != nil {
-		s.writeLog(functionName, fmt.Sprintf("Error parsing capture frame: %v", err), "ERROR")
-		return markerState, err
+		return result, fmt.Errorf("error parsing capture frame: %w", err)
 	}
-	markerState.CaptureFrame = uint(capframe)
+	result.State.CaptureFrame = uint(capframe)
 
 	// position
 	pos := data[2]
@@ -1428,36 +1142,33 @@ func (s *Parser) ParseMarkerMove(data []string) (model.MarkerState, error) {
 	pos = strings.TrimSuffix(pos, "]")
 	point, _, err := geo.Coord3857FromString(pos)
 	if err != nil {
-		s.writeLog(functionName, fmt.Sprintf("Error parsing position: %v", err), "ERROR")
-		return markerState, err
+		return result, fmt.Errorf("error parsing position: %w", err)
 	}
-	markerState.Position = point
+	result.State.Position = point
 
 	// direction
 	dir, err := strconv.ParseFloat(data[3], 32)
 	if err != nil {
-		s.writeLog(functionName, fmt.Sprintf("Error parsing direction: %v", err), "WARN")
+		p.logger.Warn("Error parsing direction", "error", err)
 		dir = 0
 	}
-	markerState.Direction = float32(dir)
+	result.State.Direction = float32(dir)
 
 	// alpha
 	alpha, err := strconv.ParseFloat(data[4], 32)
 	if err != nil {
-		s.writeLog(functionName, fmt.Sprintf("Error parsing alpha: %v", err), "WARN")
+		p.logger.Warn("Error parsing alpha", "error", err)
 		alpha = 1.0
 	}
-	markerState.Alpha = float32(alpha)
+	result.State.Alpha = float32(alpha)
 
-	markerState.Time = time.Now()
+	result.State.Time = time.Now()
 
-	return markerState, nil
+	return result, nil
 }
 
 // ParseMarkerDelete parses marker delete data and returns the marker name and frame number
-func (s *Parser) ParseMarkerDelete(data []string) (string, uint, error) {
-	functionName := ":DELETE:MARKER:"
-
+func (p *Parser) ParseMarkerDelete(data []string) (string, uint, error) {
 	// fix received data
 	for i, v := range data {
 		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
@@ -1465,12 +1176,9 @@ func (s *Parser) ParseMarkerDelete(data []string) (string, uint, error) {
 
 	markerName := data[0]
 
-	// frameNo
-	frameStr := data[1]
-	capframe, err := strconv.ParseFloat(frameStr, 64)
+	capframe, err := strconv.ParseFloat(data[1], 64)
 	if err != nil {
-		s.writeLog(functionName, fmt.Sprintf("Error parsing capture frame: %v", err), "ERROR")
-		return markerName, 0, err
+		return markerName, 0, fmt.Errorf("error parsing capture frame: %w", err)
 	}
 
 	return markerName, uint(capframe), nil

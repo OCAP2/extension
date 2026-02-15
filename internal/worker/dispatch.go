@@ -1,12 +1,16 @@
 package worker
 
 import (
+	"database/sql"
 	"fmt"
 	"time"
 
 	"github.com/OCAP2/extension/v5/internal/dispatcher"
 	"github.com/OCAP2/extension/v5/internal/model"
 	"github.com/OCAP2/extension/v5/internal/model/convert"
+	"github.com/OCAP2/extension/v5/internal/parser"
+
+	"gorm.io/datatypes"
 )
 
 // RegisterHandlers registers all event handlers with the dispatcher.
@@ -19,6 +23,9 @@ func (m *Manager) RegisterHandlers(d *dispatcher.Dispatcher) {
 	// High-volume state updates - buffered
 	d.Register(":NEW:SOLDIER:STATE:", m.handleSoldierState, dispatcher.Buffered(10000), dispatcher.Logged())
 	d.Register(":NEW:VEHICLE:STATE:", m.handleVehicleState, dispatcher.Buffered(10000), dispatcher.Logged())
+
+	// Time state tracking - buffered
+	d.Register(":NEW:TIME:STATE:", m.handleTimeState, dispatcher.Buffered(100), dispatcher.Logged())
 
 	// Combat events - buffered
 	d.Register(":PROJECTILE:", m.handleProjectileEvent, dispatcher.Buffered(5000), dispatcher.Logged())
@@ -97,6 +104,18 @@ func (m *Manager) handleSoldierState(e dispatcher.Event) (any, error) {
 		return nil, fmt.Errorf("failed to log soldier state: %w", err)
 	}
 
+	// Validate soldier exists in cache; fill GroupID/Side if empty
+	soldier, ok := m.deps.EntityCache.GetSoldier(obj.SoldierObjectID)
+	if !ok {
+		return nil, ErrTooEarlyForStateAssociation
+	}
+	if obj.GroupID == "" {
+		obj.GroupID = soldier.GroupID
+	}
+	if obj.Side == "" {
+		obj.Side = soldier.Side
+	}
+
 	if m.hasBackend() {
 		coreObj := convert.SoldierStateToCore(obj)
 		m.backend.RecordSoldierState(&coreObj)
@@ -117,6 +136,11 @@ func (m *Manager) handleVehicleState(e dispatcher.Event) (any, error) {
 		return nil, fmt.Errorf("failed to log vehicle state: %w", err)
 	}
 
+	// Validate vehicle exists in cache
+	if _, ok := m.deps.EntityCache.GetVehicle(obj.VehicleObjectID); !ok {
+		return nil, ErrTooEarlyForStateAssociation
+	}
+
 	if m.hasBackend() {
 		coreObj := convert.VehicleStateToCore(obj)
 		m.backend.RecordVehicleState(&coreObj)
@@ -127,13 +151,30 @@ func (m *Manager) handleVehicleState(e dispatcher.Event) (any, error) {
 	return nil, nil
 }
 
+func (m *Manager) handleTimeState(e dispatcher.Event) (any, error) {
+	if !m.hasBackend() {
+		return nil, nil
+	}
+
+	obj, err := m.deps.ParserService.ParseTimeState(e.Args)
+	if err != nil {
+		return nil, fmt.Errorf("failed to log time state: %w", err)
+	}
+
+	coreObj := convert.TimeStateToCore(obj)
+	m.backend.RecordTimeState(&coreObj)
+
+	return nil, nil
+}
+
 func (m *Manager) handleProjectileEvent(e dispatcher.Event) (any, error) {
 	if m.hasBackend() {
-		obj, err := m.deps.ParserService.ParseProjectileEvent(e.Args)
+		parsed, err := m.deps.ParserService.ParseProjectileEvent(e.Args)
 		if err != nil {
 			return nil, fmt.Errorf("failed to log projectile event: %w", err)
 		}
-		coreObj := convert.ProjectileEventToCore(obj)
+		m.classifyHitParts(&parsed)
+		coreObj := convert.ProjectileEventToCore(parsed.Event)
 		m.backend.RecordProjectileEvent(&coreObj)
 		return nil, nil
 	}
@@ -143,13 +184,37 @@ func (m *Manager) handleProjectileEvent(e dispatcher.Event) (any, error) {
 		return nil, nil
 	}
 
-	obj, err := m.deps.ParserService.ParseProjectileEvent(e.Args)
+	parsed, err := m.deps.ParserService.ParseProjectileEvent(e.Args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to log projectile event: %w", err)
 	}
+	m.classifyHitParts(&parsed)
 
-	m.queues.ProjectileEvents.Push(obj)
+	m.queues.ProjectileEvents.Push(parsed.Event)
 	return nil, nil
+}
+
+// classifyHitParts classifies each RawHitPart as soldier or vehicle hit using EntityCache.
+func (m *Manager) classifyHitParts(parsed *parser.ParsedProjectileEvent) {
+	for _, hp := range parsed.HitParts {
+		if _, ok := m.deps.EntityCache.GetSoldier(hp.EntityID); ok {
+			parsed.Event.HitSoldiers = append(parsed.Event.HitSoldiers, model.ProjectileHitsSoldier{
+				MissionID:       parsed.Event.MissionID,
+				SoldierObjectID: hp.EntityID,
+				CaptureFrame:    hp.CaptureFrame,
+				Position:        hp.Position,
+				ComponentsHit:   datatypes.JSON(hp.ComponentsHit),
+			})
+		} else if _, ok := m.deps.EntityCache.GetVehicle(hp.EntityID); ok {
+			parsed.Event.HitVehicles = append(parsed.Event.HitVehicles, model.ProjectileHitsVehicle{
+				MissionID:       parsed.Event.MissionID,
+				VehicleObjectID: hp.EntityID,
+				CaptureFrame:    hp.CaptureFrame,
+				Position:        hp.Position,
+				ComponentsHit:   datatypes.JSON(hp.ComponentsHit),
+			})
+		}
+	}
 }
 
 func (m *Manager) handleGeneralEvent(e dispatcher.Event) (any, error) {
@@ -177,10 +242,26 @@ func (m *Manager) handleKillEvent(e dispatcher.Event) (any, error) {
 		return nil, nil
 	}
 
-	obj, err := m.deps.ParserService.ParseKillEvent(e.Args)
+	parsed, err := m.deps.ParserService.ParseKillEvent(e.Args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to log kill event: %w", err)
 	}
+
+	// Classify victim as soldier or vehicle
+	if _, ok := m.deps.EntityCache.GetSoldier(parsed.VictimID); ok {
+		parsed.Event.VictimSoldierObjectID = sql.NullInt32{Int32: int32(parsed.VictimID), Valid: true}
+	} else if _, ok := m.deps.EntityCache.GetVehicle(parsed.VictimID); ok {
+		parsed.Event.VictimVehicleObjectID = sql.NullInt32{Int32: int32(parsed.VictimID), Valid: true}
+	}
+
+	// Classify killer as soldier or vehicle
+	if _, ok := m.deps.EntityCache.GetSoldier(parsed.KillerID); ok {
+		parsed.Event.KillerSoldierObjectID = sql.NullInt32{Int32: int32(parsed.KillerID), Valid: true}
+	} else if _, ok := m.deps.EntityCache.GetVehicle(parsed.KillerID); ok {
+		parsed.Event.KillerVehicleObjectID = sql.NullInt32{Int32: int32(parsed.KillerID), Valid: true}
+	}
+
+	obj := parsed.Event
 
 	if m.hasBackend() {
 		coreObj := convert.KillEventToCore(obj)
@@ -202,6 +283,13 @@ func (m *Manager) handleChatEvent(e dispatcher.Event) (any, error) {
 		return nil, fmt.Errorf("failed to log chat event: %w", err)
 	}
 
+	// Validate sender exists in cache if set
+	if obj.SoldierObjectID.Valid {
+		if _, ok := m.deps.EntityCache.GetSoldier(uint16(obj.SoldierObjectID.Int32)); !ok {
+			return nil, fmt.Errorf("could not find soldier with ocap id %d for chat event", obj.SoldierObjectID.Int32)
+		}
+	}
+
 	if m.hasBackend() {
 		coreObj := convert.ChatEventToCore(obj)
 		m.backend.RecordChatEvent(&coreObj)
@@ -220,6 +308,13 @@ func (m *Manager) handleRadioEvent(e dispatcher.Event) (any, error) {
 	obj, err := m.deps.ParserService.ParseRadioEvent(e.Args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to log radio event: %w", err)
+	}
+
+	// Validate sender exists in cache if set
+	if obj.SoldierObjectID.Valid {
+		if _, ok := m.deps.EntityCache.GetSoldier(uint16(obj.SoldierObjectID.Int32)); !ok {
+			return nil, fmt.Errorf("could not find soldier with ocap id %d for radio event", obj.SoldierObjectID.Int32)
+		}
 	}
 
 	if m.hasBackend() {
@@ -262,6 +357,21 @@ func (m *Manager) handleAce3DeathEvent(e dispatcher.Event) (any, error) {
 		return nil, fmt.Errorf("failed to log ace3 death event: %w", err)
 	}
 
+	// Validate soldier exists in cache
+	if _, ok := m.deps.EntityCache.GetSoldier(obj.SoldierObjectID); !ok {
+		return nil, fmt.Errorf("could not find soldier with ocap id %d for ace3 death event", obj.SoldierObjectID)
+	}
+
+	// Validate lastDamageSource exists in cache if set
+	if obj.LastDamageSourceObjectID.Valid {
+		sourceID := uint16(obj.LastDamageSourceObjectID.Int32)
+		if _, ok := m.deps.EntityCache.GetSoldier(sourceID); !ok {
+			if _, ok := m.deps.EntityCache.GetVehicle(sourceID); !ok {
+				return nil, fmt.Errorf("could not find entity with ocap id %d for ace3 death last damage source", sourceID)
+			}
+		}
+	}
+
 	if m.hasBackend() {
 		coreObj := convert.Ace3DeathEventToCore(obj)
 		m.backend.RecordAce3DeathEvent(&coreObj)
@@ -280,6 +390,11 @@ func (m *Manager) handleAce3UnconsciousEvent(e dispatcher.Event) (any, error) {
 	obj, err := m.deps.ParserService.ParseAce3UnconsciousEvent(e.Args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to log ace3 unconscious event: %w", err)
+	}
+
+	// Validate soldier exists in cache
+	if _, ok := m.deps.EntityCache.GetSoldier(obj.SoldierObjectID); !ok {
+		return nil, fmt.Errorf("could not find soldier with ocap id %d for ace3 unconscious event", obj.SoldierObjectID)
 	}
 
 	if m.hasBackend() {
@@ -319,16 +434,23 @@ func (m *Manager) handleMarkerMove(e dispatcher.Event) (any, error) {
 		return nil, nil
 	}
 
-	markerState, err := m.deps.ParserService.ParseMarkerMove(e.Args)
+	parsed, err := m.deps.ParserService.ParseMarkerMove(e.Args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to log marker move: %w", err)
 	}
 
+	// Resolve marker name to ID via cache
+	markerID, ok := m.deps.MarkerCache.Get(parsed.MarkerName)
+	if !ok {
+		return nil, fmt.Errorf("marker %q not found in cache", parsed.MarkerName)
+	}
+	parsed.State.MarkerID = markerID
+
 	if m.hasBackend() {
-		coreObj := convert.MarkerStateToCore(markerState)
+		coreObj := convert.MarkerStateToCore(parsed.State)
 		m.backend.RecordMarkerState(&coreObj)
 	} else {
-		m.queues.MarkerStates.Push(markerState)
+		m.queues.MarkerStates.Push(parsed.State)
 	}
 
 	return nil, nil
@@ -352,7 +474,7 @@ func (m *Manager) handleMarkerDelete(e dispatcher.Event) (any, error) {
 	markerID, ok := m.deps.MarkerCache.Get(markerName)
 	if ok {
 		deleteState := model.MarkerState{
-			MissionID:    m.deps.ParserService.GetMissionContext().GetMission().ID,
+			MissionID:    m.deps.MissionContext.GetMission().ID,
 			MarkerID:     markerID,
 			CaptureFrame: frameNo,
 			Time:         time.Now(),
@@ -366,5 +488,3 @@ func (m *Manager) handleMarkerDelete(e dispatcher.Event) (any, error) {
 
 	return nil, nil
 }
-
-

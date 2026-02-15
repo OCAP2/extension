@@ -19,13 +19,14 @@ var ErrTooEarlyForStateAssociation = fmt.Errorf("too early for state association
 
 // ParserService defines the interface for data parsers
 type ParserService interface {
+	ParseMission(args []string) (model.Mission, model.World, error)
 	ParseSoldier(args []string) (model.Soldier, error)
 	ParseVehicle(args []string) (model.Vehicle, error)
 	ParseSoldierState(args []string) (model.SoldierState, error)
 	ParseVehicleState(args []string) (model.VehicleState, error)
-	ParseProjectileEvent(args []string) (model.ProjectileEvent, error)
+	ParseProjectileEvent(args []string) (parser.ParsedProjectileEvent, error)
 	ParseGeneralEvent(args []string) (model.GeneralEvent, error)
-	ParseKillEvent(args []string) (model.KillEvent, error)
+	ParseKillEvent(args []string) (parser.ParsedKillEvent, error)
 	ParseChatEvent(args []string) (model.ChatEvent, error)
 	ParseRadioEvent(args []string) (model.RadioEvent, error)
 	ParseFpsEvent(args []string) (model.ServerFpsEvent, error)
@@ -33,9 +34,8 @@ type ParserService interface {
 	ParseAce3DeathEvent(args []string) (model.Ace3DeathEvent, error)
 	ParseAce3UnconsciousEvent(args []string) (model.Ace3UnconsciousEvent, error)
 	ParseMarkerCreate(args []string) (model.Marker, error)
-	ParseMarkerMove(args []string) (model.MarkerState, error)
+	ParseMarkerMove(args []string) (parser.ParsedMarkerMove, error)
 	ParseMarkerDelete(args []string) (string, uint, error)
-	GetMissionContext() *parser.MissionContext
 }
 
 // Queues holds all the write queues
@@ -83,6 +83,7 @@ type Dependencies struct {
 	MarkerCache     *cache.MarkerCache
 	LogManager      *logging.SlogManager
 	ParserService   ParserService
+	MissionContext  *parser.MissionContext
 	IsDatabaseValid func() bool
 	ShouldSaveLocal func() bool
 	DBInsertsPaused func() bool
