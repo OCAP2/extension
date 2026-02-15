@@ -29,9 +29,9 @@ func ParseSQFStringArray(s string) (vehicle, weapon, magazine string) {
 		return "", s, ""
 	}
 
-	vehicle = strings.Trim(parts[0], `"`)
-	weapon = parts[1]
-	magazine = strings.Trim(parts[2], `"`)
+	vehicle = FixEscapeQuotes(strings.Trim(parts[0], `"`))
+	weapon = FixEscapeQuotes(strings.Trim(parts[1], `"`))
+	magazine = FixEscapeQuotes(strings.Trim(parts[2], `"`))
 	return vehicle, weapon, magazine
 }
 

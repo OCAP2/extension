@@ -39,6 +39,7 @@ func TestParseSQFStringArray(t *testing.T) {
 		{"explosive kill", `["","M6 SLAM Mine",""]`, "", "M6 SLAM Mine", ""},
 		{"vehicle no weapon", `["Hunter HMG","",""]`, "Hunter HMG", "", ""},
 		{"all empty", `["","",""]`, "", "", ""},
+		{"escaped quotes in values", `["He""llo","Wo""rld","Ma""g"]`, `He"llo`, `Wo"rld`, `Ma"g`},
 		{"two-element array", `["one","two"]`, "", `["one","two"]`, ""},
 		{"legacy plain string", `MX 6.5 mm`, "", "MX 6.5 mm", ""},
 		{"empty string", "", "", "", ""},
