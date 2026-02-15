@@ -166,56 +166,6 @@ func TestVehicleStateToCore(t *testing.T) {
 	assert.True(t, coreState.EngineOn)
 }
 
-func TestFiredEventToCore(t *testing.T) {
-	now := time.Now()
-
-	gormEvent := model.FiredEvent{
-		ID:                1,
-		MissionID:         1,
-		SoldierObjectID:     2,
-		Time:              now,
-		CaptureFrame:      100,
-		Weapon:            "arifle_MX_F",
-		Magazine:          "30Rnd_65x39_caseless_mag",
-		FiringMode:        "Single",
-		StartPosition:     makePoint(100.0, 100.0, 1.5),
-		StartElevationASL: 1.5,
-		EndPosition:       makePoint(200.0, 200.0, 1.0),
-		EndElevationASL:   1.0,
-	}
-
-	coreEvent := FiredEventToCore(gormEvent)
-
-	// SoldierID maps from SoldierObjectID
-	assert.Equal(t, uint16(2), coreEvent.SoldierID)
-	assert.Equal(t, "arifle_MX_F", coreEvent.Weapon)
-	assert.Equal(t, 100.0, coreEvent.StartPos.X)
-	assert.Equal(t, 200.0, coreEvent.EndPos.X)
-}
-
-func TestHitEventToCore(t *testing.T) {
-	now := time.Now()
-
-	gormEvent := model.HitEvent{
-		ID:                   1,
-		MissionID:            1,
-		Time:                 now,
-		CaptureFrame:         100,
-		VictimSoldierObjectID:  sql.NullInt32{Int32: 5, Valid: true},
-		ShooterSoldierObjectID: sql.NullInt32{Int32: 10, Valid: true},
-		EventText:            "Hit event",
-		Distance:             50.5,
-	}
-
-	coreEvent := HitEventToCore(gormEvent)
-
-	require.NotNil(t, coreEvent.VictimSoldierID)
-	assert.Equal(t, uint(5), *coreEvent.VictimSoldierID)
-	require.NotNil(t, coreEvent.ShooterSoldierID)
-	assert.Equal(t, uint(10), *coreEvent.ShooterSoldierID)
-	assert.Equal(t, float32(50.5), coreEvent.Distance)
-}
-
 func TestKillEventToCore(t *testing.T) {
 	now := time.Now()
 
@@ -236,6 +186,48 @@ func TestKillEventToCore(t *testing.T) {
 	assert.Equal(t, uint(5), *coreEvent.VictimSoldierID)
 	require.NotNil(t, coreEvent.KillerSoldierID)
 	assert.Equal(t, uint(10), *coreEvent.KillerSoldierID)
+}
+
+func TestKillEventToCore_VehicleIDs(t *testing.T) {
+	now := time.Now()
+
+	gormEvent := model.KillEvent{
+		ID:                    2,
+		MissionID:             1,
+		Time:                  now,
+		CaptureFrame:          200,
+		VictimVehicleObjectID: sql.NullInt32{Int32: 20, Valid: true},
+		KillerVehicleObjectID: sql.NullInt32{Int32: 30, Valid: true},
+		EventText:             "Vehicle kill",
+		Distance:              500.0,
+	}
+
+	coreEvent := KillEventToCore(gormEvent)
+
+	require.NotNil(t, coreEvent.VictimVehicleID)
+	assert.Equal(t, uint(20), *coreEvent.VictimVehicleID)
+	require.NotNil(t, coreEvent.KillerVehicleID)
+	assert.Equal(t, uint(30), *coreEvent.KillerVehicleID)
+}
+
+func TestLineStringToPolyline(t *testing.T) {
+	coords := []float64{
+		100.0, 200.0,
+		300.0, 400.0,
+		500.0, 600.0,
+	}
+	seq := geom.NewSequence(coords, geom.DimXY)
+	ls := geom.NewLineString(seq)
+
+	polyline := lineStringToPolyline(ls)
+
+	require.Len(t, polyline, 3)
+	assert.Equal(t, 100.0, polyline[0].X)
+	assert.Equal(t, 200.0, polyline[0].Y)
+	assert.Equal(t, 300.0, polyline[1].X)
+	assert.Equal(t, 400.0, polyline[1].Y)
+	assert.Equal(t, 500.0, polyline[2].X)
+	assert.Equal(t, 600.0, polyline[2].Y)
 }
 
 func TestMarkerToCore(t *testing.T) {
@@ -495,63 +487,80 @@ func TestSoldierStateToCore_NilInVehicleID(t *testing.T) {
 	assert.Nil(t, coreState.InVehicleObjectID)
 }
 
-func TestHitEventToCore_NilIDs(t *testing.T) {
-	gormEvent := model.HitEvent{
-		VictimSoldierObjectID:  sql.NullInt32{Valid: false},
-		ShooterSoldierObjectID: sql.NullInt32{Valid: false},
-	}
-
-	coreEvent := HitEventToCore(gormEvent)
-
-	assert.Nil(t, coreEvent.VictimSoldierID)
-	assert.Nil(t, coreEvent.ShooterSoldierID)
-}
-
-func TestProjectileEventToFiredEvent(t *testing.T) {
-	now := time.Now()
-
-	// Create a LineStringZM with 3 points (start, middle, end)
-	// Coordinates: X, Y, Z, M (M is timestamp)
+func TestProjectileEventToCore(t *testing.T) {
+	// Create a LineStringZM with 3 points
 	coords := []float64{
-		100.0, 200.0, 10.0, 1000.0, // start position
-		150.0, 250.0, 15.0, 1001.0, // middle position
-		200.0, 300.0, 5.0, 1002.0, // end position (impact)
+		100.0, 200.0, 10.0, 50.0,
+		150.0, 250.0, 15.0, 52.0,
+		200.0, 300.0, 5.0, 55.0,
 	}
 	seq := geom.NewSequence(coords, geom.DimXYZM)
 	ls := geom.NewLineString(seq)
 
+	vehicleID := sql.NullInt32{Int32: 99, Valid: true}
+
 	gormEvent := model.ProjectileEvent{
-		MissionID:     1,
-		Time:          now,
-		FirerObjectID: 42,
-		CaptureFrame:  100,
-		Weapon:        "throw",
-		Magazine:      "HandGrenade",
-		Mode:          "HandGrenadeMuzzle",
-		Positions:     ls.AsGeometry(),
+		MissionID:       1,
+		FirerObjectID:   42,
+		VehicleObjectID: vehicleID,
+		CaptureFrame:    100,
+		Weapon:          "cannon_120mm",
+		WeaponDisplay:   "Cannon 120mm",
+		Magazine:        "120mm_APFSDS",
+		MagazineDisplay: "APFSDS-T",
+		Muzzle:          "cannon_120mm",
+		MuzzleDisplay:   "Cannon 120mm",
+		Mode:            "Single",
+		SimulationType:  "shotShell",
+		MagazineIcon:    `\A3\weapons_f\data\ui\icon_shell.paa`,
+		Positions:       ls.AsGeometry(),
+		HitSoldiers: []model.ProjectileHitsSoldier{
+			{SoldierObjectID: 10, CaptureFrame: 55, Position: makePoint(200.0, 300.0, 5.0)},
+		},
+		HitVehicles: []model.ProjectileHitsVehicle{
+			{VehicleObjectID: 20, CaptureFrame: 55, Position: makePoint(200.0, 300.0, 5.0)},
+		},
 	}
 
-	coreEvent := ProjectileEventToFiredEvent(gormEvent)
+	result := ProjectileEventToCore(gormEvent)
 
-	assert.Equal(t, uint(1), coreEvent.MissionID)
-	assert.Equal(t, uint16(42), coreEvent.SoldierID)
-	assert.Equal(t, uint(100), coreEvent.CaptureFrame)
-	assert.Equal(t, "throw", coreEvent.Weapon)
-	assert.Equal(t, "HandGrenade", coreEvent.Magazine)
-	assert.Equal(t, "HandGrenadeMuzzle", coreEvent.FiringMode)
+	assert.Equal(t, uint(1), result.MissionID)
+	assert.Equal(t, uint16(42), result.FirerObjectID)
+	assert.Equal(t, uint(100), result.CaptureFrame)
+	assert.Equal(t, "Cannon 120mm", result.WeaponDisplay)
+	assert.Equal(t, "APFSDS-T", result.MagazineDisplay)
+	assert.Equal(t, "Cannon 120mm", result.MuzzleDisplay)
+	assert.Equal(t, "shotShell", result.SimulationType)
+	assert.Equal(t, `\A3\weapons_f\data\ui\icon_shell.paa`, result.MagazineIcon)
 
-	// Start position should be first point
-	assert.Equal(t, 100.0, coreEvent.StartPos.X)
-	assert.Equal(t, 200.0, coreEvent.StartPos.Y)
-	assert.Equal(t, 10.0, coreEvent.StartPos.Z)
+	// VehicleObjectID conversion
+	require.NotNil(t, result.VehicleObjectID)
+	assert.Equal(t, uint16(99), *result.VehicleObjectID)
 
-	// End position should be last point
-	assert.Equal(t, 200.0, coreEvent.EndPos.X)
-	assert.Equal(t, 300.0, coreEvent.EndPos.Y)
-	assert.Equal(t, 5.0, coreEvent.EndPos.Z)
+	// Trajectory conversion
+	require.Len(t, result.Trajectory, 3)
+	assert.Equal(t, 100.0, result.Trajectory[0].Position.X)
+	assert.Equal(t, 200.0, result.Trajectory[0].Position.Y)
+	assert.Equal(t, 10.0, result.Trajectory[0].Position.Z)
+	assert.Equal(t, uint(50), result.Trajectory[0].Frame)
+	assert.Equal(t, 200.0, result.Trajectory[2].Position.X)
+	assert.Equal(t, uint(55), result.Trajectory[2].Frame)
+
+	// Hits merging
+	require.Len(t, result.Hits, 2)
+	// First hit is soldier
+	require.NotNil(t, result.Hits[0].SoldierID)
+	assert.Equal(t, uint16(10), *result.Hits[0].SoldierID)
+	assert.Nil(t, result.Hits[0].VehicleID)
+	assert.Equal(t, uint(55), result.Hits[0].CaptureFrame)
+	assert.Equal(t, 200.0, result.Hits[0].Position.X)
+	// Second hit is vehicle
+	require.NotNil(t, result.Hits[1].VehicleID)
+	assert.Equal(t, uint16(20), *result.Hits[1].VehicleID)
+	assert.Nil(t, result.Hits[1].SoldierID)
 }
 
-func TestProjectileEventToFiredEvent_EmptyPositions(t *testing.T) {
+func TestProjectileEventToCore_EmptyPositions(t *testing.T) {
 	gormEvent := model.ProjectileEvent{
 		MissionID:     1,
 		FirerObjectID: 42,
@@ -560,83 +569,22 @@ func TestProjectileEventToFiredEvent_EmptyPositions(t *testing.T) {
 		Positions:     geom.Geometry{}, // empty geometry
 	}
 
-	coreEvent := ProjectileEventToFiredEvent(gormEvent)
+	result := ProjectileEventToCore(gormEvent)
 
-	// Should handle empty positions gracefully
-	assert.Equal(t, 0.0, coreEvent.StartPos.X)
-	assert.Equal(t, 0.0, coreEvent.StartPos.Y)
-	assert.Equal(t, 0.0, coreEvent.EndPos.X)
-	assert.Equal(t, 0.0, coreEvent.EndPos.Y)
+	assert.Nil(t, result.Trajectory)
+	assert.Nil(t, result.VehicleObjectID)
+	assert.Empty(t, result.Hits)
 }
 
-func TestProjectileEventToProjectileMarker(t *testing.T) {
-	// Create a LineStringZM with 3 points (thrown, mid-flight, impact)
-	// Format: [x, y, z, frameNo] where M = frame number
-	coords := []float64{
-		100.0, 200.0, 10.0, 243.0, // thrown position at frame 243
-		150.0, 250.0, 15.0, 245.0, // mid-flight at frame 245
-		200.0, 300.0, 5.0, 303.0,  // impact position at frame 303
-	}
-	seq := geom.NewSequence(coords, geom.DimXYZM)
-	ls := geom.NewLineString(seq)
-
+func TestProjectileEventToCore_NullVehicleObjectID(t *testing.T) {
 	gormEvent := model.ProjectileEvent{
 		MissionID:       1,
 		FirerObjectID:   42,
-		CaptureFrame:    100,
-		Weapon:          "throw",
-		MagazineDisplay: "Smoke Grenade (White)",
-		MagazineIcon:    `\A3\Weapons_F\Data\UI\gear_smokegrenade_white_ca.paa`,
-		Positions:       ls.AsGeometry(),
+		VehicleObjectID: sql.NullInt32{Valid: false},
 	}
 
-	marker, states := ProjectileEventToProjectileMarker(gormEvent)
-
-	// Check marker fields
-	assert.Equal(t, "magIcons/gear_smokegrenade_white_ca.paa", marker.MarkerType)
-	assert.Equal(t, "Smoke Grenade (White)", marker.Text)
-	assert.Equal(t, 42, marker.OwnerID)
-	assert.Equal(t, "GLOBAL", marker.Side)
-	assert.Equal(t, "ICON", marker.Shape)
-	assert.Equal(t, "projectile_100_42", marker.MarkerName)
-
-	// EndFrame should be the last position's frame (303)
-	assert.Equal(t, 303, marker.EndFrame)
-
-	// First position should be in marker
-	assert.Equal(t, 100.0, marker.Position.X)
-	assert.Equal(t, 200.0, marker.Position.Y)
-
-	// Remaining positions should be in states
-	require.Len(t, states, 2)
-	assert.Equal(t, 150.0, states[0].Position.X)
-	assert.Equal(t, 250.0, states[0].Position.Y)
-	assert.Equal(t, 200.0, states[1].Position.X)
-	assert.Equal(t, 300.0, states[1].Position.Y)
-
-	// States should have correct frame numbers from M coordinate
-	assert.Equal(t, uint(245), states[0].CaptureFrame)
-	assert.Equal(t, uint(303), states[1].CaptureFrame)
-
-	// States should reference marker ID
-	assert.Equal(t, marker.ID, states[0].MarkerID)
-}
-
-func TestProjectileEventToProjectileMarker_EmptyIcon(t *testing.T) {
-	gormEvent := model.ProjectileEvent{
-		MissionID:       1,
-		FirerObjectID:   5,
-		CaptureFrame:    50,
-		Weapon:          "throw",
-		MagazineDisplay: "Unknown Grenade",
-		MagazineIcon:    "", // empty icon
-		Positions:       geom.Geometry{},
-	}
-
-	marker, _ := ProjectileEventToProjectileMarker(gormEvent)
-
-	// Should use fallback icon
-	assert.Equal(t, "magIcons/gear_unknown_ca.paa", marker.MarkerType)
+	result := ProjectileEventToCore(gormEvent)
+	assert.Nil(t, result.VehicleObjectID)
 }
 
 // Compile-time interface checks
@@ -645,10 +593,8 @@ var (
 	_ core.SoldierState         = SoldierStateToCore(model.SoldierState{})
 	_ core.Vehicle              = VehicleToCore(model.Vehicle{})
 	_ core.VehicleState         = VehicleStateToCore(model.VehicleState{})
-	_ core.FiredEvent           = FiredEventToCore(model.FiredEvent{})
-	_ core.FiredEvent           = ProjectileEventToFiredEvent(model.ProjectileEvent{})
+	_ core.ProjectileEvent      = ProjectileEventToCore(model.ProjectileEvent{})
 	_ core.GeneralEvent         = GeneralEventToCore(model.GeneralEvent{})
-	_ core.HitEvent             = HitEventToCore(model.HitEvent{})
 	_ core.KillEvent            = KillEventToCore(model.KillEvent{})
 	_ core.ChatEvent            = ChatEventToCore(model.ChatEvent{})
 	_ core.RadioEvent           = RadioEventToCore(model.RadioEvent{})

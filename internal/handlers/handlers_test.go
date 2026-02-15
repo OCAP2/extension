@@ -28,8 +28,9 @@ func (b *mockBackend) AddMarker(m *core.Marker) error                      { ret
 func (b *mockBackend) RecordSoldierState(s *core.SoldierState) error       { return nil }
 func (b *mockBackend) RecordVehicleState(v *core.VehicleState) error       { return nil }
 func (b *mockBackend) RecordMarkerState(s *core.MarkerState) error         { return nil }
-func (b *mockBackend) RecordFiredEvent(e *core.FiredEvent) error           { return nil }
-func (b *mockBackend) RecordGeneralEvent(e *core.GeneralEvent) error       { return nil }
+func (b *mockBackend) RecordFiredEvent(e *core.FiredEvent) error             { return nil }
+func (b *mockBackend) RecordProjectileEvent(e *core.ProjectileEvent) error   { return nil }
+func (b *mockBackend) RecordGeneralEvent(e *core.GeneralEvent) error         { return nil }
 func (b *mockBackend) RecordHitEvent(e *core.HitEvent) error               { return nil }
 func (b *mockBackend) RecordKillEvent(e *core.KillEvent) error             { return nil }
 func (b *mockBackend) RecordChatEvent(e *core.ChatEvent) error             { return nil }
@@ -504,6 +505,71 @@ func TestLogSoldierState_FloatOcapId(t *testing.T) {
 	state, err := svc.LogSoldierState(data)
 	require.NoError(t, err)
 	assert.Equal(t, uint16(30), state.SoldierObjectID)
+}
+
+func TestLogKillEvent_EmptyWeaponArray(t *testing.T) {
+	svc := newTestService()
+
+	mission := &model.Mission{}
+	mission.ID = 1
+	svc.ctx.SetMission(mission, &model.World{})
+
+	// Victim and killer are the same soldier (suicide)
+	svc.deps.EntityCache.AddSoldier(model.Soldier{ObjectID: 5, MissionID: 1})
+
+	tests := []struct {
+		name        string
+		weaponArg   string
+		wantVehicle string
+		wantWeapon  string
+		wantMag     string
+		wantText    string
+	}{
+		{
+			name:        "suicide - all empty strings",
+			weaponArg:   `["","",""]`,
+			wantVehicle: "", wantWeapon: "", wantMag: "",
+			wantText: "",
+		},
+		{
+			name:        "on-foot kill with weapon",
+			weaponArg:   `["","MX 6.5 mm","6.5 mm 30Rnd Sand Mag"]`,
+			wantVehicle: "", wantWeapon: "MX 6.5 mm", wantMag: "6.5 mm 30Rnd Sand Mag",
+			wantText: "MX 6.5 mm [6.5 mm 30Rnd Sand Mag]",
+		},
+		{
+			name:        "vehicle turret kill",
+			weaponArg:   `["Hunter HMG","Mk30 HMG .50",".50 BMG 200Rnd"]`,
+			wantVehicle: "Hunter HMG", wantWeapon: "Mk30 HMG .50", wantMag: ".50 BMG 200Rnd",
+			wantText: "Hunter HMG: Mk30 HMG .50 [.50 BMG 200Rnd]",
+		},
+		{
+			name:        "explosive - no magazine",
+			weaponArg:   `["","M6 SLAM Mine",""]`,
+			wantVehicle: "", wantWeapon: "M6 SLAM Mine", wantMag: "",
+			wantText: "M6 SLAM Mine",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data := []string{
+				"100",       // 0: frame
+				"5",         // 1: victimID (suicide)
+				"5",         // 2: killerID (suicide)
+				tt.weaponArg, // 3: weapon array
+				"0",         // 4: distance
+			}
+
+			killEvent, err := svc.LogKillEvent(data)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.wantVehicle, killEvent.WeaponVehicle)
+			assert.Equal(t, tt.wantWeapon, killEvent.WeaponName)
+			assert.Equal(t, tt.wantMag, killEvent.WeaponMagazine)
+			assert.Equal(t, tt.wantText, killEvent.EventText)
+		})
+	}
 }
 
 func TestMissionContext_ThreadSafe(t *testing.T) {

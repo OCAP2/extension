@@ -2,9 +2,12 @@ package v1
 
 import (
 	"encoding/json"
+	"fmt"
+	"math"
 	"strings"
 
 	"github.com/OCAP2/extension/v5/internal/model/core"
+	"github.com/OCAP2/extension/v5/internal/util"
 )
 
 // MissionData contains all the data needed to build an export
@@ -15,10 +18,11 @@ type MissionData struct {
 	Vehicles  map[uint16]*VehicleRecord
 	Markers   map[string]*MarkerRecord
 
-	GeneralEvents []core.GeneralEvent
-	HitEvents     []core.HitEvent
-	KillEvents    []core.KillEvent
-	TimeStates    []core.TimeState
+	GeneralEvents    []core.GeneralEvent
+	HitEvents        []core.HitEvent
+	KillEvents       []core.KillEvent
+	TimeStates       []core.TimeState
+	ProjectileEvents []core.ProjectileEvent
 }
 
 // SoldierRecord groups a soldier with all its time-series data
@@ -324,6 +328,120 @@ func Build(data *MissionData) Export {
 		export.Markers = append(export.Markers, marker)
 	}
 
+	// Convert projectile events into firelines, markers, and hit events
+	for _, pe := range data.ProjectileEvents {
+		if !isProjectileMarker(pe.SimulationType) {
+			// Bullets become fire lines on the soldier entity
+			if len(pe.Trajectory) >= 2 && int(pe.FirerObjectID) < len(export.Entities) {
+				endPt := pe.Trajectory[len(pe.Trajectory)-1]
+				ff := []any{
+					pe.CaptureFrame,
+					[]float64{endPt.Position.X, endPt.Position.Y, endPt.Position.Z},
+				}
+				export.Entities[pe.FirerObjectID].FramesFired = append(
+					export.Entities[pe.FirerObjectID].FramesFired, ff,
+				)
+			}
+		} else {
+			// Non-bullet projectiles become markers
+			// Determine icon and color
+			iconFilename := extractFilename(pe.MagazineIcon)
+			var markerType, color string
+			if iconFilename != "" {
+				markerType = "magIcons/" + iconFilename
+				color = "ColorWhite"
+			} else {
+				markerType = "mil_triangle"
+				color = "ColorRed"
+			}
+
+			// Determine text
+			var text string
+			switch {
+			case pe.VehicleObjectID != nil && *pe.VehicleObjectID != pe.FirerObjectID:
+				vehicleName := ""
+				if vr, ok := data.Vehicles[*pe.VehicleObjectID]; ok {
+					vehicleName = vr.Vehicle.DisplayName
+				}
+				text = fmt.Sprintf("%s %s - %s", vehicleName, pe.MuzzleDisplay, pe.MagazineDisplay)
+			case pe.SimulationType == "shotGrenade":
+				text = pe.MagazineDisplay
+			default:
+				text = fmt.Sprintf("%s - %s", pe.MuzzleDisplay, pe.MagazineDisplay)
+			}
+
+			// Build position array from trajectory
+			posArray := make([][]any, 0, len(pe.Trajectory))
+			for _, tp := range pe.Trajectory {
+				posArray = append(posArray, []any{
+					tp.Frame,
+					[]float64{tp.Position.X, tp.Position.Y, tp.Position.Z},
+					0,
+					1.0,
+				})
+			}
+
+			// EndFrame is the last trajectory point's frame
+			endFrame := -1
+			if len(pe.Trajectory) > 0 {
+				endFrame = int(pe.Trajectory[len(pe.Trajectory)-1].Frame)
+			}
+
+			marker := []any{
+				markerType,                   // [0] type
+				text,                         // [1] text
+				pe.CaptureFrame,              // [2] startFrame
+				endFrame,                     // [3] endFrame
+				int(pe.FirerObjectID),        // [4] playerId
+				color,                        // [5] color
+				-1,                           // [6] sideIndex (GLOBAL)
+				posArray,                     // [7] positions
+				[]float64{1, 1},              // [8] size
+				"ICON",                       // [9] shape
+				"Solid",                      // [10] brush
+			}
+
+			export.Markers = append(export.Markers, marker)
+		}
+
+		// Hit events from projectile
+		if len(pe.Hits) > 0 {
+			// Build weapon display text
+			weaponName := pe.MuzzleDisplay
+			if weaponName == "" {
+				weaponName = pe.WeaponDisplay
+			}
+			eventText := util.FormatWeaponText("", weaponName, pe.MagazineDisplay)
+
+			// Start position for distance calculation
+			var startPos core.Position3D
+			if len(pe.Trajectory) > 0 {
+				startPos = pe.Trajectory[0].Position
+			}
+
+			for _, hit := range pe.Hits {
+				var victimID uint
+				if hit.SoldierID != nil {
+					victimID = uint(*hit.SoldierID)
+				} else if hit.VehicleID != nil {
+					victimID = uint(*hit.VehicleID)
+				}
+
+				dx := startPos.X - hit.Position.X
+				dy := startPos.Y - hit.Position.Y
+				dist := float32(math.Sqrt(dx*dx + dy*dy))
+
+				export.Events = append(export.Events, []any{
+					hit.CaptureFrame,
+					"hit",
+					victimID,
+					[]any{uint(pe.FirerObjectID), eventText},
+					dist,
+				})
+			}
+		}
+	}
+
 	return export
 }
 
@@ -360,4 +478,27 @@ func boolToInt(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+// isProjectileMarker returns true if the projectile should be rendered as a
+// moving marker rather than a fire-line. Bullets are fire-lines; everything
+// else (grenades, rockets, missiles, shells, etc.) becomes a marker.
+func isProjectileMarker(sim string) bool {
+	return sim != "shotBullet"
+}
+
+// extractFilename returns the last path component from a file path.
+// Handles both forward and backslash separators (Arma uses backslashes).
+func extractFilename(path string) string {
+	lastSep := -1
+	for i := len(path) - 1; i >= 0; i-- {
+		if path[i] == '/' || path[i] == '\\' {
+			lastSep = i
+			break
+		}
+	}
+	if lastSep >= 0 {
+		return path[lastSep+1:]
+	}
+	return path
 }

@@ -13,34 +13,32 @@ import (
 // This replaces the channel-based StartAsyncProcessors approach.
 func (m *Manager) RegisterHandlers(d *dispatcher.Dispatcher) {
 	// Entity creation - sync (need to cache before states arrive)
-	d.Register(":NEW:SOLDIER:", m.handleNewSoldier)
-	d.Register(":NEW:VEHICLE:", m.handleNewVehicle)
+	d.Register(":NEW:SOLDIER:", m.handleNewSoldier, dispatcher.Logged())
+	d.Register(":NEW:VEHICLE:", m.handleNewVehicle, dispatcher.Logged())
 
 	// High-volume state updates - buffered
-	d.Register(":NEW:SOLDIER:STATE:", m.handleSoldierState, dispatcher.Buffered(10000))
-	d.Register(":NEW:VEHICLE:STATE:", m.handleVehicleState, dispatcher.Buffered(10000))
+	d.Register(":NEW:SOLDIER:STATE:", m.handleSoldierState, dispatcher.Buffered(10000), dispatcher.Logged())
+	d.Register(":NEW:VEHICLE:STATE:", m.handleVehicleState, dispatcher.Buffered(10000), dispatcher.Logged())
 
 	// Combat events - buffered
-	d.Register(":FIRED:", m.handleFiredEvent, dispatcher.Buffered(10000))
-	d.Register(":PROJECTILE:", m.handleProjectileEvent, dispatcher.Buffered(5000))
-	d.Register(":HIT:", m.handleHitEvent, dispatcher.Buffered(2000))
-	d.Register(":KILL:", m.handleKillEvent, dispatcher.Buffered(2000))
+	d.Register(":PROJECTILE:", m.handleProjectileEvent, dispatcher.Buffered(5000), dispatcher.Logged())
+	d.Register(":KILL:", m.handleKillEvent, dispatcher.Buffered(2000), dispatcher.Logged())
 
 	// General events - buffered
-	d.Register(":EVENT:", m.handleGeneralEvent, dispatcher.Buffered(1000))
-	d.Register(":CHAT:", m.handleChatEvent, dispatcher.Buffered(1000))
-	d.Register(":RADIO:", m.handleRadioEvent, dispatcher.Buffered(1000))
-	d.Register(":FPS:", m.handleFpsEvent, dispatcher.Buffered(1000))
+	d.Register(":EVENT:", m.handleGeneralEvent, dispatcher.Buffered(1000), dispatcher.Logged())
+	d.Register(":CHAT:", m.handleChatEvent, dispatcher.Buffered(1000), dispatcher.Logged())
+	d.Register(":RADIO:", m.handleRadioEvent, dispatcher.Buffered(1000), dispatcher.Logged())
+	d.Register(":FPS:", m.handleFpsEvent, dispatcher.Buffered(1000), dispatcher.Logged())
 
 	// ACE3 events - buffered
-	d.Register(":ACE3:DEATH:", m.handleAce3DeathEvent, dispatcher.Buffered(1000))
-	d.Register(":ACE3:UNCONSCIOUS:", m.handleAce3UnconsciousEvent, dispatcher.Buffered(1000))
+	d.Register(":ACE3:DEATH:", m.handleAce3DeathEvent, dispatcher.Buffered(1000), dispatcher.Logged())
+	d.Register(":ACE3:UNCONSCIOUS:", m.handleAce3UnconsciousEvent, dispatcher.Buffered(1000), dispatcher.Logged())
 
 	// Marker creation - sync (need to cache before states arrive)
-	d.Register(":NEW:MARKER:", m.handleMarkerCreate)
+	d.Register(":NEW:MARKER:", m.handleMarkerCreate, dispatcher.Logged())
 	// Marker updates - buffered
-	d.Register(":NEW:MARKER:STATE:", m.handleMarkerMove, dispatcher.Buffered(1000))
-	d.Register(":DELETE:MARKER:", m.handleMarkerDelete, dispatcher.Buffered(500))
+	d.Register(":NEW:MARKER:STATE:", m.handleMarkerMove, dispatcher.Buffered(1000), dispatcher.Logged())
+	d.Register(":DELETE:MARKER:", m.handleMarkerDelete, dispatcher.Buffered(500), dispatcher.Logged())
 }
 
 func (m *Manager) handleNewSoldier(e dispatcher.Event) (any, error) {
@@ -129,46 +127,14 @@ func (m *Manager) handleVehicleState(e dispatcher.Event) (any, error) {
 	return nil, nil
 }
 
-func (m *Manager) handleFiredEvent(e dispatcher.Event) (any, error) {
-	if !m.deps.IsDatabaseValid() && !m.hasBackend() {
-		return nil, nil
-	}
-
-	obj, err := m.deps.HandlerService.LogFiredEvent(e.Args)
-	if err != nil {
-		return nil, fmt.Errorf("failed to log fired event: %w", err)
-	}
-
-	if m.hasBackend() {
-		coreObj := convert.FiredEventToCore(obj)
-		m.backend.RecordFiredEvent(&coreObj)
-	} else {
-		m.queues.FiredEvents.Push(obj)
-	}
-
-	return nil, nil
-}
-
 func (m *Manager) handleProjectileEvent(e dispatcher.Event) (any, error) {
-	// For memory backend, convert projectile to appropriate format
 	if m.hasBackend() {
 		obj, err := m.deps.HandlerService.LogProjectileEvent(e.Args)
 		if err != nil {
 			return nil, fmt.Errorf("failed to log projectile event: %w", err)
 		}
-
-		// Thrown projectiles (grenades, smokes) become markers
-		if obj.Weapon == "throw" {
-			marker, states := convert.ProjectileEventToProjectileMarker(obj)
-			m.backend.AddMarker(&marker)
-			for i := range states {
-				m.backend.RecordMarkerState(&states[i])
-			}
-		} else {
-			// Other projectiles become fire lines
-			coreObj := convert.ProjectileEventToFiredEvent(obj)
-			m.backend.RecordFiredEvent(&coreObj)
-		}
+		coreObj := convert.ProjectileEventToCore(obj)
+		m.backend.RecordProjectileEvent(&coreObj)
 		return nil, nil
 	}
 
@@ -201,26 +167,6 @@ func (m *Manager) handleGeneralEvent(e dispatcher.Event) (any, error) {
 		m.backend.RecordGeneralEvent(&coreObj)
 	} else {
 		m.queues.GeneralEvents.Push(obj)
-	}
-
-	return nil, nil
-}
-
-func (m *Manager) handleHitEvent(e dispatcher.Event) (any, error) {
-	if !m.deps.IsDatabaseValid() && !m.hasBackend() {
-		return nil, nil
-	}
-
-	obj, err := m.deps.HandlerService.LogHitEvent(e.Args)
-	if err != nil {
-		return nil, fmt.Errorf("failed to log hit event: %w", err)
-	}
-
-	if m.hasBackend() {
-		coreObj := convert.HitEventToCore(obj)
-		m.backend.RecordHitEvent(&coreObj)
-	} else {
-		m.queues.HitEvents.Push(obj)
 	}
 
 	return nil, nil
@@ -420,4 +366,5 @@ func (m *Manager) handleMarkerDelete(e dispatcher.Event) (any, error) {
 
 	return nil, nil
 }
+
 

@@ -11,6 +11,7 @@ import (
 	"github.com/OCAP2/extension/v5/internal/handlers"
 	"github.com/OCAP2/extension/v5/internal/model"
 	"github.com/OCAP2/extension/v5/internal/model/core"
+	geom "github.com/peterstace/simplefeatures/geom"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -53,13 +54,14 @@ type mockBackend struct {
 	generalEvents  []*core.GeneralEvent
 	hitEvents      []*core.HitEvent
 	killEvents     []*core.KillEvent
-	chatEvents     []*core.ChatEvent
-	radioEvents    []*core.RadioEvent
-	fpsEvents      []*core.ServerFpsEvent
-	timeStates     []*core.TimeState
-	ace3Deaths     []*core.Ace3DeathEvent
-	ace3Uncon      []*core.Ace3UnconsciousEvent
-	deletedMarkers map[string]uint // name -> endFrame
+	chatEvents        []*core.ChatEvent
+	radioEvents       []*core.RadioEvent
+	fpsEvents         []*core.ServerFpsEvent
+	timeStates        []*core.TimeState
+	ace3Deaths        []*core.Ace3DeathEvent
+	ace3Uncon         []*core.Ace3UnconsciousEvent
+	projectileEvents  []*core.ProjectileEvent
+	deletedMarkers    map[string]uint // name -> endFrame
 	initCalled     bool
 	closeCalled    bool
 	missionStarted bool
@@ -143,6 +145,13 @@ func (b *mockBackend) RecordFiredEvent(e *core.FiredEvent) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.firedEvents = append(b.firedEvents, e)
+	return nil
+}
+
+func (b *mockBackend) RecordProjectileEvent(e *core.ProjectileEvent) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.projectileEvents = append(b.projectileEvents, e)
 	return nil
 }
 
@@ -260,10 +269,8 @@ type mockHandlerService struct {
 	vehicle       model.Vehicle
 	soldierState  model.SoldierState
 	vehicleState  model.VehicleState
-	firedEvent    model.FiredEvent
-	projectile    model.ProjectileEvent
-	generalEvent  model.GeneralEvent
-	hitEvent      model.HitEvent
+	projectile   model.ProjectileEvent
+	generalEvent model.GeneralEvent
 	killEvent     model.KillEvent
 	chatEvent     model.ChatEvent
 	radioEvent    model.RadioEvent
@@ -324,16 +331,6 @@ func (h *mockHandlerService) LogVehicleState(args []string) (model.VehicleState,
 	return h.vehicleState, nil
 }
 
-func (h *mockHandlerService) LogFiredEvent(args []string) (model.FiredEvent, error) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.calls = append(h.calls, "LogFiredEvent")
-	if h.returnError {
-		return model.FiredEvent{}, errors.New(h.errorMsg)
-	}
-	return h.firedEvent, nil
-}
-
 func (h *mockHandlerService) LogProjectileEvent(args []string) (model.ProjectileEvent, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -352,16 +349,6 @@ func (h *mockHandlerService) LogGeneralEvent(args []string) (model.GeneralEvent,
 		return model.GeneralEvent{}, errors.New(h.errorMsg)
 	}
 	return h.generalEvent, nil
-}
-
-func (h *mockHandlerService) LogHitEvent(args []string) (model.HitEvent, error) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.calls = append(h.calls, "LogHitEvent")
-	if h.returnError {
-		return model.HitEvent{}, errors.New(h.errorMsg)
-	}
-	return h.hitEvent, nil
 }
 
 func (h *mockHandlerService) LogKillEvent(args []string) (model.KillEvent, error) {
@@ -495,9 +482,7 @@ func TestRegisterHandlers_RegistersAllCommands(t *testing.T) {
 		":NEW:VEHICLE:",
 		":NEW:SOLDIER:STATE:",
 		":NEW:VEHICLE:STATE:",
-		":FIRED:",
 		":PROJECTILE:",
-		":HIT:",
 		":KILL:",
 		":EVENT:",
 		":CHAT:",
@@ -559,10 +544,8 @@ func TestNewQueues(t *testing.T) {
 	assert.NotNil(t, queues.SoldierStates, "expected SoldierStates queue to be initialized")
 	assert.NotNil(t, queues.Vehicles, "expected Vehicles queue to be initialized")
 	assert.NotNil(t, queues.VehicleStates, "expected VehicleStates queue to be initialized")
-	assert.NotNil(t, queues.FiredEvents, "expected FiredEvents queue to be initialized")
 	assert.NotNil(t, queues.ProjectileEvents, "expected ProjectileEvents queue to be initialized")
 	assert.NotNil(t, queues.GeneralEvents, "expected GeneralEvents queue to be initialized")
-	assert.NotNil(t, queues.HitEvents, "expected HitEvents queue to be initialized")
 	assert.NotNil(t, queues.KillEvents, "expected KillEvents queue to be initialized")
 	assert.NotNil(t, queues.ChatEvents, "expected ChatEvents queue to be initialized")
 	assert.NotNil(t, queues.RadioEvents, "expected RadioEvents queue to be initialized")
@@ -695,6 +678,94 @@ func TestHandleNewSoldier_CachesEntityWithoutBackend(t *testing.T) {
 	assert.Equal(t, "Queue Soldier", cachedSoldier.UnitName)
 }
 
+func TestHandleProjectile_RecordsProjectileEvent(t *testing.T) {
+	d, _ := newTestDispatcher(t)
+
+	// Create a LineStringZM with 3 positions (thrown, mid-flight, impact)
+	coords := []float64{
+		6456.5, 5345.7, 10.443, 620.0,
+		6448.0, 5337.0, 15.0, 625.0,
+		6441.55, 5328.46, 9.88, 630.0,
+	}
+	seq := geom.NewSequence(coords, geom.DimXYZM)
+	ls := geom.NewLineString(seq)
+
+	handlerService := &mockHandlerService{
+		projectile: model.ProjectileEvent{
+			MissionID:       1,
+			FirerObjectID:   1,
+			CaptureFrame:    620,
+			Weapon:          "throw",
+			WeaponDisplay:   "Throw",
+			MagazineDisplay: "RGO Grenade",
+			MagazineIcon:    `\A3\Weapons_F\Data\UI\gear_M67_CA.paa`,
+			Mode:            "HandGrenadeMuzzle",
+			Positions:       ls.AsGeometry(),
+		},
+	}
+
+	deps := Dependencies{
+		IsDatabaseValid: func() bool { return false },
+		ShouldSaveLocal: func() bool { return false },
+		DBInsertsPaused: func() bool { return false },
+		HandlerService:  handlerService,
+		EntityCache:     cache.NewEntityCache(),
+		MarkerCache:     cache.NewMarkerCache(),
+	}
+	queues := NewQueues()
+	manager := NewManager(deps, queues)
+
+	backend := &mockBackend{}
+	manager.SetBackend(backend)
+	manager.RegisterHandlers(d)
+
+	// Dispatch a projectile event
+	_, err := d.Dispatch(dispatcher.Event{Command: ":PROJECTILE:", Args: []string{}})
+	require.NoError(t, err)
+
+	// Wait for the buffered handler to process
+	deadline := time.After(2 * time.Second)
+	for {
+		backend.mu.Lock()
+		numEvents := len(backend.projectileEvents)
+		backend.mu.Unlock()
+
+		if numEvents > 0 {
+			break
+		}
+
+		select {
+		case <-deadline:
+			require.Fail(t, "timed out waiting for projectile event to be processed")
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+
+	// Verify a core.ProjectileEvent was recorded (not markers/fired events)
+	require.Equal(t, 1, len(backend.projectileEvents), "expected 1 projectile event")
+	pe := backend.projectileEvents[0]
+	assert.Equal(t, uint(1), pe.MissionID)
+	assert.Equal(t, uint16(1), pe.FirerObjectID)
+	assert.Equal(t, uint(620), pe.CaptureFrame)
+	assert.Equal(t, "RGO Grenade", pe.MagazineDisplay)
+
+	// Trajectory should have 3 points from the LineStringZM
+	require.Len(t, pe.Trajectory, 3)
+	assert.Equal(t, 6456.5, pe.Trajectory[0].Position.X)
+	assert.Equal(t, uint(620), pe.Trajectory[0].Frame)
+	assert.Equal(t, 6441.55, pe.Trajectory[2].Position.X)
+	assert.Equal(t, uint(630), pe.Trajectory[2].Frame)
+
+	// No markers or fired events should be created (dispatch is raw now)
+	assert.Empty(t, backend.markers, "dispatch should not create markers")
+	assert.Empty(t, backend.firedEvents, "dispatch should not create fired events")
+	assert.Empty(t, backend.hitEvents, "dispatch should not create hit events")
+}
+
 func TestHandleMarkerDelete_WithBackend(t *testing.T) {
 	d, _ := newTestDispatcher(t)
 	markerCache := cache.NewMarkerCache()
@@ -748,4 +819,5 @@ func TestHandleMarkerDelete_WithBackend(t *testing.T) {
 		}
 	}
 }
+
 

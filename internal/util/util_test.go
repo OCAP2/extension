@@ -28,6 +28,54 @@ func TestTrimQuotes(t *testing.T) {
 	}
 }
 
+func TestParseSQFStringArray(t *testing.T) {
+	tests := []struct {
+		name                            string
+		input                           string
+		wantVehicle, wantWeapon, wantMag string
+	}{
+		{"vehicle turret kill", `["Hunter HMG","Mk30 HMG .50",".50 BMG 200Rnd"]`, "Hunter HMG", "Mk30 HMG .50", ".50 BMG 200Rnd"},
+		{"on-foot kill", `["","MX 6.5 mm","6.5 mm 30Rnd Sand Mag"]`, "", "MX 6.5 mm", "6.5 mm 30Rnd Sand Mag"},
+		{"explosive kill", `["","M6 SLAM Mine",""]`, "", "M6 SLAM Mine", ""},
+		{"vehicle no weapon", `["Hunter HMG","",""]`, "Hunter HMG", "", ""},
+		{"all empty", `["","",""]`, "", "", ""},
+		{"escaped quotes in values", `["He""llo","Wo""rld","Ma""g"]`, `He"llo`, `Wo"rld`, `Ma"g`},
+		{"two-element array", `["one","two"]`, "", `["one","two"]`, ""},
+		{"legacy plain string", `MX 6.5 mm`, "", "MX 6.5 mm", ""},
+		{"empty string", "", "", "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v, w, m := ParseSQFStringArray(tt.input)
+			assert.Equal(t, tt.wantVehicle, v)
+			assert.Equal(t, tt.wantWeapon, w)
+			assert.Equal(t, tt.wantMag, m)
+		})
+	}
+}
+
+func TestFormatWeaponText(t *testing.T) {
+	tests := []struct {
+		name                    string
+		vehicle, weapon, mag    string
+		expected                string
+	}{
+		{"vehicle turret", "Hunter HMG", "Mk30 HMG .50", ".50 BMG 200Rnd", "Hunter HMG: Mk30 HMG .50 [.50 BMG 200Rnd]"},
+		{"on-foot", "", "MX 6.5 mm", "6.5 mm 30Rnd Sand Mag", "MX 6.5 mm [6.5 mm 30Rnd Sand Mag]"},
+		{"explosive", "", "M6 SLAM Mine", "", "M6 SLAM Mine"},
+		{"vehicle only", "Hunter HMG", "", "", "Hunter HMG"},
+		{"all empty", "", "", "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := FormatWeaponText(tt.vehicle, tt.weapon, tt.mag)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 func TestFixEscapeQuotes(t *testing.T) {
 	tests := []struct {
 		name     string

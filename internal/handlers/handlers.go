@@ -638,75 +638,6 @@ func (s *Service) LogVehicleState(data []string) (model.VehicleState, error) {
 	return vehicleState, nil
 }
 
-// LogFiredEvent parses fired event data and returns a FiredEvent model
-func (s *Service) LogFiredEvent(data []string) (model.FiredEvent, error) {
-	functionName := ":FIRED:"
-	var firedEvent model.FiredEvent
-
-	// fix received data
-	for i, v := range data {
-		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
-	}
-
-	firedEvent.MissionID = s.ctx.GetMission().ID
-
-	// get frame
-	frameStr := data[1]
-	capframe, err := strconv.ParseFloat(frameStr, 64)
-	if err != nil {
-		s.writeLog(functionName, fmt.Sprintf(`Error converting capture frame to int: %s`, err), "ERROR")
-		return firedEvent, err
-	}
-	firedEvent.CaptureFrame = uint(capframe)
-
-	// parse data in array
-	ocapID, err := parseUintFromFloat(data[0])
-	if err != nil {
-		s.writeLog(functionName, fmt.Sprintf(`Error converting ocapID to uint: %v`, err), "ERROR")
-		return firedEvent, err
-	}
-
-	// try and find soldier in DB to associate
-	soldier, ok := s.deps.EntityCache.GetSoldier(uint16(ocapID))
-	if !ok {
-		return firedEvent, fmt.Errorf("soldier %d not found in cache", ocapID)
-	}
-	firedEvent.SoldierObjectID = soldier.ObjectID
-
-	firedEvent.Time = time.Now()
-
-	// parse BULLET END POS from an arma string
-	endpos := data[2]
-	endpoint, endelev, err := geo.Coord3857FromString(endpos)
-	if err != nil {
-		jsonData, _ := json.Marshal(data)
-		s.writeLog(functionName, fmt.Sprintf("Error converting position to Point:\n%s\n%v", jsonData, err), "ERROR")
-		return firedEvent, err
-	}
-	firedEvent.EndPosition = endpoint
-	firedEvent.EndElevationASL = float32(endelev)
-
-	// parse BULLET START POS from an arma string
-	startpos := data[3]
-	startpoint, startelev, err := geo.Coord3857FromString(startpos)
-	if err != nil {
-		jsonData, _ := json.Marshal(data)
-		s.writeLog(functionName, fmt.Sprintf("Error converting position to Point:\n%s\n%v", jsonData, err), "ERROR")
-		return firedEvent, err
-	}
-	firedEvent.StartPosition = startpoint
-	firedEvent.StartElevationASL = float32(startelev)
-
-	// weapon name
-	firedEvent.Weapon = data[4]
-	// magazine name
-	firedEvent.Magazine = data[5]
-	// firing mode
-	firedEvent.FiringMode = data[6]
-
-	return firedEvent, nil
-}
-
 // LogProjectileEvent parses projectile event data and returns a ProjectileEvent model
 // New SQF array format (indices):
 //
@@ -716,19 +647,20 @@ func (s *Service) LogFiredEvent(data []string) (model.FiredEvent, error) {
 //	3:  vehicleID (uint, -1 if not in vehicle)
 //	4:  vehicleRole (string)
 //	5:  remoteControllerID (uint)
-//	6:  weapon (string)
-//	7:  weaponDisplay (string)
-//	8:  muzzle (string)
-//	9:  muzzleDisplay (string)
-//	10: magazine (string)
-//	11: magazineDisplay (string)
-//	12: ammo (string)
+//	6:  weapon (string - CfgWeapons class name, e.g. "arifle_katiba_f")
+//	7:  weaponDisplay (string - display name, e.g. "Katiba 6.5 mm")
+//	8:  muzzle (string - CfgWeapons muzzle class name, e.g. "arifle_Katiba_pointer_F")
+//	9:  muzzleDisplay (string - muzzle display name, e.g. "Katiba 6.5 mm")
+//	10: magazine (string - CfgMagazines class name, e.g. "30Rnd_65x39_caseless_green")
+//	11: magazineDisplay (string - magazine display name, e.g. "6.5 mm 30Rnd Caseless Mag")
+//	12: ammo (string - CfgAmmo class name, e.g. "B_65x39_Caseless_green")
 //	13: fireMode (string)
 //	14: positions (array string "[[tickTime,frameNo,\"x,y,z\"],...]")
 //	15: initialVelocity (string "x,y,z")
 //	16: hitParts (array string)
-//	17: sim (string - simulation type)
+//	17: sim (string - simulation type, required: "shotBullet", "shotGrenade", "shotRocket", "shotMissile", "shotShell", etc.)
 //	18: isSub (bool - is submunition)
+//	19: magazineIcon (string - path to magazine icon texture)
 func (s *Service) LogProjectileEvent(data []string) (model.ProjectileEvent, error) {
 	var projectileEvent model.ProjectileEvent
 	logger := s.deps.LogManager.Logger()
@@ -738,8 +670,8 @@ func (s *Service) LogProjectileEvent(data []string) (model.ProjectileEvent, erro
 		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
 	}
 
-	if len(data) < 17 {
-		return projectileEvent, fmt.Errorf("insufficient data fields: got %d, need at least 17", len(data))
+	if len(data) < 20 {
+		return projectileEvent, fmt.Errorf("insufficient data fields: got %d, need 20", len(data))
 	}
 
 	projectileEvent.MissionID = s.ctx.GetMission().ID
@@ -931,23 +863,17 @@ func (s *Service) LogProjectileEvent(data []string) (model.ProjectileEvent, erro
 		}
 	}
 
-	// [17] sim - simulation type (optional, may not be present in older data)
-	if len(data) > 17 {
-		projectileEvent.SimulationType = data[17]
+	// [17] sim - simulation type
+	projectileEvent.SimulationType = data[17]
+
+	// [18] isSub - is submunition
+	isSub, err := strconv.ParseBool(data[18])
+	if err == nil {
+		projectileEvent.IsSubmunition = isSub
 	}
 
-	// [18] isSub - is submunition (optional)
-	if len(data) > 18 {
-		isSub, err := strconv.ParseBool(data[18])
-		if err == nil {
-			projectileEvent.IsSubmunition = isSub
-		}
-	}
-
-	// [19] magazineIcon - magazine icon path (optional)
-	if len(data) > 19 {
-		projectileEvent.MagazineIcon = data[19]
-	}
+	// [19] magazineIcon - magazine icon path
+	projectileEvent.MagazineIcon = data[19]
 
 	return projectileEvent, nil
 }
@@ -995,73 +921,14 @@ func (s *Service) LogGeneralEvent(data []string) (model.GeneralEvent, error) {
 	return thisEvent, nil
 }
 
-// LogHitEvent parses hit event data and returns a HitEvent model
-func (s *Service) LogHitEvent(data []string) (model.HitEvent, error) {
-	var hitEvent model.HitEvent
-
-	// fix received data
-	for i, v := range data {
-		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
-	}
-
-	// get frame
-	frameStr := data[0]
-	capframe, err := strconv.ParseFloat(frameStr, 64)
-	if err != nil {
-		return hitEvent, fmt.Errorf(`error converting capture frame to int: %s`, err)
-	}
-
-	hitEvent.CaptureFrame = uint(capframe)
-	hitEvent.Mission = *s.ctx.GetMission()
-
-	hitEvent.Time = time.Now()
-
-	// parse data in array
-	victimObjectID, err := parseUintFromFloat(data[1])
-	if err != nil {
-		return hitEvent, fmt.Errorf(`error converting victim ocap id to uint: %v`, err)
-	}
-
-	// Set victim ObjectID - check if soldier or vehicle
-	if _, ok := s.deps.EntityCache.GetSoldier(uint16(victimObjectID)); ok {
-		hitEvent.VictimSoldierObjectID = sql.NullInt32{Int32: int32(victimObjectID), Valid: true}
-	} else if _, ok := s.deps.EntityCache.GetVehicle(uint16(victimObjectID)); ok {
-		hitEvent.VictimVehicleObjectID = sql.NullInt32{Int32: int32(victimObjectID), Valid: true}
-	} else {
-		return hitEvent, fmt.Errorf(`victim ocap id not found in cache: %d`, victimObjectID)
-	}
-
-	// parse shooter ObjectID
-	shooterObjectID, err := parseUintFromFloat(data[2])
-	if err != nil {
-		return hitEvent, fmt.Errorf(`error converting shooter ocap id to uint: %v`, err)
-	}
-
-	// Set shooter ObjectID - check if soldier or vehicle
-	if _, ok := s.deps.EntityCache.GetSoldier(uint16(shooterObjectID)); ok {
-		hitEvent.ShooterSoldierObjectID = sql.NullInt32{Int32: int32(shooterObjectID), Valid: true}
-	} else if _, ok := s.deps.EntityCache.GetVehicle(uint16(shooterObjectID)); ok {
-		hitEvent.ShooterVehicleObjectID = sql.NullInt32{Int32: int32(shooterObjectID), Valid: true}
-	} else {
-		return hitEvent, fmt.Errorf(`shooter ocap id not found in cache: %d`, shooterObjectID)
-	}
-
-	// get event text
-	hitEvent.EventText = data[3]
-
-	// get event distance
-	distance, err := strconv.ParseFloat(data[4], 64)
-	if err != nil {
-		return hitEvent, fmt.Errorf(`error converting distance to float: %v`, err)
-	}
-	hitEvent.Distance = float32(distance)
-
-	return hitEvent, nil
-}
-
 // LogKillEvent parses kill event data and returns a KillEvent model
 func (s *Service) LogKillEvent(data []string) (model.KillEvent, error) {
 	var killEvent model.KillEvent
+
+	// Save weapon array before FixEscapeQuotes — it corrupts SQF array
+	// delimiters (e.g. ["","",""] → [",","]) by treating the adjacent
+	// quotes as escape sequences rather than array syntax.
+	rawWeapon := util.TrimQuotes(data[3])
 
 	// fix received data
 	for i, v := range data {
@@ -1110,8 +977,9 @@ func (s *Service) LogKillEvent(data []string) (model.KillEvent, error) {
 		return killEvent, fmt.Errorf(`killer ocap id not found in cache: %d`, killerObjectID)
 	}
 
-	// get event text
-	killEvent.EventText = data[3]
+	// get weapon info - parse SQF array [vehicleName, weaponDisp, magDisp]
+	killEvent.WeaponVehicle, killEvent.WeaponName, killEvent.WeaponMagazine = util.ParseSQFStringArray(rawWeapon)
+	killEvent.EventText = util.FormatWeaponText(killEvent.WeaponVehicle, killEvent.WeaponName, killEvent.WeaponMagazine)
 
 	// get event distance
 	distance, err := strconv.ParseFloat(data[4], 64)

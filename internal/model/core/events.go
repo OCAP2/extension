@@ -38,6 +38,9 @@ type HitEvent struct {
 	VictimVehicleID  *uint
 	ShooterSoldierID *uint
 	ShooterVehicleID *uint
+	WeaponVehicle    string
+	WeaponName       string
+	WeaponMagazine   string
 	EventText        string
 	Distance         float32
 }
@@ -52,6 +55,9 @@ type KillEvent struct {
 	VictimVehicleID *uint
 	KillerSoldierID *uint
 	KillerVehicleID *uint
+	WeaponVehicle   string
+	WeaponName      string
+	WeaponMagazine  string
 	EventText       string
 	Distance        float32
 }
@@ -115,6 +121,38 @@ type Ace3UnconsciousEvent struct {
 	Time          time.Time
 	CaptureFrame  uint
 	IsUnconscious bool // true = went unconscious, false = regained consciousness
+}
+
+// TrajectoryPoint represents a single position sample in a projectile trajectory.
+type TrajectoryPoint struct {
+	Position Position3D
+	Frame    uint
+}
+
+// ProjectileHit represents a hit from a projectile on a soldier or vehicle.
+type ProjectileHit struct {
+	CaptureFrame uint
+	Position     Position3D
+	SoldierID    *uint16 // set if soldier was hit
+	VehicleID    *uint16 // set if vehicle was hit
+}
+
+// ProjectileEvent represents a raw projectile event from the game.
+type ProjectileEvent struct {
+	MissionID       uint
+	CaptureFrame    uint
+	FirerObjectID   uint16
+	VehicleObjectID *uint16 // nil if not fired from vehicle
+
+	WeaponDisplay   string
+	MagazineDisplay string
+	MuzzleDisplay   string
+
+	SimulationType string
+	MagazineIcon   string
+
+	Trajectory []TrajectoryPoint
+	Hits       []ProjectileHit
 }
 
 // TimeState represents mission time synchronization data
