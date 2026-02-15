@@ -24,6 +24,31 @@ import (
 	"gorm.io/gorm"
 )
 
+// parseUintFromFloat parses a string that may be an integer ("32") or float ("32.00") into uint64.
+// ArmA 3's SQF has no integer type, so the extension API may serialize numbers as floats.
+func parseUintFromFloat(s string) (uint64, error) {
+	if v, err := strconv.ParseUint(s, 10, 64); err == nil {
+		return v, nil
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0, fmt.Errorf("strconv.ParseUint/Float: parsing %q: invalid syntax", s)
+	}
+	return uint64(f), nil
+}
+
+// parseIntFromFloat parses a string that may be an integer or float into int64.
+func parseIntFromFloat(s string) (int64, error) {
+	if v, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return v, nil
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0, fmt.Errorf("strconv.ParseInt/Float: parsing %q: invalid syntax", s)
+	}
+	return int64(f), nil
+}
+
 // MissionContext holds the current mission and world state
 type MissionContext struct {
 	mu      sync.RWMutex
@@ -299,7 +324,7 @@ func (s *Service) LogNewSoldier(data []string) (model.Soldier, error) {
 
 	soldier.JoinTime = time.Now()
 
-	ocapID, err := strconv.ParseUint(data[1], 10, 64)
+	ocapID, err := parseUintFromFloat(data[1])
 	if err != nil {
 		s.writeLog(functionName, fmt.Sprintf(`Error converting ocapId to uint: %v`, err), "ERROR")
 		return soldier, err
@@ -350,7 +375,7 @@ func (s *Service) LogSoldierState(data []string) (model.SoldierState, error) {
 	soldierState.CaptureFrame = uint(capframe)
 
 	// parse data in array
-	ocapID, err := strconv.ParseUint(data[0], 10, 64)
+	ocapID, err := parseUintFromFloat(data[0])
 	if err != nil {
 		return soldierState, fmt.Errorf(`error converting ocapId to uint: %v`, err)
 	}
@@ -476,7 +501,7 @@ func (s *Service) LogNewVehicle(data []string) (model.Vehicle, error) {
 	// parse array
 	vehicle.MissionID = s.ctx.GetMission().ID
 	vehicle.JoinFrame = uint(capframe)
-	ocapID, err := strconv.ParseUint(data[1], 10, 64)
+	ocapID, err := parseUintFromFloat(data[1])
 	if err != nil {
 		s.writeLog(functionName, fmt.Sprintf(`Error converting ocapID to uint: %v`, err), "ERROR")
 		return vehicle, err
@@ -512,7 +537,7 @@ func (s *Service) LogVehicleState(data []string) (model.VehicleState, error) {
 	vehicleState.CaptureFrame = uint(capframe)
 
 	// parse data in array
-	ocapID, err := strconv.ParseUint(data[0], 10, 64)
+	ocapID, err := parseUintFromFloat(data[0])
 	if err != nil {
 		s.writeLog(functionName, fmt.Sprintf(`Error converting ocapId to uint: %v`, err), "ERROR")
 		return vehicleState, err
@@ -619,7 +644,7 @@ func (s *Service) LogFiredEvent(data []string) (model.FiredEvent, error) {
 	firedEvent.CaptureFrame = uint(capframe)
 
 	// parse data in array
-	ocapID, err := strconv.ParseUint(data[0], 10, 64)
+	ocapID, err := parseUintFromFloat(data[0])
 	if err != nil {
 		s.writeLog(functionName, fmt.Sprintf(`Error converting ocapID to uint: %v`, err), "ERROR")
 		return firedEvent, err
@@ -715,7 +740,7 @@ func (s *Service) LogProjectileEvent(data []string) (model.ProjectileEvent, erro
 	projectileEvent.Time = time.Now()
 
 	// [2] firerID
-	firerID, err := strconv.ParseUint(data[2], 10, 64)
+	firerID, err := parseUintFromFloat(data[2])
 	if err != nil {
 		return projectileEvent, fmt.Errorf("error parsing firerID: %v", err)
 	}
@@ -726,7 +751,7 @@ func (s *Service) LogProjectileEvent(data []string) (model.ProjectileEvent, erro
 	projectileEvent.FirerObjectID = soldierFired.ObjectID
 
 	// [3] vehicleID (-1 if not in vehicle)
-	vehicleID, err := strconv.ParseInt(data[3], 10, 64)
+	vehicleID, err := parseIntFromFloat(data[3])
 	if err != nil {
 		return projectileEvent, fmt.Errorf("error parsing vehicleID: %v", err)
 	}
@@ -741,7 +766,7 @@ func (s *Service) LogProjectileEvent(data []string) (model.ProjectileEvent, erro
 	projectileEvent.VehicleRole = data[4]
 
 	// [5] remoteControllerID
-	remoteControllerID, err := strconv.ParseUint(data[5], 10, 64)
+	remoteControllerID, err := parseUintFromFloat(data[5])
 	if err != nil {
 		return projectileEvent, fmt.Errorf("error parsing remoteControllerID: %v", err)
 	}
@@ -976,7 +1001,7 @@ func (s *Service) LogHitEvent(data []string) (model.HitEvent, error) {
 	hitEvent.Time = time.Now()
 
 	// parse data in array
-	victimObjectID, err := strconv.ParseUint(data[1], 10, 64)
+	victimObjectID, err := parseUintFromFloat(data[1])
 	if err != nil {
 		return hitEvent, fmt.Errorf(`error converting victim ocap id to uint: %v`, err)
 	}
@@ -991,7 +1016,7 @@ func (s *Service) LogHitEvent(data []string) (model.HitEvent, error) {
 	}
 
 	// parse shooter ObjectID
-	shooterObjectID, err := strconv.ParseUint(data[2], 10, 64)
+	shooterObjectID, err := parseUintFromFloat(data[2])
 	if err != nil {
 		return hitEvent, fmt.Errorf(`error converting shooter ocap id to uint: %v`, err)
 	}
@@ -1040,7 +1065,7 @@ func (s *Service) LogKillEvent(data []string) (model.KillEvent, error) {
 	killEvent.Mission = *s.ctx.GetMission()
 
 	// parse data in array
-	victimObjectID, err := strconv.ParseUint(data[1], 10, 64)
+	victimObjectID, err := parseUintFromFloat(data[1])
 	if err != nil {
 		return killEvent, fmt.Errorf(`error converting victim ocap id to uint: %v`, err)
 	}
@@ -1055,7 +1080,7 @@ func (s *Service) LogKillEvent(data []string) (model.KillEvent, error) {
 	}
 
 	// parse killer ObjectID
-	killerObjectID, err := strconv.ParseUint(data[2], 10, 64)
+	killerObjectID, err := parseUintFromFloat(data[2])
 	if err != nil {
 		return killEvent, fmt.Errorf(`error converting killer ocap id to uint: %v`, err)
 	}
@@ -1104,7 +1129,7 @@ func (s *Service) LogChatEvent(data []string) (model.ChatEvent, error) {
 	chatEvent.Mission = *s.ctx.GetMission()
 
 	// parse data in array
-	senderObjectID, err := strconv.ParseInt(data[1], 10, 64)
+	senderObjectID, err := parseIntFromFloat(data[1])
 	if err != nil {
 		return chatEvent, fmt.Errorf(`error converting sender ocap id to uint: %v`, err)
 	}
@@ -1118,7 +1143,7 @@ func (s *Service) LogChatEvent(data []string) (model.ChatEvent, error) {
 	}
 
 	// channel is the 3rd element, compare against map
-	channelInt, err := strconv.ParseInt(data[2], 10, 64)
+	channelInt, err := parseIntFromFloat(data[2])
 	if err != nil {
 		return chatEvent, fmt.Errorf(`error converting channel to int: %v`, err)
 	}
@@ -1170,7 +1195,7 @@ func (s *Service) LogRadioEvent(data []string) (model.RadioEvent, error) {
 	radioEvent.Mission = *s.ctx.GetMission()
 
 	// parse data in array
-	senderObjectID, err := strconv.ParseInt(data[1], 10, 64)
+	senderObjectID, err := parseIntFromFloat(data[1])
 	if err != nil {
 		return radioEvent, fmt.Errorf(`error converting sender ocap id to uint: %v`, err)
 	}
@@ -1190,7 +1215,7 @@ func (s *Service) LogRadioEvent(data []string) (model.RadioEvent, error) {
 	// transmission type (start/end)
 	radioEvent.StartEnd = data[4]
 	// channel on radio (1-8) int8
-	channelInt, err := strconv.ParseInt(data[5], 10, 64)
+	channelInt, err := parseIntFromFloat(data[5])
 	if err != nil {
 		return radioEvent, fmt.Errorf(`error converting channel to int: %v`, err)
 	}
@@ -1316,7 +1341,7 @@ func (s *Service) LogAce3DeathEvent(data []string) (model.Ace3DeathEvent, error)
 	deathEvent.Mission = *s.ctx.GetMission()
 
 	// parse data in array
-	victimObjectID, err := strconv.ParseUint(data[1], 10, 64)
+	victimObjectID, err := parseUintFromFloat(data[1])
 	if err != nil {
 		return deathEvent, fmt.Errorf(`error converting victim ocap id to uint: %v`, err)
 	}
@@ -1330,7 +1355,7 @@ func (s *Service) LogAce3DeathEvent(data []string) (model.Ace3DeathEvent, error)
 	deathEvent.Reason = data[2]
 
 	// get last damage source id [3]
-	lastDamageSourceID, err := strconv.ParseInt(data[3], 10, 64)
+	lastDamageSourceID, err := parseIntFromFloat(data[3])
 	if err != nil {
 		return deathEvent, fmt.Errorf(`error converting last damage source id to uint: %v`, err)
 	}
@@ -1366,7 +1391,7 @@ func (s *Service) LogAce3UnconsciousEvent(data []string) (model.Ace3UnconsciousE
 	unconsciousEvent.Mission = *s.ctx.GetMission()
 
 	// parse data in array
-	ocapID, err := strconv.ParseUint(data[1], 10, 64)
+	ocapID, err := parseUintFromFloat(data[1])
 	if err != nil {
 		return unconsciousEvent, fmt.Errorf(`error converting ocap id to uint: %v`, err)
 	}

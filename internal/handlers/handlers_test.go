@@ -329,6 +329,136 @@ func TestLogSoldierState_ScoresParsingPanic(t *testing.T) {
 	}
 }
 
+func TestParseUintFromFloat(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    uint64
+		wantErr bool
+	}{
+		{"integer", "32", 32, false},
+		{"zero", "0", 0, false},
+		{"float with decimals", "32.00", 32, false},
+		{"float with trailing zero", "30.0", 30, false},
+		{"float truncates", "10.99", 10, false},
+		{"large integer", "65535", 65535, false},
+		{"large float", "65535.00", 65535, false},
+		{"empty string", "", 0, true},
+		{"non-numeric", "abc", 0, true},
+		{"negative wraps", "-1", ^uint64(0), false}, // float-to-uint wraps; callers use parseIntFromFloat for signed IDs
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseUintFromFloat(tt.input)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.want, got)
+			}
+		})
+	}
+}
+
+func TestParseIntFromFloat(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    int64
+		wantErr bool
+	}{
+		{"integer", "32", 32, false},
+		{"zero", "0", 0, false},
+		{"negative integer", "-1", -1, false},
+		{"float with decimals", "32.00", 32, false},
+		{"negative float", "-1.00", -1, false},
+		{"float truncates", "10.99", 10, false},
+		{"large integer", "65535", 65535, false},
+		{"empty string", "", 0, true},
+		{"non-numeric", "abc", 0, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseIntFromFloat(tt.input)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.want, got)
+			}
+		})
+	}
+}
+
+func TestLogVehicleState_FloatOcapId(t *testing.T) {
+	svc := newTestService()
+	svc.SetBackend(&mockBackend{})
+
+	mission := &model.Mission{}
+	mission.ID = 1
+	svc.ctx.SetMission(mission, &model.World{})
+
+	svc.deps.EntityCache.AddVehicle(model.Vehicle{ObjectID: 32, MissionID: 1})
+
+	// Simulate ArmA sending ocapId as "32.00" instead of "32"
+	data := []string{
+		"32.00",              // 0: ocapId (float format from ArmA)
+		"[100.0,200.0,50.0]", // 1: position
+		"90",                 // 2: bearing
+		"true",               // 3: alive
+		"[]",                 // 4: crew
+		"5",                  // 5: frame
+		"0.85",               // 6: fuel
+		"0.0",                // 7: damage
+		"true",               // 8: engineOn
+		"false",              // 9: locked
+		"CIV",                // 10: side
+		"[0,1,0]",            // 11: vectorDir
+		"[0,0,1]",            // 12: vectorUp
+		"0",                  // 13: turretAzimuth
+		"0",                  // 14: turretElevation
+	}
+
+	state, err := svc.LogVehicleState(data)
+	require.NoError(t, err)
+	assert.Equal(t, uint16(32), state.VehicleObjectID)
+}
+
+func TestLogSoldierState_FloatOcapId(t *testing.T) {
+	svc := newTestService()
+	svc.SetBackend(&mockBackend{})
+
+	mission := &model.Mission{}
+	mission.ID = 1
+	svc.ctx.SetMission(mission, &model.World{})
+
+	svc.deps.EntityCache.AddSoldier(model.Soldier{ObjectID: 30, MissionID: 1})
+
+	data := []string{
+		"30.00",              // 0: ocapId (float format from ArmA)
+		"[100.0,200.0,50.0]", // 1: position
+		"90",                 // 2: bearing
+		"1",                  // 3: lifestate
+		"false",              // 4: inVehicle
+		"TestUnit",           // 5: name
+		"false",              // 6: isPlayer
+		"rifleman",           // 7: currentRole
+		"10",                 // 8: frame
+		"true",               // 9: hasStableVitals
+		"false",              // 10: isDraggedCarried
+		"0,0,0,0,0,0",       // 11: scores
+		"",                   // 12: vehicleRole
+		"-1",                 // 13: inVehicleID
+		"STAND",              // 14: stance
+	}
+
+	state, err := svc.LogSoldierState(data)
+	require.NoError(t, err)
+	assert.Equal(t, uint16(30), state.SoldierObjectID)
+}
+
 func TestMissionContext_ThreadSafe(t *testing.T) {
 	ctx := NewMissionContext()
 
