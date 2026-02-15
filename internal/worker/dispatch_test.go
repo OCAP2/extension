@@ -11,6 +11,7 @@ import (
 	"github.com/OCAP2/extension/v5/internal/handlers"
 	"github.com/OCAP2/extension/v5/internal/model"
 	"github.com/OCAP2/extension/v5/internal/model/core"
+	geom "github.com/peterstace/simplefeatures/geom"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -667,6 +668,94 @@ func TestHandleNewSoldier_CachesEntityWithoutBackend(t *testing.T) {
 	cachedSoldier, found := entityCache.GetSoldier(55)
 	assert.True(t, found, "expected soldier to be cached in EntityCache even when using queue")
 	assert.Equal(t, "Queue Soldier", cachedSoldier.UnitName)
+}
+
+func TestHandleProjectile_ThrownGrenade_MarkerStatesUseBackendID(t *testing.T) {
+	d, _ := newTestDispatcher(t)
+
+	// Create a LineStringZM with 3 positions (thrown, mid-flight, impact)
+	// Format: [x, y, z, frameNo] where M = frame number
+	coords := []float64{
+		6456.5, 5345.7, 10.443, 620.0, // thrown position at frame 620
+		6448.0, 5337.0, 15.0, 625.0,   // mid-flight at frame 625
+		6441.55, 5328.46, 9.88, 630.0,  // impact position at frame 630
+	}
+	seq := geom.NewSequence(coords, geom.DimXYZM)
+	ls := geom.NewLineString(seq)
+
+	handlerService := &mockHandlerService{
+		projectile: model.ProjectileEvent{
+			MissionID:       1,
+			FirerObjectID:   1,
+			CaptureFrame:    620,
+			Weapon:          "throw",
+			WeaponDisplay:   "Throw",
+			MagazineDisplay: "RGO Grenade",
+			MagazineIcon:    `\A3\Weapons_F\Data\UI\gear_M67_CA.paa`,
+			Mode:            "HandGrenadeMuzzle",
+			Positions:       ls.AsGeometry(),
+		},
+	}
+
+	deps := Dependencies{
+		IsDatabaseValid: func() bool { return false },
+		ShouldSaveLocal: func() bool { return false },
+		DBInsertsPaused: func() bool { return false },
+		HandlerService:  handlerService,
+		EntityCache:     cache.NewEntityCache(),
+		MarkerCache:     cache.NewMarkerCache(),
+	}
+	queues := NewQueues()
+	manager := NewManager(deps, queues)
+
+	backend := &mockBackend{}
+	manager.SetBackend(backend)
+	manager.RegisterHandlers(d)
+
+	// Dispatch a thrown grenade projectile event
+	_, err := d.Dispatch(dispatcher.Event{Command: ":PROJECTILE:", Args: []string{}})
+	require.NoError(t, err)
+
+	// Wait for the buffered handler to process
+	deadline := time.After(2 * time.Second)
+	for {
+		backend.mu.Lock()
+		numMarkers := len(backend.markers)
+		numStates := len(backend.markerStates)
+		backend.mu.Unlock()
+
+		if numMarkers > 0 && numStates > 0 {
+			break
+		}
+
+		select {
+		case <-deadline:
+			require.Fail(t, "timed out waiting for projectile marker to be processed")
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+
+	// Verify marker was created
+	require.Equal(t, 1, len(backend.markers), "expected 1 marker")
+	marker := backend.markers[0]
+	assert.Equal(t, "RGO Grenade", marker.Text)
+	assert.Equal(t, "magIcons/gear_M67_CA.paa", marker.MarkerType)
+
+	// Verify marker states have the backend-assigned ID (not the pre-computed one)
+	// This is the core of the test: AddMarker assigns a new ID, and states must match it
+	require.Equal(t, 2, len(backend.markerStates), "expected 2 marker states (positions 2 and 3)")
+	for i, state := range backend.markerStates {
+		assert.Equal(t, marker.ID, state.MarkerID,
+			"marker state %d MarkerID should match backend-assigned marker ID", i)
+	}
+
+	// Verify state positions match the trajectory
+	assert.Equal(t, 6448.0, backend.markerStates[0].Position.X)
+	assert.Equal(t, 6441.55, backend.markerStates[1].Position.X)
 }
 
 func TestHandleMarkerDelete_WithBackend(t *testing.T) {

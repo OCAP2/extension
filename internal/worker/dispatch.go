@@ -138,8 +138,9 @@ func (m *Manager) handleProjectileEvent(e dispatcher.Event) (any, error) {
 		// Thrown projectiles (grenades, smokes) become markers
 		if obj.Weapon == "throw" {
 			marker, states := convert.ProjectileEventToProjectileMarker(obj)
-			m.backend.AddMarker(&marker)
+			m.backend.AddMarker(&marker) // AddMarker assigns a new ID
 			for i := range states {
+				states[i].MarkerID = marker.ID // sync with backend-assigned ID
 				m.backend.RecordMarkerState(&states[i])
 			}
 		} else {
