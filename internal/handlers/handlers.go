@@ -481,6 +481,16 @@ func (s *Service) LogSoldierState(data []string) (model.SoldierState, error) {
 	// stance
 	soldierState.Stance = data[14]
 
+	// groupID and side (added by addon PR#55, backward compatible)
+	if len(data) >= 17 {
+		soldierState.GroupID = data[15]
+		soldierState.Side = data[16]
+	} else {
+		// Fall back to initial registration data
+		soldierState.GroupID = soldier.GroupID
+		soldierState.Side = soldier.Side
+	}
+
 	return soldierState, nil
 }
 

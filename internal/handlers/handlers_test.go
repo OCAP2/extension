@@ -392,6 +392,53 @@ func TestParseIntFromFloat(t *testing.T) {
 	}
 }
 
+func TestLogSoldierState_GroupAndSide(t *testing.T) {
+	svc := newTestService()
+	svc.SetBackend(&mockBackend{})
+
+	mission := &model.Mission{}
+	mission.ID = 1
+	svc.ctx.SetMission(mission, &model.World{})
+
+	svc.deps.EntityCache.AddSoldier(model.Soldier{
+		ObjectID: 42, MissionID: 1,
+		GroupID: "InitGroup", Side: "WEST",
+	})
+
+	baseData := []string{
+		"42",                  // 0: ocapId
+		"[100.0,200.0,50.0]", // 1: position
+		"90",                  // 2: bearing
+		"1",                   // 3: lifestate
+		"false",               // 4: inVehicle
+		"TestUnit",            // 5: name
+		"false",               // 6: isPlayer
+		"rifleman",            // 7: currentRole
+		"10",                  // 8: frame
+		"true",                // 9: hasStableVitals
+		"false",               // 10: isDraggedCarried
+		"",                    // 11: scores
+		"",                    // 12: vehicleRole
+		"-1",                  // 13: inVehicleID
+		"STAND",               // 14: stance
+	}
+
+	t.Run("17 fields parses group and side", func(t *testing.T) {
+		data := append(append([]string{}, baseData...), "Alpha 1-1", "EAST")
+		state, err := svc.LogSoldierState(data)
+		require.NoError(t, err)
+		assert.Equal(t, "Alpha 1-1", state.GroupID)
+		assert.Equal(t, "EAST", state.Side)
+	})
+
+	t.Run("15 fields falls back to initial soldier data", func(t *testing.T) {
+		state, err := svc.LogSoldierState(append([]string{}, baseData...))
+		require.NoError(t, err)
+		assert.Equal(t, "InitGroup", state.GroupID)
+		assert.Equal(t, "WEST", state.Side)
+	})
+}
+
 func TestLogVehicleState_FloatOcapId(t *testing.T) {
 	svc := newTestService()
 	svc.SetBackend(&mockBackend{})

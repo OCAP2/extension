@@ -300,7 +300,7 @@ func TestSoldierPositionFormat(t *testing.T) {
 	require.Len(t, entity.Positions, 1)
 
 	pos := entity.Positions[0]
-	require.Len(t, pos, 7) // [[x, y], bearing, lifestate, inVehicleObjectID, unitName, isPlayer, currentRole]
+	require.Len(t, pos, 9) // [[x, y, z], bearing, lifestate, inVehicleObjectID, unitName, isPlayer, currentRole, groupID, side]
 
 	coords, ok := pos[0].([]float64)
 	require.True(t, ok, "position[0] should be []float64")
