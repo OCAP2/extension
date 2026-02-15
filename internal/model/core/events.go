@@ -6,7 +6,6 @@ import "time"
 // FiredEvent represents a weapon being fired.
 // SoldierID is the ObjectID of the soldier who fired.
 type FiredEvent struct {
-	MissionID    uint
 	SoldierID    uint16 // ObjectID of the soldier who fired
 	Time         time.Time
 	CaptureFrame uint
@@ -20,7 +19,6 @@ type FiredEvent struct {
 // GeneralEvent is a generic event
 type GeneralEvent struct {
 	ID           uint
-	MissionID    uint
 	Time         time.Time
 	CaptureFrame uint
 	Name         string
@@ -31,7 +29,6 @@ type GeneralEvent struct {
 // HitEvent represents something being hit
 type HitEvent struct {
 	ID               uint
-	MissionID        uint
 	Time             time.Time
 	CaptureFrame     uint
 	VictimSoldierID  *uint
@@ -48,7 +45,6 @@ type HitEvent struct {
 // KillEvent represents something being killed
 type KillEvent struct {
 	ID              uint
-	MissionID       uint
 	Time            time.Time
 	CaptureFrame    uint
 	VictimSoldierID *uint
@@ -65,7 +61,6 @@ type KillEvent struct {
 // ChatEvent represents a chat message
 type ChatEvent struct {
 	ID           uint
-	MissionID    uint
 	SoldierID    *uint
 	Time         time.Time
 	CaptureFrame uint
@@ -79,7 +74,6 @@ type ChatEvent struct {
 // RadioEvent represents radio transmission
 type RadioEvent struct {
 	ID           uint
-	MissionID    uint
 	SoldierID    *uint
 	Time         time.Time
 	CaptureFrame uint
@@ -95,7 +89,6 @@ type RadioEvent struct {
 // ServerFpsEvent represents server performance data
 type ServerFpsEvent struct {
 	ID           uint
-	MissionID    uint
 	Time         time.Time
 	CaptureFrame uint
 	FpsAverage   float32
@@ -105,7 +98,6 @@ type ServerFpsEvent struct {
 // Ace3DeathEvent represents ACE3 medical death
 type Ace3DeathEvent struct {
 	ID                 uint
-	MissionID          uint
 	SoldierID          uint
 	Time               time.Time
 	CaptureFrame       uint
@@ -116,7 +108,6 @@ type Ace3DeathEvent struct {
 // Ace3UnconsciousEvent represents ACE3 unconscious state change
 type Ace3UnconsciousEvent struct {
 	ID            uint
-	MissionID     uint
 	SoldierID     uint
 	Time          time.Time
 	CaptureFrame  uint
@@ -139,7 +130,6 @@ type ProjectileHit struct {
 
 // ProjectileEvent represents a raw projectile event from the game.
 type ProjectileEvent struct {
-	MissionID       uint
 	CaptureFrame    uint
 	FirerObjectID   uint16
 	VehicleObjectID *uint16 // nil if not fired from vehicle
@@ -158,7 +148,6 @@ type ProjectileEvent struct {
 // TimeState represents mission time synchronization data
 type TimeState struct {
 	ID             uint
-	MissionID      uint
 	Time           time.Time
 	CaptureFrame   uint
 	SystemTimeUTC  string

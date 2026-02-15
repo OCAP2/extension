@@ -3,17 +3,12 @@ package parser
 import (
 	"testing"
 
-	"github.com/OCAP2/extension/v5/internal/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestParseKillEvent_WeaponParsing(t *testing.T) {
 	p := newTestParser()
-
-	mission := &model.Mission{}
-	mission.ID = 1
-	p.SetMission(mission)
 
 	tests := []struct {
 		name        string

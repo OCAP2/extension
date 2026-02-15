@@ -29,7 +29,6 @@ func (p *Parser) ParseVehicle(data []string) (model.Vehicle, error) {
 
 	vehicle.JoinTime = time.Now()
 
-	vehicle.MissionID = p.getMissionID()
 	vehicle.JoinFrame = uint(capframe)
 	ocapID, err := parseUintFromFloat(data[1])
 	if err != nil {
@@ -53,8 +52,6 @@ func (p *Parser) ParseVehicleState(data []string) (model.VehicleState, error) {
 	for i, v := range data {
 		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
 	}
-
-	vehicleState.MissionID = p.getMissionID()
 
 	// get frame
 	capframe, err := strconv.ParseFloat(data[5], 64)

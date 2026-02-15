@@ -7,7 +7,6 @@ import "time"
 // ID is the ObjectID - the game's identifier for this entity.
 type Soldier struct {
 	ID              uint16 // ObjectID - game identifier
-	MissionID       uint
 	JoinTime        time.Time
 	JoinFrame       uint
 	OcapType        string
@@ -26,7 +25,6 @@ type Soldier struct {
 // SoldierID references the Soldier's ID (ObjectID).
 type SoldierState struct {
 	SoldierID         uint16 // References Soldier.ID (ObjectID)
-	MissionID         uint
 	Time              time.Time
 	CaptureFrame      uint
 	Position          Position3D

@@ -824,9 +824,8 @@ func handleNewMission(e dispatcher.Event) (any, error) {
 		Logger.Debug("Memory-only mode: mission context set without DB persistence", "missionName", mission.MissionName)
 	}
 
-	// 3. Set mission context + parser state
+	// 3. Set mission context
 	missionCtx.SetMission(&mission, &world)
-	parserService.SetMission(&mission)
 
 	// 4. Reset caches
 	MarkerCache.Reset()
@@ -1090,9 +1089,6 @@ func populateDemoData() {
 	for _, mission := range missions {
 		if missionCtx != nil {
 			missionCtx.SetMission(&mission, nil)
-		}
-		if parserService != nil {
-			parserService.SetMission(&mission)
 		}
 
 		fmt.Printf("Populating mission with ID %d\n", mission.ID)

@@ -30,8 +30,6 @@ func (p *Parser) ParseProjectileEvent(data []string) (ParsedProjectileEvent, err
 		return result, fmt.Errorf("insufficient data fields: got %d, need 20", len(data))
 	}
 
-	projectileEvent.MissionID = p.getMissionID()
-
 	// [0] firedFrame
 	capframe, err := strconv.ParseFloat(data[0], 64)
 	if err != nil {
@@ -217,7 +215,6 @@ func (p *Parser) ParseGeneralEvent(data []string) (model.GeneralEvent, error) {
 	}
 
 	thisEvent.Time = time.Now()
-	thisEvent.MissionID = p.getMissionID()
 	thisEvent.CaptureFrame = uint(capframe)
 	thisEvent.Name = data[1]
 	thisEvent.Message = data[2]
@@ -254,7 +251,6 @@ func (p *Parser) ParseKillEvent(data []string) (ParsedKillEvent, error) {
 
 	result.Event.Time = time.Now()
 	result.Event.CaptureFrame = uint(capframe)
-	result.Event.MissionID = p.getMissionID()
 
 	// parse victim ObjectID
 	victimObjectID, err := parseUintFromFloat(data[1])
@@ -300,7 +296,6 @@ func (p *Parser) ParseFpsEvent(data []string) (model.ServerFpsEvent, error) {
 
 	fpsEvent.CaptureFrame = uint(capframe)
 	fpsEvent.Time = time.Now()
-	fpsEvent.MissionID = p.getMissionID()
 
 	fps, err := strconv.ParseFloat(data[1], 64)
 	if err != nil {
@@ -334,7 +329,6 @@ func (p *Parser) ParseTimeState(data []string) (model.TimeState, error) {
 
 	timeState.CaptureFrame = uint(capframe)
 	timeState.Time = time.Now()
-	timeState.MissionID = p.getMissionID()
 
 	timeState.SystemTimeUTC = data[1]
 	timeState.MissionDate = data[2]

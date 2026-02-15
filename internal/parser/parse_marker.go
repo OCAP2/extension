@@ -20,8 +20,6 @@ func (p *Parser) ParseMarkerCreate(data []string) (model.Marker, error) {
 		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
 	}
 
-	marker.MissionID = p.getMissionID()
-
 	// markerName
 	marker.MarkerName = data[0]
 
@@ -111,8 +109,6 @@ func (p *Parser) ParseMarkerMove(data []string) (ParsedMarkerMove, error) {
 	for i, v := range data {
 		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
 	}
-
-	result.State.MissionID = p.getMissionID()
 
 	// markerName - return for worker to resolve
 	result.MarkerName = data[0]

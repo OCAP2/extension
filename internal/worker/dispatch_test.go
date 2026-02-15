@@ -810,7 +810,7 @@ func TestHandleKillEvent_ClassifiesVictimAndKiller(t *testing.T) {
 
 	parserService := &mockParserService{
 		killEvent: parser.ParsedKillEvent{
-			Event:    model.KillEvent{MissionID: 1, CaptureFrame: 100},
+			Event:    model.KillEvent{CaptureFrame: 100},
 			VictimID: 5,
 			KillerID: 20,
 		},
@@ -870,8 +870,8 @@ func TestHandleProjectile_ClassifiesHitParts(t *testing.T) {
 	d, _ := newTestDispatcher(t)
 	entityCache := cache.NewEntityCache()
 
-	entityCache.AddSoldier(model.Soldier{ObjectID: 7, MissionID: 1})
-	entityCache.AddVehicle(model.Vehicle{ObjectID: 30, MissionID: 1})
+	entityCache.AddSoldier(model.Soldier{ObjectID: 7})
+	entityCache.AddVehicle(model.Vehicle{ObjectID: 30})
 
 	componentsJSON, _ := json.Marshal([]string{"head"})
 	vehicleComponentsJSON, _ := json.Marshal([]string{"hull"})
@@ -887,7 +887,6 @@ func TestHandleProjectile_ClassifiesHitParts(t *testing.T) {
 	parserService := &mockParserService{
 		projectile: parser.ParsedProjectileEvent{
 			Event: model.ProjectileEvent{
-				MissionID:     1,
 				FirerObjectID: 1,
 				CaptureFrame:  620,
 				Positions:     ls.AsGeometry(),
@@ -975,7 +974,6 @@ func TestHandleProjectile_RecordsProjectileEvent(t *testing.T) {
 	parserService := &mockParserService{
 		projectile: parser.ParsedProjectileEvent{
 			Event: model.ProjectileEvent{
-				MissionID:       1,
 				FirerObjectID:   1,
 				CaptureFrame:    620,
 				Weapon:          "throw",
@@ -1034,7 +1032,6 @@ func TestHandleProjectile_RecordsProjectileEvent(t *testing.T) {
 	// Verify a core.ProjectileEvent was recorded
 	require.Equal(t, 1, len(backend.projectileEvents), "expected 1 projectile event")
 	pe := backend.projectileEvents[0]
-	assert.Equal(t, uint(1), pe.MissionID)
 	assert.Equal(t, uint16(1), pe.FirerObjectID)
 	assert.Equal(t, uint(620), pe.CaptureFrame)
 	assert.Equal(t, "RGO Grenade", pe.MagazineDisplay)
@@ -1059,7 +1056,7 @@ func TestHandleMarkerMove_ResolvesMarkerName(t *testing.T) {
 
 	parserService := &mockParserService{
 		markerMove: parser.ParsedMarkerMove{
-			State:      model.MarkerState{MissionID: 1, CaptureFrame: 100},
+			State:      model.MarkerState{CaptureFrame: 100},
 			MarkerName: "marker_alpha",
 		},
 	}
@@ -1113,7 +1110,6 @@ func TestHandleChatEvent_ValidatesSender(t *testing.T) {
 	parserService := &mockParserService{
 		chatEvent: model.ChatEvent{
 			SoldierObjectID: sql.NullInt32{Int32: 5, Valid: true},
-			MissionID:       1,
 		},
 	}
 

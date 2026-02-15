@@ -28,7 +28,6 @@ func (p *Parser) ParseSoldier(data []string) (model.Soldier, error) {
 		return soldier, fmt.Errorf("error converting capture frame to int: %w", err)
 	}
 
-	soldier.MissionID = p.getMissionID()
 	soldier.JoinFrame = uint(capframe)
 	soldier.JoinTime = time.Now()
 
@@ -69,8 +68,6 @@ func (p *Parser) ParseSoldierState(data []string) (model.SoldierState, error) {
 	for i, v := range data {
 		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
 	}
-
-	soldierState.MissionID = p.getMissionID()
 
 	frameStr := data[8]
 	capframe, err := strconv.ParseFloat(frameStr, 64)

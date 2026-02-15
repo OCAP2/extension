@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"strconv"
 	"sync"
-	"sync/atomic"
 
 	"github.com/OCAP2/extension/v5/internal/model"
 )
@@ -81,8 +80,7 @@ func (mc *MissionContext) SetMission(mission *model.Mission, world *model.World)
 // Parser provides pure []string -> model struct conversion.
 // It has zero external dependencies beyond a logger.
 type Parser struct {
-	logger  *slog.Logger
-	mission atomic.Pointer[model.Mission]
+	logger *slog.Logger
 
 	// Static config set at creation time
 	addonVersion     string
@@ -99,15 +97,3 @@ func NewParser(logger *slog.Logger, addonVersion, extensionVersion string) *Pars
 	return p
 }
 
-// SetMission sets the current mission for MissionID lookups
-func (p *Parser) SetMission(m *model.Mission) {
-	p.mission.Store(m)
-}
-
-func (p *Parser) getMissionID() uint {
-	m := p.mission.Load()
-	if m == nil {
-		return 0
-	}
-	return m.ID
-}

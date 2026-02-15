@@ -55,7 +55,6 @@ func TestSoldierToCore(t *testing.T) {
 
 	// Core ID = GORM ObjectID (not GORM ID)
 	assert.Equal(t, uint16(42), coreSoldier.ID)
-	assert.Equal(t, uint(1), coreSoldier.MissionID)
 	assert.Equal(t, "TestUnit", coreSoldier.UnitName)
 	assert.True(t, coreSoldier.IsPlayer)
 	assert.Equal(t, "WEST", coreSoldier.Side)
@@ -409,7 +408,6 @@ func TestTimeStateToCore(t *testing.T) {
 
 	coreState := TimeStateToCore(gormState)
 
-	assert.Equal(t, uint(1), coreState.MissionID)
 	assert.Equal(t, uint(100), coreState.CaptureFrame)
 	assert.Equal(t, "2024-01-15T14:30:45.123", coreState.SystemTimeUTC)
 	assert.Equal(t, "2035-06-15T06:00:00", coreState.MissionDate)
@@ -524,7 +522,6 @@ func TestProjectileEventToCore(t *testing.T) {
 
 	result := ProjectileEventToCore(gormEvent)
 
-	assert.Equal(t, uint(1), result.MissionID)
 	assert.Equal(t, uint16(42), result.FirerObjectID)
 	assert.Equal(t, uint(100), result.CaptureFrame)
 	assert.Equal(t, "Cannon 120mm", result.WeaponDisplay)

@@ -199,7 +199,6 @@ func (m *Manager) classifyHitParts(parsed *parser.ParsedProjectileEvent) {
 	for _, hp := range parsed.HitParts {
 		if _, ok := m.deps.EntityCache.GetSoldier(hp.EntityID); ok {
 			parsed.Event.HitSoldiers = append(parsed.Event.HitSoldiers, model.ProjectileHitsSoldier{
-				MissionID:       parsed.Event.MissionID,
 				SoldierObjectID: hp.EntityID,
 				CaptureFrame:    hp.CaptureFrame,
 				Position:        hp.Position,
@@ -207,7 +206,6 @@ func (m *Manager) classifyHitParts(parsed *parser.ParsedProjectileEvent) {
 			})
 		} else if _, ok := m.deps.EntityCache.GetVehicle(hp.EntityID); ok {
 			parsed.Event.HitVehicles = append(parsed.Event.HitVehicles, model.ProjectileHitsVehicle{
-				MissionID:       parsed.Event.MissionID,
 				VehicleObjectID: hp.EntityID,
 				CaptureFrame:    hp.CaptureFrame,
 				Position:        hp.Position,
@@ -480,7 +478,6 @@ func (m *Manager) handleMarkerDelete(e dispatcher.Event) (any, error) {
 	markerID, ok := m.deps.MarkerCache.Get(markerName)
 	if ok {
 		deleteState := model.MarkerState{
-			MissionID:    m.deps.MissionContext.GetMission().ID,
 			MarkerID:     markerID,
 			CaptureFrame: frameNo,
 			Time:         time.Now(),

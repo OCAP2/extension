@@ -3,18 +3,12 @@ package parser
 import (
 	"testing"
 
-	"github.com/OCAP2/extension/v5/internal/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestParseVehicleState_CrewPreservesBrackets(t *testing.T) {
 	p := newTestParser()
-
-	// Set up mission context
-	mission := &model.Mission{}
-	mission.ID = 1
-	p.SetMission(mission)
 
 	tests := []struct {
 		name         string
@@ -57,10 +51,6 @@ func TestParseVehicleState_CrewPreservesBrackets(t *testing.T) {
 
 func TestParseVehicleState_FloatOcapId(t *testing.T) {
 	p := newTestParser()
-
-	mission := &model.Mission{}
-	mission.ID = 1
-	p.SetMission(mission)
 
 	data := []string{
 		"32.00",              // 0: ocapId (float format from ArmA)

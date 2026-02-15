@@ -11,10 +11,6 @@ import (
 func TestParseSoldierState_ScoresParsingPanic(t *testing.T) {
 	p := newTestParser()
 
-	mission := &model.Mission{}
-	mission.ID = 1
-	p.SetMission(mission)
-
 	makeData := func(isPlayer string, scores string) []string {
 		return []string{
 			"42",                 // 0: ocapId
@@ -91,10 +87,6 @@ func TestParseSoldierState_ScoresParsingPanic(t *testing.T) {
 func TestParseSoldierState_GroupAndSide(t *testing.T) {
 	p := newTestParser()
 
-	mission := &model.Mission{}
-	mission.ID = 1
-	p.SetMission(mission)
-
 	baseData := []string{
 		"42",                  // 0: ocapId
 		"[100.0,200.0,50.0]", // 1: position
@@ -131,10 +123,6 @@ func TestParseSoldierState_GroupAndSide(t *testing.T) {
 
 func TestParseSoldierState_FloatOcapId(t *testing.T) {
 	p := newTestParser()
-
-	mission := &model.Mission{}
-	mission.ID = 1
-	p.SetMission(mission)
 
 	data := []string{
 		"30.00",              // 0: ocapId (float format from ArmA)

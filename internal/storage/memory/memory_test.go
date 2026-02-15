@@ -434,7 +434,6 @@ func TestRecordTimeState(t *testing.T) {
 
 	now := time.Now()
 	state := &core.TimeState{
-		MissionID:      1,
 		Time:           now,
 		CaptureFrame:   100,
 		SystemTimeUTC:  "2024-01-15T14:30:45.123",
@@ -484,7 +483,6 @@ func TestRecordProjectileEvent(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
 	evt := &core.ProjectileEvent{
-		MissionID:      1,
 		CaptureFrame:   100,
 		FirerObjectID:  42,
 		SimulationType: "",
