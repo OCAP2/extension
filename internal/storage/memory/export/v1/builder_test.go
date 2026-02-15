@@ -792,7 +792,6 @@ func TestBuildWithBulletProjectile(t *testing.T) {
 		Markers:  make(map[string]*MarkerRecord),
 		ProjectileEvents: []core.ProjectileEvent{
 			{
-				MissionID:      1,
 				CaptureFrame:   15,
 				FirerObjectID:  5,
 				SimulationType: "shotBullet",
@@ -831,7 +830,7 @@ func TestBuildWithThrownGrenade(t *testing.T) {
 		Markers:  make(map[string]*MarkerRecord),
 		ProjectileEvents: []core.ProjectileEvent{
 			{
-				MissionID:       1,
+
 				CaptureFrame:    100,
 				FirerObjectID:   3,
 				SimulationType:  "shotGrenade",
@@ -882,7 +881,7 @@ func TestBuildWithVehicleProjectile(t *testing.T) {
 		Markers: make(map[string]*MarkerRecord),
 		ProjectileEvents: []core.ProjectileEvent{
 			{
-				MissionID:       1,
+
 				CaptureFrame:    50,
 				FirerObjectID:   5,
 				VehicleObjectID: &vehicleID,
@@ -918,7 +917,7 @@ func TestBuildWithOnFootLauncher(t *testing.T) {
 		Markers:  make(map[string]*MarkerRecord),
 		ProjectileEvents: []core.ProjectileEvent{
 			{
-				MissionID:       1,
+
 				CaptureFrame:    80,
 				FirerObjectID:   7,
 				SimulationType:  "shotRocket",
@@ -951,7 +950,7 @@ func TestBuildWithShotGrenade(t *testing.T) {
 		Markers:  make(map[string]*MarkerRecord),
 		ProjectileEvents: []core.ProjectileEvent{
 			{
-				MissionID:       1,
+
 				CaptureFrame:    60,
 				FirerObjectID:   3,
 				SimulationType:  "shotGrenade",
@@ -984,7 +983,7 @@ func TestBuildWithProjectileHitEvents(t *testing.T) {
 		Markers:  make(map[string]*MarkerRecord),
 		ProjectileEvents: []core.ProjectileEvent{
 			{
-				MissionID:       1,
+
 				CaptureFrame:    50,
 				FirerObjectID:   5,
 				SimulationType:  "shotBullet",
@@ -1028,7 +1027,7 @@ func TestBuildWithEmptyMagazineIcon(t *testing.T) {
 		Markers:  make(map[string]*MarkerRecord),
 		ProjectileEvents: []core.ProjectileEvent{
 			{
-				MissionID:       1,
+
 				CaptureFrame:    50,
 				FirerObjectID:   5,
 				MagazineDisplay: "Unknown",
@@ -1060,7 +1059,7 @@ func TestBuildWithProjectileHitOnVehicle(t *testing.T) {
 		Markers:  make(map[string]*MarkerRecord),
 		ProjectileEvents: []core.ProjectileEvent{
 			{
-				MissionID:       1,
+
 				CaptureFrame:    60,
 				FirerObjectID:   5,
 				SimulationType:  "shotRocket",
@@ -1100,7 +1099,7 @@ func TestBuildWithProjectileHitEmptyMuzzleDisplay(t *testing.T) {
 		Markers:  make(map[string]*MarkerRecord),
 		ProjectileEvents: []core.ProjectileEvent{
 			{
-				MissionID:       1,
+
 				CaptureFrame:    50,
 				FirerObjectID:   5,
 				WeaponDisplay:   "MX Rifle",

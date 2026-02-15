@@ -42,7 +42,6 @@ func SoldierToCore(s model.Soldier) core.Soldier {
 
 	return core.Soldier{
 		ID:              s.ObjectID, // Core ID = GORM ObjectID
-		MissionID:       s.MissionID,
 		JoinTime:        s.JoinTime,
 		JoinFrame:       s.JoinFrame,
 		OcapType:        s.OcapType,
@@ -69,7 +68,6 @@ func SoldierStateToCore(s model.SoldierState) core.SoldierState {
 
 	return core.SoldierState{
 		SoldierID:         s.SoldierObjectID, // Direct mapping: GORM SoldierObjectID = core SoldierID
-		MissionID:         s.MissionID,
 		Time:              s.Time,
 		CaptureFrame:      s.CaptureFrame,
 		Position:          pointToPosition3D(s.Position),
@@ -102,7 +100,6 @@ func SoldierStateToCore(s model.SoldierState) core.SoldierState {
 func VehicleToCore(v model.Vehicle) core.Vehicle {
 	return core.Vehicle{
 		ID:            v.ObjectID, // Core ID = GORM ObjectID
-		MissionID:     v.MissionID,
 		JoinTime:      v.JoinTime,
 		JoinFrame:     v.JoinFrame,
 		OcapType:      v.OcapType,
@@ -117,7 +114,6 @@ func VehicleToCore(v model.Vehicle) core.Vehicle {
 func VehicleStateToCore(v model.VehicleState) core.VehicleState {
 	return core.VehicleState{
 		VehicleID:       v.VehicleObjectID, // Direct mapping: GORM VehicleObjectID = core VehicleID
-		MissionID:       v.MissionID,
 		Time:            v.Time,
 		CaptureFrame:    v.CaptureFrame,
 		Position:        pointToPosition3D(v.Position),
@@ -145,7 +141,6 @@ func GeneralEventToCore(e model.GeneralEvent) core.GeneralEvent {
 
 	return core.GeneralEvent{
 		ID:           e.ID,
-		MissionID:    e.MissionID,
 		Time:         e.Time,
 		CaptureFrame: e.CaptureFrame,
 		Name:         e.Name,
@@ -159,7 +154,6 @@ func GeneralEventToCore(e model.GeneralEvent) core.GeneralEvent {
 func KillEventToCore(e model.KillEvent) core.KillEvent {
 	result := core.KillEvent{
 		ID:             e.ID,
-		MissionID:      e.MissionID,
 		Time:           e.Time,
 		CaptureFrame:   e.CaptureFrame,
 		WeaponVehicle:  e.WeaponVehicle,
@@ -193,7 +187,6 @@ func KillEventToCore(e model.KillEvent) core.KillEvent {
 func ChatEventToCore(e model.ChatEvent) core.ChatEvent {
 	result := core.ChatEvent{
 		ID:           e.ID,
-		MissionID:    e.MissionID,
 		Time:         e.Time,
 		CaptureFrame: e.CaptureFrame,
 		Channel:      e.Channel,
@@ -215,7 +208,6 @@ func ChatEventToCore(e model.ChatEvent) core.ChatEvent {
 func RadioEventToCore(e model.RadioEvent) core.RadioEvent {
 	result := core.RadioEvent{
 		ID:           e.ID,
-		MissionID:    e.MissionID,
 		Time:         e.Time,
 		CaptureFrame: e.CaptureFrame,
 		Radio:        e.Radio,
@@ -238,7 +230,6 @@ func RadioEventToCore(e model.RadioEvent) core.RadioEvent {
 // ServerFpsEventToCore converts a GORM ServerFpsEvent to a core.ServerFpsEvent
 func ServerFpsEventToCore(e model.ServerFpsEvent) core.ServerFpsEvent {
 	return core.ServerFpsEvent{
-		MissionID:    e.MissionID,
 		Time:         e.Time,
 		CaptureFrame: e.CaptureFrame,
 		FpsAverage:   e.FpsAverage,
@@ -249,7 +240,6 @@ func ServerFpsEventToCore(e model.ServerFpsEvent) core.ServerFpsEvent {
 // TimeStateToCore converts a GORM TimeState to a core.TimeState
 func TimeStateToCore(t model.TimeState) core.TimeState {
 	return core.TimeState{
-		MissionID:      t.MissionID,
 		Time:           t.Time,
 		CaptureFrame:   t.CaptureFrame,
 		SystemTimeUTC:  t.SystemTimeUTC,
@@ -263,7 +253,6 @@ func TimeStateToCore(t model.TimeState) core.TimeState {
 func Ace3DeathEventToCore(e model.Ace3DeathEvent) core.Ace3DeathEvent {
 	result := core.Ace3DeathEvent{
 		ID:           e.ID,
-		MissionID:    e.MissionID,
 		SoldierID:    uint(e.SoldierObjectID), // ObjectID -> uint for core model
 		Time:         e.Time,
 		CaptureFrame: e.CaptureFrame,
@@ -282,7 +271,6 @@ func Ace3DeathEventToCore(e model.Ace3DeathEvent) core.Ace3DeathEvent {
 func Ace3UnconsciousEventToCore(e model.Ace3UnconsciousEvent) core.Ace3UnconsciousEvent {
 	return core.Ace3UnconsciousEvent{
 		ID:            e.ID,
-		MissionID:    e.MissionID,
 		SoldierID:    uint(e.SoldierObjectID), // ObjectID -> uint for core model
 		Time:         e.Time,
 		CaptureFrame: e.CaptureFrame,
@@ -294,7 +282,6 @@ func Ace3UnconsciousEventToCore(e model.Ace3UnconsciousEvent) core.Ace3Unconscio
 func MarkerToCore(m model.Marker) core.Marker {
 	return core.Marker{
 		ID:           m.ID,
-		MissionID:    m.MissionID,
 		Time:         m.Time,
 		CaptureFrame: m.CaptureFrame,
 		EndFrame:     -1, // Regular markers persist until end
@@ -319,7 +306,6 @@ func MarkerToCore(m model.Marker) core.Marker {
 func MarkerStateToCore(m model.MarkerState) core.MarkerState {
 	return core.MarkerState{
 		ID:           m.ID,
-		MissionID:    m.MissionID,
 		MarkerID:     m.MarkerID,
 		Time:         m.Time,
 		CaptureFrame: m.CaptureFrame,
@@ -334,7 +320,6 @@ func MarkerStateToCore(m model.MarkerState) core.MarkerState {
 // HitSoldiers/HitVehicles into a unified hit list.
 func ProjectileEventToCore(p model.ProjectileEvent) core.ProjectileEvent {
 	result := core.ProjectileEvent{
-		MissionID:       p.MissionID,
 		CaptureFrame:    p.CaptureFrame,
 		FirerObjectID:   p.FirerObjectID,
 		WeaponDisplay:   p.WeaponDisplay,

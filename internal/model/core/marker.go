@@ -6,7 +6,6 @@ import "time"
 // Marker represents a map marker
 type Marker struct {
 	ID           uint
-	MissionID    uint
 	Time         time.Time
 	CaptureFrame uint
 	EndFrame     int // -1 means persist until end, otherwise frame when marker disappears
@@ -29,7 +28,6 @@ type Marker struct {
 // MarkerState tracks marker position changes over time
 type MarkerState struct {
 	ID           uint
-	MissionID    uint
 	MarkerID     uint
 	Time         time.Time
 	CaptureFrame uint
