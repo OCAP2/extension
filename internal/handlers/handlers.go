@@ -1046,8 +1046,9 @@ func (s *Service) LogHitEvent(data []string) (model.HitEvent, error) {
 		return hitEvent, fmt.Errorf(`shooter ocap id not found in cache: %d`, shooterObjectID)
 	}
 
-	// get event text
-	hitEvent.EventText = data[3]
+	// get weapon info - parse SQF array [vehicleName, weaponDisp, magDisp]
+	hitEvent.WeaponVehicle, hitEvent.WeaponName, hitEvent.WeaponMagazine = util.ParseSQFStringArray(data[3])
+	hitEvent.EventText = util.FormatWeaponText(hitEvent.WeaponVehicle, hitEvent.WeaponName, hitEvent.WeaponMagazine)
 
 	// get event distance
 	distance, err := strconv.ParseFloat(data[4], 64)
@@ -1110,8 +1111,9 @@ func (s *Service) LogKillEvent(data []string) (model.KillEvent, error) {
 		return killEvent, fmt.Errorf(`killer ocap id not found in cache: %d`, killerObjectID)
 	}
 
-	// get event text
-	killEvent.EventText = data[3]
+	// get weapon info - parse SQF array [vehicleName, weaponDisp, magDisp]
+	killEvent.WeaponVehicle, killEvent.WeaponName, killEvent.WeaponMagazine = util.ParseSQFStringArray(data[3])
+	killEvent.EventText = util.FormatWeaponText(killEvent.WeaponVehicle, killEvent.WeaponName, killEvent.WeaponMagazine)
 
 	// get event distance
 	distance, err := strconv.ParseFloat(data[4], 64)

@@ -38,6 +38,9 @@ type HitEvent struct {
 	VictimVehicleID  *uint
 	ShooterSoldierID *uint
 	ShooterVehicleID *uint
+	WeaponVehicle    string
+	WeaponName       string
+	WeaponMagazine   string
 	EventText        string
 	Distance         float32
 }
@@ -52,6 +55,9 @@ type KillEvent struct {
 	VictimVehicleID *uint
 	KillerSoldierID *uint
 	KillerVehicleID *uint
+	WeaponVehicle   string
+	WeaponName      string
+	WeaponMagazine  string
 	EventText       string
 	Distance        float32
 }

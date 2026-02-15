@@ -175,12 +175,15 @@ func GeneralEventToCore(e model.GeneralEvent) core.GeneralEvent {
 // ObjectID fields in GORM map to uint IDs in core (cast to uint for compatibility)
 func HitEventToCore(e model.HitEvent) core.HitEvent {
 	result := core.HitEvent{
-		ID:           e.ID,
-		MissionID:    e.MissionID,
-		Time:         e.Time,
-		CaptureFrame: e.CaptureFrame,
-		EventText:    e.EventText,
-		Distance:     e.Distance,
+		ID:             e.ID,
+		MissionID:      e.MissionID,
+		Time:           e.Time,
+		CaptureFrame:   e.CaptureFrame,
+		WeaponVehicle:  e.WeaponVehicle,
+		WeaponName:     e.WeaponName,
+		WeaponMagazine: e.WeaponMagazine,
+		EventText:      e.EventText,
+		Distance:       e.Distance,
 	}
 
 	if e.VictimSoldierObjectID.Valid {
@@ -207,12 +210,15 @@ func HitEventToCore(e model.HitEvent) core.HitEvent {
 // ObjectID fields in GORM map to uint IDs in core (cast to uint for compatibility)
 func KillEventToCore(e model.KillEvent) core.KillEvent {
 	result := core.KillEvent{
-		ID:           e.ID,
-		MissionID:    e.MissionID,
-		Time:         e.Time,
-		CaptureFrame: e.CaptureFrame,
-		EventText:    e.EventText,
-		Distance:     e.Distance,
+		ID:             e.ID,
+		MissionID:      e.MissionID,
+		Time:           e.Time,
+		CaptureFrame:   e.CaptureFrame,
+		WeaponVehicle:  e.WeaponVehicle,
+		WeaponName:     e.WeaponName,
+		WeaponMagazine: e.WeaponMagazine,
+		EventText:      e.EventText,
+		Distance:       e.Distance,
 	}
 
 	if e.VictimSoldierObjectID.Valid {

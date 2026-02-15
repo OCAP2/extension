@@ -576,8 +576,11 @@ type HitEvent struct {
 	ShooterSoldierObjectID sql.NullInt32 `json:"shooterSoldierOcapId" gorm:"index:idx_hitevent_shooter_soldier_ocap;default:NULL"` // OCAP ID if shooter is soldier
 	ShooterVehicleObjectID sql.NullInt32 `json:"shooterVehicleOcapId" gorm:"index:idx_hitevent_shooter_vehicle_ocap;default:NULL"` // OCAP ID if shooter is vehicle
 
-	EventText string  `json:"eventText" gorm:"size:80"` // Weapon/cause description (from getEventWeaponText)
-	Distance  float32 `json:"distance"`                 // Distance between shooter and victim in meters
+	WeaponVehicle  string `json:"weaponVehicle" gorm:"size:80"`  // Vehicle display name (e.g. "Hunter HMG"), empty if on foot
+	WeaponName     string `json:"weaponName" gorm:"size:80"`     // Weapon/muzzle display name (e.g. "Mk30 HMG .50")
+	WeaponMagazine string `json:"weaponMagazine" gorm:"size:80"` // Magazine display name (e.g. ".50 BMG 200Rnd")
+	EventText      string `json:"eventText" gorm:"size:160"`     // Composed display string for backward compatibility
+	Distance       float32 `json:"distance"`                     // Distance between shooter and victim in meters
 }
 
 func (h *HitEvent) TableName() string {
@@ -604,8 +607,11 @@ type KillEvent struct {
 	KillerSoldierObjectID sql.NullInt32 `json:"killerSoldierOcapId" gorm:"index:idx_killevent_killer_soldier_ocap;default:NULL"` // OCAP ID if killer is soldier
 	KillerVehicleObjectID sql.NullInt32 `json:"killerVehicleOcapId" gorm:"index:idx_killevent_killer_vehicle_ocap;default:NULL"` // OCAP ID if killer is vehicle
 
-	EventText string  `json:"eventText" gorm:"size:80"` // Weapon/cause description
-	Distance  float32 `json:"distance"`                 // Distance between killer and victim in meters
+	WeaponVehicle  string `json:"weaponVehicle" gorm:"size:80"`  // Vehicle display name (e.g. "Hunter HMG"), empty if on foot
+	WeaponName     string `json:"weaponName" gorm:"size:80"`     // Weapon/muzzle display name (e.g. "Mk30 HMG .50")
+	WeaponMagazine string `json:"weaponMagazine" gorm:"size:80"` // Magazine display name (e.g. ".50 BMG 200Rnd")
+	EventText      string `json:"eventText" gorm:"size:160"`     // Composed display string for backward compatibility
+	Distance       float32 `json:"distance"`                     // Distance between killer and victim in meters
 }
 
 func (k *KillEvent) TableName() string {
