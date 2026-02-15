@@ -18,27 +18,6 @@ import (
 // ErrTooEarlyForStateAssociation is returned when state data arrives before entity is registered
 var ErrTooEarlyForStateAssociation = fmt.Errorf("too early for state association")
 
-// ParserService defines the interface for data parsers
-type ParserService interface {
-	ParseMission(args []string) (model.Mission, model.World, error)
-	ParseSoldier(args []string) (model.Soldier, error)
-	ParseVehicle(args []string) (model.Vehicle, error)
-	ParseSoldierState(args []string) (model.SoldierState, error)
-	ParseVehicleState(args []string) (model.VehicleState, error)
-	ParseProjectileEvent(args []string) (parser.ParsedProjectileEvent, error)
-	ParseGeneralEvent(args []string) (model.GeneralEvent, error)
-	ParseKillEvent(args []string) (parser.ParsedKillEvent, error)
-	ParseChatEvent(args []string) (model.ChatEvent, error)
-	ParseRadioEvent(args []string) (model.RadioEvent, error)
-	ParseFpsEvent(args []string) (model.ServerFpsEvent, error)
-	ParseTimeState(args []string) (model.TimeState, error)
-	ParseAce3DeathEvent(args []string) (model.Ace3DeathEvent, error)
-	ParseAce3UnconsciousEvent(args []string) (model.Ace3UnconsciousEvent, error)
-	ParseMarkerCreate(args []string) (model.Marker, error)
-	ParseMarkerMove(args []string) (parser.ParsedMarkerMove, error)
-	ParseMarkerDelete(args []string) (string, uint, error)
-}
-
 // Queues holds all the write queues
 type Queues struct {
 	Soldiers              *queue.Queue[model.Soldier]
@@ -83,7 +62,7 @@ type Dependencies struct {
 	EntityCache     *cache.EntityCache
 	MarkerCache     *cache.MarkerCache
 	LogManager      *logging.SlogManager
-	ParserService   ParserService
+	ParserService   parser.Service
 	MissionContext  *mission.Context
 	IsDatabaseValid func() bool
 	ShouldSaveLocal func() bool

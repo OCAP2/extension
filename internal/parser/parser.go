@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+
+	"github.com/OCAP2/extension/v5/internal/model"
 )
 
 // parseUintFromFloat parses a string that may be an integer ("32") or float ("32.00") into uint64.
@@ -37,6 +39,29 @@ func parseIntFromFloat(s string) (int64, error) {
 	return int64(f), nil
 }
 
+
+// Service defines the interface for parsing ArmA 3 extension arguments into model structs.
+type Service interface {
+	ParseMission(args []string) (model.Mission, model.World, error)
+	ParseSoldier(args []string) (model.Soldier, error)
+	ParseVehicle(args []string) (model.Vehicle, error)
+	ParseSoldierState(args []string) (model.SoldierState, error)
+	ParseVehicleState(args []string) (model.VehicleState, error)
+	ParseProjectileEvent(args []string) (ParsedProjectileEvent, error)
+	ParseGeneralEvent(args []string) (model.GeneralEvent, error)
+	ParseKillEvent(args []string) (ParsedKillEvent, error)
+	ParseChatEvent(args []string) (model.ChatEvent, error)
+	ParseRadioEvent(args []string) (model.RadioEvent, error)
+	ParseFpsEvent(args []string) (model.ServerFpsEvent, error)
+	ParseTimeState(args []string) (model.TimeState, error)
+	ParseAce3DeathEvent(args []string) (model.Ace3DeathEvent, error)
+	ParseAce3UnconsciousEvent(args []string) (model.Ace3UnconsciousEvent, error)
+	ParseMarkerCreate(args []string) (model.Marker, error)
+	ParseMarkerMove(args []string) (ParsedMarkerMove, error)
+	ParseMarkerDelete(args []string) (string, uint, error)
+}
+
+var _ Service = (*Parser)(nil)
 
 // Parser provides pure []string -> model struct conversion.
 // It has zero external dependencies beyond a logger.

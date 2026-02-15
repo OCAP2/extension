@@ -125,7 +125,7 @@ var (
 	storageReadyOnce sync.Once
 
 	// Services
-	parserService   *parser.Parser
+	parserService   parser.Service
 	missionCtx      *mission.Context
 	workerManager   *worker.Manager
 	monitorService  *monitor.Service
