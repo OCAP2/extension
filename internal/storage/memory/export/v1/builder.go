@@ -121,6 +121,8 @@ func Build(data *MissionData) Export {
 				state.UnitName,
 				boolToInt(state.IsPlayer),
 				state.CurrentRole,
+				state.GroupID,
+				state.Side,
 			}
 			entity.Positions = append(entity.Positions, pos)
 			if state.CaptureFrame > maxFrame {

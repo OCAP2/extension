@@ -6,3 +6,4 @@ vendor/
 dist/
 docs/plans/
 cover.out
+.worktrees/
