@@ -4,9 +4,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
-	"sync"
-
-	"github.com/OCAP2/extension/v5/internal/model"
 )
 
 // parseUintFromFloat parses a string that may be an integer ("32") or float ("32.00") into uint64.
@@ -40,42 +37,6 @@ func parseIntFromFloat(s string) (int64, error) {
 	return int64(f), nil
 }
 
-// MissionContext holds the current mission and world state
-type MissionContext struct {
-	mu      sync.RWMutex
-	Mission *model.Mission
-	World   *model.World
-}
-
-// NewMissionContext creates a new MissionContext with default values
-func NewMissionContext() *MissionContext {
-	return &MissionContext{
-		Mission: &model.Mission{MissionName: "No mission loaded"},
-		World:   &model.World{WorldName: "No world loaded"},
-	}
-}
-
-// GetMission returns the current mission
-func (mc *MissionContext) GetMission() *model.Mission {
-	mc.mu.RLock()
-	defer mc.mu.RUnlock()
-	return mc.Mission
-}
-
-// GetWorld returns the current world
-func (mc *MissionContext) GetWorld() *model.World {
-	mc.mu.RLock()
-	defer mc.mu.RUnlock()
-	return mc.World
-}
-
-// SetMission sets the current mission and world
-func (mc *MissionContext) SetMission(mission *model.Mission, world *model.World) {
-	mc.mu.Lock()
-	defer mc.mu.Unlock()
-	mc.Mission = mission
-	mc.World = world
-}
 
 // Parser provides pure []string -> model struct conversion.
 // It has zero external dependencies beyond a logger.

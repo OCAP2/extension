@@ -29,8 +29,9 @@ import (
 	"github.com/OCAP2/extension/v5/internal/config"
 	"github.com/OCAP2/extension/v5/internal/database"
 	"github.com/OCAP2/extension/v5/internal/dispatcher"
-	"github.com/OCAP2/extension/v5/internal/parser"
 	"github.com/OCAP2/extension/v5/internal/logging"
+	"github.com/OCAP2/extension/v5/internal/mission"
+	"github.com/OCAP2/extension/v5/internal/parser"
 	"github.com/OCAP2/extension/v5/internal/model"
 	"github.com/OCAP2/extension/v5/internal/model/convert"
 	"github.com/OCAP2/extension/v5/internal/monitor"
@@ -125,7 +126,7 @@ var (
 
 	// Services
 	parserService   *parser.Parser
-	missionCtx      *parser.MissionContext
+	missionCtx      *mission.Context
 	workerManager   *worker.Manager
 	monitorService  *monitor.Service
 	queues          *worker.Queues
@@ -521,7 +522,7 @@ func startGoroutines() (err error) {
 	queues = worker.NewQueues()
 
 	// Initialize mission context
-	missionCtx = parser.NewMissionContext()
+	missionCtx = mission.NewContext()
 
 	// Initialize handler service
 	parserService = parser.NewParser(Logger, addonVersion, BuildVersion)

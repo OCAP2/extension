@@ -81,12 +81,3 @@ func TestParseIntFromFloat(t *testing.T) {
 	}
 }
 
-func TestMissionContext_ThreadSafe(t *testing.T) {
-	ctx := NewMissionContext()
-
-	mission := ctx.GetMission()
-	assert.Equal(t, "No mission loaded", mission.MissionName)
-
-	world := ctx.GetWorld()
-	assert.Equal(t, "No world loaded", world.WorldName)
-}

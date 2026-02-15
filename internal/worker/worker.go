@@ -5,9 +5,10 @@ import (
 	"time"
 
 	"github.com/OCAP2/extension/v5/internal/cache"
-	"github.com/OCAP2/extension/v5/internal/parser"
 	"github.com/OCAP2/extension/v5/internal/logging"
+	"github.com/OCAP2/extension/v5/internal/mission"
 	"github.com/OCAP2/extension/v5/internal/model"
+	"github.com/OCAP2/extension/v5/internal/parser"
 	"github.com/OCAP2/extension/v5/internal/queue"
 	"github.com/OCAP2/extension/v5/internal/storage"
 
@@ -83,7 +84,7 @@ type Dependencies struct {
 	MarkerCache     *cache.MarkerCache
 	LogManager      *logging.SlogManager
 	ParserService   ParserService
-	MissionContext  *parser.MissionContext
+	MissionContext  *mission.Context
 	IsDatabaseValid func() bool
 	ShouldSaveLocal func() bool
 	DBInsertsPaused func() bool

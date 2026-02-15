@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/OCAP2/extension/v5/internal/parser"
 	"github.com/OCAP2/extension/v5/internal/logging"
+	"github.com/OCAP2/extension/v5/internal/mission"
 	"github.com/OCAP2/extension/v5/internal/model"
 	"github.com/OCAP2/extension/v5/internal/worker"
 
@@ -20,7 +20,7 @@ import (
 type Dependencies struct {
 	DB              *gorm.DB
 	LogManager      *logging.SlogManager
-	MissionContext  *parser.MissionContext
+	MissionContext  *mission.Context
 	WorkerManager   *worker.Manager
 	Queues          *worker.Queues
 	AddonFolder     string
