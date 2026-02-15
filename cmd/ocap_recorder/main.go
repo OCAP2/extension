@@ -29,7 +29,7 @@ import (
 	"github.com/OCAP2/extension/v5/internal/config"
 	"github.com/OCAP2/extension/v5/internal/database"
 	"github.com/OCAP2/extension/v5/internal/dispatcher"
-	"github.com/OCAP2/extension/v5/internal/handlers"
+	"github.com/OCAP2/extension/v5/internal/parser"
 	"github.com/OCAP2/extension/v5/internal/logging"
 	"github.com/OCAP2/extension/v5/internal/model"
 	"github.com/OCAP2/extension/v5/internal/model/convert"
@@ -124,7 +124,7 @@ var (
 	storageReadyOnce sync.Once
 
 	// Services
-	handlerService  *handlers.Service
+	parserService   *parser.Parser
 	workerManager   *worker.Manager
 	monitorService  *monitor.Service
 	queues          *worker.Queues
@@ -238,14 +238,14 @@ func init() {
 
 	// Set up dynamic state callbacks for logging
 	SlogManager.GetMissionName = func() string {
-		if handlerService != nil {
-			return handlerService.GetMissionContext().GetMission().MissionName
+		if parserService != nil {
+			return parserService.GetMissionContext().GetMission().MissionName
 		}
 		return ""
 	}
 	SlogManager.GetMissionID = func() uint {
-		if handlerService != nil {
-			return handlerService.GetMissionContext().GetMission().ID
+		if parserService != nil {
+			return parserService.GetMissionContext().GetMission().ID
 		}
 		return 0
 	}
@@ -520,10 +520,10 @@ func startGoroutines() (err error) {
 	queues = worker.NewQueues()
 
 	// Initialize mission context
-	missionCtx := handlers.NewMissionContext()
+	missionCtx := parser.NewMissionContext()
 
 	// Initialize handler service
-	handlerService = handlers.NewService(handlers.Dependencies{
+	parserService = parser.NewParser(parser.Dependencies{
 		DB:               DB,
 		EntityCache:      EntityCache,
 		MarkerCache:      MarkerCache,
@@ -539,7 +539,7 @@ func startGoroutines() (err error) {
 		EntityCache:     EntityCache,
 		MarkerCache:     MarkerCache,
 		LogManager:      SlogManager,
-		HandlerService:  handlerService,
+		ParserService:   parserService,
 		IsDatabaseValid: func() bool { return IsDatabaseValid },
 		ShouldSaveLocal: func() bool { return ShouldSaveLocal },
 		DBInsertsPaused: func() bool { return DBInsertsPaused },
@@ -551,7 +551,7 @@ func startGoroutines() (err error) {
 		storageBackend = memory.New(storageCfg.Memory)
 		storageBackend.Init()
 		workerManager.SetBackend(storageBackend)
-		handlerService.SetBackend(storageBackend)
+		parserService.SetBackend(storageBackend)
 		Logger.Info("Memory storage backend initialized")
 	}
 
@@ -568,7 +568,7 @@ func startGoroutines() (err error) {
 	monitorService = monitor.NewService(monitor.Dependencies{
 		DB:             DB,
 		LogManager:     SlogManager,
-		HandlerService: handlerService,
+		ParserService:  parserService,
 		WorkerManager:  workerManager,
 		Queues:         queues,
 		AddonFolder:    AddonFolder,
@@ -841,8 +841,8 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 	})
 
 	d.Register(":NEW:MISSION:", func(e dispatcher.Event) (any, error) {
-		if handlerService != nil {
-			if err := handlerService.LogNewMission(e.Args); err != nil {
+		if parserService != nil {
+			if err := parserService.InitMission(e.Args); err != nil {
 				return nil, err
 			}
 		}
@@ -851,11 +851,11 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 
 	// Time state tracking - records mission time sync data
 	d.Register(":NEW:TIME:STATE:", func(e dispatcher.Event) (any, error) {
-		if handlerService == nil {
+		if parserService == nil {
 			return nil, nil
 		}
 
-		obj, err := handlerService.LogTimeState(e.Args)
+		obj, err := parserService.ParseTimeState(e.Args)
 		if err != nil {
 			return nil, fmt.Errorf("failed to log time state: %w", err)
 		}
@@ -1048,8 +1048,8 @@ func populateDemoData() {
 
 	waitGroup = sync.WaitGroup{}
 	for _, mission := range missions {
-		if handlerService != nil {
-			handlerService.GetMissionContext().SetMission(&mission, nil)
+		if parserService != nil {
+			parserService.GetMissionContext().SetMission(&mission, nil)
 		}
 
 		fmt.Printf("Populating mission with ID %d\n", mission.ID)

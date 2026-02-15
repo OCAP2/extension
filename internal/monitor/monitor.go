@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/OCAP2/extension/v5/internal/handlers"
+	"github.com/OCAP2/extension/v5/internal/parser"
 	"github.com/OCAP2/extension/v5/internal/logging"
 	"github.com/OCAP2/extension/v5/internal/model"
 	"github.com/OCAP2/extension/v5/internal/worker"
@@ -20,7 +20,7 @@ import (
 type Dependencies struct {
 	DB              *gorm.DB
 	LogManager      *logging.SlogManager
-	HandlerService  *handlers.Service
+	ParserService   *parser.Parser
 	WorkerManager   *worker.Manager
 	Queues          *worker.Queues
 	AddonFolder     string
@@ -56,7 +56,7 @@ func (s *Service) GetProgramStatus(
 	writeQueues bool,
 	lastWrite bool,
 ) (output []string, perfModel model.OcapPerformance) {
-	mission := s.deps.HandlerService.GetMissionContext().GetMission()
+	mission := s.deps.ParserService.GetMissionContext().GetMission()
 
 	// Buffer lengths are now tracked via OTEL metrics in the dispatcher
 	buffersObj := model.BufferLengths{}
@@ -202,7 +202,7 @@ func (s *Service) Start() error {
 			default:
 				time.Sleep(1000 * time.Millisecond)
 
-				mission := s.deps.HandlerService.GetMissionContext().GetMission()
+				mission := s.deps.ParserService.GetMissionContext().GetMission()
 				if mission.ID == 0 {
 					continue
 				}

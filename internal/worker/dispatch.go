@@ -46,7 +46,7 @@ func (m *Manager) handleNewSoldier(e dispatcher.Event) (any, error) {
 		return nil, nil
 	}
 
-	obj, err := m.deps.HandlerService.LogNewSoldier(e.Args)
+	obj, err := m.deps.ParserService.ParseSoldier(e.Args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to log new soldier: %w", err)
 	}
@@ -69,7 +69,7 @@ func (m *Manager) handleNewVehicle(e dispatcher.Event) (any, error) {
 		return nil, nil
 	}
 
-	obj, err := m.deps.HandlerService.LogNewVehicle(e.Args)
+	obj, err := m.deps.ParserService.ParseVehicle(e.Args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to log new vehicle: %w", err)
 	}
@@ -92,7 +92,7 @@ func (m *Manager) handleSoldierState(e dispatcher.Event) (any, error) {
 		return nil, nil
 	}
 
-	obj, err := m.deps.HandlerService.LogSoldierState(e.Args)
+	obj, err := m.deps.ParserService.ParseSoldierState(e.Args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to log soldier state: %w", err)
 	}
@@ -112,7 +112,7 @@ func (m *Manager) handleVehicleState(e dispatcher.Event) (any, error) {
 		return nil, nil
 	}
 
-	obj, err := m.deps.HandlerService.LogVehicleState(e.Args)
+	obj, err := m.deps.ParserService.ParseVehicleState(e.Args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to log vehicle state: %w", err)
 	}
@@ -129,7 +129,7 @@ func (m *Manager) handleVehicleState(e dispatcher.Event) (any, error) {
 
 func (m *Manager) handleProjectileEvent(e dispatcher.Event) (any, error) {
 	if m.hasBackend() {
-		obj, err := m.deps.HandlerService.LogProjectileEvent(e.Args)
+		obj, err := m.deps.ParserService.ParseProjectileEvent(e.Args)
 		if err != nil {
 			return nil, fmt.Errorf("failed to log projectile event: %w", err)
 		}
@@ -143,7 +143,7 @@ func (m *Manager) handleProjectileEvent(e dispatcher.Event) (any, error) {
 		return nil, nil
 	}
 
-	obj, err := m.deps.HandlerService.LogProjectileEvent(e.Args)
+	obj, err := m.deps.ParserService.ParseProjectileEvent(e.Args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to log projectile event: %w", err)
 	}
@@ -157,7 +157,7 @@ func (m *Manager) handleGeneralEvent(e dispatcher.Event) (any, error) {
 		return nil, nil
 	}
 
-	obj, err := m.deps.HandlerService.LogGeneralEvent(e.Args)
+	obj, err := m.deps.ParserService.ParseGeneralEvent(e.Args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to log general event: %w", err)
 	}
@@ -177,7 +177,7 @@ func (m *Manager) handleKillEvent(e dispatcher.Event) (any, error) {
 		return nil, nil
 	}
 
-	obj, err := m.deps.HandlerService.LogKillEvent(e.Args)
+	obj, err := m.deps.ParserService.ParseKillEvent(e.Args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to log kill event: %w", err)
 	}
@@ -197,7 +197,7 @@ func (m *Manager) handleChatEvent(e dispatcher.Event) (any, error) {
 		return nil, nil
 	}
 
-	obj, err := m.deps.HandlerService.LogChatEvent(e.Args)
+	obj, err := m.deps.ParserService.ParseChatEvent(e.Args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to log chat event: %w", err)
 	}
@@ -217,7 +217,7 @@ func (m *Manager) handleRadioEvent(e dispatcher.Event) (any, error) {
 		return nil, nil
 	}
 
-	obj, err := m.deps.HandlerService.LogRadioEvent(e.Args)
+	obj, err := m.deps.ParserService.ParseRadioEvent(e.Args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to log radio event: %w", err)
 	}
@@ -237,7 +237,7 @@ func (m *Manager) handleFpsEvent(e dispatcher.Event) (any, error) {
 		return nil, nil
 	}
 
-	obj, err := m.deps.HandlerService.LogFpsEvent(e.Args)
+	obj, err := m.deps.ParserService.ParseFpsEvent(e.Args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to log fps event: %w", err)
 	}
@@ -257,7 +257,7 @@ func (m *Manager) handleAce3DeathEvent(e dispatcher.Event) (any, error) {
 		return nil, nil
 	}
 
-	obj, err := m.deps.HandlerService.LogAce3DeathEvent(e.Args)
+	obj, err := m.deps.ParserService.ParseAce3DeathEvent(e.Args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to log ace3 death event: %w", err)
 	}
@@ -277,7 +277,7 @@ func (m *Manager) handleAce3UnconsciousEvent(e dispatcher.Event) (any, error) {
 		return nil, nil
 	}
 
-	obj, err := m.deps.HandlerService.LogAce3UnconsciousEvent(e.Args)
+	obj, err := m.deps.ParserService.ParseAce3UnconsciousEvent(e.Args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to log ace3 unconscious event: %w", err)
 	}
@@ -297,7 +297,7 @@ func (m *Manager) handleMarkerCreate(e dispatcher.Event) (any, error) {
 		return nil, nil
 	}
 
-	marker, err := m.deps.HandlerService.LogMarkerCreate(e.Args)
+	marker, err := m.deps.ParserService.ParseMarkerCreate(e.Args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create marker: %w", err)
 	}
@@ -319,7 +319,7 @@ func (m *Manager) handleMarkerMove(e dispatcher.Event) (any, error) {
 		return nil, nil
 	}
 
-	markerState, err := m.deps.HandlerService.LogMarkerMove(e.Args)
+	markerState, err := m.deps.ParserService.ParseMarkerMove(e.Args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to log marker move: %w", err)
 	}
@@ -339,7 +339,7 @@ func (m *Manager) handleMarkerDelete(e dispatcher.Event) (any, error) {
 		return nil, nil
 	}
 
-	markerName, frameNo, err := m.deps.HandlerService.LogMarkerDelete(e.Args)
+	markerName, frameNo, err := m.deps.ParserService.ParseMarkerDelete(e.Args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete marker: %w", err)
 	}
@@ -352,7 +352,7 @@ func (m *Manager) handleMarkerDelete(e dispatcher.Event) (any, error) {
 	markerID, ok := m.deps.MarkerCache.Get(markerName)
 	if ok {
 		deleteState := model.MarkerState{
-			MissionID:    m.deps.HandlerService.GetMissionContext().GetMission().ID,
+			MissionID:    m.deps.ParserService.GetMissionContext().GetMission().ID,
 			MarkerID:     markerID,
 			CaptureFrame: frameNo,
 			Time:         time.Now(),

@@ -1,4 +1,4 @@
-package handlers
+package parser
 
 import (
 	"database/sql"
@@ -92,7 +92,7 @@ func (mc *MissionContext) SetMission(mission *model.Mission, world *model.World)
 	mc.World = world
 }
 
-// Dependencies holds all dependencies needed by handlers
+// Dependencies holds all dependencies needed by the parser
 type Dependencies struct {
 	DB               *gorm.DB
 	EntityCache      *cache.EntityCache
@@ -103,17 +103,17 @@ type Dependencies struct {
 	ExtensionVersion string
 }
 
-// Service provides handler methods for processing game data
-type Service struct {
+// Parser provides methods for parsing game data into model structs
+type Parser struct {
 	deps         Dependencies
 	ctx          *MissionContext
 	writeLogFunc func(functionName, data, level string)
 	backend      storage.Backend
 }
 
-// NewService creates a new handler service
-func NewService(deps Dependencies, ctx *MissionContext) *Service {
-	s := &Service{
+// NewParser creates a new parser
+func NewParser(deps Dependencies, ctx *MissionContext) *Parser {
+	s := &Parser{
 		deps: deps,
 		ctx:  ctx,
 	}
@@ -127,21 +127,21 @@ func NewService(deps Dependencies, ctx *MissionContext) *Service {
 }
 
 // GetMissionContext returns the mission context
-func (s *Service) GetMissionContext() *MissionContext {
+func (s *Parser) GetMissionContext() *MissionContext {
 	return s.ctx
 }
 
 // SetBackend sets the storage backend for mission start/end handling
-func (s *Service) SetBackend(b storage.Backend) {
+func (s *Parser) SetBackend(b storage.Backend) {
 	s.backend = b
 }
 
-func (s *Service) writeLog(functionName, data, level string) {
+func (s *Parser) writeLog(functionName, data, level string) {
 	s.writeLogFunc(functionName, data, level)
 }
 
-// LogNewMission logs a new mission to the database
-func (s *Service) LogNewMission(data []string) error {
+// InitMission logs a new mission to the database
+func (s *Parser) InitMission(data []string) error {
 	functionName := ":NEW:MISSION:"
 
 	// fix received data
@@ -306,8 +306,8 @@ func (s *Service) LogNewMission(data []string) error {
 	return nil
 }
 
-// LogNewSoldier parses soldier data and returns a Soldier model
-func (s *Service) LogNewSoldier(data []string) (model.Soldier, error) {
+// ParseSoldier parses soldier data and returns a Soldier model
+func (s *Parser) ParseSoldier(data []string) (model.Soldier, error) {
 	functionName := ":NEW:SOLDIER:"
 	var soldier model.Soldier
 
@@ -361,8 +361,8 @@ func (s *Service) LogNewSoldier(data []string) (model.Soldier, error) {
 	return soldier, nil
 }
 
-// LogSoldierState parses soldier state data and returns a SoldierState model
-func (s *Service) LogSoldierState(data []string) (model.SoldierState, error) {
+// ParseSoldierState parses soldier state data and returns a SoldierState model
+func (s *Parser) ParseSoldierState(data []string) (model.SoldierState, error) {
 	functionName := ":NEW:SOLDIER:STATE:"
 	var soldierState model.SoldierState
 
@@ -494,8 +494,8 @@ func (s *Service) LogSoldierState(data []string) (model.SoldierState, error) {
 	return soldierState, nil
 }
 
-// LogNewVehicle parses vehicle data and returns a Vehicle model
-func (s *Service) LogNewVehicle(data []string) (model.Vehicle, error) {
+// ParseVehicle parses vehicle data and returns a Vehicle model
+func (s *Parser) ParseVehicle(data []string) (model.Vehicle, error) {
 	functionName := ":NEW:VEHICLE:"
 	var vehicle model.Vehicle
 
@@ -531,8 +531,8 @@ func (s *Service) LogNewVehicle(data []string) (model.Vehicle, error) {
 	return vehicle, nil
 }
 
-// LogVehicleState parses vehicle state data and returns a VehicleState model
-func (s *Service) LogVehicleState(data []string) (model.VehicleState, error) {
+// ParseVehicleState parses vehicle state data and returns a VehicleState model
+func (s *Parser) ParseVehicleState(data []string) (model.VehicleState, error) {
 	functionName := ":NEW:VEHICLE:STATE:"
 	var vehicleState model.VehicleState
 
@@ -638,7 +638,7 @@ func (s *Service) LogVehicleState(data []string) (model.VehicleState, error) {
 	return vehicleState, nil
 }
 
-// LogProjectileEvent parses projectile event data and returns a ProjectileEvent model
+// ParseProjectileEvent parses projectile event data and returns a ProjectileEvent model
 // New SQF array format (indices):
 //
 //	0:  firedFrame (uint)
@@ -661,7 +661,7 @@ func (s *Service) LogVehicleState(data []string) (model.VehicleState, error) {
 //	17: sim (string - simulation type, required: "shotBullet", "shotGrenade", "shotRocket", "shotMissile", "shotShell", etc.)
 //	18: isSub (bool - is submunition)
 //	19: magazineIcon (string - path to magazine icon texture)
-func (s *Service) LogProjectileEvent(data []string) (model.ProjectileEvent, error) {
+func (s *Parser) ParseProjectileEvent(data []string) (model.ProjectileEvent, error) {
 	var projectileEvent model.ProjectileEvent
 	logger := s.deps.LogManager.Logger()
 
@@ -878,8 +878,8 @@ func (s *Service) LogProjectileEvent(data []string) (model.ProjectileEvent, erro
 	return projectileEvent, nil
 }
 
-// LogGeneralEvent parses general event data and returns a GeneralEvent model
-func (s *Service) LogGeneralEvent(data []string) (model.GeneralEvent, error) {
+// ParseGeneralEvent parses general event data and returns a GeneralEvent model
+func (s *Parser) ParseGeneralEvent(data []string) (model.GeneralEvent, error) {
 	functionName := ":EVENT:"
 	var thisEvent model.GeneralEvent
 
@@ -921,8 +921,8 @@ func (s *Service) LogGeneralEvent(data []string) (model.GeneralEvent, error) {
 	return thisEvent, nil
 }
 
-// LogKillEvent parses kill event data and returns a KillEvent model
-func (s *Service) LogKillEvent(data []string) (model.KillEvent, error) {
+// ParseKillEvent parses kill event data and returns a KillEvent model
+func (s *Parser) ParseKillEvent(data []string) (model.KillEvent, error) {
 	var killEvent model.KillEvent
 
 	// Save weapon array before FixEscapeQuotes — it corrupts SQF array
@@ -991,8 +991,8 @@ func (s *Service) LogKillEvent(data []string) (model.KillEvent, error) {
 	return killEvent, nil
 }
 
-// LogChatEvent parses chat event data and returns a ChatEvent model
-func (s *Service) LogChatEvent(data []string) (model.ChatEvent, error) {
+// ParseChatEvent parses chat event data and returns a ChatEvent model
+func (s *Parser) ParseChatEvent(data []string) (model.ChatEvent, error) {
 	var chatEvent model.ChatEvent
 
 	// fix received data
@@ -1057,8 +1057,8 @@ func (s *Service) LogChatEvent(data []string) (model.ChatEvent, error) {
 	return chatEvent, nil
 }
 
-// LogRadioEvent parses radio event data and returns a RadioEvent model
-func (s *Service) LogRadioEvent(data []string) (model.RadioEvent, error) {
+// ParseRadioEvent parses radio event data and returns a RadioEvent model
+func (s *Parser) ParseRadioEvent(data []string) (model.RadioEvent, error) {
 	var radioEvent model.RadioEvent
 
 	// fix received data
@@ -1123,8 +1123,8 @@ func (s *Service) LogRadioEvent(data []string) (model.RadioEvent, error) {
 	return radioEvent, nil
 }
 
-// LogFpsEvent parses FPS event data and returns a ServerFpsEvent model
-func (s *Service) LogFpsEvent(data []string) (model.ServerFpsEvent, error) {
+// ParseFpsEvent parses FPS event data and returns a ServerFpsEvent model
+func (s *Parser) ParseFpsEvent(data []string) (model.ServerFpsEvent, error) {
 	var fpsEvent model.ServerFpsEvent
 
 	// fix received data
@@ -1159,9 +1159,9 @@ func (s *Service) LogFpsEvent(data []string) (model.ServerFpsEvent, error) {
 	return fpsEvent, nil
 }
 
-// LogTimeState parses time state data and returns a TimeState model
+// ParseTimeState parses time state data and returns a TimeState model
 // Args: [frameNo, systemTimeUTC, missionDateTime, timeMultiplier, missionTime]
-func (s *Service) LogTimeState(data []string) (model.TimeState, error) {
+func (s *Parser) ParseTimeState(data []string) (model.TimeState, error) {
 	var timeState model.TimeState
 
 	// fix received data
@@ -1203,8 +1203,8 @@ func (s *Service) LogTimeState(data []string) (model.TimeState, error) {
 	return timeState, nil
 }
 
-// LogAce3DeathEvent parses ACE3 death event data and returns an Ace3DeathEvent model
-func (s *Service) LogAce3DeathEvent(data []string) (model.Ace3DeathEvent, error) {
+// ParseAce3DeathEvent parses ACE3 death event data and returns an Ace3DeathEvent model
+func (s *Parser) ParseAce3DeathEvent(data []string) (model.Ace3DeathEvent, error) {
 	var deathEvent model.Ace3DeathEvent
 
 	// fix received data
@@ -1255,8 +1255,8 @@ func (s *Service) LogAce3DeathEvent(data []string) (model.Ace3DeathEvent, error)
 	return deathEvent, nil
 }
 
-// LogAce3UnconsciousEvent parses ACE3 unconscious event data and returns an Ace3UnconsciousEvent model
-func (s *Service) LogAce3UnconsciousEvent(data []string) (model.Ace3UnconsciousEvent, error) {
+// ParseAce3UnconsciousEvent parses ACE3 unconscious event data and returns an Ace3UnconsciousEvent model
+func (s *Parser) ParseAce3UnconsciousEvent(data []string) (model.Ace3UnconsciousEvent, error) {
 	var unconsciousEvent model.Ace3UnconsciousEvent
 
 	// fix received data
@@ -1295,8 +1295,8 @@ func (s *Service) LogAce3UnconsciousEvent(data []string) (model.Ace3UnconsciousE
 	return unconsciousEvent, nil
 }
 
-// LogMarkerCreate parses marker create data and returns a Marker model
-func (s *Service) LogMarkerCreate(data []string) (model.Marker, error) {
+// ParseMarkerCreate parses marker create data and returns a Marker model
+func (s *Parser) ParseMarkerCreate(data []string) (model.Marker, error) {
 	functionName := ":NEW:MARKER:"
 	var marker model.Marker
 
@@ -1393,8 +1393,8 @@ func (s *Service) LogMarkerCreate(data []string) (model.Marker, error) {
 	return marker, nil
 }
 
-// LogMarkerMove parses marker move data and returns a MarkerState model
-func (s *Service) LogMarkerMove(data []string) (model.MarkerState, error) {
+// ParseMarkerMove parses marker move data and returns a MarkerState model
+func (s *Parser) ParseMarkerMove(data []string) (model.MarkerState, error) {
 	functionName := ":NEW:MARKER:STATE:"
 	var markerState model.MarkerState
 
@@ -1454,8 +1454,8 @@ func (s *Service) LogMarkerMove(data []string) (model.MarkerState, error) {
 	return markerState, nil
 }
 
-// LogMarkerDelete parses marker delete data and returns the marker name and frame number
-func (s *Service) LogMarkerDelete(data []string) (string, uint, error) {
+// ParseMarkerDelete parses marker delete data and returns the marker name and frame number
+func (s *Parser) ParseMarkerDelete(data []string) (string, uint, error) {
 	functionName := ":DELETE:MARKER:"
 
 	// fix received data

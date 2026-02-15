@@ -8,7 +8,7 @@ import (
 
 	"github.com/OCAP2/extension/v5/internal/cache"
 	"github.com/OCAP2/extension/v5/internal/dispatcher"
-	"github.com/OCAP2/extension/v5/internal/handlers"
+	"github.com/OCAP2/extension/v5/internal/parser"
 	"github.com/OCAP2/extension/v5/internal/model"
 	"github.com/OCAP2/extension/v5/internal/model/core"
 	geom "github.com/peterstace/simplefeatures/geom"
@@ -260,8 +260,8 @@ func (b *mockBackend) GetMarkerByName(name string) (*core.Marker, bool) {
 	return nil, false
 }
 
-// mockHandlerService provides a minimal implementation for testing
-type mockHandlerService struct {
+// mockParserService provides a minimal implementation for testing
+type mockParserService struct {
 	mu sync.Mutex
 
 	// Return values
@@ -291,167 +291,167 @@ type mockHandlerService struct {
 	calls []string
 }
 
-func (h *mockHandlerService) LogNewSoldier(args []string) (model.Soldier, error) {
+func (h *mockParserService) ParseSoldier(args []string) (model.Soldier, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.calls = append(h.calls, "LogNewSoldier")
+	h.calls = append(h.calls, "ParseSoldier")
 	if h.returnError {
 		return model.Soldier{}, errors.New(h.errorMsg)
 	}
 	return h.soldier, nil
 }
 
-func (h *mockHandlerService) LogNewVehicle(args []string) (model.Vehicle, error) {
+func (h *mockParserService) ParseVehicle(args []string) (model.Vehicle, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.calls = append(h.calls, "LogNewVehicle")
+	h.calls = append(h.calls, "ParseVehicle")
 	if h.returnError {
 		return model.Vehicle{}, errors.New(h.errorMsg)
 	}
 	return h.vehicle, nil
 }
 
-func (h *mockHandlerService) LogSoldierState(args []string) (model.SoldierState, error) {
+func (h *mockParserService) ParseSoldierState(args []string) (model.SoldierState, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.calls = append(h.calls, "LogSoldierState")
+	h.calls = append(h.calls, "ParseSoldierState")
 	if h.returnError {
 		return model.SoldierState{}, errors.New(h.errorMsg)
 	}
 	return h.soldierState, nil
 }
 
-func (h *mockHandlerService) LogVehicleState(args []string) (model.VehicleState, error) {
+func (h *mockParserService) ParseVehicleState(args []string) (model.VehicleState, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.calls = append(h.calls, "LogVehicleState")
+	h.calls = append(h.calls, "ParseVehicleState")
 	if h.returnError {
 		return model.VehicleState{}, errors.New(h.errorMsg)
 	}
 	return h.vehicleState, nil
 }
 
-func (h *mockHandlerService) LogProjectileEvent(args []string) (model.ProjectileEvent, error) {
+func (h *mockParserService) ParseProjectileEvent(args []string) (model.ProjectileEvent, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.calls = append(h.calls, "LogProjectileEvent")
+	h.calls = append(h.calls, "ParseProjectileEvent")
 	if h.returnError {
 		return model.ProjectileEvent{}, errors.New(h.errorMsg)
 	}
 	return h.projectile, nil
 }
 
-func (h *mockHandlerService) LogGeneralEvent(args []string) (model.GeneralEvent, error) {
+func (h *mockParserService) ParseGeneralEvent(args []string) (model.GeneralEvent, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.calls = append(h.calls, "LogGeneralEvent")
+	h.calls = append(h.calls, "ParseGeneralEvent")
 	if h.returnError {
 		return model.GeneralEvent{}, errors.New(h.errorMsg)
 	}
 	return h.generalEvent, nil
 }
 
-func (h *mockHandlerService) LogKillEvent(args []string) (model.KillEvent, error) {
+func (h *mockParserService) ParseKillEvent(args []string) (model.KillEvent, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.calls = append(h.calls, "LogKillEvent")
+	h.calls = append(h.calls, "ParseKillEvent")
 	if h.returnError {
 		return model.KillEvent{}, errors.New(h.errorMsg)
 	}
 	return h.killEvent, nil
 }
 
-func (h *mockHandlerService) LogChatEvent(args []string) (model.ChatEvent, error) {
+func (h *mockParserService) ParseChatEvent(args []string) (model.ChatEvent, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.calls = append(h.calls, "LogChatEvent")
+	h.calls = append(h.calls, "ParseChatEvent")
 	if h.returnError {
 		return model.ChatEvent{}, errors.New(h.errorMsg)
 	}
 	return h.chatEvent, nil
 }
 
-func (h *mockHandlerService) LogRadioEvent(args []string) (model.RadioEvent, error) {
+func (h *mockParserService) ParseRadioEvent(args []string) (model.RadioEvent, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.calls = append(h.calls, "LogRadioEvent")
+	h.calls = append(h.calls, "ParseRadioEvent")
 	if h.returnError {
 		return model.RadioEvent{}, errors.New(h.errorMsg)
 	}
 	return h.radioEvent, nil
 }
 
-func (h *mockHandlerService) LogFpsEvent(args []string) (model.ServerFpsEvent, error) {
+func (h *mockParserService) ParseFpsEvent(args []string) (model.ServerFpsEvent, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.calls = append(h.calls, "LogFpsEvent")
+	h.calls = append(h.calls, "ParseFpsEvent")
 	if h.returnError {
 		return model.ServerFpsEvent{}, errors.New(h.errorMsg)
 	}
 	return h.fpsEvent, nil
 }
 
-func (h *mockHandlerService) LogTimeState(args []string) (model.TimeState, error) {
+func (h *mockParserService) ParseTimeState(args []string) (model.TimeState, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.calls = append(h.calls, "LogTimeState")
+	h.calls = append(h.calls, "ParseTimeState")
 	if h.returnError {
 		return model.TimeState{}, errors.New(h.errorMsg)
 	}
 	return h.timeState, nil
 }
 
-func (h *mockHandlerService) LogAce3DeathEvent(args []string) (model.Ace3DeathEvent, error) {
+func (h *mockParserService) ParseAce3DeathEvent(args []string) (model.Ace3DeathEvent, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.calls = append(h.calls, "LogAce3DeathEvent")
+	h.calls = append(h.calls, "ParseAce3DeathEvent")
 	if h.returnError {
 		return model.Ace3DeathEvent{}, errors.New(h.errorMsg)
 	}
 	return h.ace3Death, nil
 }
 
-func (h *mockHandlerService) LogAce3UnconsciousEvent(args []string) (model.Ace3UnconsciousEvent, error) {
+func (h *mockParserService) ParseAce3UnconsciousEvent(args []string) (model.Ace3UnconsciousEvent, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.calls = append(h.calls, "LogAce3UnconsciousEvent")
+	h.calls = append(h.calls, "ParseAce3UnconsciousEvent")
 	if h.returnError {
 		return model.Ace3UnconsciousEvent{}, errors.New(h.errorMsg)
 	}
 	return h.ace3Uncon, nil
 }
 
-func (h *mockHandlerService) LogMarkerCreate(args []string) (model.Marker, error) {
+func (h *mockParserService) ParseMarkerCreate(args []string) (model.Marker, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.calls = append(h.calls, "LogMarkerCreate")
+	h.calls = append(h.calls, "ParseMarkerCreate")
 	if h.returnError {
 		return model.Marker{}, errors.New(h.errorMsg)
 	}
 	return h.marker, nil
 }
 
-func (h *mockHandlerService) LogMarkerMove(args []string) (model.MarkerState, error) {
+func (h *mockParserService) ParseMarkerMove(args []string) (model.MarkerState, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.calls = append(h.calls, "LogMarkerMove")
+	h.calls = append(h.calls, "ParseMarkerMove")
 	if h.returnError {
 		return model.MarkerState{}, errors.New(h.errorMsg)
 	}
 	return h.markerState, nil
 }
 
-func (h *mockHandlerService) LogMarkerDelete(args []string) (string, uint, error) {
+func (h *mockParserService) ParseMarkerDelete(args []string) (string, uint, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.calls = append(h.calls, "LogMarkerDelete")
+	h.calls = append(h.calls, "ParseMarkerDelete")
 	if h.returnError {
 		return "", 0, errors.New(h.errorMsg)
 	}
 	return h.deletedMarker, h.deleteFrame, nil
 }
 
-func (h *mockHandlerService) GetMissionContext() *handlers.MissionContext {
+func (h *mockParserService) GetMissionContext() *parser.MissionContext {
 	return nil
 }
 
@@ -574,7 +574,7 @@ func TestHandleNewSoldier_CachesEntityWithBackend(t *testing.T) {
 	d, _ := newTestDispatcher(t)
 	entityCache := cache.NewEntityCache()
 
-	handlerService := &mockHandlerService{
+	parserService := &mockParserService{
 		soldier: model.Soldier{ObjectID: 42, UnitName: "Test Soldier"},
 	}
 
@@ -582,7 +582,7 @@ func TestHandleNewSoldier_CachesEntityWithBackend(t *testing.T) {
 		IsDatabaseValid:  func() bool { return false },
 		ShouldSaveLocal:  func() bool { return false },
 		DBInsertsPaused:  func() bool { return false },
-		HandlerService:   handlerService,
+		ParserService:   parserService,
 		EntityCache:      entityCache,
 	}
 	queues := NewQueues()
@@ -611,7 +611,7 @@ func TestHandleNewVehicle_CachesEntityWithBackend(t *testing.T) {
 	d, _ := newTestDispatcher(t)
 	entityCache := cache.NewEntityCache()
 
-	handlerService := &mockHandlerService{
+	parserService := &mockParserService{
 		vehicle: model.Vehicle{ObjectID: 99, OcapType: "car"},
 	}
 
@@ -619,7 +619,7 @@ func TestHandleNewVehicle_CachesEntityWithBackend(t *testing.T) {
 		IsDatabaseValid:  func() bool { return false },
 		ShouldSaveLocal:  func() bool { return false },
 		DBInsertsPaused:  func() bool { return false },
-		HandlerService:   handlerService,
+		ParserService:   parserService,
 		EntityCache:      entityCache,
 	}
 	queues := NewQueues()
@@ -648,7 +648,7 @@ func TestHandleNewSoldier_CachesEntityWithoutBackend(t *testing.T) {
 	d, _ := newTestDispatcher(t)
 	entityCache := cache.NewEntityCache()
 
-	handlerService := &mockHandlerService{
+	parserService := &mockParserService{
 		soldier: model.Soldier{ObjectID: 55, UnitName: "Queue Soldier"},
 	}
 
@@ -656,7 +656,7 @@ func TestHandleNewSoldier_CachesEntityWithoutBackend(t *testing.T) {
 		IsDatabaseValid:  func() bool { return true }, // DB valid, no backend
 		ShouldSaveLocal:  func() bool { return false },
 		DBInsertsPaused:  func() bool { return false },
-		HandlerService:   handlerService,
+		ParserService:   parserService,
 		EntityCache:      entityCache,
 	}
 	queues := NewQueues()
@@ -690,7 +690,7 @@ func TestHandleProjectile_RecordsProjectileEvent(t *testing.T) {
 	seq := geom.NewSequence(coords, geom.DimXYZM)
 	ls := geom.NewLineString(seq)
 
-	handlerService := &mockHandlerService{
+	parserService := &mockParserService{
 		projectile: model.ProjectileEvent{
 			MissionID:       1,
 			FirerObjectID:   1,
@@ -708,7 +708,7 @@ func TestHandleProjectile_RecordsProjectileEvent(t *testing.T) {
 		IsDatabaseValid: func() bool { return false },
 		ShouldSaveLocal: func() bool { return false },
 		DBInsertsPaused: func() bool { return false },
-		HandlerService:  handlerService,
+		ParserService:  parserService,
 		EntityCache:     cache.NewEntityCache(),
 		MarkerCache:     cache.NewMarkerCache(),
 	}
@@ -770,7 +770,7 @@ func TestHandleMarkerDelete_WithBackend(t *testing.T) {
 	d, _ := newTestDispatcher(t)
 	markerCache := cache.NewMarkerCache()
 
-	handlerService := &mockHandlerService{
+	parserService := &mockParserService{
 		marker:        model.Marker{MarkerName: "Projectile#123"},
 		deletedMarker: "Projectile#123",
 		deleteFrame:   500,
@@ -780,7 +780,7 @@ func TestHandleMarkerDelete_WithBackend(t *testing.T) {
 		IsDatabaseValid: func() bool { return false },
 		ShouldSaveLocal: func() bool { return false },
 		DBInsertsPaused: func() bool { return false },
-		HandlerService:  handlerService,
+		ParserService:  parserService,
 		EntityCache:     cache.NewEntityCache(),
 		MarkerCache:     markerCache,
 	}

@@ -1,4 +1,4 @@
-package handlers
+package parser
 
 import (
 	"testing"
@@ -60,7 +60,7 @@ func (b *mockBackend) EndMission() error {
 
 var _ storage.Backend = (*mockBackend)(nil)
 
-func newTestService() *Service {
+func newTestParser() *Parser {
 	logManager := logging.NewSlogManager()
 	logManager.Setup(nil, "info", nil)
 
@@ -75,18 +75,18 @@ func newTestService() *Service {
 	}
 
 	ctx := NewMissionContext()
-	return NewService(deps, ctx)
+	return NewParser(deps, ctx)
 }
 
-func TestNewService_NilDB(t *testing.T) {
-	svc := newTestService()
+func TestNewParser_NilDB(t *testing.T) {
+	svc := newTestParser()
 
 	require.NotNil(t, svc)
 	assert.Nil(t, svc.deps.DB)
 }
 
 func TestSetBackend(t *testing.T) {
-	svc := newTestService()
+	svc := newTestParser()
 
 	backend := &mockBackend{}
 	svc.SetBackend(backend)
@@ -94,8 +94,8 @@ func TestSetBackend(t *testing.T) {
 	assert.NotNil(t, svc.backend)
 }
 
-func TestLogNewMission_MemoryOnlyMode(t *testing.T) {
-	svc := newTestService()
+func TestInitMission_MemoryOnlyMode(t *testing.T) {
+	svc := newTestParser()
 	backend := &mockBackend{}
 	svc.SetBackend(backend)
 
@@ -115,7 +115,7 @@ func TestLogNewMission_MemoryOnlyMode(t *testing.T) {
 		"sideFriendly":[false,false,true]
 	}`
 
-	err := svc.LogNewMission([]string{worldData, missionData})
+	err := svc.InitMission([]string{worldData, missionData})
 
 	require.NoError(t, err)
 
@@ -132,8 +132,8 @@ func TestLogNewMission_MemoryOnlyMode(t *testing.T) {
 	assert.NotNil(t, backend.startedWorld, "expected world to be passed to backend")
 }
 
-func TestLogNewMission_MemoryOnlyMode_NoBackend(t *testing.T) {
-	svc := newTestService()
+func TestInitMission_MemoryOnlyMode_NoBackend(t *testing.T) {
+	svc := newTestParser()
 	// No backend set
 
 	worldData := `{"worldName":"Stratis","displayName":"Stratis","worldSize":8192,"latitude":-40.0,"longitude":30.0}`
@@ -152,7 +152,7 @@ func TestLogNewMission_MemoryOnlyMode_NoBackend(t *testing.T) {
 		"sideFriendly":[false,false,false]
 	}`
 
-	err := svc.LogNewMission([]string{worldData, missionData})
+	err := svc.InitMission([]string{worldData, missionData})
 
 	require.NoError(t, err)
 
@@ -161,8 +161,8 @@ func TestLogNewMission_MemoryOnlyMode_NoBackend(t *testing.T) {
 	assert.Equal(t, "No Backend Mission", mission.MissionName)
 }
 
-func TestLogNewMission_AddonsWithoutDB(t *testing.T) {
-	svc := newTestService()
+func TestInitMission_AddonsWithoutDB(t *testing.T) {
+	svc := newTestParser()
 
 	worldData := `{"worldName":"Tanoa","displayName":"Tanoa","worldSize":15360,"latitude":-40.0,"longitude":30.0}`
 	missionData := `{
@@ -180,7 +180,7 @@ func TestLogNewMission_AddonsWithoutDB(t *testing.T) {
 		"sideFriendly":[false,false,false]
 	}`
 
-	err := svc.LogNewMission([]string{worldData, missionData})
+	err := svc.InitMission([]string{worldData, missionData})
 
 	require.NoError(t, err)
 
@@ -189,8 +189,8 @@ func TestLogNewMission_AddonsWithoutDB(t *testing.T) {
 	assert.Len(t, mission.Addons, 3)
 }
 
-func TestLogVehicleState_CrewPreservesBrackets(t *testing.T) {
-	svc := newTestService()
+func TestParseVehicleState_CrewPreservesBrackets(t *testing.T) {
+	svc := newTestParser()
 	svc.SetBackend(&mockBackend{})
 
 	// Set up mission context
@@ -198,7 +198,7 @@ func TestLogVehicleState_CrewPreservesBrackets(t *testing.T) {
 	mission.ID = 1
 	svc.ctx.SetMission(mission, &model.World{})
 
-	// Add a vehicle to the entity cache so LogVehicleState can find it
+	// Add a vehicle to the entity cache so ParseVehicleState can find it
 	svc.deps.EntityCache.AddVehicle(model.Vehicle{ObjectID: 10, MissionID: 1})
 
 	tests := []struct {
@@ -233,7 +233,7 @@ func TestLogVehicleState_CrewPreservesBrackets(t *testing.T) {
 				"10.0",              // 14: turretElevation
 			}
 
-			state, err := svc.LogVehicleState(data)
+			state, err := svc.ParseVehicleState(data)
 			require.NoError(t, err)
 
 			assert.Equal(t, tt.expectedCrew, state.Crew)
@@ -241,8 +241,8 @@ func TestLogVehicleState_CrewPreservesBrackets(t *testing.T) {
 	}
 }
 
-func TestLogSoldierState_ScoresParsingPanic(t *testing.T) {
-	svc := newTestService()
+func TestParseSoldierState_ScoresParsingPanic(t *testing.T) {
+	svc := newTestParser()
 	svc.SetBackend(&mockBackend{})
 
 	// Set up mission context
@@ -250,7 +250,7 @@ func TestLogSoldierState_ScoresParsingPanic(t *testing.T) {
 	mission.ID = 1
 	svc.ctx.SetMission(mission, &model.World{})
 
-	// Add a soldier to the entity cache so LogSoldierState can find it
+	// Add a soldier to the entity cache so ParseSoldierState can find it
 	svc.deps.EntityCache.AddSoldier(model.Soldier{ObjectID: 42, MissionID: 1})
 
 	// Base data shared by all subtests: 15 fields matching the expected format
@@ -322,7 +322,7 @@ func TestLogSoldierState_ScoresParsingPanic(t *testing.T) {
 			data := makeData(tt.isPlayer, tt.scores)
 
 			// Must not panic
-			state, err := svc.LogSoldierState(data)
+			state, err := svc.ParseSoldierState(data)
 			require.NoError(t, err)
 
 			assert.Equal(t, tt.expectScores, state.Scores)
@@ -393,8 +393,8 @@ func TestParseIntFromFloat(t *testing.T) {
 	}
 }
 
-func TestLogSoldierState_GroupAndSide(t *testing.T) {
-	svc := newTestService()
+func TestParseSoldierState_GroupAndSide(t *testing.T) {
+	svc := newTestParser()
 	svc.SetBackend(&mockBackend{})
 
 	mission := &model.Mission{}
@@ -426,22 +426,22 @@ func TestLogSoldierState_GroupAndSide(t *testing.T) {
 
 	t.Run("17 fields parses group and side", func(t *testing.T) {
 		data := append(append([]string{}, baseData...), "Alpha 1-1", "EAST")
-		state, err := svc.LogSoldierState(data)
+		state, err := svc.ParseSoldierState(data)
 		require.NoError(t, err)
 		assert.Equal(t, "Alpha 1-1", state.GroupID)
 		assert.Equal(t, "EAST", state.Side)
 	})
 
 	t.Run("15 fields falls back to initial soldier data", func(t *testing.T) {
-		state, err := svc.LogSoldierState(append([]string{}, baseData...))
+		state, err := svc.ParseSoldierState(append([]string{}, baseData...))
 		require.NoError(t, err)
 		assert.Equal(t, "InitGroup", state.GroupID)
 		assert.Equal(t, "WEST", state.Side)
 	})
 }
 
-func TestLogVehicleState_FloatOcapId(t *testing.T) {
-	svc := newTestService()
+func TestParseVehicleState_FloatOcapId(t *testing.T) {
+	svc := newTestParser()
 	svc.SetBackend(&mockBackend{})
 
 	mission := &model.Mission{}
@@ -469,13 +469,13 @@ func TestLogVehicleState_FloatOcapId(t *testing.T) {
 		"0",                  // 14: turretElevation
 	}
 
-	state, err := svc.LogVehicleState(data)
+	state, err := svc.ParseVehicleState(data)
 	require.NoError(t, err)
 	assert.Equal(t, uint16(32), state.VehicleObjectID)
 }
 
-func TestLogSoldierState_FloatOcapId(t *testing.T) {
-	svc := newTestService()
+func TestParseSoldierState_FloatOcapId(t *testing.T) {
+	svc := newTestParser()
 	svc.SetBackend(&mockBackend{})
 
 	mission := &model.Mission{}
@@ -502,13 +502,13 @@ func TestLogSoldierState_FloatOcapId(t *testing.T) {
 		"STAND",              // 14: stance
 	}
 
-	state, err := svc.LogSoldierState(data)
+	state, err := svc.ParseSoldierState(data)
 	require.NoError(t, err)
 	assert.Equal(t, uint16(30), state.SoldierObjectID)
 }
 
-func TestLogKillEvent_EmptyWeaponArray(t *testing.T) {
-	svc := newTestService()
+func TestParseKillEvent_EmptyWeaponArray(t *testing.T) {
+	svc := newTestParser()
 
 	mission := &model.Mission{}
 	mission.ID = 1
@@ -561,7 +561,7 @@ func TestLogKillEvent_EmptyWeaponArray(t *testing.T) {
 				"0",         // 4: distance
 			}
 
-			killEvent, err := svc.LogKillEvent(data)
+			killEvent, err := svc.ParseKillEvent(data)
 			require.NoError(t, err)
 
 			assert.Equal(t, tt.wantVehicle, killEvent.WeaponVehicle)

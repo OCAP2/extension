@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/OCAP2/extension/v5/internal/cache"
-	"github.com/OCAP2/extension/v5/internal/handlers"
+	"github.com/OCAP2/extension/v5/internal/parser"
 	"github.com/OCAP2/extension/v5/internal/logging"
 	"github.com/OCAP2/extension/v5/internal/model"
 	"github.com/OCAP2/extension/v5/internal/queue"
@@ -17,25 +17,25 @@ import (
 // ErrTooEarlyForStateAssociation is returned when state data arrives before entity is registered
 var ErrTooEarlyForStateAssociation = fmt.Errorf("too early for state association")
 
-// HandlerService defines the interface for event handlers
-type HandlerService interface {
-	LogNewSoldier(args []string) (model.Soldier, error)
-	LogNewVehicle(args []string) (model.Vehicle, error)
-	LogSoldierState(args []string) (model.SoldierState, error)
-	LogVehicleState(args []string) (model.VehicleState, error)
-	LogProjectileEvent(args []string) (model.ProjectileEvent, error)
-	LogGeneralEvent(args []string) (model.GeneralEvent, error)
-	LogKillEvent(args []string) (model.KillEvent, error)
-	LogChatEvent(args []string) (model.ChatEvent, error)
-	LogRadioEvent(args []string) (model.RadioEvent, error)
-	LogFpsEvent(args []string) (model.ServerFpsEvent, error)
-	LogTimeState(args []string) (model.TimeState, error)
-	LogAce3DeathEvent(args []string) (model.Ace3DeathEvent, error)
-	LogAce3UnconsciousEvent(args []string) (model.Ace3UnconsciousEvent, error)
-	LogMarkerCreate(args []string) (model.Marker, error)
-	LogMarkerMove(args []string) (model.MarkerState, error)
-	LogMarkerDelete(args []string) (string, uint, error)
-	GetMissionContext() *handlers.MissionContext
+// ParserService defines the interface for data parsers
+type ParserService interface {
+	ParseSoldier(args []string) (model.Soldier, error)
+	ParseVehicle(args []string) (model.Vehicle, error)
+	ParseSoldierState(args []string) (model.SoldierState, error)
+	ParseVehicleState(args []string) (model.VehicleState, error)
+	ParseProjectileEvent(args []string) (model.ProjectileEvent, error)
+	ParseGeneralEvent(args []string) (model.GeneralEvent, error)
+	ParseKillEvent(args []string) (model.KillEvent, error)
+	ParseChatEvent(args []string) (model.ChatEvent, error)
+	ParseRadioEvent(args []string) (model.RadioEvent, error)
+	ParseFpsEvent(args []string) (model.ServerFpsEvent, error)
+	ParseTimeState(args []string) (model.TimeState, error)
+	ParseAce3DeathEvent(args []string) (model.Ace3DeathEvent, error)
+	ParseAce3UnconsciousEvent(args []string) (model.Ace3UnconsciousEvent, error)
+	ParseMarkerCreate(args []string) (model.Marker, error)
+	ParseMarkerMove(args []string) (model.MarkerState, error)
+	ParseMarkerDelete(args []string) (string, uint, error)
+	GetMissionContext() *parser.MissionContext
 }
 
 // Queues holds all the write queues
@@ -82,7 +82,7 @@ type Dependencies struct {
 	EntityCache     *cache.EntityCache
 	MarkerCache     *cache.MarkerCache
 	LogManager      *logging.SlogManager
-	HandlerService  HandlerService
+	ParserService   ParserService
 	IsDatabaseValid func() bool
 	ShouldSaveLocal func() bool
 	DBInsertsPaused func() bool
