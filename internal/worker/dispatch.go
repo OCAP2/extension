@@ -213,6 +213,8 @@ func (m *Manager) classifyHitParts(parsed *parser.ParsedProjectileEvent) {
 				Position:        hp.Position,
 				ComponentsHit:   datatypes.JSON(hp.ComponentsHit),
 			})
+		} else {
+			m.deps.LogManager.Logger().Warn("Hit entity not found in cache", "hitEntityID", hp.EntityID)
 		}
 	}
 }
@@ -252,6 +254,8 @@ func (m *Manager) handleKillEvent(e dispatcher.Event) (any, error) {
 		parsed.Event.VictimSoldierObjectID = sql.NullInt32{Int32: int32(parsed.VictimID), Valid: true}
 	} else if _, ok := m.deps.EntityCache.GetVehicle(parsed.VictimID); ok {
 		parsed.Event.VictimVehicleObjectID = sql.NullInt32{Int32: int32(parsed.VictimID), Valid: true}
+	} else {
+		m.deps.LogManager.Logger().Warn("Kill event victim not found in cache", "victimID", parsed.VictimID)
 	}
 
 	// Classify killer as soldier or vehicle
@@ -259,6 +263,8 @@ func (m *Manager) handleKillEvent(e dispatcher.Event) (any, error) {
 		parsed.Event.KillerSoldierObjectID = sql.NullInt32{Int32: int32(parsed.KillerID), Valid: true}
 	} else if _, ok := m.deps.EntityCache.GetVehicle(parsed.KillerID); ok {
 		parsed.Event.KillerVehicleObjectID = sql.NullInt32{Int32: int32(parsed.KillerID), Valid: true}
+	} else {
+		m.deps.LogManager.Logger().Warn("Kill event killer not found in cache", "killerID", parsed.KillerID)
 	}
 
 	obj := parsed.Event

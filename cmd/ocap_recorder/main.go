@@ -775,6 +775,79 @@ func migrateTable[M any](
 	return nil
 }
 
+// handleNewMission handles the :NEW:MISSION: command: parses mission data,
+// persists to DB, sets runtime state, and notifies the backend.
+func handleNewMission(e dispatcher.Event) (any, error) {
+	if parserService == nil {
+		return nil, nil
+	}
+
+	// 1. Parse
+	mission, world, err := parserService.ParseMission(e.Args)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. DB operations (addon lookup/create, world get/insert, mission create)
+	if DB != nil {
+		for i, addon := range mission.Addons {
+			err = DB.Where("name = ?", addon.Name).First(&mission.Addons[i]).Error
+			if err != nil {
+				if err == gorm.ErrRecordNotFound {
+					if err = DB.Create(&mission.Addons[i]).Error; err != nil {
+						Logger.Error("Failed to create addon", "error", err, "name", addon.Name)
+						return nil, err
+					}
+				} else {
+					Logger.Error("Failed to check addon", "error", err, "name", addon.Name)
+					return nil, err
+				}
+			}
+		}
+
+		created, err := world.GetOrInsert(DB)
+		if err != nil {
+			Logger.Error("Failed to get or insert world", "error", err)
+			return nil, err
+		}
+		if created {
+			Logger.Debug("New world inserted", "worldName", world.WorldName)
+		}
+
+		mission.World = world
+		if err = DB.Create(&mission).Error; err != nil {
+			Logger.Error("Failed to insert new mission", "error", err)
+			return nil, err
+		}
+	} else {
+		mission.World = world
+		Logger.Debug("Memory-only mode: mission context set without DB persistence", "missionName", mission.MissionName)
+	}
+
+	// 3. Set mission context + parser state
+	missionCtx.SetMission(&mission, &world)
+	parserService.SetMission(&mission)
+
+	// 4. Reset caches
+	MarkerCache.Reset()
+	EntityCache.Reset()
+
+	// 5. Start backend
+	if storageBackend != nil {
+		coreMission := convert.MissionToCore(&mission)
+		coreWorld := convert.WorldToCore(&world)
+		if err := storageBackend.StartMission(&coreMission, &coreWorld); err != nil {
+			Logger.Error("Failed to start mission in storage backend", "error", err)
+		}
+	}
+
+	Logger.Info("New mission logged", "missionName", mission.MissionName)
+
+	// 6. ArmA callback
+	a3interface.WriteArmaCallback(ExtensionName, ":MISSION:OK:", "OK")
+	return nil, nil
+}
+
 // registerLifecycleHandlers registers system/lifecycle command handlers with the dispatcher
 func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 	// Simple commands (RVExtension style - no args)
@@ -833,76 +906,7 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 		return nil, nil
 	})
 
-	d.Register(":NEW:MISSION:", func(e dispatcher.Event) (any, error) {
-		if parserService == nil {
-			return nil, nil
-		}
-
-		// 1. Parse
-		mission, world, err := parserService.ParseMission(e.Args)
-		if err != nil {
-			return nil, err
-		}
-
-		// 2. DB operations (addon lookup/create, world get/insert, mission create)
-		if DB != nil {
-			for i, addon := range mission.Addons {
-				err = DB.Where("name = ?", addon.Name).First(&mission.Addons[i]).Error
-				if err != nil {
-					if err == gorm.ErrRecordNotFound {
-						if err = DB.Create(&mission.Addons[i]).Error; err != nil {
-							Logger.Error("Failed to create addon", "error", err, "name", addon.Name)
-							return nil, err
-						}
-					} else {
-						Logger.Error("Failed to check addon", "error", err, "name", addon.Name)
-						return nil, err
-					}
-				}
-			}
-
-			created, err := world.GetOrInsert(DB)
-			if err != nil {
-				Logger.Error("Failed to get or insert world", "error", err)
-				return nil, err
-			}
-			if created {
-				Logger.Debug("New world inserted", "worldName", world.WorldName)
-			}
-
-			mission.World = world
-			if err = DB.Create(&mission).Error; err != nil {
-				Logger.Error("Failed to insert new mission", "error", err)
-				return nil, err
-			}
-		} else {
-			mission.World = world
-			Logger.Debug("Memory-only mode: mission context set without DB persistence", "missionName", mission.MissionName)
-		}
-
-		// 3. Set mission context + parser state
-		missionCtx.SetMission(&mission, &world)
-		parserService.SetMission(&mission)
-
-		// 4. Reset caches
-		MarkerCache.Reset()
-		EntityCache.Reset()
-
-		// 5. Start backend
-		if storageBackend != nil {
-			coreMission := convert.MissionToCore(&mission)
-			coreWorld := convert.WorldToCore(&world)
-			if err := storageBackend.StartMission(&coreMission, &coreWorld); err != nil {
-				Logger.Error("Failed to start mission in storage backend", "error", err)
-			}
-		}
-
-		Logger.Info("New mission logged", "missionName", mission.MissionName)
-
-		// 6. ArmA callback
-		a3interface.WriteArmaCallback(ExtensionName, ":MISSION:OK:", "OK")
-		return nil, nil
-	}, dispatcher.Buffered(1), dispatcher.Blocking(), dispatcher.Gated(storageReady))
+	d.Register(":NEW:MISSION:", handleNewMission, dispatcher.Buffered(1), dispatcher.Blocking(), dispatcher.Gated(storageReady))
 
 	d.Register(":SAVE:MISSION:", func(e dispatcher.Event) (any, error) {
 		Logger.Info("Received :SAVE:MISSION: command, ending mission recording")

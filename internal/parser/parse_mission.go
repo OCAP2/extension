@@ -3,7 +3,6 @@ package parser
 import (
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"strconv"
 	"time"
 
@@ -46,15 +45,32 @@ func (p *Parser) ParseMission(data []string) (model.Mission, model.World, error)
 	}
 
 	// extract addons (without DB lookup - just parse)
+	addonsRaw, ok := missionTemp["addons"].([]any)
+	if !ok {
+		return mission, world, fmt.Errorf("addons field is missing or not an array")
+	}
 	addons := []model.Addon{}
-	for _, addon := range missionTemp["addons"].([]any) {
-		thisAddon := model.Addon{
-			Name: addon.([]any)[0].(string),
+	for _, addon := range addonsRaw {
+		addonInfo, ok := addon.([]any)
+		if !ok || len(addonInfo) < 2 {
+			return mission, world, fmt.Errorf("invalid addon format")
 		}
-		if reflect.TypeOf(addon.([]any)[1]).Kind() == reflect.Float64 {
-			thisAddon.WorkshopID = strconv.Itoa(int(addon.([]any)[1].(float64)))
-		} else {
-			thisAddon.WorkshopID = addon.([]any)[1].(string)
+		addonName, ok := addonInfo[0].(string)
+		if !ok {
+			return mission, world, fmt.Errorf("invalid addon name type")
+		}
+		thisAddon := model.Addon{Name: addonName}
+		switch v := addonInfo[1].(type) {
+		case float64:
+			intVal := int64(v)
+			if v != float64(intVal) {
+				return mission, world, fmt.Errorf("invalid addon workshop ID: float has fractional part %f", v)
+			}
+			thisAddon.WorkshopID = strconv.FormatInt(intVal, 10)
+		case string:
+			thisAddon.WorkshopID = v
+		default:
+			return mission, world, fmt.Errorf("invalid addon workshop ID type: %T", addonInfo[1])
 		}
 		addons = append(addons, thisAddon)
 	}
@@ -62,18 +78,68 @@ func (p *Parser) ParseMission(data []string) (model.Mission, model.World, error)
 
 	mission.StartTime = time.Now()
 
-	mission.CaptureDelay = float32(missionTemp["captureDelay"].(float64))
-	mission.MissionNameSource = missionTemp["missionNameSource"].(string)
-	mission.MissionName = missionTemp["missionName"].(string)
-	mission.BriefingName = missionTemp["briefingName"].(string)
-	mission.ServerName = missionTemp["serverName"].(string)
-	mission.ServerProfile = missionTemp["serverProfile"].(string)
-	mission.OnLoadName = missionTemp["onLoadName"].(string)
-	mission.Author = missionTemp["author"].(string)
-	mission.Tag = missionTemp["tag"].(string)
+	// Helper to safely extract typed fields from the mission map
+	getString := func(key string) (string, error) {
+		v, ok := missionTemp[key].(string)
+		if !ok {
+			return "", fmt.Errorf("mission field %q is missing or not a string", key)
+		}
+		return v, nil
+	}
+	getFloat := func(key string) (float64, error) {
+		v, ok := missionTemp[key].(float64)
+		if !ok {
+			return 0, fmt.Errorf("mission field %q is missing or not a number", key)
+		}
+		return v, nil
+	}
+	getSlice := func(key string) ([]any, error) {
+		v, ok := missionTemp[key].([]any)
+		if !ok {
+			return nil, fmt.Errorf("mission field %q is missing or not an array", key)
+		}
+		return v, nil
+	}
+
+	captureDelay, err := getFloat("captureDelay")
+	if err != nil {
+		return mission, world, err
+	}
+	mission.CaptureDelay = float32(captureDelay)
+
+	if mission.MissionNameSource, err = getString("missionNameSource"); err != nil {
+		return mission, world, err
+	}
+	if mission.MissionName, err = getString("missionName"); err != nil {
+		return mission, world, err
+	}
+	if mission.BriefingName, err = getString("briefingName"); err != nil {
+		return mission, world, err
+	}
+	if mission.ServerName, err = getString("serverName"); err != nil {
+		return mission, world, err
+	}
+	if mission.ServerProfile, err = getString("serverProfile"); err != nil {
+		return mission, world, err
+	}
+	if mission.OnLoadName, err = getString("onLoadName"); err != nil {
+		return mission, world, err
+	}
+	if mission.Author, err = getString("author"); err != nil {
+		return mission, world, err
+	}
+	if mission.Tag, err = getString("tag"); err != nil {
+		return mission, world, err
+	}
 
 	// playableSlots
-	playableSlotsJSON := missionTemp["playableSlots"].([]any)
+	playableSlotsJSON, err := getSlice("playableSlots")
+	if err != nil {
+		return mission, world, err
+	}
+	if len(playableSlotsJSON) < 5 {
+		return mission, world, fmt.Errorf("playableSlots needs 5 elements, got %d", len(playableSlotsJSON))
+	}
 	mission.PlayableSlots.East = uint8(playableSlotsJSON[0].(float64))
 	mission.PlayableSlots.West = uint8(playableSlotsJSON[1].(float64))
 	mission.PlayableSlots.Independent = uint8(playableSlotsJSON[2].(float64))
@@ -81,7 +147,13 @@ func (p *Parser) ParseMission(data []string) (model.Mission, model.World, error)
 	mission.PlayableSlots.Logic = uint8(playableSlotsJSON[4].(float64))
 
 	// sideFriendly
-	sideFriendlyJSON := missionTemp["sideFriendly"].([]any)
+	sideFriendlyJSON, err := getSlice("sideFriendly")
+	if err != nil {
+		return mission, world, err
+	}
+	if len(sideFriendlyJSON) < 3 {
+		return mission, world, fmt.Errorf("sideFriendly needs 3 elements, got %d", len(sideFriendlyJSON))
+	}
 	mission.SideFriendly.EastWest = sideFriendlyJSON[0].(bool)
 	mission.SideFriendly.EastIndependent = sideFriendlyJSON[1].(bool)
 	mission.SideFriendly.WestIndependent = sideFriendlyJSON[2].(bool)
