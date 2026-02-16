@@ -6,9 +6,10 @@ import (
 
 	"github.com/OCAP2/extension/v5/internal/config"
 	"github.com/OCAP2/extension/v5/internal/storage"
-	pgstorage "github.com/OCAP2/extension/v5/internal/storage/postgres"
 	"github.com/OCAP2/extension/v5/internal/storage/memory"
+	pgstorage "github.com/OCAP2/extension/v5/internal/storage/postgres"
 	sqlitestorage "github.com/OCAP2/extension/v5/internal/storage/sqlite"
+	wsstorage "github.com/OCAP2/extension/v5/internal/storage/websocket"
 	"github.com/OCAP2/extension/v5/internal/worker"
 	"github.com/OCAP2/extension/v5/pkg/a3interface"
 )
@@ -71,6 +72,13 @@ func createStorageBackend(storageCfg config.StorageConfig) (storage.Backend, err
 		}
 		Logger.Info("SQLite storage backend initialized")
 		return backend, nil
+
+	case "websocket":
+		Logger.Info("WebSocket storage backend initialized")
+		return wsstorage.New(wsstorage.Config{
+			URL:    storageCfg.WebSocket.URL,
+			Secret: storageCfg.WebSocket.Secret,
+		}), nil
 
 	default:
 		Logger.Info("Memory storage backend initialized")

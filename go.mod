@@ -4,6 +4,7 @@ go 1.24.0
 
 require (
 	github.com/glebarez/sqlite v1.11.0
+	github.com/gorilla/websocket v1.5.3
 	github.com/peterstace/simplefeatures v0.57.0
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1

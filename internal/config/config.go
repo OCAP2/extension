@@ -18,6 +18,12 @@ type SQLiteConfig struct {
 	DumpInterval time.Duration `json:"dumpInterval" mapstructure:"dumpInterval"`
 }
 
+// WebSocketConfig holds WebSocket storage backend settings
+type WebSocketConfig struct {
+	URL    string `json:"url" mapstructure:"url"`
+	Secret string `json:"secret" mapstructure:"secret"`
+}
+
 // Load reads configuration from JSON file and sets default values.
 // configDir is the directory containing the config file.
 func Load(configDir string) error {
@@ -47,6 +53,8 @@ func Load(configDir string) error {
 	viper.SetDefault("storage.memory.outputDir", "./recordings")
 	viper.SetDefault("storage.memory.compressOutput", true)
 	viper.SetDefault("storage.sqlite.dumpInterval", "3m")
+	viper.SetDefault("storage.websocket.url", "ws://127.0.0.1:5000/api/v1/stream")
+	viper.SetDefault("storage.websocket.secret", "")
 
 	// OpenTelemetry defaults
 	viper.SetDefault("otel.enabled", false)
@@ -84,9 +92,10 @@ func GetBool(key string) bool {
 
 // StorageConfig holds storage backend configuration
 type StorageConfig struct {
-	Type   string       `json:"type" mapstructure:"type"`
-	Memory MemoryConfig `json:"memory" mapstructure:"memory"`
-	SQLite SQLiteConfig `json:"sqlite" mapstructure:"sqlite"`
+	Type      string          `json:"type" mapstructure:"type"`
+	Memory    MemoryConfig    `json:"memory" mapstructure:"memory"`
+	SQLite    SQLiteConfig    `json:"sqlite" mapstructure:"sqlite"`
+	WebSocket WebSocketConfig `json:"websocket" mapstructure:"websocket"`
 }
 
 // GetStorageConfig returns the storage backend configuration
