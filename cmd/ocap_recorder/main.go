@@ -10,7 +10,6 @@ import "C" // This is required to import the C code
 import (
 	"compress/gzip"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -31,14 +30,14 @@ import (
 	"github.com/OCAP2/extension/v5/internal/dispatcher"
 	"github.com/OCAP2/extension/v5/internal/logging"
 	"github.com/OCAP2/extension/v5/internal/mission"
-	"github.com/OCAP2/extension/v5/internal/parser"
 	"github.com/OCAP2/extension/v5/internal/model"
 	"github.com/OCAP2/extension/v5/internal/model/convert"
-	"github.com/OCAP2/extension/v5/internal/monitor"
 	intOtel "github.com/OCAP2/extension/v5/internal/otel"
+	"github.com/OCAP2/extension/v5/internal/parser"
 	"github.com/OCAP2/extension/v5/internal/storage"
 	gormstorage "github.com/OCAP2/extension/v5/internal/storage/gorm"
 	"github.com/OCAP2/extension/v5/internal/storage/memory"
+	sqlitestorage "github.com/OCAP2/extension/v5/internal/storage/sqlite"
 	"github.com/OCAP2/extension/v5/internal/util"
 	"github.com/OCAP2/extension/v5/internal/worker"
 	"github.com/OCAP2/extension/v5/pkg/a3interface"
@@ -46,7 +45,6 @@ import (
 	"github.com/spf13/viper"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 // module defs - can be set at build time via ldflags
@@ -77,24 +75,15 @@ var (
 	InitLogFile     *os.File
 	OcapLogFilePath string
 	OcapLogFile     *os.File
-
-	// SqliteDBFilePath refers to the sqlite database file
-	SqliteDBFilePath string
 )
 
 // global variables
 var (
-	// DB is the GORM DB interface
+	// DB is the GORM DB interface (set for postgres mode, used by CLI commands)
 	DB *gorm.DB
-
-	// ShouldSaveLocal indicates whether we're saving to Postgres or local SQLite
-	ShouldSaveLocal bool = false
 
 	// IsDatabaseValid indicates whether or not any DB connection could be established
 	IsDatabaseValid bool = false
-
-	// sqlDB is the native Go SQL interface
-	sqlDB *sql.DB
 
 	// SlogManager handles all slog-based logging
 	SlogManager *logging.SlogManager
@@ -107,9 +96,6 @@ var (
 
 	// testing
 	IsDemoData bool = false
-
-	// sqlite flow
-	DBInsertsPaused bool = false
 
 	// EntityCache is a map of all entities in the current mission, used to find associated entities by ocapID for entity state processing
 	EntityCache *cache.EntityCache = cache.NewEntityCache()
@@ -129,7 +115,6 @@ var (
 	parserService   parser.Service
 	missionCtx      *mission.Context
 	workerManager   *worker.Manager
-	monitorService  *monitor.Service
 	eventDispatcher *dispatcher.Dispatcher
 
 	// Storage backend (optional)
@@ -214,8 +199,8 @@ func init() {
 			Enabled:      otelCfg.Enabled,
 			ServiceName:  otelCfg.ServiceName,
 			BatchTimeout: otelCfg.BatchTimeout,
-			LogWriter:    OcapLogFile,       // Write OTel logs to file
-			Endpoint:     otelCfg.Endpoint,  // Optional OTLP endpoint
+			LogWriter:    OcapLogFile,      // Write OTel logs to file
+			Endpoint:     otelCfg.Endpoint, // Optional OTLP endpoint
 			Insecure:     otelCfg.Insecure,
 		})
 		if err != nil {
@@ -251,15 +236,10 @@ func init() {
 		}
 		return 0
 	}
-	SlogManager.IsUsingLocalDB = func() bool { return ShouldSaveLocal }
-	SlogManager.IsStatusRunning = func() bool {
-		if monitorService != nil {
-			return monitorService.IsRunning()
-		}
-		return false
+	SlogManager.IsUsingLocalDB = func() bool {
+		return config.GetStorageConfig().Type == "sqlite"
 	}
 
-	SqliteDBFilePath = filepath.Join(AddonFolder, fmt.Sprintf("%s_%s.db", ExtensionName, SessionStartTime.Format("20060102_150405")))
 	// set up a3interfaces
 	Logger.Info("Setting up a3interface...")
 	err = setupA3Interface()
@@ -298,32 +278,39 @@ func initExtension() {
 
 func initStorage() error {
 	Logger.Debug("Received :INIT:STORAGE: call")
-	// Config is already loaded in init()
 	functionName := ":INIT:STORAGE:"
 
 	storageCfg := config.GetStorageConfig()
-	if storageCfg.Type == "memory" {
+	switch storageCfg.Type {
+	case "memory":
 		Logger.Info("Memory storage mode initialized")
 		a3interface.WriteArmaCallback(ExtensionName, ":STORAGE:OK:", "memory")
-		storageReadyOnce.Do(func() { close(storageReady) })
-		return nil
+
+	case "sqlite":
+		Logger.Info("SQLite storage mode initialized")
+		a3interface.WriteArmaCallback(ExtensionName, ":STORAGE:OK:", "sqlite")
+
+	case "postgres", "gorm", "database":
+		var err error
+		DB, err = getPostgresDB()
+		if err != nil {
+			SlogManager.WriteLog(functionName, fmt.Sprintf(`Error connecting to database: %v`, err), "ERROR")
+			a3interface.WriteArmaCallback(ExtensionName, ":STORAGE:ERROR:", err.Error())
+			return err
+		}
+		if DB == nil {
+			err = fmt.Errorf("database connection is nil")
+			SlogManager.WriteLog(functionName, err.Error(), "ERROR")
+			a3interface.WriteArmaCallback(ExtensionName, ":STORAGE:ERROR:", err.Error())
+			return err
+		}
+		IsDatabaseValid = true
+		a3interface.WriteArmaCallback(ExtensionName, ":STORAGE:OK:", DB.Dialector.Name())
+
+	default:
+		return fmt.Errorf("unknown storage type: %s", storageCfg.Type)
 	}
 
-	// Database storage mode
-	var err error
-	DB, err = getDB()
-	if err != nil {
-		SlogManager.WriteLog(functionName, fmt.Sprintf(`Error connecting to database: %v`, err), "ERROR")
-		a3interface.WriteArmaCallback(ExtensionName, ":STORAGE:ERROR:", err.Error())
-		return err
-	}
-	if DB == nil {
-		err = fmt.Errorf("database connection is nil")
-		SlogManager.WriteLog(functionName, err.Error(), "ERROR")
-		a3interface.WriteArmaCallback(ExtensionName, ":STORAGE:ERROR:", err.Error())
-		return err
-	}
-	a3interface.WriteArmaCallback(ExtensionName, ":STORAGE:OK:", DB.Dialector.Name())
 	storageReadyOnce.Do(func() { close(storageReady) })
 	return nil
 }
@@ -373,146 +360,25 @@ func initAPIClient() {
 // DATABASE OPS //
 ///////////////////////
 
-func getSqliteDB(path string) (db *gorm.DB, err error) {
-	functionName := "getSqliteDB"
-	db, err = database.GetSqliteDBStandalone(path)
-	if err != nil {
-		IsDatabaseValid = false
-		return nil, err
-	}
-	if path != "" {
-		SlogManager.WriteLog(functionName, fmt.Sprintf("Using local SQlite DB at '%s'", path), "INFO")
-	} else {
-		SlogManager.WriteLog(functionName, "Using local SQlite DB in memory with periodic disk dump", "INFO")
-	}
-	return db, nil
-}
-
-func getBackupDBPaths() (dbPaths []string, err error) {
-	return database.GetBackupDBPaths(AddonFolder)
-}
-
-func dumpMemoryDBToDisk() (err error) {
-	functionName := "dumpMemoryDBToDisk"
-	start := time.Now()
-	err = database.DumpMemoryDBToDisk(DB, SqliteDBFilePath)
-	if err != nil {
-		SlogManager.WriteLog(functionName, "Error dumping memory DB to disk", "ERROR")
-		return err
-	}
-	SlogManager.WriteLog(functionName, fmt.Sprintf(`Dumped memory DB to disk in %s`, time.Since(start)), "INFO")
-	Logger.Debug("Dumped memory DB to disk", "duration", time.Since(start))
-	return nil
-}
-
 func getPostgresDB() (db *gorm.DB, err error) {
 	Logger.Debug("Connecting to Postgres DB")
-	return database.GetPostgresDBStandalone()
-}
-
-// getDB connects to the Postgres database, and if it fails, it will use a local SQlite DB
-func getDB() (db *gorm.DB, err error) {
-	functionName := ":INIT:DB:"
-
-	db, err = getPostgresDB()
+	db, err = database.GetPostgresDBStandalone()
 	if err != nil {
-		Logger.Error("Failed to connect to Postgres DB, trying SQLite", "error", err)
-		ShouldSaveLocal = true
-		db, err = getSqliteDB("")
-		if err != nil || db == nil {
-			IsDatabaseValid = false
-			return nil, fmt.Errorf("failed to get local SQLite DB: %s", err)
-		}
-		IsDatabaseValid = true
+		return nil, err
 	}
-	// test connection
-	sqlDB, err = db.DB()
+
+	// Test connection
+	sqlDB, err := db.DB()
 	if err != nil {
-		return nil, fmt.Errorf("failed to access sql interface: %s", err)
+		return nil, fmt.Errorf("failed to access sql interface: %w", err)
 	}
-	err = sqlDB.Ping()
-	if err != nil {
-		SlogManager.WriteLog(functionName, fmt.Sprintf(`Failed to validate connection. Err: %s`, err), "ERROR")
-		ShouldSaveLocal = true
-		db, err = getSqliteDB("")
-		if err != nil || db == nil {
-			IsDatabaseValid = false
-			return nil, fmt.Errorf("failed to get local SQLite DB: %s", err)
-		}
-		IsDatabaseValid = true
-
-	} else {
-		SlogManager.WriteLog(functionName, "Connected to database", "INFO")
-		IsDatabaseValid = true
+	if err = sqlDB.Ping(); err != nil {
+		return nil, fmt.Errorf("failed to validate connection: %w", err)
 	}
 
-	if !IsDatabaseValid {
-		return nil, fmt.Errorf("db not valid. not saving")
-	}
-
-	if !ShouldSaveLocal {
-		sqlDB.SetMaxOpenConns(10)
-	}
-
+	sqlDB.SetMaxOpenConns(10)
+	SlogManager.WriteLog(":INIT:DB:", "Connected to Postgres database", "INFO")
 	return db, nil
-}
-
-// setupDB will migrate tables and create default group settings if they don't exist
-func setupDB(db *gorm.DB) (err error) {
-	functionName := "setupDB"
-
-	// Check if OcapInfo table exists
-	if !db.Migrator().HasTable(&model.OcapInfo{}) {
-		// Create the table
-		err = db.AutoMigrate(&model.OcapInfo{})
-		if err != nil {
-			SlogManager.WriteLog(functionName, fmt.Sprintf(`Failed to create ocap_info table. Err: %s`, err), "ERROR")
-			IsDatabaseValid = false
-			return err
-		}
-		// Create the default settings
-		err = db.Create(&model.OcapInfo{
-			GroupName:        "OCAP",
-			GroupDescription: "OCAP",
-			GroupLogo:        "https://i.imgur.com/0Q4z0ZP.png",
-			GroupWebsite:     "https://ocap.arma3.com",
-		}).Error
-
-		if err != nil {
-			IsDatabaseValid = false
-			return fmt.Errorf("failed to create ocap_info entry: %s", err)
-		}
-	}
-
-	/////////////////////////////
-	// Migrate the schema
-	/////////////////////////////
-
-	// Ensure PostGIS Extension is installed
-	if db.Dialector.Name() == "postgres" {
-		err = DB.Exec(`
-		CREATE Extension IF NOT EXISTS postgis;
-		`).Error
-		if err != nil {
-			IsDatabaseValid = false
-			return fmt.Errorf("failed to create PostGIS Extension: %s", err)
-		}
-		SlogManager.WriteLog(functionName, "PostGIS Extension created", "INFO")
-	}
-
-	Logger.Info("Migrating schema")
-	if ShouldSaveLocal {
-		err = db.AutoMigrate(model.DatabaseModelsSQLite...)
-	} else {
-		err = db.AutoMigrate(model.DatabaseModels...)
-	}
-	if err != nil {
-		IsDatabaseValid = false
-		return fmt.Errorf("failed to migrate schema: %s", err)
-	}
-
-	Logger.Info("Database setup complete")
-	return nil
 }
 
 func startGoroutines() (err error) {
@@ -526,20 +392,33 @@ func startGoroutines() (err error) {
 
 	// Initialize storage backend based on config
 	storageCfg := config.GetStorageConfig()
-	if storageCfg.Type == "memory" {
+	switch storageCfg.Type {
+	case "memory":
 		storageBackend = memory.New(storageCfg.Memory)
 		storageBackend.Init()
 		Logger.Info("Memory storage backend initialized")
-	} else {
+
+	case "sqlite":
+		sqliteDBFilePath := filepath.Join(AddonFolder, fmt.Sprintf("%s_%s.db", ExtensionName, SessionStartTime.Format("20060102_150405")))
+		backend, err := sqlitestorage.New(sqlitestorage.Config{
+			DumpInterval: storageCfg.SQLite.DumpInterval,
+			DumpPath:     sqliteDBFilePath,
+		}, EntityCache, MarkerCache, SlogManager, missionCtx)
+		if err != nil {
+			Logger.Error("Failed to create SQLite backend", "error", err)
+			return err
+		}
+		storageBackend = backend
+		storageBackend.Init()
+		Logger.Info("SQLite storage backend initialized")
+
+	default: // postgres, gorm, database
 		storageBackend = gormstorage.New(gormstorage.Dependencies{
-			DB:              DB,
-			EntityCache:     EntityCache,
-			MarkerCache:     MarkerCache,
-			LogManager:      SlogManager,
-			MissionContext:  missionCtx,
-			IsDatabaseValid: func() bool { return IsDatabaseValid },
-			ShouldSaveLocal: func() bool { return ShouldSaveLocal },
-			DBInsertsPaused: func() bool { return DBInsertsPaused },
+			DB:             DB,
+			EntityCache:    EntityCache,
+			MarkerCache:    MarkerCache,
+			LogManager:     SlogManager,
+			MissionContext: missionCtx,
 		})
 		storageBackend.Init()
 		Logger.Info("GORM storage backend initialized")
@@ -558,225 +437,13 @@ func startGoroutines() (err error) {
 	workerManager.RegisterHandlers(eventDispatcher)
 	Logger.Info("Worker handlers registered with dispatcher")
 
-	// Initialize monitor service
-	monitorService = monitor.NewService(monitor.Dependencies{
-		DB:              DB,
-		LogManager:      SlogManager,
-		MissionContext:  missionCtx,
-		WorkerManager:   workerManager,
-		AddonFolder:     AddonFolder,
-		IsDatabaseValid: func() bool { return IsDatabaseValid },
-	})
-
-	if !monitorService.IsRunning() {
-		Logger.Debug("Status process not running, starting it")
-		monitorService.Start()
-	}
-
-	// goroutine to, every x seconds, pause insert execution and dump memory sqlite db to disk
-	go func() {
-		Logger.Debug("Starting DB dump goroutine", "function", functionName)
-
-		for {
-			time.Sleep(3 * time.Minute)
-			if !ShouldSaveLocal {
-				continue
-			}
-
-			// pause insert execution
-			DBInsertsPaused = true
-
-			// dump memory sqlite db to disk
-			SlogManager.WriteLog(functionName, "Dumping in-memory SQLite DB to disk", "DEBUG")
-			err = dumpMemoryDBToDisk()
-			if err != nil {
-				SlogManager.WriteLog(functionName, fmt.Sprintf(`Error dumping memory db to disk: %v`, err), "ERROR")
-			}
-
-			// resume insert execution
-			DBInsertsPaused = false
-		}
-	}()
-
 	// log post goroutine creation
 	SlogManager.WriteLog(functionName, "Goroutines started successfully", "INFO")
 	return nil
 }
 
-//////////////////////////////////////////////////////////////
-// Direct (exe) functions
-//////////////////////////////////////////////////////////////
-
-// get all the table models and data from any sqlite databases in SqlitePath
-// then insert into Postgres
-func migrateBackupsSqlite() (err error) {
-
-	sqlitePaths, err := getBackupDBPaths()
-	if err != nil {
-		return fmt.Errorf("error getting backup database paths: %v", err)
-	}
-	postgresDB, err := getPostgresDB()
-	if err != nil {
-		return fmt.Errorf("error getting postgres database: %v", err)
-	}
-
-	successfulMigrations := make([]string, 0)
-
-	for _, sqlitePath := range sqlitePaths {
-		sqliteDB, err := getSqliteDB(sqlitePath)
-		if err != nil {
-			return fmt.Errorf("error getting sqlite database: %v", err)
-		}
-
-		// transaction for Postgres so we can rollback if errors
-		tx := postgresDB.Begin()
-
-		// migrate all tables
-		err = migrateTable(sqliteDB, tx, model.OcapInfo{}, "ocap_infos")
-		if err != nil {
-			return fmt.Errorf("error migrating ocapinfo: %v", err)
-		}
-		err = migrateTable(sqliteDB, tx, model.AfterActionReview{}, "after_action_reviews")
-		if err != nil {
-			return fmt.Errorf("error migrating after_action_reviews: %v", err)
-		}
-		err = migrateTable(sqliteDB, tx, model.World{}, "worlds")
-		if err != nil {
-			return fmt.Errorf("error migrating worlds: %v", err)
-		}
-		err = migrateTable(sqliteDB, tx, model.Mission{}, "missions")
-		if err != nil {
-			return fmt.Errorf("error migrating missions: %v", err)
-		}
-		err = migrateTable(sqliteDB, tx, model.Soldier{}, "soldiers")
-		if err != nil {
-			tx.Rollback()
-			return fmt.Errorf("error migrating soldiers: %v", err)
-		}
-		err = migrateTable(sqliteDB, tx, model.SoldierState{}, "soldier_states")
-		if err != nil {
-			tx.Rollback()
-			return fmt.Errorf("error migrating soldier_states: %v", err)
-		}
-		err = migrateTable(sqliteDB, tx, model.Vehicle{}, "vehicles")
-		if err != nil {
-			tx.Rollback()
-			return fmt.Errorf("error migrating vehicles: %v", err)
-		}
-		err = migrateTable(sqliteDB, tx, model.VehicleState{}, "vehicle_states")
-		if err != nil {
-			tx.Rollback()
-			return fmt.Errorf("error migrating vehicle_states: %v", err)
-		}
-		err = migrateTable(sqliteDB, tx, model.ProjectileEvent{}, "projectile_events")
-		if err != nil {
-			tx.Rollback()
-			return fmt.Errorf("error migrating projectile_events: %v", err)
-		}
-		err = migrateTable(sqliteDB, tx, model.GeneralEvent{}, "general_events")
-		if err != nil {
-			tx.Rollback()
-			return fmt.Errorf("error migrating general_events: %v", err)
-		}
-		err = migrateTable(sqliteDB, tx, model.KillEvent{}, "kill_events")
-		if err != nil {
-			tx.Rollback()
-			return fmt.Errorf("error migrating kill_events: %v", err)
-		}
-		err = migrateTable(sqliteDB, tx, model.ChatEvent{}, "chat_events")
-		if err != nil {
-			tx.Rollback()
-			return fmt.Errorf("error migrating chat_events: %v", err)
-		}
-		err = migrateTable(sqliteDB, tx, model.RadioEvent{}, "radio_events")
-		if err != nil {
-			tx.Rollback()
-			return fmt.Errorf("error migrating radio_events: %v", err)
-		}
-		err = migrateTable(sqliteDB, tx, model.ServerFpsEvent{}, "server_fps_events")
-		if err != nil {
-			tx.Rollback()
-			return fmt.Errorf("error migrating server_fps_events: %v", err)
-		}
-		err = migrateTable(sqliteDB, tx, model.Ace3DeathEvent{}, "ace3_death_events")
-		if err != nil {
-			tx.Rollback()
-			return fmt.Errorf("error migrating ace3_death_events: %v", err)
-		}
-		err = migrateTable(sqliteDB, tx, model.Ace3UnconsciousEvent{}, "ace3_unconscious_events")
-		if err != nil {
-			tx.Rollback()
-			return fmt.Errorf("error migrating ace3_unconscious_events: %v", err)
-		}
-		err = migrateTable(sqliteDB, tx, model.OcapPerformance{}, "ocap_performances")
-		if err != nil {
-			tx.Rollback()
-			return fmt.Errorf("error migrating ocap_performances: %v", err)
-		}
-
-		// With no issues, we commit the transaction
-		tx.Commit()
-
-		// if we get here, we've successfully migrated this backup
-		// remove connections to the databases
-		sqlConnection, err := sqliteDB.DB()
-		if err != nil {
-			Logger.Error("Error getting sqlite connection", "error", err)
-			continue
-		}
-		err = sqlConnection.Close()
-		if err != nil {
-			Logger.Error("Error closing sqlite connection", "error", err)
-		}
-		err = os.Rename(sqlitePath, sqlitePath+".migrated")
-		if err != nil {
-			Logger.Error("Error renaming sqlite file", "error", err)
-		}
-		successfulMigrations = append(successfulMigrations, sqlitePath)
-	}
-
-	// if we get here, we've successfully migrated all backups
-	Logger.Info("Successfully migrated backups, it's recommended to delete these to avoid future data duplication",
-		"count", len(successfulMigrations),
-		"paths", successfulMigrations)
-
-	return nil
-}
-
-// helper function for sqlite migrations
-func migrateTable[M any](
-	sqliteDB *gorm.DB,
-	postgresDB *gorm.DB,
-	model M,
-	tableName string,
-) (err error) {
-	var data = &map[string]any{}
-	sqliteDB.Model(&model).
-		Assign("id", gorm.Expr("NULL")). // remove the id field from the data
-		Find(data)
-	Logger.Info("Found records", "count", len(*data), "table", tableName)
-
-	if len(*data) == 0 {
-		return nil
-	}
-
-	Logger.Info("Inserting records", "count", len(*data), "table", tableName)
-
-	// insert into postgres
-	postgresDB.Model(&model).Clauses(
-		clause.OnConflict{
-			DoNothing: true,
-		}).Create(data)
-	if postgresDB.Error != nil {
-		Logger.Error("Error migrating table", "error", err, "database", sqliteDB.Name(), "table", tableName)
-		return err
-	}
-
-	return nil
-}
-
 // handleNewMission handles the :NEW:MISSION: command: parses mission data,
-// persists to DB, sets runtime state, and notifies the backend.
+// delegates DB persistence to the storage backend, and sets runtime state.
 func handleNewMission(e dispatcher.Event) (any, error) {
 	if parserService == nil {
 		return nil, nil
@@ -790,67 +457,29 @@ func handleNewMission(e dispatcher.Event) (any, error) {
 	coreMission.AddonVersion = addonVersion
 	coreMission.ExtensionVersion = BuildVersion
 
-	// 2. Convert to GORM for DB operations
-	gormMission := convert.CoreToMission(coreMission)
-	gormWorld := convert.CoreToWorld(coreWorld)
-
-	// 3. DB operations (addon lookup/create, world get/insert, mission create)
-	if DB != nil {
-		for i, addon := range gormMission.Addons {
-			err = DB.Where("name = ?", addon.Name).First(&gormMission.Addons[i]).Error
-			if err != nil {
-				if err == gorm.ErrRecordNotFound {
-					if err = DB.Create(&gormMission.Addons[i]).Error; err != nil {
-						Logger.Error("Failed to create addon", "error", err, "name", addon.Name)
-						return nil, err
-					}
-				} else {
-					Logger.Error("Failed to check addon", "error", err, "name", addon.Name)
-					return nil, err
-				}
-			}
-		}
-
-		created, err := gormWorld.GetOrInsert(DB)
-		if err != nil {
-			Logger.Error("Failed to get or insert world", "error", err)
-			return nil, err
-		}
-		if created {
-			Logger.Debug("New world inserted", "worldName", gormWorld.WorldName)
-		}
-
-		gormMission.World = gormWorld
-		if err = DB.Create(&gormMission).Error; err != nil {
-			Logger.Error("Failed to insert new mission", "error", err)
-			return nil, err
-		}
-	} else {
-		gormMission.World = gormWorld
-		Logger.Debug("Memory-only mode: mission context set without DB persistence", "missionName", gormMission.MissionName)
-	}
-
-	// 4. Capture DB-assigned IDs back to core
-	coreMission.ID = gormMission.ID
-	coreWorld.ID = gormWorld.ID
-
-	// 5. Set mission context (monitor uses GORM types)
-	missionCtx.SetMission(&gormMission, &gormWorld)
-
-	// 6. Reset caches
+	// 2. Reset caches
 	MarkerCache.Reset()
 	EntityCache.Reset()
 
-	// 7. Start backend with core types
+	// 3. Start backend (handles DB ops for GORM/SQLite backends, sets missionCtx)
 	if storageBackend != nil {
 		if err := storageBackend.StartMission(&coreMission, &coreWorld); err != nil {
 			Logger.Error("Failed to start mission in storage backend", "error", err)
+			return nil, err
 		}
+	}
+
+	// 4. Ensure missionCtx is set (memory backend doesn't set it)
+	if missionCtx.GetMission().ID == 0 {
+		gormMission := convert.CoreToMission(coreMission)
+		gormWorld := convert.CoreToWorld(coreWorld)
+		gormMission.World = gormWorld
+		missionCtx.SetMission(&gormMission, &gormWorld)
 	}
 
 	Logger.Info("New mission logged", "missionName", coreMission.MissionName)
 
-	// 8. ArmA callback
+	// 5. ArmA callback
 	a3interface.WriteArmaCallback(ExtensionName, ":MISSION:OK:", "OK")
 	return nil, nil
 }
@@ -968,11 +597,11 @@ func populateDemoData() {
 
 	// declare test size counts
 	var (
-		numMissions              int = 2
-		missionDuration          int = 60 * 15
-		numUnitsPerMission       int = 60
-		numSoldiers              int = int(math.Ceil(float64(numUnitsPerMission) * float64(0.8)))
-		numVehicles int = numUnitsPerMission - numSoldiers
+		numMissions        int = 2
+		missionDuration    int = 60 * 15
+		numUnitsPerMission int = 60
+		numSoldiers        int = int(math.Ceil(float64(numUnitsPerMission) * float64(0.8)))
+		numVehicles        int = numUnitsPerMission - numSoldiers
 
 		waitGroup = sync.WaitGroup{}
 
@@ -1661,13 +1290,6 @@ func main() {
 			Logger.Info("Demo data populated.", "duration", time.Since(demoStart))
 			fmt.Println("Press enter to exit.")
 		}
-		if strings.ToLower(args[0]) == "setupdb" {
-			err = setupDB(DB)
-			if err != nil {
-				panic(err)
-			}
-			Logger.Info("DB setup complete.")
-		}
 		if strings.ToLower(args[0]) == "getjson" {
 			missionIds := args[1:]
 			if len(missionIds) > 0 {
@@ -1689,14 +1311,6 @@ func main() {
 			} else {
 				fmt.Println("No mission IDs provided.")
 			}
-		}
-
-		if strings.ToLower(args[0]) == "migratebackups" {
-			err = migrateBackupsSqlite()
-			if err != nil {
-				panic(err)
-			}
-			Logger.Info("Finished migrating backups.")
 		}
 		if strings.ToLower(args[0]) == "testquery" {
 			err = testQuery()

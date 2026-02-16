@@ -17,10 +17,9 @@ type SlogManager struct {
 	logger *slog.Logger
 
 	// Callbacks for dynamic state (same interface as old Manager)
-	GetMissionName  func() string
-	GetMissionID    func() uint
-	IsUsingLocalDB  func() bool
-	IsStatusRunning func() bool
+	GetMissionName func() string
+	GetMissionID   func() uint
+	IsUsingLocalDB func() bool
 
 	// OTel provider for flushing
 	logProvider *sdklog.LoggerProvider
@@ -30,10 +29,9 @@ type SlogManager struct {
 func NewSlogManager() *SlogManager {
 	return &SlogManager{
 		// Default callbacks return empty/false values
-		GetMissionName:  func() string { return "" },
-		GetMissionID:    func() uint { return 0 },
-		IsUsingLocalDB:  func() bool { return false },
-		IsStatusRunning: func() bool { return false },
+		GetMissionName: func() string { return "" },
+		GetMissionID:   func() uint { return 0 },
+		IsUsingLocalDB: func() bool { return false },
 	}
 }
 
@@ -105,7 +103,6 @@ func (m *SlogManager) contextProvider() []slog.Attr {
 		slog.Bool("usingLocalDB", m.IsUsingLocalDB()),
 		slog.String("currentMission", m.GetMissionName()),
 		slog.Uint64("currentMissionID", uint64(m.GetMissionID())),
-		slog.Bool("statusMonitorActive", m.IsStatusRunning()),
 	}
 }
 

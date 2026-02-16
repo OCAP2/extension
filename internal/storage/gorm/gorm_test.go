@@ -21,14 +21,11 @@ import (
 // newTestBackend creates a Backend with no DB (queue-only mode for unit testing).
 func newTestBackend() *Backend {
 	return New(Dependencies{
-		DB:              nil,
-		EntityCache:     cache.NewEntityCache(),
-		MarkerCache:     cache.NewMarkerCache(),
-		LogManager:      logging.NewSlogManager(),
-		MissionContext:  mission.NewContext(),
-		IsDatabaseValid: func() bool { return false },
-		ShouldSaveLocal: func() bool { return false },
-		DBInsertsPaused: func() bool { return false },
+		DB:             nil,
+		EntityCache:    cache.NewEntityCache(),
+		MarkerCache:    cache.NewMarkerCache(),
+		LogManager:     logging.NewSlogManager(),
+		MissionContext: mission.NewContext(),
 	})
 }
 
@@ -162,30 +159,6 @@ func TestRecordProjectileEvent_QueuesToInternalQueue(t *testing.T) {
 	err := b.RecordProjectileEvent(event)
 	require.NoError(t, err)
 	assert.Equal(t, 1, b.queues.ProjectileEvents.Len())
-}
-
-func TestRecordProjectileEvent_SkipsWhenSQLite(t *testing.T) {
-	b := New(Dependencies{
-		DB:              nil,
-		EntityCache:     cache.NewEntityCache(),
-		MarkerCache:     cache.NewMarkerCache(),
-		LogManager:      logging.NewSlogManager(),
-		MissionContext:  mission.NewContext(),
-		IsDatabaseValid: func() bool { return false },
-		ShouldSaveLocal: func() bool { return true }, // SQLite mode
-		DBInsertsPaused: func() bool { return false },
-	})
-	b.Init()
-	defer b.Close()
-
-	event := &core.ProjectileEvent{
-		FirerObjectID: 1,
-		CaptureFrame:  620,
-	}
-
-	err := b.RecordProjectileEvent(event)
-	require.NoError(t, err)
-	assert.Equal(t, 0, b.queues.ProjectileEvents.Len(), "should not queue when SQLite")
 }
 
 func TestRecordGeneralEvent_QueuesToInternalQueue(t *testing.T) {
@@ -326,7 +299,7 @@ func TestRecordHitEvent_IsNoOp(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestStartMission_IsNoOp(t *testing.T) {
+func TestStartMission_NoDB_NoOp(t *testing.T) {
 	b := newTestBackend()
 	b.Init()
 	defer b.Close()
@@ -441,7 +414,7 @@ func newTestDB(t *testing.T) *gorm.DB {
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
-	require.NoError(t, db.AutoMigrate(model.DatabaseModelsSQLite...))
+	require.NoError(t, db.AutoMigrate(model.DatabaseModels...))
 	return db
 }
 
@@ -539,14 +512,11 @@ func TestAddMarker_WithDB(t *testing.T) {
 	mCtx.SetMission(&model.Mission{Model: gorm.Model{ID: 1}}, &model.World{})
 
 	b := New(Dependencies{
-		DB:              db,
-		EntityCache:     cache.NewEntityCache(),
-		MarkerCache:     cache.NewMarkerCache(),
-		LogManager:      logging.NewSlogManager(),
-		MissionContext:  mCtx,
-		IsDatabaseValid: func() bool { return true },
-		ShouldSaveLocal: func() bool { return false },
-		DBInsertsPaused: func() bool { return false },
+		DB:             db,
+		EntityCache:    cache.NewEntityCache(),
+		MarkerCache:    cache.NewMarkerCache(),
+		LogManager:     logging.NewSlogManager(),
+		MissionContext: mCtx,
 	})
 	b.Init()
 	defer b.Close()
@@ -576,14 +546,11 @@ func TestStartDBWriters_DrainsQueues(t *testing.T) {
 	mCtx.SetMission(&model.Mission{Model: gorm.Model{ID: 1}}, &model.World{})
 
 	b := New(Dependencies{
-		DB:              db,
-		EntityCache:     cache.NewEntityCache(),
-		MarkerCache:     cache.NewMarkerCache(),
-		LogManager:      logging.NewSlogManager(),
-		MissionContext:  mCtx,
-		IsDatabaseValid: func() bool { return true },
-		ShouldSaveLocal: func() bool { return false },
-		DBInsertsPaused: func() bool { return false },
+		DB:             db,
+		EntityCache:    cache.NewEntityCache(),
+		MarkerCache:    cache.NewMarkerCache(),
+		LogManager:     logging.NewSlogManager(),
+		MissionContext: mCtx,
 	})
 	b.Init()
 	defer b.Close()
