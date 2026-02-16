@@ -262,38 +262,40 @@ func (p *Parser) ParseFpsEvent(data []string) (core.ServerFpsEvent, error) {
 	return fpsEvent, nil
 }
 
-// ParseTelemetryEvent parses a unified telemetry snapshot from a JSON array.
-// The data arrives as a single JSON string in data[0] containing a 7-element array:
-// [captureFrameNo, [fpsAvg, fpsMin], sideData, globalCounts, scripts, weather, players]
+// ParseTelemetryEvent parses a unified telemetry snapshot.
+// ArmA's callExtension flattens the top-level SQF array into separate string args:
+//
+//	data[0] = captureFrameNo  (plain number string)
+//	data[1] = [fpsAvg, fpsMin]  (JSON array string)
+//	data[2] = sideData           (JSON array string)
+//	data[3] = globalCounts       (JSON array string)
+//	data[4] = scripts            (JSON array string)
+//	data[5] = weather            (JSON array string)
+//	data[6] = players            (JSON array string)
 func (p *Parser) ParseTelemetryEvent(data []string) (core.TelemetryEvent, error) {
 	var result core.TelemetryEvent
 
-	if len(data) < 1 {
-		return result, fmt.Errorf("telemetry: no data provided")
+	if len(data) < 7 {
+		return result, fmt.Errorf("telemetry: expected 7 args, got %d", len(data))
 	}
 
-	raw := util.FixEscapeQuotes(util.TrimQuotes(data[0]))
-
-	var arr []json.RawMessage
-	if err := json.Unmarshal([]byte(raw), &arr); err != nil {
-		return result, fmt.Errorf("telemetry: unmarshal root array: %w", err)
-	}
-	if len(arr) < 7 {
-		return result, fmt.Errorf("telemetry: expected 7 elements, got %d", len(arr))
+	// fix received data
+	for i, v := range data {
+		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
 	}
 
 	result.Time = time.Now()
 
-	// [0] captureFrameNo
-	var frameNo float64
-	if err := json.Unmarshal(arr[0], &frameNo); err != nil {
+	// [0] captureFrameNo (plain number string, like ParseFpsEvent)
+	frameNo, err := strconv.ParseFloat(data[0], 64)
+	if err != nil {
 		return result, fmt.Errorf("telemetry: parse frameNo: %w", err)
 	}
 	result.CaptureFrame = uint(frameNo)
 
 	// [1] FPS: [fpsAvg, fpsMin]
 	var fps [2]float64
-	if err := json.Unmarshal(arr[1], &fps); err != nil {
+	if err := json.Unmarshal([]byte(data[1]), &fps); err != nil {
 		return result, fmt.Errorf("telemetry: parse fps: %w", err)
 	}
 	result.FpsAverage = float32(fps[0])
@@ -301,7 +303,7 @@ func (p *Parser) ParseTelemetryEvent(data []string) (core.TelemetryEvent, error)
 
 	// [2] Per-side entity counts: [[local, remote], ...] x4 sides
 	var sides [4][2][6]float64
-	if err := json.Unmarshal(arr[2], &sides); err != nil {
+	if err := json.Unmarshal([]byte(data[2]), &sides); err != nil {
 		return result, fmt.Errorf("telemetry: parse side data: %w", err)
 	}
 	for i, side := range sides {
@@ -321,7 +323,7 @@ func (p *Parser) ParseTelemetryEvent(data []string) (core.TelemetryEvent, error)
 
 	// [3] Global counts: [alive, dead, groups, vehicles, weaponholders, players_alive, players_dead, players_connected]
 	var global [8]float64
-	if err := json.Unmarshal(arr[3], &global); err != nil {
+	if err := json.Unmarshal([]byte(data[3]), &global); err != nil {
 		return result, fmt.Errorf("telemetry: parse global counts: %w", err)
 	}
 	result.GlobalCounts = core.GlobalEntityCount{
@@ -333,7 +335,7 @@ func (p *Parser) ParseTelemetryEvent(data []string) (core.TelemetryEvent, error)
 
 	// [4] Scripts: [spawn, execVM, exec, execFSM, pfh]
 	var scripts [5]float64
-	if err := json.Unmarshal(arr[4], &scripts); err != nil {
+	if err := json.Unmarshal([]byte(data[4]), &scripts); err != nil {
 		return result, fmt.Errorf("telemetry: parse scripts: %w", err)
 	}
 	result.Scripts = core.ScriptCounts{
@@ -344,7 +346,7 @@ func (p *Parser) ParseTelemetryEvent(data []string) (core.TelemetryEvent, error)
 
 	// [5] Weather: 12 float values
 	var weather [12]float64
-	if err := json.Unmarshal(arr[5], &weather); err != nil {
+	if err := json.Unmarshal([]byte(data[5]), &weather); err != nil {
 		return result, fmt.Errorf("telemetry: parse weather: %w", err)
 	}
 	result.Weather = core.WeatherData{
@@ -358,7 +360,7 @@ func (p *Parser) ParseTelemetryEvent(data []string) (core.TelemetryEvent, error)
 
 	// [6] Player network: [[uid, name, ping, bw, desync], ...]
 	var players [][]json.RawMessage
-	if err := json.Unmarshal(arr[6], &players); err != nil {
+	if err := json.Unmarshal([]byte(data[6]), &players); err != nil {
 		return result, fmt.Errorf("telemetry: parse players: %w", err)
 	}
 	for _, pArr := range players {

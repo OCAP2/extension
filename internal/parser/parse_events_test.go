@@ -643,8 +643,18 @@ func TestParseTimeState(t *testing.T) {
 func TestParseTelemetryEvent(t *testing.T) {
 	p := newTestParser()
 
-	// A valid telemetry JSON payload
-	validJSON := `[500,[45.5,30.0],[[[10,8,2,3,5,1],[4,3,1,1,2,0]],[[12,10,2,4,6,2],[5,4,1,2,3,1]],[[2,2,0,1,0,0],[0,0,0,0,0,0]],[[0,0,0,0,0,0],[0,0,0,0,0,0]]],[40,5,8,13,3,16,2,18],[3,2,1,0,5],[0.1,0.5,0.0,0.6,0.2,180.0,3.5,0.1,0.0,0.8,0.25,1.0],[["uid1","Player1",25.5,512.0,0.1],["uid2","Player2",30.0,480.0,0.05]]]`
+	// Each element is a separate string arg, as ArmA's callExtension sends them
+	validArgs := []string{
+		"500",                                          // [0] frameNo
+		"[45.5,30.0]",                                  // [1] fps
+		`[[[10,8,2,3,5,1],[4,3,1,1,2,0]],[[12,10,2,4,6,2],[5,4,1,2,3,1]],[[2,2,0,1,0,0],[0,0,0,0,0,0]],[[0,0,0,0,0,0],[0,0,0,0,0,0]]]`, // [2] sides
+		"[40,5,8,13,3,16,2,18]",                        // [3] global
+		"[3,2,1,0,5]",                                  // [4] scripts
+		"[0.1,0.5,0.0,0.6,0.2,180.0,3.5,0.1,0.0,0.8,0.25,1.0]", // [5] weather
+		`[["uid1","Player1",25.5,512.0,0.1],["uid2","Player2",30.0,480.0,0.05]]`, // [6] players
+	}
+
+	zeroSides := `[[[0,0,0,0,0,0],[0,0,0,0,0,0]],[[0,0,0,0,0,0],[0,0,0,0,0,0]],[[0,0,0,0,0,0],[0,0,0,0,0,0]],[[0,0,0,0,0,0],[0,0,0,0,0,0]]]`
 
 	tests := []struct {
 		name    string
@@ -654,7 +664,7 @@ func TestParseTelemetryEvent(t *testing.T) {
 	}{
 		{
 			name:  "valid telemetry",
-			input: []string{validJSON},
+			input: validArgs,
 			check: func(t *testing.T, e core.TelemetryEvent) {
 				assert.Equal(t, uint(500), e.CaptureFrame)
 				assert.InDelta(t, float32(45.5), e.FpsAverage, 0.01)
@@ -686,8 +696,12 @@ func TestParseTelemetryEvent(t *testing.T) {
 			},
 		},
 		{
-			name:  "empty players array",
-			input: []string{`[0,[50.0,40.0],[[[0,0,0,0,0,0],[0,0,0,0,0,0]],[[0,0,0,0,0,0],[0,0,0,0,0,0]],[[0,0,0,0,0,0],[0,0,0,0,0,0]],[[0,0,0,0,0,0],[0,0,0,0,0,0]]],[0,0,0,0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0],[]]`},
+			name: "empty players array",
+			input: []string{
+				"0", "[50.0,40.0]", zeroSides,
+				"[0,0,0,0,0,0,0,0]", "[0,0,0,0,0]",
+				"[0,0,0,0,0,0,0,0,0,0,0,0]", "[]",
+			},
 			check: func(t *testing.T, e core.TelemetryEvent) {
 				assert.Equal(t, uint(0), e.CaptureFrame)
 				assert.InDelta(t, float32(50.0), e.FpsAverage, 0.01)
@@ -695,28 +709,31 @@ func TestParseTelemetryEvent(t *testing.T) {
 			},
 		},
 		{
+			name:    "error: too few args",
+			input:   []string{"500", "[45.5,30.0]"},
+			wantErr: true,
+		},
+		{
 			name:    "error: no data",
 			input:   []string{},
 			wantErr: true,
 		},
 		{
-			name:    "error: bad JSON",
-			input:   []string{"not_json"},
+			name: "error: bad frame",
+			input: []string{
+				"abc", "[45.5,30.0]", zeroSides,
+				"[0,0,0,0,0,0,0,0]", "[0,0,0,0,0]",
+				"[0,0,0,0,0,0,0,0,0,0,0,0]", "[]",
+			},
 			wantErr: true,
 		},
 		{
-			name:    "error: too few elements",
-			input:   []string{`[500,[45.5,30.0]]`},
-			wantErr: true,
-		},
-		{
-			name:    "error: bad frame",
-			input:   []string{`["abc",[45.5,30.0],[[[0,0,0,0,0,0],[0,0,0,0,0,0]],[[0,0,0,0,0,0],[0,0,0,0,0,0]],[[0,0,0,0,0,0],[0,0,0,0,0,0]],[[0,0,0,0,0,0],[0,0,0,0,0,0]]],[0,0,0,0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0],[]]`},
-			wantErr: true,
-		},
-		{
-			name:    "error: bad fps array",
-			input:   []string{`[500,"bad",[[[0,0,0,0,0,0],[0,0,0,0,0,0]],[[0,0,0,0,0,0],[0,0,0,0,0,0]],[[0,0,0,0,0,0],[0,0,0,0,0,0]],[[0,0,0,0,0,0],[0,0,0,0,0,0]]],[0,0,0,0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0],[]]`},
+			name: "error: bad fps JSON",
+			input: []string{
+				"500", "not_json", zeroSides,
+				"[0,0,0,0,0,0,0,0]", "[0,0,0,0,0]",
+				"[0,0,0,0,0,0,0,0,0,0,0,0]", "[]",
+			},
 			wantErr: true,
 		},
 	}
