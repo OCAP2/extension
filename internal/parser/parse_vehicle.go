@@ -8,13 +8,13 @@ import (
 	"time"
 
 	"github.com/OCAP2/extension/v5/internal/geo"
-	"github.com/OCAP2/extension/v5/internal/model"
+	"github.com/OCAP2/extension/v5/internal/model/core"
 	"github.com/OCAP2/extension/v5/internal/util"
 )
 
-// ParseVehicle parses vehicle data and returns a Vehicle model
-func (p *Parser) ParseVehicle(data []string) (model.Vehicle, error) {
-	var vehicle model.Vehicle
+// ParseVehicle parses vehicle data and returns a core Vehicle
+func (p *Parser) ParseVehicle(data []string) (core.Vehicle, error) {
+	var vehicle core.Vehicle
 
 	// fix received data
 	for i, v := range data {
@@ -34,7 +34,7 @@ func (p *Parser) ParseVehicle(data []string) (model.Vehicle, error) {
 	if err != nil {
 		return vehicle, fmt.Errorf("error converting ocapID to uint: %w", err)
 	}
-	vehicle.ObjectID = uint16(ocapID)
+	vehicle.ID = uint16(ocapID)
 	vehicle.OcapType = data[2]
 	vehicle.DisplayName = data[3]
 	vehicle.ClassName = data[4]
@@ -43,10 +43,10 @@ func (p *Parser) ParseVehicle(data []string) (model.Vehicle, error) {
 	return vehicle, nil
 }
 
-// ParseVehicleState parses vehicle state data and returns a VehicleState model.
-// Sets VehicleObjectID directly from the parsed ocapID (no cache lookup).
-func (p *Parser) ParseVehicleState(data []string) (model.VehicleState, error) {
-	var vehicleState model.VehicleState
+// ParseVehicleState parses vehicle state data and returns a core VehicleState.
+// Sets VehicleID directly from the parsed ocapID (no cache lookup).
+func (p *Parser) ParseVehicleState(data []string) (core.VehicleState, error) {
+	var vehicleState core.VehicleState
 
 	// fix received data
 	for i, v := range data {
@@ -65,7 +65,7 @@ func (p *Parser) ParseVehicleState(data []string) (model.VehicleState, error) {
 	if err != nil {
 		return vehicleState, fmt.Errorf("error converting ocapId to uint: %w", err)
 	}
-	vehicleState.VehicleObjectID = uint16(ocapID)
+	vehicleState.VehicleID = uint16(ocapID)
 
 	vehicleState.Time = time.Now()
 
@@ -73,14 +73,13 @@ func (p *Parser) ParseVehicleState(data []string) (model.VehicleState, error) {
 	pos := data[1]
 	pos = strings.TrimPrefix(pos, "[")
 	pos = strings.TrimSuffix(pos, "]")
-	point, elev, err := geo.Coord3857FromString(pos)
+	pos3d, err := geo.Position3DFromString(pos)
 	if err != nil {
 		jsonData, _ := json.Marshal(data)
 		p.logger.Error("Error converting position to Point", "data", string(jsonData), "error", err)
 		return vehicleState, err
 	}
-	vehicleState.Position = point
-	vehicleState.ElevationASL = float32(elev)
+	vehicleState.Position = pos3d
 
 	// bearing
 	bearing, _ := strconv.Atoi(data[2])

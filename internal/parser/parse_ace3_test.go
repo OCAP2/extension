@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/OCAP2/extension/v5/internal/model"
+	"github.com/OCAP2/extension/v5/internal/model/core"
 )
 
 func TestParseAce3DeathEvent(t *testing.T) {
@@ -15,36 +15,36 @@ func TestParseAce3DeathEvent(t *testing.T) {
 	tests := []struct {
 		name    string
 		input   []string
-		check   func(t *testing.T, e model.Ace3DeathEvent)
+		check   func(t *testing.T, e core.Ace3DeathEvent)
 		wantErr bool
 	}{
 		{
 			name:  "death with source",
 			input: []string{"100", "5", "bleeding", "10"},
-			check: func(t *testing.T, e model.Ace3DeathEvent) {
+			check: func(t *testing.T, e core.Ace3DeathEvent) {
 				assert.Equal(t, uint(100), e.CaptureFrame)
-				assert.Equal(t, uint16(5), e.SoldierObjectID)
+				assert.Equal(t, uint(5), e.SoldierID)
 				assert.Equal(t, "bleeding", e.Reason)
-				assert.True(t, e.LastDamageSourceObjectID.Valid)
-				assert.Equal(t, int32(10), e.LastDamageSourceObjectID.Int32)
+				assert.NotNil(t, e.LastDamageSourceID)
+				assert.Equal(t, uint(10), *e.LastDamageSourceID)
 			},
 		},
 		{
 			name:  "death no source (-1)",
 			input: []string{"100", "5", "explosion", "-1"},
-			check: func(t *testing.T, e model.Ace3DeathEvent) {
-				assert.Equal(t, uint16(5), e.SoldierObjectID)
+			check: func(t *testing.T, e core.Ace3DeathEvent) {
+				assert.Equal(t, uint(5), e.SoldierID)
 				assert.Equal(t, "explosion", e.Reason)
-				assert.False(t, e.LastDamageSourceObjectID.Valid)
+				assert.Nil(t, e.LastDamageSourceID)
 			},
 		},
 		{
 			name:  "float frame and objectIDs",
 			input: []string{"100.00", "5.00", "drowning", "10.00"},
-			check: func(t *testing.T, e model.Ace3DeathEvent) {
+			check: func(t *testing.T, e core.Ace3DeathEvent) {
 				assert.Equal(t, uint(100), e.CaptureFrame)
-				assert.Equal(t, uint16(5), e.SoldierObjectID)
-				assert.Equal(t, int32(10), e.LastDamageSourceObjectID.Int32)
+				assert.Equal(t, uint(5), e.SoldierID)
+				assert.Equal(t, uint(10), *e.LastDamageSourceID)
 			},
 		},
 		{
@@ -83,32 +83,32 @@ func TestParseAce3UnconsciousEvent(t *testing.T) {
 	tests := []struct {
 		name    string
 		input   []string
-		check   func(t *testing.T, e model.Ace3UnconsciousEvent)
+		check   func(t *testing.T, e core.Ace3UnconsciousEvent)
 		wantErr bool
 	}{
 		{
 			name:  "goes unconscious",
 			input: []string{"100", "5", "true"},
-			check: func(t *testing.T, e model.Ace3UnconsciousEvent) {
+			check: func(t *testing.T, e core.Ace3UnconsciousEvent) {
 				assert.Equal(t, uint(100), e.CaptureFrame)
-				assert.Equal(t, uint16(5), e.SoldierObjectID)
+				assert.Equal(t, uint(5), e.SoldierID)
 				assert.True(t, e.IsUnconscious)
 			},
 		},
 		{
 			name:  "regains consciousness",
 			input: []string{"100", "5", "false"},
-			check: func(t *testing.T, e model.Ace3UnconsciousEvent) {
-				assert.Equal(t, uint16(5), e.SoldierObjectID)
+			check: func(t *testing.T, e core.Ace3UnconsciousEvent) {
+				assert.Equal(t, uint(5), e.SoldierID)
 				assert.False(t, e.IsUnconscious)
 			},
 		},
 		{
 			name:  "float IDs",
 			input: []string{"200.00", "42.00", "true"},
-			check: func(t *testing.T, e model.Ace3UnconsciousEvent) {
+			check: func(t *testing.T, e core.Ace3UnconsciousEvent) {
 				assert.Equal(t, uint(200), e.CaptureFrame)
-				assert.Equal(t, uint16(42), e.SoldierObjectID)
+				assert.Equal(t, uint(42), e.SoldierID)
 			},
 		},
 		{

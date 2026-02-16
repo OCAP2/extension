@@ -6,16 +6,15 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/OCAP2/extension/v5/internal/geo"
-	"github.com/OCAP2/extension/v5/internal/model"
+	"github.com/OCAP2/extension/v5/internal/model/core"
 	"github.com/OCAP2/extension/v5/internal/util"
 )
 
 // ParseMission parses mission and world data from raw args.
 // Returns parsed mission + world. NO DB operations, NO cache resets, NO callbacks.
-func (p *Parser) ParseMission(data []string) (model.Mission, model.World, error) {
-	var mission model.Mission
-	var world model.World
+func (p *Parser) ParseMission(data []string) (core.Mission, core.World, error) {
+	var mission core.Mission
+	var world core.World
 
 	// fix received data
 	for i, v := range data {
@@ -28,15 +27,8 @@ func (p *Parser) ParseMission(data []string) (model.Mission, model.World, error)
 		return mission, world, fmt.Errorf("error unmarshalling world data: %w", err)
 	}
 
-	// preprocess the world 'location' to geopoint
-	worldLocation, err := geo.Coords3857From4326(
-		float64(world.Longitude),
-		float64(world.Latitude),
-	)
-	if err != nil {
-		return mission, world, fmt.Errorf("error converting world location to geopoint: %w", err)
-	}
-	world.Location = worldLocation
+	// Store location as core.Position3D (longitude, latitude)
+	world.Location = core.Position3D{X: float64(world.Longitude), Y: float64(world.Latitude)}
 
 	// unmarshal data[1] -> mission (via temp map for addons extraction)
 	missionTemp := map[string]any{}
@@ -49,7 +41,7 @@ func (p *Parser) ParseMission(data []string) (model.Mission, model.World, error)
 	if !ok {
 		return mission, world, fmt.Errorf("addons field is missing or not an array")
 	}
-	addons := []model.Addon{}
+	addons := []core.Addon{}
 	for _, addon := range addonsRaw {
 		addonInfo, ok := addon.([]any)
 		if !ok || len(addonInfo) < 2 {
@@ -59,7 +51,7 @@ func (p *Parser) ParseMission(data []string) (model.Mission, model.World, error)
 		if !ok {
 			return mission, world, fmt.Errorf("invalid addon name type")
 		}
-		thisAddon := model.Addon{Name: addonName}
+		thisAddon := core.Addon{Name: addonName}
 		switch v := addonInfo[1].(type) {
 		case float64:
 			intVal := int64(v)

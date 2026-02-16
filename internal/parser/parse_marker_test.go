@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/OCAP2/extension/v5/internal/model"
+	"github.com/OCAP2/extension/v5/internal/model/core"
 )
 
 func TestParseMarkerCreate(t *testing.T) {
@@ -15,7 +15,7 @@ func TestParseMarkerCreate(t *testing.T) {
 	tests := []struct {
 		name    string
 		input   []string
-		check   func(t *testing.T, m model.Marker)
+		check   func(t *testing.T, m core.Marker)
 		wantErr bool
 	}{
 		{
@@ -36,7 +36,7 @@ func TestParseMarkerCreate(t *testing.T) {
 				"1",             // 12: alpha
 				"",              // 13: brush
 			},
-			check: func(t *testing.T, m model.Marker) {
+			check: func(t *testing.T, m core.Marker) {
 				assert.Equal(t, "respawn_west", m.MarkerName)
 				assert.Equal(t, float32(0), m.Direction)
 				assert.Equal(t, "mil_dot", m.MarkerType)
@@ -47,7 +47,7 @@ func TestParseMarkerCreate(t *testing.T) {
 				assert.Equal(t, "ICON", m.Shape)
 				assert.Equal(t, float32(1), m.Alpha)
 				assert.False(t, m.IsDeleted)
-				assert.False(t, m.Position.IsEmpty())
+				assert.NotEqual(t, core.Position3D{}, m.Position)
 			},
 		},
 		{
@@ -68,7 +68,7 @@ func TestParseMarkerCreate(t *testing.T) {
 				"0.5",           // 12: alpha
 				"grid",          // 13: brush
 			},
-			check: func(t *testing.T, m model.Marker) {
+			check: func(t *testing.T, m core.Marker) {
 				assert.Equal(t, "ELLIPSE", m.Shape)
 				assert.InDelta(t, float32(42.56), m.Direction, 0.01)
 				assert.InDelta(t, float32(0.5), m.Alpha, 0.01)
@@ -95,7 +95,7 @@ func TestParseMarkerCreate(t *testing.T) {
 				"1",             // 12: alpha
 				"",              // 13: brush
 			},
-			check: func(t *testing.T, m model.Marker) {
+			check: func(t *testing.T, m core.Marker) {
 				assert.Equal(t, "mil_triangle", m.MarkerType)
 				assert.Equal(t, "ColorGreen", m.Color)
 				assert.Equal(t, "GUER", m.Side)
@@ -119,10 +119,10 @@ func TestParseMarkerCreate(t *testing.T) {
 				"1",             // 12: alpha
 				"",              // 13: brush
 			},
-			check: func(t *testing.T, m model.Marker) {
+			check: func(t *testing.T, m core.Marker) {
 				assert.Equal(t, "POLYLINE", m.Shape)
-				assert.True(t, m.Position.IsEmpty())
-				assert.False(t, m.Polyline.IsEmpty())
+				assert.Equal(t, core.Position3D{}, m.Position)
+				assert.NotEmpty(t, m.Polyline)
 			},
 		},
 		{
@@ -131,7 +131,7 @@ func TestParseMarkerCreate(t *testing.T) {
 				"marker1", "0", "mil_dot", "text", "0", "-1", "not_a_number",
 				"ColorRed", "[1,1]", "", "1000.0,2000.0,0", "ICON", "1", "",
 			},
-			check: func(t *testing.T, m model.Marker) {
+			check: func(t *testing.T, m core.Marker) {
 				assert.Equal(t, -1, m.OwnerID)
 			},
 		},
@@ -141,7 +141,7 @@ func TestParseMarkerCreate(t *testing.T) {
 				"marker1", "0", "mil_dot", "text", "0", "-1", "-1",
 				"ColorRed", "[1,1]", "", "1000.0,2000.0,0", "ICON", "not_a_float", "",
 			},
-			check: func(t *testing.T, m model.Marker) {
+			check: func(t *testing.T, m core.Marker) {
 				assert.Equal(t, float32(1.0), m.Alpha)
 			},
 		},
@@ -207,7 +207,7 @@ func TestParseMarkerMove(t *testing.T) {
 			check: func(t *testing.T, r ParsedMarkerMove) {
 				assert.Equal(t, "markerName", r.MarkerName)
 				assert.Equal(t, uint(517), r.State.CaptureFrame)
-				assert.False(t, r.State.Position.IsEmpty())
+				assert.NotEqual(t, core.Position3D{}, r.State.Position)
 				assert.Equal(t, float32(0), r.State.Direction)
 				assert.Equal(t, float32(1), r.State.Alpha)
 			},

@@ -7,13 +7,13 @@ import (
 	"time"
 
 	"github.com/OCAP2/extension/v5/internal/geo"
-	"github.com/OCAP2/extension/v5/internal/model"
+	"github.com/OCAP2/extension/v5/internal/model/core"
 	"github.com/OCAP2/extension/v5/internal/util"
 )
 
-// ParseMarkerCreate parses marker create data and returns a Marker model
-func (p *Parser) ParseMarkerCreate(data []string) (model.Marker, error) {
-	var marker model.Marker
+// ParseMarkerCreate parses marker create data and returns a core Marker
+func (p *Parser) ParseMarkerCreate(data []string) (core.Marker, error) {
+	var marker core.Marker
 
 	// fix received data
 	for i, v := range data {
@@ -68,7 +68,7 @@ func (p *Parser) ParseMarkerCreate(data []string) (model.Marker, error) {
 	// position - parse based on shape
 	pos := data[10]
 	if marker.Shape == "POLYLINE" {
-		polyline, err := geo.ParsePolyline(pos)
+		polyline, err := geo.ParsePolylineToCore(pos)
 		if err != nil {
 			return marker, fmt.Errorf("error parsing polyline: %w", err)
 		}
@@ -76,11 +76,11 @@ func (p *Parser) ParseMarkerCreate(data []string) (model.Marker, error) {
 	} else {
 		pos = strings.TrimPrefix(pos, "[")
 		pos = strings.TrimSuffix(pos, "]")
-		point, _, err := geo.Coord3857FromString(pos)
+		pos3d, err := geo.Position3DFromString(pos)
 		if err != nil {
 			return marker, fmt.Errorf("error parsing position: %w", err)
 		}
-		marker.Position = point
+		marker.Position = pos3d
 	}
 
 	// alpha
@@ -124,11 +124,11 @@ func (p *Parser) ParseMarkerMove(data []string) (ParsedMarkerMove, error) {
 	pos := data[2]
 	pos = strings.TrimPrefix(pos, "[")
 	pos = strings.TrimSuffix(pos, "]")
-	point, _, err := geo.Coord3857FromString(pos)
+	pos3d, err := geo.Position3DFromString(pos)
 	if err != nil {
 		return result, fmt.Errorf("error parsing position: %w", err)
 	}
-	result.State.Position = point
+	result.State.Position = pos3d
 
 	// direction
 	dir, err := strconv.ParseFloat(data[3], 32)

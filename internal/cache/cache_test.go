@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/OCAP2/extension/v5/internal/model"
+	"github.com/OCAP2/extension/v5/internal/model/core"
 )
 
 func TestEntityCache_NewEntityCache(t *testing.T) {
@@ -23,16 +23,16 @@ func TestEntityCache_NewEntityCache(t *testing.T) {
 func TestEntityCache_AddAndGetSoldier(t *testing.T) {
 	cache := NewEntityCache()
 
-	soldier := model.Soldier{
-		ObjectID:   42,
+	soldier := core.Soldier{
+		ID:       42,
 		UnitName: "Test Soldier",
 	}
 
 	cache.AddSoldier(soldier)
 
 	got, ok := cache.GetSoldier(42)
-	require.True(t, ok, "expected to find soldier with ObjectID 42")
-	assert.Equal(t, uint16(42), got.ObjectID)
+	require.True(t, ok, "expected to find soldier with ID 42")
+	assert.Equal(t, uint16(42), got.ID)
 	assert.Equal(t, "Test Soldier", got.UnitName)
 }
 
@@ -40,22 +40,22 @@ func TestEntityCache_GetSoldier_NotFound(t *testing.T) {
 	cache := NewEntityCache()
 
 	_, ok := cache.GetSoldier(999)
-	assert.False(t, ok, "expected not to find soldier with ObjectID 999")
+	assert.False(t, ok, "expected not to find soldier with ID 999")
 }
 
 func TestEntityCache_AddAndGetVehicle(t *testing.T) {
 	cache := NewEntityCache()
 
-	vehicle := model.Vehicle{
-		ObjectID:    99,
+	vehicle := core.Vehicle{
+		ID:        99,
 		ClassName: "Test_Vehicle",
 	}
 
 	cache.AddVehicle(vehicle)
 
 	got, ok := cache.GetVehicle(99)
-	require.True(t, ok, "expected to find vehicle with ObjectID 99")
-	assert.Equal(t, uint16(99), got.ObjectID)
+	require.True(t, ok, "expected to find vehicle with ID 99")
+	assert.Equal(t, uint16(99), got.ID)
 	assert.Equal(t, "Test_Vehicle", got.ClassName)
 }
 
@@ -63,16 +63,16 @@ func TestEntityCache_GetVehicle_NotFound(t *testing.T) {
 	cache := NewEntityCache()
 
 	_, ok := cache.GetVehicle(999)
-	assert.False(t, ok, "expected not to find vehicle with ObjectID 999")
+	assert.False(t, ok, "expected not to find vehicle with ID 999")
 }
 
 func TestEntityCache_Reset(t *testing.T) {
 	cache := NewEntityCache()
 
 	// Add some data
-	cache.AddSoldier(model.Soldier{ObjectID: 1, UnitName: "Soldier 1"})
-	cache.AddSoldier(model.Soldier{ObjectID: 2, UnitName: "Soldier 2"})
-	cache.AddVehicle(model.Vehicle{ObjectID: 10, ClassName: "Vehicle 1"})
+	cache.AddSoldier(core.Soldier{ID: 1, UnitName: "Soldier 1"})
+	cache.AddSoldier(core.Soldier{ID: 2, UnitName: "Soldier 2"})
+	cache.AddVehicle(core.Vehicle{ID: 10, ClassName: "Vehicle 1"})
 
 	// Verify data exists
 	assert.Len(t, cache.Soldiers, 2)
@@ -86,7 +86,7 @@ func TestEntityCache_Reset(t *testing.T) {
 	assert.Len(t, cache.Vehicles, 0)
 
 	// Verify we can still add data after reset
-	cache.AddSoldier(model.Soldier{ObjectID: 3, UnitName: "Soldier 3"})
+	cache.AddSoldier(core.Soldier{ID: 3, UnitName: "Soldier 3"})
 	_, ok := cache.GetSoldier(3)
 	assert.True(t, ok, "expected to find soldier added after reset")
 }
@@ -97,7 +97,7 @@ func TestEntityCache_LockUnlock(t *testing.T) {
 	// Test Lock/Unlock don't cause deadlock
 	cache.Lock()
 	// Directly modify the map while holding the lock
-	cache.Soldiers[1] = model.Soldier{ObjectID: 1, UnitName: "Direct Add"}
+	cache.Soldiers[1] = core.Soldier{ID: 1, UnitName: "Direct Add"}
 	cache.Unlock()
 
 	// Verify the data was added
@@ -115,11 +115,11 @@ func TestEntityCache_Concurrent(t *testing.T) {
 		wg.Add(2)
 		go func(id uint16) {
 			defer wg.Done()
-			cache.AddSoldier(model.Soldier{ObjectID: id, UnitName: "Soldier"})
+			cache.AddSoldier(core.Soldier{ID: id, UnitName: "Soldier"})
 		}(i)
 		go func(id uint16) {
 			defer wg.Done()
-			cache.AddVehicle(model.Vehicle{ObjectID: id, ClassName: "Vehicle"})
+			cache.AddVehicle(core.Vehicle{ID: id, ClassName: "Vehicle"})
 		}(i)
 	}
 	wg.Wait()

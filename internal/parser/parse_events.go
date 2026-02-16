@@ -1,17 +1,14 @@
 package parser
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strconv"
 	"time"
 
 	"github.com/OCAP2/extension/v5/internal/geo"
-	"github.com/OCAP2/extension/v5/internal/model"
+	"github.com/OCAP2/extension/v5/internal/model/core"
 	"github.com/OCAP2/extension/v5/internal/util"
-
-	geom "github.com/peterstace/simplefeatures/geom"
 )
 
 // ParseProjectileEvent parses projectile event data and returns a ParsedProjectileEvent.
@@ -19,7 +16,7 @@ import (
 // Hit parts are returned as RawHitPart for the worker to classify as soldier/vehicle.
 func (p *Parser) ParseProjectileEvent(data []string) (ParsedProjectileEvent, error) {
 	var result ParsedProjectileEvent
-	var projectileEvent model.ProjectileEvent
+	var projectileEvent core.ProjectileEvent
 
 	// fix received data
 	for i, v := range data {
@@ -37,9 +34,6 @@ func (p *Parser) ParseProjectileEvent(data []string) (ParsedProjectileEvent, err
 	}
 	projectileEvent.CaptureFrame = uint(capframe)
 
-	// [1] firedTime
-	projectileEvent.Time = time.Now()
-
 	// [2] firerID - set directly
 	firerID, err := parseUintFromFloat(data[2])
 	if err != nil {
@@ -53,36 +47,21 @@ func (p *Parser) ParseProjectileEvent(data []string) (ParsedProjectileEvent, err
 		return result, fmt.Errorf("error parsing vehicleID: %v", err)
 	}
 	if vehicleID >= 0 {
-		projectileEvent.VehicleObjectID = sql.NullInt32{Int32: int32(vehicleID), Valid: true}
+		ptr := uint16(vehicleID)
+		projectileEvent.VehicleObjectID = &ptr
 	}
-
-	// [4] vehicleRole
-	projectileEvent.VehicleRole = data[4]
-
-	// [5] remoteControllerID - set directly
-	remoteControllerID, err := parseUintFromFloat(data[5])
-	if err != nil {
-		return result, fmt.Errorf("error parsing remoteControllerID: %v", err)
-	}
-	projectileEvent.ActualFirerObjectID = uint16(remoteControllerID)
 
 	// [6-13] weapon info
-	projectileEvent.Weapon = data[6]
 	projectileEvent.WeaponDisplay = data[7]
-	projectileEvent.Muzzle = data[8]
 	projectileEvent.MuzzleDisplay = data[9]
-	projectileEvent.Magazine = data[10]
 	projectileEvent.MagazineDisplay = data[11]
-	projectileEvent.Ammo = data[12]
-	projectileEvent.Mode = data[13]
 
-	// [14] positions - SQF array "[[tickTime,frameNo,\"x,y,z\"],...]"
+	// [14] positions - SQF array "[[tickTime,frameNo,"x,y,z"],...]"
 	var positions [][]any
 	if err := json.Unmarshal([]byte(data[14]), &positions); err != nil {
 		return result, fmt.Errorf("error parsing positions: %v", err)
 	}
 
-	positionSequence := []float64{}
 	for _, posArr := range positions {
 		if len(posArr) < 3 {
 			continue
@@ -100,31 +79,17 @@ func (p *Parser) ParseProjectileEvent(data []string) (ParsedProjectileEvent, err
 			continue
 		}
 
-		point, _, err := geo.Coord3857FromString(posStr)
+		pos3d, err := geo.Position3DFromString(posStr)
 		if err != nil {
 			p.logger.Warn("Error converting position to Point", "error", err, "pos", posStr)
 			continue
 		}
-		coords, _ := point.Coordinates()
 
-		positionSequence = append(
-			positionSequence,
-			coords.XY.X,
-			coords.XY.Y,
-			coords.Z,
-			frameNo,
-		)
+		projectileEvent.Trajectory = append(projectileEvent.Trajectory, core.TrajectoryPoint{
+			Position: pos3d,
+			Frame:    uint(frameNo),
+		})
 	}
-
-	// create the linestring if we have positions
-	if len(positionSequence) >= 8 { // at least 2 points (4 values each)
-		posSeq := geom.NewSequence(positionSequence, geom.DimXYZM)
-		ls := geom.NewLineString(posSeq)
-		projectileEvent.Positions = ls.AsGeometry()
-	}
-
-	// [15] initialVelocity
-	projectileEvent.InitialVelocity = data[15]
 
 	// [16] hitParts - parse into RawHitPart for worker classification
 	var hitParts [][]any
@@ -157,7 +122,7 @@ func (p *Parser) ParseProjectileEvent(data []string) (ParsedProjectileEvent, err
 			if !ok {
 				continue
 			}
-			hitPoint, _, err := geo.Coord3857FromString(hitPosStr)
+			hitPos3d, err := geo.Position3DFromString(hitPosStr)
 			if err != nil {
 				p.logger.Warn("Error converting hit position", "error", err)
 				continue
@@ -174,7 +139,7 @@ func (p *Parser) ParseProjectileEvent(data []string) (ParsedProjectileEvent, err
 				EntityID:      uint16(hitEntityID),
 				ComponentsHit: hitComponentsJSON,
 				CaptureFrame:  uint(hitFrame),
-				Position:      hitPoint,
+				Position:      hitPos3d,
 			})
 		}
 	}
@@ -182,26 +147,19 @@ func (p *Parser) ParseProjectileEvent(data []string) (ParsedProjectileEvent, err
 	// [17] sim - simulation type
 	projectileEvent.SimulationType = data[17]
 
-	// [18] isSub - is submunition
-	isSub, err := strconv.ParseBool(data[18])
-	if err == nil {
-		projectileEvent.IsSubmunition = isSub
-	}
-
 	// [19] magazineIcon
 	projectileEvent.MagazineIcon = data[19]
 
-	// Initialize empty hit slices on the event
-	projectileEvent.HitSoldiers = []model.ProjectileHitsSoldier{}
-	projectileEvent.HitVehicles = []model.ProjectileHitsVehicle{}
+	// Initialize empty hits slice on the event
+	projectileEvent.Hits = []core.ProjectileHit{}
 
 	result.Event = projectileEvent
 	return result, nil
 }
 
-// ParseGeneralEvent parses general event data and returns a GeneralEvent model
-func (p *Parser) ParseGeneralEvent(data []string) (model.GeneralEvent, error) {
-	var thisEvent model.GeneralEvent
+// ParseGeneralEvent parses general event data and returns a core GeneralEvent
+func (p *Parser) ParseGeneralEvent(data []string) (core.GeneralEvent, error) {
+	var thisEvent core.GeneralEvent
 
 	// fix received data
 	for i, v := range data {
@@ -280,9 +238,9 @@ func (p *Parser) ParseKillEvent(data []string) (ParsedKillEvent, error) {
 	return result, nil
 }
 
-// ParseFpsEvent parses FPS event data and returns a ServerFpsEvent model
-func (p *Parser) ParseFpsEvent(data []string) (model.ServerFpsEvent, error) {
-	var fpsEvent model.ServerFpsEvent
+// ParseFpsEvent parses FPS event data and returns a core ServerFpsEvent
+func (p *Parser) ParseFpsEvent(data []string) (core.ServerFpsEvent, error) {
+	var fpsEvent core.ServerFpsEvent
 
 	// fix received data
 	for i, v := range data {
@@ -312,10 +270,10 @@ func (p *Parser) ParseFpsEvent(data []string) (model.ServerFpsEvent, error) {
 	return fpsEvent, nil
 }
 
-// ParseTimeState parses time state data and returns a TimeState model
+// ParseTimeState parses time state data and returns a core TimeState
 // Args: [frameNo, systemTimeUTC, missionDateTime, timeMultiplier, missionTime]
-func (p *Parser) ParseTimeState(data []string) (model.TimeState, error) {
-	var timeState model.TimeState
+func (p *Parser) ParseTimeState(data []string) (core.TimeState, error) {
+	var timeState core.TimeState
 
 	// fix received data
 	for i, v := range data {

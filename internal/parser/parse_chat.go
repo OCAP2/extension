@@ -1,19 +1,18 @@
 package parser
 
 import (
-	"database/sql"
 	"fmt"
 	"strconv"
 	"time"
 
-	"github.com/OCAP2/extension/v5/internal/model"
+	"github.com/OCAP2/extension/v5/internal/model/core"
 	"github.com/OCAP2/extension/v5/internal/util"
 )
 
-// ParseChatEvent parses chat event data and returns a ChatEvent model.
-// SoldierObjectID is set directly (no cache validation - worker validates).
-func (p *Parser) ParseChatEvent(data []string) (model.ChatEvent, error) {
-	var chatEvent model.ChatEvent
+// ParseChatEvent parses chat event data and returns a core ChatEvent.
+// SoldierID is set directly (no cache validation - worker validates).
+func (p *Parser) ParseChatEvent(data []string) (core.ChatEvent, error) {
+	var chatEvent core.ChatEvent
 
 	// fix received data
 	for i, v := range data {
@@ -37,7 +36,8 @@ func (p *Parser) ParseChatEvent(data []string) (model.ChatEvent, error) {
 
 	// Set sender ObjectID if not -1
 	if senderObjectID > -1 {
-		chatEvent.SoldierObjectID = sql.NullInt32{Int32: int32(senderObjectID), Valid: true}
+		ptr := uint(senderObjectID)
+		chatEvent.SoldierID = &ptr
 	}
 
 	// channel
@@ -45,7 +45,7 @@ func (p *Parser) ParseChatEvent(data []string) (model.ChatEvent, error) {
 	if err != nil {
 		return chatEvent, fmt.Errorf("error converting channel to int: %w", err)
 	}
-	channelName, ok := model.ChatChannels[int(channelInt)]
+	channelName, ok := ChatChannels[int(channelInt)]
 	if ok {
 		chatEvent.Channel = channelName
 	} else {
@@ -64,10 +64,10 @@ func (p *Parser) ParseChatEvent(data []string) (model.ChatEvent, error) {
 	return chatEvent, nil
 }
 
-// ParseRadioEvent parses radio event data and returns a RadioEvent model.
-// SoldierObjectID is set directly (no cache validation - worker validates).
-func (p *Parser) ParseRadioEvent(data []string) (model.RadioEvent, error) {
-	var radioEvent model.RadioEvent
+// ParseRadioEvent parses radio event data and returns a core RadioEvent.
+// SoldierID is set directly (no cache validation - worker validates).
+func (p *Parser) ParseRadioEvent(data []string) (core.RadioEvent, error) {
+	var radioEvent core.RadioEvent
 
 	// fix received data
 	for i, v := range data {
@@ -91,7 +91,8 @@ func (p *Parser) ParseRadioEvent(data []string) (model.RadioEvent, error) {
 
 	// Set sender ObjectID if not -1
 	if senderObjectID > -1 {
-		radioEvent.SoldierObjectID = sql.NullInt32{Int32: int32(senderObjectID), Valid: true}
+		ptr := uint(senderObjectID)
+		radioEvent.SoldierID = &ptr
 	}
 
 	radioEvent.Radio = data[2]

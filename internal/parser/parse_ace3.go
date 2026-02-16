@@ -1,19 +1,18 @@
 package parser
 
 import (
-	"database/sql"
 	"fmt"
 	"strconv"
 	"time"
 
-	"github.com/OCAP2/extension/v5/internal/model"
+	"github.com/OCAP2/extension/v5/internal/model/core"
 	"github.com/OCAP2/extension/v5/internal/util"
 )
 
-// ParseAce3DeathEvent parses ACE3 death event data and returns an Ace3DeathEvent model.
-// SoldierObjectID and LastDamageSourceObjectID are set directly (no cache validation).
-func (p *Parser) ParseAce3DeathEvent(data []string) (model.Ace3DeathEvent, error) {
-	var deathEvent model.Ace3DeathEvent
+// ParseAce3DeathEvent parses ACE3 death event data and returns a core Ace3DeathEvent.
+// SoldierID and LastDamageSourceID are set directly (no cache validation).
+func (p *Parser) ParseAce3DeathEvent(data []string) (core.Ace3DeathEvent, error) {
+	var deathEvent core.Ace3DeathEvent
 
 	// fix received data
 	for i, v := range data {
@@ -33,7 +32,7 @@ func (p *Parser) ParseAce3DeathEvent(data []string) (model.Ace3DeathEvent, error
 	if err != nil {
 		return deathEvent, fmt.Errorf("error converting victim ocap id to uint: %w", err)
 	}
-	deathEvent.SoldierObjectID = uint16(victimObjectID)
+	deathEvent.SoldierID = uint(victimObjectID)
 
 	deathEvent.Reason = data[2]
 
@@ -44,16 +43,17 @@ func (p *Parser) ParseAce3DeathEvent(data []string) (model.Ace3DeathEvent, error
 	}
 
 	if lastDamageSourceID > -1 {
-		deathEvent.LastDamageSourceObjectID = sql.NullInt32{Int32: int32(lastDamageSourceID), Valid: true}
+		ptr := uint(lastDamageSourceID)
+		deathEvent.LastDamageSourceID = &ptr
 	}
 
 	return deathEvent, nil
 }
 
-// ParseAce3UnconsciousEvent parses ACE3 unconscious event data and returns an Ace3UnconsciousEvent model.
-// SoldierObjectID is set directly (no cache validation - worker validates).
-func (p *Parser) ParseAce3UnconsciousEvent(data []string) (model.Ace3UnconsciousEvent, error) {
-	var unconsciousEvent model.Ace3UnconsciousEvent
+// ParseAce3UnconsciousEvent parses ACE3 unconscious event data and returns a core Ace3UnconsciousEvent.
+// SoldierID is set directly (no cache validation - worker validates).
+func (p *Parser) ParseAce3UnconsciousEvent(data []string) (core.Ace3UnconsciousEvent, error) {
+	var unconsciousEvent core.Ace3UnconsciousEvent
 
 	// fix received data
 	for i, v := range data {
@@ -71,7 +71,7 @@ func (p *Parser) ParseAce3UnconsciousEvent(data []string) (model.Ace3Unconscious
 	if err != nil {
 		return unconsciousEvent, fmt.Errorf("error converting ocap id to uint: %w", err)
 	}
-	unconsciousEvent.SoldierObjectID = uint16(ocapID)
+	unconsciousEvent.SoldierID = uint(ocapID)
 
 	isUnconscious, err := strconv.ParseBool(data[2])
 	if err != nil {

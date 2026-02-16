@@ -7,6 +7,7 @@ import (
 	"github.com/OCAP2/extension/v5/internal/model"
 	"github.com/OCAP2/extension/v5/internal/model/core"
 	geom "github.com/peterstace/simplefeatures/geom"
+	"gorm.io/datatypes"
 )
 
 // pointToPosition3D converts a PostGIS geom.Point to a core.Position3D
@@ -16,6 +17,14 @@ func pointToPosition3D(p geom.Point) core.Position3D {
 		return core.Position3D{}
 	}
 	return core.Position3D{X: coord.XY.X, Y: coord.XY.Y, Z: coord.Z}
+}
+
+// componentsFromDatatypes converts a datatypes.JSON to json.RawMessage (no-copy type cast).
+func componentsFromDatatypes(d datatypes.JSON) json.RawMessage {
+	if len(d) == 0 {
+		return nil
+	}
+	return json.RawMessage(d)
 }
 
 // lineStringToPolyline converts a geom.LineString to a core.Polyline
@@ -355,17 +364,19 @@ func ProjectileEventToCore(p model.ProjectileEvent) core.ProjectileEvent {
 	for _, h := range p.HitSoldiers {
 		id := h.SoldierObjectID
 		hits = append(hits, core.ProjectileHit{
-			CaptureFrame: h.CaptureFrame,
-			Position:     pointToPosition3D(h.Position),
-			SoldierID:    &id,
+			CaptureFrame:  h.CaptureFrame,
+			Position:      pointToPosition3D(h.Position),
+			SoldierID:     &id,
+			ComponentsHit: componentsFromDatatypes(h.ComponentsHit),
 		})
 	}
 	for _, h := range p.HitVehicles {
 		id := h.VehicleObjectID
 		hits = append(hits, core.ProjectileHit{
-			CaptureFrame: h.CaptureFrame,
-			Position:     pointToPosition3D(h.Position),
-			VehicleID:    &id,
+			CaptureFrame:  h.CaptureFrame,
+			Position:      pointToPosition3D(h.Position),
+			VehicleID:     &id,
+			ComponentsHit: componentsFromDatatypes(h.ComponentsHit),
 		})
 	}
 	result.Hits = hits

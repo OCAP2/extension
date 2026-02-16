@@ -1,10 +1,9 @@
 package parser
 
 import (
-	"encoding/json"
 	"testing"
 
-	"github.com/OCAP2/extension/v5/internal/model"
+	"github.com/OCAP2/extension/v5/internal/model/core"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -15,7 +14,7 @@ func TestParseSoldier(t *testing.T) {
 	tests := []struct {
 		name    string
 		input   []string
-		check   func(t *testing.T, s model.Soldier)
+		check   func(t *testing.T, s core.Soldier)
 		wantErr bool
 	}{
 		{
@@ -33,9 +32,9 @@ func TestParseSoldier(t *testing.T) {
 				"",               // 9: playerUID
 				"[]",             // 10: squadParams
 			},
-			check: func(t *testing.T, s model.Soldier) {
+			check: func(t *testing.T, s core.Soldier) {
 				assert.Equal(t, uint(0), s.JoinFrame)
-				assert.Equal(t, uint16(0), s.ObjectID)
+				assert.Equal(t, uint16(0), s.ID)
 				assert.Equal(t, "Farid Amin", s.UnitName)
 				assert.Equal(t, "Alpha 1-1", s.GroupID)
 				assert.Equal(t, "EAST", s.Side)
@@ -44,7 +43,7 @@ func TestParseSoldier(t *testing.T) {
 				assert.Equal(t, "O_Soldier_F", s.ClassName)
 				assert.Equal(t, "Rifleman", s.DisplayName)
 				assert.Equal(t, "", s.PlayerUID)
-				assert.JSONEq(t, "[]", string(s.SquadParams))
+				assert.Empty(t, s.SquadParams)
 			},
 		},
 		{
@@ -62,13 +61,11 @@ func TestParseSoldier(t *testing.T) {
 				"76561198000074241",           // 9: playerUID
 				`[["SquadName",1],["Tag",2]]`, // 10: squadParams
 			},
-			check: func(t *testing.T, s model.Soldier) {
+			check: func(t *testing.T, s core.Soldier) {
 				assert.True(t, s.IsPlayer)
 				assert.Equal(t, "76561198000074241", s.PlayerUID)
 				assert.Equal(t, "WEST", s.Side)
-				var params []json.RawMessage
-				require.NoError(t, json.Unmarshal(s.SquadParams, &params))
-				assert.Len(t, params, 2)
+				assert.Len(t, s.SquadParams, 2)
 			},
 		},
 		{
@@ -86,9 +83,9 @@ func TestParseSoldier(t *testing.T) {
 				"",               // 9: playerUID
 				"[]",             // 10: squadParams
 			},
-			check: func(t *testing.T, s model.Soldier) {
+			check: func(t *testing.T, s core.Soldier) {
 				assert.Equal(t, uint(415), s.JoinFrame)
-				assert.Equal(t, uint16(78), s.ObjectID)
+				assert.Equal(t, uint16(78), s.ID)
 				assert.Equal(t, "", s.UnitName)
 				assert.Equal(t, "UNKNOWN", s.Side)
 			},
@@ -108,9 +105,9 @@ func TestParseSoldier(t *testing.T) {
 				"",                       // 9: playerUID
 				"[]",                     // 10: squadParams
 			},
-			check: func(t *testing.T, s model.Soldier) {
+			check: func(t *testing.T, s core.Soldier) {
 				assert.Equal(t, uint(21), s.JoinFrame)
-				assert.Equal(t, uint16(70), s.ObjectID)
+				assert.Equal(t, uint16(70), s.ID)
 				assert.Equal(t, "Team Leader", s.DisplayName)
 			},
 		},
@@ -184,13 +181,13 @@ func TestParseSoldierState_ScoresParsingPanic(t *testing.T) {
 		name         string
 		isPlayer     string
 		scores       string
-		expectScores model.SoldierScores
+		expectScores core.SoldierScores
 	}{
 		{
 			name:     "valid 6 scores",
 			isPlayer: "true",
 			scores:   "1,2,3,4,5,100",
-			expectScores: model.SoldierScores{
+			expectScores: core.SoldierScores{
 				InfantryKills: 1, VehicleKills: 2, ArmorKills: 3,
 				AirKills: 4, Deaths: 5, TotalScore: 100,
 			},
@@ -199,25 +196,25 @@ func TestParseSoldierState_ScoresParsingPanic(t *testing.T) {
 			name:         "single score value should not panic",
 			isPlayer:     "true",
 			scores:       "0",
-			expectScores: model.SoldierScores{},
+			expectScores: core.SoldierScores{},
 		},
 		{
 			name:         "empty scores string should not panic",
 			isPlayer:     "true",
 			scores:       "",
-			expectScores: model.SoldierScores{},
+			expectScores: core.SoldierScores{},
 		},
 		{
 			name:         "partial scores should not panic",
 			isPlayer:     "true",
 			scores:       "1,2,3",
-			expectScores: model.SoldierScores{},
+			expectScores: core.SoldierScores{},
 		},
 		{
 			name:         "non-player ignores scores",
 			isPlayer:     "false",
 			scores:       "garbage",
-			expectScores: model.SoldierScores{},
+			expectScores: core.SoldierScores{},
 		},
 	}
 
@@ -228,7 +225,7 @@ func TestParseSoldierState_ScoresParsingPanic(t *testing.T) {
 			state, err := p.ParseSoldierState(data)
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectScores, state.Scores)
-			assert.Equal(t, uint16(42), state.SoldierObjectID)
+			assert.Equal(t, uint16(42), state.SoldierID)
 		})
 	}
 }
@@ -293,7 +290,7 @@ func TestParseSoldierState_FloatOcapId(t *testing.T) {
 
 	state, err := p.ParseSoldierState(data)
 	require.NoError(t, err)
-	assert.Equal(t, uint16(30), state.SoldierObjectID)
+	assert.Equal(t, uint16(30), state.SoldierID)
 }
 
 func TestParseSoldierState_InVehicle(t *testing.T) {
@@ -302,7 +299,7 @@ func TestParseSoldierState_InVehicle(t *testing.T) {
 	tests := []struct {
 		name    string
 		input   []string
-		check   func(t *testing.T, s model.SoldierState)
+		check   func(t *testing.T, s core.SoldierState)
 	}{
 		{
 			name: "in vehicle as driver",
@@ -323,13 +320,13 @@ func TestParseSoldierState_InVehicle(t *testing.T) {
 				"30",                 // 13: inVehicleID
 				"STAND",              // 14: stance
 			},
-			check: func(t *testing.T, s model.SoldierState) {
+			check: func(t *testing.T, s core.SoldierState) {
 				assert.True(t, s.InVehicle)
 				assert.Equal(t, "driver", s.VehicleRole)
-				assert.True(t, s.InVehicleObjectID.Valid)
-				assert.Equal(t, int32(30), s.InVehicleObjectID.Int32)
+				assert.NotNil(t, s.InVehicleObjectID)
+				assert.Equal(t, uint16(30), *s.InVehicleObjectID)
 				assert.True(t, s.IsPlayer)
-				assert.Equal(t, model.SoldierScores{
+				assert.Equal(t, core.SoldierScores{
 					InfantryKills: 2, TotalScore: 50,
 				}, s.Scores)
 			},
@@ -353,11 +350,11 @@ func TestParseSoldierState_InVehicle(t *testing.T) {
 				"30",                 // 13: inVehicleID
 				"STAND",              // 14: stance
 			},
-			check: func(t *testing.T, s model.SoldierState) {
+			check: func(t *testing.T, s core.SoldierState) {
 				assert.True(t, s.InVehicle)
 				assert.Equal(t, "gunner", s.VehicleRole)
-				assert.True(t, s.InVehicleObjectID.Valid)
-				assert.Equal(t, int32(30), s.InVehicleObjectID.Int32)
+				assert.NotNil(t, s.InVehicleObjectID)
+				assert.Equal(t, uint16(30), *s.InVehicleObjectID)
 			},
 		},
 		{
@@ -379,11 +376,11 @@ func TestParseSoldierState_InVehicle(t *testing.T) {
 				"-1",                 // 13: inVehicleID
 				"PRONE",              // 14: stance
 			},
-			check: func(t *testing.T, s model.SoldierState) {
+			check: func(t *testing.T, s core.SoldierState) {
 				assert.Equal(t, uint8(0), s.Lifestate)
 				assert.False(t, s.InVehicle)
 				assert.Equal(t, "PRONE", s.Stance)
-				assert.False(t, s.InVehicleObjectID.Valid)
+				assert.Nil(t, s.InVehicleObjectID)
 				assert.False(t, s.HasStableVitals)
 			},
 		},
@@ -406,7 +403,7 @@ func TestParseSoldierState_InVehicle(t *testing.T) {
 				"-1",                 // 13: inVehicleID
 				"PRONE",              // 14: stance
 			},
-			check: func(t *testing.T, s model.SoldierState) {
+			check: func(t *testing.T, s core.SoldierState) {
 				assert.True(t, s.IsDraggedCarried)
 				assert.False(t, s.HasStableVitals)
 			},

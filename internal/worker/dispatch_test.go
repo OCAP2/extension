@@ -1,7 +1,6 @@
 package worker
 
 import (
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"sync"
@@ -10,10 +9,8 @@ import (
 
 	"github.com/OCAP2/extension/v5/internal/cache"
 	"github.com/OCAP2/extension/v5/internal/dispatcher"
-	"github.com/OCAP2/extension/v5/internal/model"
 	"github.com/OCAP2/extension/v5/internal/model/core"
 	"github.com/OCAP2/extension/v5/internal/parser"
-	geom "github.com/peterstace/simplefeatures/geom"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -265,22 +262,22 @@ type mockParserService struct {
 	mu sync.Mutex
 
 	// Return values
-	mission       model.Mission
-	world         model.World
-	soldier       model.Soldier
-	vehicle       model.Vehicle
-	soldierState  model.SoldierState
-	vehicleState  model.VehicleState
+	mission       core.Mission
+	world         core.World
+	soldier       core.Soldier
+	vehicle       core.Vehicle
+	soldierState  core.SoldierState
+	vehicleState  core.VehicleState
 	projectile    parser.ParsedProjectileEvent
-	generalEvent  model.GeneralEvent
+	generalEvent  core.GeneralEvent
 	killEvent     parser.ParsedKillEvent
-	chatEvent     model.ChatEvent
-	radioEvent    model.RadioEvent
-	fpsEvent      model.ServerFpsEvent
-	timeState     model.TimeState
-	ace3Death     model.Ace3DeathEvent
-	ace3Uncon     model.Ace3UnconsciousEvent
-	marker        model.Marker
+	chatEvent     core.ChatEvent
+	radioEvent    core.RadioEvent
+	fpsEvent      core.ServerFpsEvent
+	timeState     core.TimeState
+	ace3Death     core.Ace3DeathEvent
+	ace3Uncon     core.Ace3UnconsciousEvent
+	marker        core.Marker
 	markerMove    parser.ParsedMarkerMove
 	deletedMarker string
 	deleteFrame   uint
@@ -293,52 +290,52 @@ type mockParserService struct {
 	calls []string
 }
 
-func (h *mockParserService) ParseMission(args []string) (model.Mission, model.World, error) {
+func (h *mockParserService) ParseMission(args []string) (core.Mission, core.World, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.calls = append(h.calls, "ParseMission")
 	if h.returnError {
-		return model.Mission{}, model.World{}, errors.New(h.errorMsg)
+		return core.Mission{}, core.World{}, errors.New(h.errorMsg)
 	}
 	return h.mission, h.world, nil
 }
 
-func (h *mockParserService) ParseSoldier(args []string) (model.Soldier, error) {
+func (h *mockParserService) ParseSoldier(args []string) (core.Soldier, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.calls = append(h.calls, "ParseSoldier")
 	if h.returnError {
-		return model.Soldier{}, errors.New(h.errorMsg)
+		return core.Soldier{}, errors.New(h.errorMsg)
 	}
 	return h.soldier, nil
 }
 
-func (h *mockParserService) ParseVehicle(args []string) (model.Vehicle, error) {
+func (h *mockParserService) ParseVehicle(args []string) (core.Vehicle, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.calls = append(h.calls, "ParseVehicle")
 	if h.returnError {
-		return model.Vehicle{}, errors.New(h.errorMsg)
+		return core.Vehicle{}, errors.New(h.errorMsg)
 	}
 	return h.vehicle, nil
 }
 
-func (h *mockParserService) ParseSoldierState(args []string) (model.SoldierState, error) {
+func (h *mockParserService) ParseSoldierState(args []string) (core.SoldierState, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.calls = append(h.calls, "ParseSoldierState")
 	if h.returnError {
-		return model.SoldierState{}, errors.New(h.errorMsg)
+		return core.SoldierState{}, errors.New(h.errorMsg)
 	}
 	return h.soldierState, nil
 }
 
-func (h *mockParserService) ParseVehicleState(args []string) (model.VehicleState, error) {
+func (h *mockParserService) ParseVehicleState(args []string) (core.VehicleState, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.calls = append(h.calls, "ParseVehicleState")
 	if h.returnError {
-		return model.VehicleState{}, errors.New(h.errorMsg)
+		return core.VehicleState{}, errors.New(h.errorMsg)
 	}
 	return h.vehicleState, nil
 }
@@ -353,12 +350,12 @@ func (h *mockParserService) ParseProjectileEvent(args []string) (parser.ParsedPr
 	return h.projectile, nil
 }
 
-func (h *mockParserService) ParseGeneralEvent(args []string) (model.GeneralEvent, error) {
+func (h *mockParserService) ParseGeneralEvent(args []string) (core.GeneralEvent, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.calls = append(h.calls, "ParseGeneralEvent")
 	if h.returnError {
-		return model.GeneralEvent{}, errors.New(h.errorMsg)
+		return core.GeneralEvent{}, errors.New(h.errorMsg)
 	}
 	return h.generalEvent, nil
 }
@@ -373,72 +370,72 @@ func (h *mockParserService) ParseKillEvent(args []string) (parser.ParsedKillEven
 	return h.killEvent, nil
 }
 
-func (h *mockParserService) ParseChatEvent(args []string) (model.ChatEvent, error) {
+func (h *mockParserService) ParseChatEvent(args []string) (core.ChatEvent, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.calls = append(h.calls, "ParseChatEvent")
 	if h.returnError {
-		return model.ChatEvent{}, errors.New(h.errorMsg)
+		return core.ChatEvent{}, errors.New(h.errorMsg)
 	}
 	return h.chatEvent, nil
 }
 
-func (h *mockParserService) ParseRadioEvent(args []string) (model.RadioEvent, error) {
+func (h *mockParserService) ParseRadioEvent(args []string) (core.RadioEvent, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.calls = append(h.calls, "ParseRadioEvent")
 	if h.returnError {
-		return model.RadioEvent{}, errors.New(h.errorMsg)
+		return core.RadioEvent{}, errors.New(h.errorMsg)
 	}
 	return h.radioEvent, nil
 }
 
-func (h *mockParserService) ParseFpsEvent(args []string) (model.ServerFpsEvent, error) {
+func (h *mockParserService) ParseFpsEvent(args []string) (core.ServerFpsEvent, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.calls = append(h.calls, "ParseFpsEvent")
 	if h.returnError {
-		return model.ServerFpsEvent{}, errors.New(h.errorMsg)
+		return core.ServerFpsEvent{}, errors.New(h.errorMsg)
 	}
 	return h.fpsEvent, nil
 }
 
-func (h *mockParserService) ParseTimeState(args []string) (model.TimeState, error) {
+func (h *mockParserService) ParseTimeState(args []string) (core.TimeState, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.calls = append(h.calls, "ParseTimeState")
 	if h.returnError {
-		return model.TimeState{}, errors.New(h.errorMsg)
+		return core.TimeState{}, errors.New(h.errorMsg)
 	}
 	return h.timeState, nil
 }
 
-func (h *mockParserService) ParseAce3DeathEvent(args []string) (model.Ace3DeathEvent, error) {
+func (h *mockParserService) ParseAce3DeathEvent(args []string) (core.Ace3DeathEvent, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.calls = append(h.calls, "ParseAce3DeathEvent")
 	if h.returnError {
-		return model.Ace3DeathEvent{}, errors.New(h.errorMsg)
+		return core.Ace3DeathEvent{}, errors.New(h.errorMsg)
 	}
 	return h.ace3Death, nil
 }
 
-func (h *mockParserService) ParseAce3UnconsciousEvent(args []string) (model.Ace3UnconsciousEvent, error) {
+func (h *mockParserService) ParseAce3UnconsciousEvent(args []string) (core.Ace3UnconsciousEvent, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.calls = append(h.calls, "ParseAce3UnconsciousEvent")
 	if h.returnError {
-		return model.Ace3UnconsciousEvent{}, errors.New(h.errorMsg)
+		return core.Ace3UnconsciousEvent{}, errors.New(h.errorMsg)
 	}
 	return h.ace3Uncon, nil
 }
 
-func (h *mockParserService) ParseMarkerCreate(args []string) (model.Marker, error) {
+func (h *mockParserService) ParseMarkerCreate(args []string) (core.Marker, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.calls = append(h.calls, "ParseMarkerCreate")
 	if h.returnError {
-		return model.Marker{}, errors.New(h.errorMsg)
+		return core.Marker{}, errors.New(h.errorMsg)
 	}
 	return h.marker, nil
 }
@@ -516,7 +513,7 @@ func TestHandleNewSoldier_CachesEntityWithBackend(t *testing.T) {
 	entityCache := cache.NewEntityCache()
 
 	parserService := &mockParserService{
-		soldier: model.Soldier{ObjectID: 42, UnitName: "Test Soldier"},
+		soldier: core.Soldier{ID: 42, UnitName: "Test Soldier"},
 	}
 
 	backend := &mockBackend{}
@@ -546,7 +543,7 @@ func TestHandleNewVehicle_CachesEntityWithBackend(t *testing.T) {
 	entityCache := cache.NewEntityCache()
 
 	parserService := &mockParserService{
-		vehicle: model.Vehicle{ObjectID: 99, OcapType: "car"},
+		vehicle: core.Vehicle{ID: 99, OcapType: "car"},
 	}
 
 	backend := &mockBackend{}
@@ -576,13 +573,13 @@ func TestHandleSoldierState_ValidatesAndFillsGroupSide(t *testing.T) {
 	entityCache := cache.NewEntityCache()
 
 	// Pre-cache a soldier with GroupID and Side
-	entityCache.AddSoldier(model.Soldier{ObjectID: 10, GroupID: "Alpha 1", Side: "WEST"})
+	entityCache.AddSoldier(core.Soldier{ID: 10, GroupID: "Alpha 1", Side: "WEST"})
 
 	parserService := &mockParserService{
-		soldierState: model.SoldierState{
-			SoldierObjectID: 10,
-			GroupID:         "", // empty - should be filled from cache
-			Side:            "", // empty - should be filled from cache
+		soldierState: core.SoldierState{
+			SoldierID: 10,
+			GroupID:   "", // empty - should be filled from cache
+			Side:      "", // empty - should be filled from cache
 		},
 	}
 
@@ -626,7 +623,7 @@ func TestHandleSoldierState_ReturnsErrorWhenNotCached(t *testing.T) {
 	// No soldier cached
 
 	parserService := &mockParserService{
-		soldierState: model.SoldierState{SoldierObjectID: 999},
+		soldierState: core.SoldierState{SoldierID: 999},
 	}
 
 	backend := &mockBackend{}
@@ -653,7 +650,7 @@ func TestHandleVehicleState_ReturnsErrorWhenNotCached(t *testing.T) {
 	entityCache := cache.NewEntityCache()
 
 	parserService := &mockParserService{
-		vehicleState: model.VehicleState{VehicleObjectID: 888},
+		vehicleState: core.VehicleState{VehicleID: 888},
 	}
 
 	backend := &mockBackend{}
@@ -678,12 +675,12 @@ func TestHandleKillEvent_ClassifiesVictimAndKiller(t *testing.T) {
 	entityCache := cache.NewEntityCache()
 
 	// Soldier victim, vehicle killer
-	entityCache.AddSoldier(model.Soldier{ObjectID: 5})
-	entityCache.AddVehicle(model.Vehicle{ObjectID: 20})
+	entityCache.AddSoldier(core.Soldier{ID: 5})
+	entityCache.AddVehicle(core.Vehicle{ID: 20})
 
 	parserService := &mockParserService{
 		killEvent: parser.ParsedKillEvent{
-			Event:    model.KillEvent{CaptureFrame: 100},
+			Event:    core.KillEvent{CaptureFrame: 100},
 			VictimID: 5,
 			KillerID: 20,
 		},
@@ -736,28 +733,22 @@ func TestHandleProjectile_ClassifiesHitParts(t *testing.T) {
 	d, _ := newTestDispatcher(t)
 	entityCache := cache.NewEntityCache()
 
-	entityCache.AddSoldier(model.Soldier{ObjectID: 7})
-	entityCache.AddVehicle(model.Vehicle{ObjectID: 30})
+	entityCache.AddSoldier(core.Soldier{ID: 7})
+	entityCache.AddVehicle(core.Vehicle{ID: 30})
 
 	componentsJSON, _ := json.Marshal([]string{"head"})
 	vehicleComponentsJSON, _ := json.Marshal([]string{"hull"})
 
-	// Create a LineStringZM for positions
-	coords := []float64{
-		6456.5, 5345.7, 10.0, 620.0,
-		6448.0, 5337.0, 15.0, 625.0,
-	}
-	seq := geom.NewSequence(coords, geom.DimXYZM)
-	ls := geom.NewLineString(seq)
-
 	parserService := &mockParserService{
 		projectile: parser.ParsedProjectileEvent{
-			Event: model.ProjectileEvent{
+			Event: core.ProjectileEvent{
 				FirerObjectID: 1,
 				CaptureFrame:  620,
-				Positions:     ls.AsGeometry(),
-				HitSoldiers:   []model.ProjectileHitsSoldier{},
-				HitVehicles:   []model.ProjectileHitsVehicle{},
+				Trajectory: []core.TrajectoryPoint{
+					{Position: core.Position3D{X: 6456.5, Y: 5345.7, Z: 10.0}, Frame: 620},
+					{Position: core.Position3D{X: 6448.0, Y: 5337.0, Z: 15.0}, Frame: 625},
+				},
+				Hits: []core.ProjectileHit{},
 			},
 			HitParts: []parser.RawHitPart{
 				{EntityID: 7, ComponentsHit: componentsJSON, CaptureFrame: 625},
@@ -821,28 +812,21 @@ func TestHandleProjectile_ClassifiesHitParts(t *testing.T) {
 func TestHandleProjectile_RecordsProjectileEvent(t *testing.T) {
 	d, _ := newTestDispatcher(t)
 
-	// Create a LineStringZM with 3 positions (thrown, mid-flight, impact)
-	coords := []float64{
-		6456.5, 5345.7, 10.443, 620.0,
-		6448.0, 5337.0, 15.0, 625.0,
-		6441.55, 5328.46, 9.88, 630.0,
-	}
-	seq := geom.NewSequence(coords, geom.DimXYZM)
-	ls := geom.NewLineString(seq)
-
 	parserService := &mockParserService{
 		projectile: parser.ParsedProjectileEvent{
-			Event: model.ProjectileEvent{
+			Event: core.ProjectileEvent{
 				FirerObjectID:   1,
 				CaptureFrame:    620,
-				Weapon:          "throw",
 				WeaponDisplay:   "Throw",
 				MagazineDisplay: "RGO Grenade",
 				MagazineIcon:    `\A3\Weapons_F\Data\UI\gear_M67_CA.paa`,
-				Mode:            "HandGrenadeMuzzle",
-				Positions:       ls.AsGeometry(),
-				HitSoldiers:     []model.ProjectileHitsSoldier{},
-				HitVehicles:     []model.ProjectileHitsVehicle{},
+				SimulationType:  "shotShell",
+				Trajectory: []core.TrajectoryPoint{
+					{Position: core.Position3D{X: 6456.5, Y: 5345.7, Z: 10.443}, Frame: 620},
+					{Position: core.Position3D{X: 6448.0, Y: 5337.0, Z: 15.0}, Frame: 625},
+					{Position: core.Position3D{X: 6441.55, Y: 5328.46, Z: 9.88}, Frame: 630},
+				},
+				Hits: []core.ProjectileHit{},
 			},
 		},
 	}
@@ -888,7 +872,7 @@ func TestHandleProjectile_RecordsProjectileEvent(t *testing.T) {
 	assert.Equal(t, uint(620), pe.CaptureFrame)
 	assert.Equal(t, "RGO Grenade", pe.MagazineDisplay)
 
-	// Trajectory should have 3 points from the LineStringZM
+	// Trajectory should have 3 points
 	require.Len(t, pe.Trajectory, 3)
 	assert.Equal(t, 6456.5, pe.Trajectory[0].Position.X)
 	assert.Equal(t, uint(620), pe.Trajectory[0].Frame)
@@ -908,7 +892,7 @@ func TestHandleMarkerMove_ResolvesMarkerName(t *testing.T) {
 
 	parserService := &mockParserService{
 		markerMove: parser.ParsedMarkerMove{
-			State:      model.MarkerState{CaptureFrame: 100},
+			State:      core.MarkerState{CaptureFrame: 100},
 			MarkerName: "marker_alpha",
 		},
 	}
@@ -952,9 +936,10 @@ func TestHandleChatEvent_ValidatesSender(t *testing.T) {
 	entityCache := cache.NewEntityCache()
 	// No soldier cached — sender validation should fail
 
+	senderID := uint(5)
 	parserService := &mockParserService{
-		chatEvent: model.ChatEvent{
-			SoldierObjectID: sql.NullInt32{Int32: 5, Valid: true},
+		chatEvent: core.ChatEvent{
+			SoldierID: &senderID,
 		},
 	}
 
@@ -981,7 +966,7 @@ func TestHandleMarkerDelete_WithBackend(t *testing.T) {
 	markerCache := cache.NewMarkerCache()
 
 	parserService := &mockParserService{
-		marker:        model.Marker{MarkerName: "Projectile#123"},
+		marker:        core.Marker{MarkerName: "Projectile#123"},
 		deletedMarker: "Projectile#123",
 		deleteFrame:   500,
 	}

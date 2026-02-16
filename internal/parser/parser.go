@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"strconv"
 
-	"github.com/OCAP2/extension/v5/internal/model"
+	"github.com/OCAP2/extension/v5/internal/model/core"
 )
 
 // parseUintFromFloat parses a string that may be an integer ("32") or float ("32.00") into uint64.
@@ -40,23 +40,34 @@ func parseIntFromFloat(s string) (int64, error) {
 }
 
 
+// ChatChannels maps ArmA 3 channel numbers to human-readable names.
+var ChatChannels = map[int]string{
+	0:  "Global",
+	1:  "Side",
+	2:  "Command",
+	3:  "Group",
+	4:  "Vehicle",
+	5:  "Direct",
+	16: "System",
+}
+
 // Service defines the interface for parsing ArmA 3 extension arguments into model structs.
 type Service interface {
-	ParseMission(args []string) (model.Mission, model.World, error)
-	ParseSoldier(args []string) (model.Soldier, error)
-	ParseVehicle(args []string) (model.Vehicle, error)
-	ParseSoldierState(args []string) (model.SoldierState, error)
-	ParseVehicleState(args []string) (model.VehicleState, error)
+	ParseMission(args []string) (core.Mission, core.World, error)
+	ParseSoldier(args []string) (core.Soldier, error)
+	ParseVehicle(args []string) (core.Vehicle, error)
+	ParseSoldierState(args []string) (core.SoldierState, error)
+	ParseVehicleState(args []string) (core.VehicleState, error)
 	ParseProjectileEvent(args []string) (ParsedProjectileEvent, error)
-	ParseGeneralEvent(args []string) (model.GeneralEvent, error)
+	ParseGeneralEvent(args []string) (core.GeneralEvent, error)
 	ParseKillEvent(args []string) (ParsedKillEvent, error)
-	ParseChatEvent(args []string) (model.ChatEvent, error)
-	ParseRadioEvent(args []string) (model.RadioEvent, error)
-	ParseFpsEvent(args []string) (model.ServerFpsEvent, error)
-	ParseTimeState(args []string) (model.TimeState, error)
-	ParseAce3DeathEvent(args []string) (model.Ace3DeathEvent, error)
-	ParseAce3UnconsciousEvent(args []string) (model.Ace3UnconsciousEvent, error)
-	ParseMarkerCreate(args []string) (model.Marker, error)
+	ParseChatEvent(args []string) (core.ChatEvent, error)
+	ParseRadioEvent(args []string) (core.RadioEvent, error)
+	ParseFpsEvent(args []string) (core.ServerFpsEvent, error)
+	ParseTimeState(args []string) (core.TimeState, error)
+	ParseAce3DeathEvent(args []string) (core.Ace3DeathEvent, error)
+	ParseAce3UnconsciousEvent(args []string) (core.Ace3UnconsciousEvent, error)
+	ParseMarkerCreate(args []string) (core.Marker, error)
 	ParseMarkerMove(args []string) (ParsedMarkerMove, error)
 	ParseMarkerDelete(args []string) (string, uint, error)
 }
@@ -73,4 +84,3 @@ type Parser struct {
 func NewParser(logger *slog.Logger) *Parser {
 	return &Parser{logger: logger}
 }
-

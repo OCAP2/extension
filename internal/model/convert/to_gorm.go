@@ -106,6 +106,7 @@ func CoreToSoldierState(s core.SoldierState) model.SoldierState {
 		Time:             s.Time,
 		CaptureFrame:     s.CaptureFrame,
 		Position:         position3DToPoint(s.Position),
+		ElevationASL:     float32(s.Position.Z),
 		Bearing:          s.Bearing,
 		Lifestate:        s.Lifestate,
 		InVehicle:        s.InVehicle,
@@ -137,6 +138,7 @@ func CoreToVehicleState(v core.VehicleState) model.VehicleState {
 		Time:            v.Time,
 		CaptureFrame:    v.CaptureFrame,
 		Position:        position3DToPoint(v.Position),
+		ElevationASL:    float32(v.Position.Z),
 		Bearing:         v.Bearing,
 		IsAlive:         v.IsAlive,
 		Crew:            v.Crew,
@@ -330,6 +332,7 @@ func CoreToProjectileEvent(e core.ProjectileEvent) model.ProjectileEvent {
 				SoldierObjectID: *hit.SoldierID,
 				CaptureFrame:    hit.CaptureFrame,
 				Position:        position3DToPoint(hit.Position),
+				ComponentsHit:   datatypes.JSON(hit.ComponentsHit),
 			})
 		}
 		if hit.VehicleID != nil {
@@ -337,11 +340,69 @@ func CoreToProjectileEvent(e core.ProjectileEvent) model.ProjectileEvent {
 				VehicleObjectID: *hit.VehicleID,
 				CaptureFrame:    hit.CaptureFrame,
 				Position:        position3DToPoint(hit.Position),
+				ComponentsHit:   datatypes.JSON(hit.ComponentsHit),
 			})
 		}
 	}
 
 	return result
+}
+
+// CoreToMission converts a core.Mission to a GORM model.Mission.
+func CoreToMission(m core.Mission) model.Mission {
+	addons := make([]model.Addon, 0, len(m.Addons))
+	for _, a := range m.Addons {
+		addons = append(addons, model.Addon{
+			Name:       a.Name,
+			WorkshopID: a.WorkshopID,
+		})
+	}
+
+	return model.Mission{
+		MissionName:                  m.MissionName,
+		BriefingName:                 m.BriefingName,
+		MissionNameSource:            m.MissionNameSource,
+		OnLoadName:                   m.OnLoadName,
+		Author:                       m.Author,
+		ServerName:                   m.ServerName,
+		ServerProfile:                m.ServerProfile,
+		StartTime:                    m.StartTime,
+		WorldID:                      m.WorldID,
+		CaptureDelay:                 m.CaptureDelay,
+		AddonVersion:                 m.AddonVersion,
+		ExtensionVersion:             m.ExtensionVersion,
+		ExtensionBuild:               m.ExtensionBuild,
+		OcapRecorderExtensionVersion: m.OcapRecorderExtensionVersion,
+		Tag:                          m.Tag,
+		Addons:                       addons,
+		PlayableSlots: model.PlayableSlots{
+			West:        m.PlayableSlots.West,
+			East:        m.PlayableSlots.East,
+			Independent: m.PlayableSlots.Independent,
+			Civilian:    m.PlayableSlots.Civilian,
+			Logic:       m.PlayableSlots.Logic,
+		},
+		SideFriendly: model.SideFriendly{
+			EastWest:        m.SideFriendly.EastWest,
+			EastIndependent: m.SideFriendly.EastIndependent,
+			WestIndependent: m.SideFriendly.WestIndependent,
+		},
+	}
+}
+
+// CoreToWorld converts a core.World to a GORM model.World.
+func CoreToWorld(w core.World) model.World {
+	return model.World{
+		Author:            w.Author,
+		WorkshopID:        w.WorkshopID,
+		DisplayName:       w.DisplayName,
+		WorldName:         w.WorldName,
+		WorldNameOriginal: w.WorldNameOriginal,
+		WorldSize:         w.WorldSize,
+		Latitude:          w.Latitude,
+		Longitude:         w.Longitude,
+		Location:          position3DToPoint(w.Location),
+	}
 }
 
 // CoreToTimeState converts a core.TimeState to a GORM model.TimeState.

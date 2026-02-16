@@ -782,21 +782,25 @@ func handleNewMission(e dispatcher.Event) (any, error) {
 		return nil, nil
 	}
 
-	// 1. Parse
-	mission, world, err := parserService.ParseMission(e.Args)
+	// 1. Parse (returns core types)
+	coreMission, coreWorld, err := parserService.ParseMission(e.Args)
 	if err != nil {
 		return nil, err
 	}
-	mission.AddonVersion = addonVersion
-	mission.ExtensionVersion = BuildVersion
+	coreMission.AddonVersion = addonVersion
+	coreMission.ExtensionVersion = BuildVersion
 
-	// 2. DB operations (addon lookup/create, world get/insert, mission create)
+	// 2. Convert to GORM for DB operations
+	gormMission := convert.CoreToMission(coreMission)
+	gormWorld := convert.CoreToWorld(coreWorld)
+
+	// 3. DB operations (addon lookup/create, world get/insert, mission create)
 	if DB != nil {
-		for i, addon := range mission.Addons {
-			err = DB.Where("name = ?", addon.Name).First(&mission.Addons[i]).Error
+		for i, addon := range gormMission.Addons {
+			err = DB.Where("name = ?", addon.Name).First(&gormMission.Addons[i]).Error
 			if err != nil {
 				if err == gorm.ErrRecordNotFound {
-					if err = DB.Create(&mission.Addons[i]).Error; err != nil {
+					if err = DB.Create(&gormMission.Addons[i]).Error; err != nil {
 						Logger.Error("Failed to create addon", "error", err, "name", addon.Name)
 						return nil, err
 					}
@@ -807,44 +811,46 @@ func handleNewMission(e dispatcher.Event) (any, error) {
 			}
 		}
 
-		created, err := world.GetOrInsert(DB)
+		created, err := gormWorld.GetOrInsert(DB)
 		if err != nil {
 			Logger.Error("Failed to get or insert world", "error", err)
 			return nil, err
 		}
 		if created {
-			Logger.Debug("New world inserted", "worldName", world.WorldName)
+			Logger.Debug("New world inserted", "worldName", gormWorld.WorldName)
 		}
 
-		mission.World = world
-		if err = DB.Create(&mission).Error; err != nil {
+		gormMission.World = gormWorld
+		if err = DB.Create(&gormMission).Error; err != nil {
 			Logger.Error("Failed to insert new mission", "error", err)
 			return nil, err
 		}
 	} else {
-		mission.World = world
-		Logger.Debug("Memory-only mode: mission context set without DB persistence", "missionName", mission.MissionName)
+		gormMission.World = gormWorld
+		Logger.Debug("Memory-only mode: mission context set without DB persistence", "missionName", gormMission.MissionName)
 	}
 
-	// 3. Set mission context
-	missionCtx.SetMission(&mission, &world)
+	// 4. Capture DB-assigned IDs back to core
+	coreMission.ID = gormMission.ID
+	coreWorld.ID = gormWorld.ID
 
-	// 4. Reset caches
+	// 5. Set mission context (monitor uses GORM types)
+	missionCtx.SetMission(&gormMission, &gormWorld)
+
+	// 6. Reset caches
 	MarkerCache.Reset()
 	EntityCache.Reset()
 
-	// 5. Start backend
+	// 7. Start backend with core types
 	if storageBackend != nil {
-		coreMission := convert.MissionToCore(&mission)
-		coreWorld := convert.WorldToCore(&world)
 		if err := storageBackend.StartMission(&coreMission, &coreWorld); err != nil {
 			Logger.Error("Failed to start mission in storage backend", "error", err)
 		}
 	}
 
-	Logger.Info("New mission logged", "missionName", mission.MissionName)
+	Logger.Info("New mission logged", "missionName", coreMission.MissionName)
 
-	// 6. ArmA callback
+	// 8. ArmA callback
 	a3interface.WriteArmaCallback(ExtensionName, ":MISSION:OK:", "OK")
 	return nil, nil
 }

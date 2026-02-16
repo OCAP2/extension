@@ -1,15 +1,12 @@
 package worker
 
 import (
-	"database/sql"
+	"encoding/json"
 	"fmt"
 
 	"github.com/OCAP2/extension/v5/internal/dispatcher"
-	"github.com/OCAP2/extension/v5/internal/model"
-	"github.com/OCAP2/extension/v5/internal/model/convert"
+	"github.com/OCAP2/extension/v5/internal/model/core"
 	"github.com/OCAP2/extension/v5/internal/parser"
-
-	"gorm.io/datatypes"
 )
 
 // RegisterHandlers registers all event handlers with the dispatcher.
@@ -55,8 +52,7 @@ func (m *Manager) handleNewSoldier(e dispatcher.Event) (any, error) {
 	// Always cache for state handler lookups
 	m.deps.EntityCache.AddSoldier(obj)
 
-	coreObj := convert.SoldierToCore(obj)
-	m.backend.AddSoldier(&coreObj)
+	m.backend.AddSoldier(&obj)
 
 	return nil, nil
 }
@@ -70,8 +66,7 @@ func (m *Manager) handleNewVehicle(e dispatcher.Event) (any, error) {
 	// Always cache for state handler lookups
 	m.deps.EntityCache.AddVehicle(obj)
 
-	coreObj := convert.VehicleToCore(obj)
-	m.backend.AddVehicle(&coreObj)
+	m.backend.AddVehicle(&obj)
 
 	return nil, nil
 }
@@ -83,7 +78,7 @@ func (m *Manager) handleSoldierState(e dispatcher.Event) (any, error) {
 	}
 
 	// Validate soldier exists in cache; fill GroupID/Side if empty
-	soldier, ok := m.deps.EntityCache.GetSoldier(obj.SoldierObjectID)
+	soldier, ok := m.deps.EntityCache.GetSoldier(obj.SoldierID)
 	if !ok {
 		return nil, ErrTooEarlyForStateAssociation
 	}
@@ -94,8 +89,7 @@ func (m *Manager) handleSoldierState(e dispatcher.Event) (any, error) {
 		obj.Side = soldier.Side
 	}
 
-	coreObj := convert.SoldierStateToCore(obj)
-	m.backend.RecordSoldierState(&coreObj)
+	m.backend.RecordSoldierState(&obj)
 
 	return nil, nil
 }
@@ -107,12 +101,11 @@ func (m *Manager) handleVehicleState(e dispatcher.Event) (any, error) {
 	}
 
 	// Validate vehicle exists in cache
-	if _, ok := m.deps.EntityCache.GetVehicle(obj.VehicleObjectID); !ok {
+	if _, ok := m.deps.EntityCache.GetVehicle(obj.VehicleID); !ok {
 		return nil, ErrTooEarlyForStateAssociation
 	}
 
-	coreObj := convert.VehicleStateToCore(obj)
-	m.backend.RecordVehicleState(&coreObj)
+	m.backend.RecordVehicleState(&obj)
 
 	return nil, nil
 }
@@ -123,8 +116,7 @@ func (m *Manager) handleTimeState(e dispatcher.Event) (any, error) {
 		return nil, fmt.Errorf("failed to log time state: %w", err)
 	}
 
-	coreObj := convert.TimeStateToCore(obj)
-	m.backend.RecordTimeState(&coreObj)
+	m.backend.RecordTimeState(&obj)
 
 	return nil, nil
 }
@@ -135,8 +127,7 @@ func (m *Manager) handleProjectileEvent(e dispatcher.Event) (any, error) {
 		return nil, fmt.Errorf("failed to log projectile event: %w", err)
 	}
 	m.classifyHitParts(&parsed)
-	coreObj := convert.ProjectileEventToCore(parsed.Event)
-	m.backend.RecordProjectileEvent(&coreObj)
+	m.backend.RecordProjectileEvent(&parsed.Event)
 	return nil, nil
 }
 
@@ -144,18 +135,20 @@ func (m *Manager) handleProjectileEvent(e dispatcher.Event) (any, error) {
 func (m *Manager) classifyHitParts(parsed *parser.ParsedProjectileEvent) {
 	for _, hp := range parsed.HitParts {
 		if _, ok := m.deps.EntityCache.GetSoldier(hp.EntityID); ok {
-			parsed.Event.HitSoldiers = append(parsed.Event.HitSoldiers, model.ProjectileHitsSoldier{
-				SoldierObjectID: hp.EntityID,
-				CaptureFrame:    hp.CaptureFrame,
-				Position:        hp.Position,
-				ComponentsHit:   datatypes.JSON(hp.ComponentsHit),
+			soldierID := hp.EntityID
+			parsed.Event.Hits = append(parsed.Event.Hits, core.ProjectileHit{
+				SoldierID:     &soldierID,
+				CaptureFrame:  hp.CaptureFrame,
+				Position:      hp.Position,
+				ComponentsHit: json.RawMessage(hp.ComponentsHit),
 			})
 		} else if _, ok := m.deps.EntityCache.GetVehicle(hp.EntityID); ok {
-			parsed.Event.HitVehicles = append(parsed.Event.HitVehicles, model.ProjectileHitsVehicle{
-				VehicleObjectID: hp.EntityID,
-				CaptureFrame:    hp.CaptureFrame,
-				Position:        hp.Position,
-				ComponentsHit:   datatypes.JSON(hp.ComponentsHit),
+			vehicleID := hp.EntityID
+			parsed.Event.Hits = append(parsed.Event.Hits, core.ProjectileHit{
+				VehicleID:     &vehicleID,
+				CaptureFrame:  hp.CaptureFrame,
+				Position:      hp.Position,
+				ComponentsHit: json.RawMessage(hp.ComponentsHit),
 			})
 		} else {
 			m.deps.LogManager.Logger().Warn("Hit entity not found in cache", "hitEntityID", hp.EntityID)
@@ -169,8 +162,7 @@ func (m *Manager) handleGeneralEvent(e dispatcher.Event) (any, error) {
 		return nil, fmt.Errorf("failed to log general event: %w", err)
 	}
 
-	coreObj := convert.GeneralEventToCore(obj)
-	m.backend.RecordGeneralEvent(&coreObj)
+	m.backend.RecordGeneralEvent(&obj)
 
 	return nil, nil
 }
@@ -183,26 +175,27 @@ func (m *Manager) handleKillEvent(e dispatcher.Event) (any, error) {
 
 	// Classify victim as soldier or vehicle
 	if _, ok := m.deps.EntityCache.GetSoldier(parsed.VictimID); ok {
-		parsed.Event.VictimSoldierObjectID = sql.NullInt32{Int32: int32(parsed.VictimID), Valid: true}
+		victimID := uint(parsed.VictimID)
+		parsed.Event.VictimSoldierID = &victimID
 	} else if _, ok := m.deps.EntityCache.GetVehicle(parsed.VictimID); ok {
-		parsed.Event.VictimVehicleObjectID = sql.NullInt32{Int32: int32(parsed.VictimID), Valid: true}
+		victimID := uint(parsed.VictimID)
+		parsed.Event.VictimVehicleID = &victimID
 	} else {
 		m.deps.LogManager.Logger().Warn("Kill event victim not found in cache", "victimID", parsed.VictimID)
 	}
 
 	// Classify killer as soldier or vehicle
 	if _, ok := m.deps.EntityCache.GetSoldier(parsed.KillerID); ok {
-		parsed.Event.KillerSoldierObjectID = sql.NullInt32{Int32: int32(parsed.KillerID), Valid: true}
+		killerID := uint(parsed.KillerID)
+		parsed.Event.KillerSoldierID = &killerID
 	} else if _, ok := m.deps.EntityCache.GetVehicle(parsed.KillerID); ok {
-		parsed.Event.KillerVehicleObjectID = sql.NullInt32{Int32: int32(parsed.KillerID), Valid: true}
+		killerID := uint(parsed.KillerID)
+		parsed.Event.KillerVehicleID = &killerID
 	} else {
 		m.deps.LogManager.Logger().Warn("Kill event killer not found in cache", "killerID", parsed.KillerID)
 	}
 
-	obj := parsed.Event
-
-	coreObj := convert.KillEventToCore(obj)
-	m.backend.RecordKillEvent(&coreObj)
+	m.backend.RecordKillEvent(&parsed.Event)
 
 	return nil, nil
 }
@@ -214,14 +207,13 @@ func (m *Manager) handleChatEvent(e dispatcher.Event) (any, error) {
 	}
 
 	// Validate sender exists in cache if set
-	if obj.SoldierObjectID.Valid {
-		if _, ok := m.deps.EntityCache.GetSoldier(uint16(obj.SoldierObjectID.Int32)); !ok {
-			return nil, fmt.Errorf("could not find soldier with ocap id %d for chat event", obj.SoldierObjectID.Int32)
+	if obj.SoldierID != nil {
+		if _, ok := m.deps.EntityCache.GetSoldier(uint16(*obj.SoldierID)); !ok {
+			return nil, fmt.Errorf("could not find soldier with ocap id %d for chat event", *obj.SoldierID)
 		}
 	}
 
-	coreObj := convert.ChatEventToCore(obj)
-	m.backend.RecordChatEvent(&coreObj)
+	m.backend.RecordChatEvent(&obj)
 
 	return nil, nil
 }
@@ -233,14 +225,13 @@ func (m *Manager) handleRadioEvent(e dispatcher.Event) (any, error) {
 	}
 
 	// Validate sender exists in cache if set
-	if obj.SoldierObjectID.Valid {
-		if _, ok := m.deps.EntityCache.GetSoldier(uint16(obj.SoldierObjectID.Int32)); !ok {
-			return nil, fmt.Errorf("could not find soldier with ocap id %d for radio event", obj.SoldierObjectID.Int32)
+	if obj.SoldierID != nil {
+		if _, ok := m.deps.EntityCache.GetSoldier(uint16(*obj.SoldierID)); !ok {
+			return nil, fmt.Errorf("could not find soldier with ocap id %d for radio event", *obj.SoldierID)
 		}
 	}
 
-	coreObj := convert.RadioEventToCore(obj)
-	m.backend.RecordRadioEvent(&coreObj)
+	m.backend.RecordRadioEvent(&obj)
 
 	return nil, nil
 }
@@ -251,8 +242,7 @@ func (m *Manager) handleFpsEvent(e dispatcher.Event) (any, error) {
 		return nil, fmt.Errorf("failed to log fps event: %w", err)
 	}
 
-	coreObj := convert.ServerFpsEventToCore(obj)
-	m.backend.RecordServerFpsEvent(&coreObj)
+	m.backend.RecordServerFpsEvent(&obj)
 
 	return nil, nil
 }
@@ -264,13 +254,13 @@ func (m *Manager) handleAce3DeathEvent(e dispatcher.Event) (any, error) {
 	}
 
 	// Validate soldier exists in cache
-	if _, ok := m.deps.EntityCache.GetSoldier(obj.SoldierObjectID); !ok {
-		return nil, fmt.Errorf("could not find soldier with ocap id %d for ace3 death event", obj.SoldierObjectID)
+	if _, ok := m.deps.EntityCache.GetSoldier(uint16(obj.SoldierID)); !ok {
+		return nil, fmt.Errorf("could not find soldier with ocap id %d for ace3 death event", obj.SoldierID)
 	}
 
 	// Validate lastDamageSource exists in cache if set
-	if obj.LastDamageSourceObjectID.Valid {
-		sourceID := uint16(obj.LastDamageSourceObjectID.Int32)
+	if obj.LastDamageSourceID != nil {
+		sourceID := uint16(*obj.LastDamageSourceID)
 		if _, ok := m.deps.EntityCache.GetSoldier(sourceID); !ok {
 			if _, ok := m.deps.EntityCache.GetVehicle(sourceID); !ok {
 				return nil, fmt.Errorf("could not find entity with ocap id %d for ace3 death last damage source", sourceID)
@@ -278,8 +268,7 @@ func (m *Manager) handleAce3DeathEvent(e dispatcher.Event) (any, error) {
 		}
 	}
 
-	coreObj := convert.Ace3DeathEventToCore(obj)
-	m.backend.RecordAce3DeathEvent(&coreObj)
+	m.backend.RecordAce3DeathEvent(&obj)
 
 	return nil, nil
 }
@@ -291,12 +280,11 @@ func (m *Manager) handleAce3UnconsciousEvent(e dispatcher.Event) (any, error) {
 	}
 
 	// Validate soldier exists in cache
-	if _, ok := m.deps.EntityCache.GetSoldier(obj.SoldierObjectID); !ok {
-		return nil, fmt.Errorf("could not find soldier with ocap id %d for ace3 unconscious event", obj.SoldierObjectID)
+	if _, ok := m.deps.EntityCache.GetSoldier(uint16(obj.SoldierID)); !ok {
+		return nil, fmt.Errorf("could not find soldier with ocap id %d for ace3 unconscious event", obj.SoldierID)
 	}
 
-	coreObj := convert.Ace3UnconsciousEventToCore(obj)
-	m.backend.RecordAce3UnconsciousEvent(&coreObj)
+	m.backend.RecordAce3UnconsciousEvent(&obj)
 
 	return nil, nil
 }
@@ -307,10 +295,9 @@ func (m *Manager) handleMarkerCreate(e dispatcher.Event) (any, error) {
 		return nil, fmt.Errorf("failed to create marker: %w", err)
 	}
 
-	coreObj := convert.MarkerToCore(marker)
-	m.backend.AddMarker(&coreObj)
+	m.backend.AddMarker(&marker)
 	// Cache the assigned ID so state updates can find this marker
-	m.deps.MarkerCache.Set(marker.MarkerName, coreObj.ID)
+	m.deps.MarkerCache.Set(marker.MarkerName, marker.ID)
 
 	return nil, nil
 }
@@ -328,8 +315,7 @@ func (m *Manager) handleMarkerMove(e dispatcher.Event) (any, error) {
 	}
 	parsed.State.MarkerID = markerID
 
-	coreObj := convert.MarkerStateToCore(parsed.State)
-	m.backend.RecordMarkerState(&coreObj)
+	m.backend.RecordMarkerState(&parsed.State)
 
 	return nil, nil
 }

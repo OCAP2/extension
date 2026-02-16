@@ -1,10 +1,9 @@
 package parser
 
 import (
-	"encoding/json"
 	"testing"
 
-	"github.com/OCAP2/extension/v5/internal/model"
+	"github.com/OCAP2/extension/v5/internal/model/core"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -138,20 +137,13 @@ func TestParseProjectileEvent(t *testing.T) {
 			check: func(t *testing.T, r ParsedProjectileEvent) {
 				assert.Equal(t, uint(100), r.Event.CaptureFrame)
 				assert.Equal(t, uint16(5), r.Event.FirerObjectID)
-				assert.False(t, r.Event.VehicleObjectID.Valid)
-				assert.Equal(t, "", r.Event.VehicleRole)
-				assert.Equal(t, "arifle_MX_F", r.Event.Weapon)
+				assert.Nil(t, r.Event.VehicleObjectID)
 				assert.Equal(t, "MX 6.5 mm", r.Event.WeaponDisplay)
-				assert.Equal(t, "muzzle_snds_H", r.Event.Muzzle)
-				assert.Equal(t, "30Rnd_65x39_caseless_mag", r.Event.Magazine)
-				assert.Equal(t, "B_65x39_Caseless", r.Event.Ammo)
-				assert.Equal(t, "FullAuto", r.Event.Mode)
 				assert.Equal(t, "shotBullet", r.Event.SimulationType)
-				assert.False(t, r.Event.IsSubmunition)
 				assert.Equal(t, "iconBullet", r.Event.MagazineIcon)
 				assert.Empty(t, r.HitParts)
-				// Should have a linestring (2 positions)
-				assert.False(t, r.Event.Positions.IsEmpty())
+				// Should have trajectory points (2 positions)
+				assert.Greater(t, len(r.Event.Trajectory), 0)
 			},
 		},
 		{
@@ -179,13 +171,12 @@ func TestParseProjectileEvent(t *testing.T) {
 				"iconHMG",          // 19: magazineIcon
 			},
 			check: func(t *testing.T, r ParsedProjectileEvent) {
-				assert.True(t, r.Event.VehicleObjectID.Valid)
-				assert.Equal(t, int32(30), r.Event.VehicleObjectID.Int32)
-				assert.Equal(t, "turret", r.Event.VehicleRole)
+				assert.NotNil(t, r.Event.VehicleObjectID)
+				assert.Equal(t, uint16(30), *r.Event.VehicleObjectID)
 				assert.Len(t, r.HitParts, 1)
 				assert.Equal(t, uint16(42), r.HitParts[0].EntityID)
 				assert.Equal(t, uint(205), r.HitParts[0].CaptureFrame)
-				assert.False(t, r.HitParts[0].Position.IsEmpty())
+				assert.NotEqual(t, core.Position3D{}, r.HitParts[0].Position)
 			},
 		},
 		{
@@ -243,20 +234,19 @@ func TestParseProjectileEvent(t *testing.T) {
 				"iconSub",          // 19: magazineIcon
 			},
 			check: func(t *testing.T, r ParsedProjectileEvent) {
-				assert.True(t, r.Event.IsSubmunition)
 				assert.Equal(t, "shotSubmunitions", r.Event.SimulationType)
 			},
 		},
 		{
-			name: "single position (no linestring created)",
+			name: "single position (one trajectory point)",
 			input: []string{
 				"500", "0", "1", "-1", "", "1", "w", "W", "m", "M", "mag", "Mag", "ammo", "mode",
 				`[[0.5,500,"1000.0,1000.0,50.0"]]`, // only 1 position
 				"[100,0,0]", "[]", "shotBullet", "false", "icon",
 			},
 			check: func(t *testing.T, r ParsedProjectileEvent) {
-				// With only 1 position (4 values), linestring is not created (needs >=8 = 2 points)
-				assert.True(t, r.Event.Positions.IsEmpty())
+				// Single position creates one trajectory point
+				assert.Len(t, r.Event.Trajectory, 1)
 			},
 		},
 		{
@@ -266,7 +256,7 @@ func TestParseProjectileEvent(t *testing.T) {
 				`[]`, "[100,0,0]", "[]", "shotBullet", "false", "icon",
 			},
 			check: func(t *testing.T, r ParsedProjectileEvent) {
-				assert.True(t, r.Event.Positions.IsEmpty())
+				assert.Empty(t, r.Event.Trajectory)
 			},
 		},
 		{
@@ -292,8 +282,8 @@ func TestParseProjectileEvent(t *testing.T) {
 				"[100,0,0]", "[]", "shotBullet", "false", "icon",
 			},
 			check: func(t *testing.T, r ParsedProjectileEvent) {
-				// Middle element has < 3 fields, skipped; first and third should create linestring
-				assert.False(t, r.Event.Positions.IsEmpty())
+				// Middle element has < 3 fields, skipped; first and third should create trajectory
+				assert.Greater(t, len(r.Event.Trajectory), 0)
 			},
 		},
 		{
@@ -304,8 +294,8 @@ func TestParseProjectileEvent(t *testing.T) {
 				"[100,0,0]", "[]", "shotBullet", "false", "icon",
 			},
 			check: func(t *testing.T, r ParsedProjectileEvent) {
-				// First position has non-float frameNo, skipped
-				assert.True(t, r.Event.Positions.IsEmpty()) // only 1 valid = not enough
+				// First position has non-float frameNo, skipped; second is valid
+				assert.Len(t, r.Event.Trajectory, 1)
 			},
 		},
 		{
@@ -316,8 +306,8 @@ func TestParseProjectileEvent(t *testing.T) {
 				"[100,0,0]", "[]", "shotBullet", "false", "icon",
 			},
 			check: func(t *testing.T, r ParsedProjectileEvent) {
-				// First position has non-string posStr, skipped
-				assert.True(t, r.Event.Positions.IsEmpty())
+				// First position has non-string posStr, skipped; second is valid
+				assert.Len(t, r.Event.Trajectory, 1)
 			},
 		},
 		{
@@ -328,7 +318,8 @@ func TestParseProjectileEvent(t *testing.T) {
 				"[100,0,0]", "[]", "shotBullet", "false", "icon",
 			},
 			check: func(t *testing.T, r ParsedProjectileEvent) {
-				assert.True(t, r.Event.Positions.IsEmpty())
+				// First position has bad coords, skipped; second is valid
+				assert.Len(t, r.Event.Trajectory, 1)
 			},
 		},
 		{
@@ -438,12 +429,15 @@ func TestParseProjectileEvent(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "error: bad remoteControllerID",
+			name: "bad remoteControllerID is ignored (field not used)",
 			input: []string{
 				"100", "0", "5", "-1", "", "abc", "w", "W", "m", "M", "mag", "Mag", "ammo", "mode",
 				"[]", "[0,0,0]", "[]", "sim", "false", "icon",
 			},
-			wantErr: true,
+			check: func(t *testing.T, r ParsedProjectileEvent) {
+				// remoteControllerID is no longer parsed, so bad values don't error
+				assert.Equal(t, uint(100), r.Event.CaptureFrame)
+			},
 		},
 		{
 			name: "error: bad positions JSON",
@@ -474,13 +468,13 @@ func TestParseGeneralEvent(t *testing.T) {
 	tests := []struct {
 		name    string
 		input   []string
-		check   func(t *testing.T, e model.GeneralEvent)
+		check   func(t *testing.T, e core.GeneralEvent)
 		wantErr bool
 	}{
 		{
 			name:  "recording started",
 			input: []string{"0", "generalEvent", "Recording started.", "{}"},
-			check: func(t *testing.T, e model.GeneralEvent) {
+			check: func(t *testing.T, e core.GeneralEvent) {
 				assert.Equal(t, uint(0), e.CaptureFrame)
 				assert.Equal(t, "generalEvent", e.Name)
 				assert.Equal(t, "Recording started.", e.Message)
@@ -489,20 +483,18 @@ func TestParseGeneralEvent(t *testing.T) {
 		{
 			name:  "end mission with extraData",
 			input: []string{"1043", "endMission", "", `{"message":"BLUFOR wins","winner":"WEST"}`},
-			check: func(t *testing.T, e model.GeneralEvent) {
+			check: func(t *testing.T, e core.GeneralEvent) {
 				assert.Equal(t, uint(1043), e.CaptureFrame)
 				assert.Equal(t, "endMission", e.Name)
 				assert.Equal(t, "", e.Message)
-				var extra map[string]string
-				require.NoError(t, json.Unmarshal(e.ExtraData, &extra))
-				assert.Equal(t, "BLUFOR wins", extra["message"])
-				assert.Equal(t, "WEST", extra["winner"])
+				assert.Equal(t, "BLUFOR wins", e.ExtraData["message"])
+				assert.Equal(t, "WEST", e.ExtraData["winner"])
 			},
 		},
 		{
 			name:  "no extraData (3 fields)",
 			input: []string{"0", "respawnTickets", "[-1,-1,-1,-1]"},
-			check: func(t *testing.T, e model.GeneralEvent) {
+			check: func(t *testing.T, e core.GeneralEvent) {
 				assert.Equal(t, "respawnTickets", e.Name)
 				assert.Equal(t, "[-1,-1,-1,-1]", e.Message)
 				assert.Nil(t, e.ExtraData)
@@ -539,13 +531,13 @@ func TestParseFpsEvent(t *testing.T) {
 	tests := []struct {
 		name    string
 		input   []string
-		check   func(t *testing.T, e model.ServerFpsEvent)
+		check   func(t *testing.T, e core.ServerFpsEvent)
 		wantErr bool
 	}{
 		{
 			name:  "normal FPS",
 			input: []string{"0", "35.4767", "3.55872"},
-			check: func(t *testing.T, e model.ServerFpsEvent) {
+			check: func(t *testing.T, e core.ServerFpsEvent) {
 				assert.Equal(t, uint(0), e.CaptureFrame)
 				assert.InDelta(t, float32(35.4767), e.FpsAverage, 0.01)
 				assert.InDelta(t, float32(3.55872), e.FpsMin, 0.01)
@@ -554,7 +546,7 @@ func TestParseFpsEvent(t *testing.T) {
 		{
 			name:  "low FPS",
 			input: []string{"16", "18.9798", "14.4928"},
-			check: func(t *testing.T, e model.ServerFpsEvent) {
+			check: func(t *testing.T, e core.ServerFpsEvent) {
 				assert.Equal(t, uint(16), e.CaptureFrame)
 				assert.InDelta(t, float32(18.9798), e.FpsAverage, 0.01)
 				assert.InDelta(t, float32(14.4928), e.FpsMin, 0.01)
@@ -596,13 +588,13 @@ func TestParseTimeState(t *testing.T) {
 	tests := []struct {
 		name    string
 		input   []string
-		check   func(t *testing.T, ts model.TimeState)
+		check   func(t *testing.T, ts core.TimeState)
 		wantErr bool
 	}{
 		{
 			name:  "normal",
 			input: []string{"0", "2026-02-15T17:46:12.621", "2035-07-02T18:00:00", "1", "0"},
-			check: func(t *testing.T, ts model.TimeState) {
+			check: func(t *testing.T, ts core.TimeState) {
 				assert.Equal(t, uint(0), ts.CaptureFrame)
 				assert.Equal(t, "2026-02-15T17:46:12.621", ts.SystemTimeUTC)
 				assert.Equal(t, "2035-07-02T18:00:00", ts.MissionDate)
@@ -613,7 +605,7 @@ func TestParseTimeState(t *testing.T) {
 		{
 			name:  "with mission time",
 			input: []string{"10", "2026-02-15T17:47:00", "2035-07-02T18:05:00", "1", "5.013"},
-			check: func(t *testing.T, ts model.TimeState) {
+			check: func(t *testing.T, ts core.TimeState) {
 				assert.Equal(t, uint(10), ts.CaptureFrame)
 				assert.InDelta(t, float32(5.013), ts.MissionTime, 0.001)
 			},

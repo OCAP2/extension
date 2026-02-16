@@ -7,7 +7,6 @@ import (
 	"github.com/OCAP2/extension/v5/internal/cache"
 	"github.com/OCAP2/extension/v5/internal/logging"
 	"github.com/OCAP2/extension/v5/internal/mission"
-	"github.com/OCAP2/extension/v5/internal/model"
 	"github.com/OCAP2/extension/v5/internal/model/core"
 	"github.com/OCAP2/extension/v5/internal/storage"
 	"github.com/stretchr/testify/assert"
@@ -376,8 +375,8 @@ func TestGetSoldierByObjectID(t *testing.T) {
 	_, found := b.GetSoldierByObjectID(42)
 	assert.False(t, found, "should not find soldier not in cache")
 
-	// Add to entity cache via GORM model (cache stores model.Soldier)
-	b.deps.EntityCache.AddSoldier(model.Soldier{ObjectID: 42, UnitName: "Test"})
+	// Add to entity cache (cache stores core types)
+	b.deps.EntityCache.AddSoldier(core.Soldier{ID: 42, UnitName: "Test"})
 	soldier, found := b.GetSoldierByObjectID(42)
 	assert.True(t, found)
 	assert.Equal(t, uint16(42), soldier.ID)
@@ -392,7 +391,7 @@ func TestGetVehicleByObjectID(t *testing.T) {
 	_, found := b.GetVehicleByObjectID(10)
 	assert.False(t, found, "should not find vehicle not in cache")
 
-	b.deps.EntityCache.AddVehicle(model.Vehicle{ObjectID: 10, OcapType: "car"})
+	b.deps.EntityCache.AddVehicle(core.Vehicle{ID: 10, OcapType: "car"})
 	vehicle, found := b.GetVehicleByObjectID(10)
 	assert.True(t, found)
 	assert.Equal(t, uint16(10), vehicle.ID)

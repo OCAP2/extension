@@ -252,24 +252,22 @@ func (b *Backend) RecordAce3UnconsciousEvent(e *core.Ace3UnconsciousEvent) error
 	return nil
 }
 
-// GetSoldierByObjectID looks up a soldier in the EntityCache and converts to core.
+// GetSoldierByObjectID looks up a soldier in the EntityCache (which stores core types).
 func (b *Backend) GetSoldierByObjectID(ocapID uint16) (*core.Soldier, bool) {
 	s, ok := b.deps.EntityCache.GetSoldier(ocapID)
 	if !ok {
 		return nil, false
 	}
-	coreObj := convert.SoldierToCore(s)
-	return &coreObj, true
+	return &s, true
 }
 
-// GetVehicleByObjectID looks up a vehicle in the EntityCache and converts to core.
+// GetVehicleByObjectID looks up a vehicle in the EntityCache (which stores core types).
 func (b *Backend) GetVehicleByObjectID(ocapID uint16) (*core.Vehicle, bool) {
 	v, ok := b.deps.EntityCache.GetVehicle(ocapID)
 	if !ok {
 		return nil, false
 	}
-	coreObj := convert.VehicleToCore(v)
-	return &coreObj, true
+	return &v, true
 }
 
 // GetMarkerByName looks up a marker by name via the MarkerCache.
@@ -415,17 +413,9 @@ func (b *Backend) startDBWriters() {
 				}
 			}
 
-			// Entities with cache updates
-			writeQueue(b.deps.DB, b.queues.Soldiers, "soldiers", log, stampSoldiers, func(items []model.Soldier) {
-				for _, v := range items {
-					b.deps.EntityCache.AddSoldier(v)
-				}
-			})
-			writeQueue(b.deps.DB, b.queues.Vehicles, "vehicles", log, stampVehicles, func(items []model.Vehicle) {
-				for _, v := range items {
-					b.deps.EntityCache.AddVehicle(v)
-				}
-			})
+			// Entities (cache already populated by worker at parse time with core types)
+			writeQueue(b.deps.DB, b.queues.Soldiers, "soldiers", log, stampSoldiers, nil)
+			writeQueue(b.deps.DB, b.queues.Vehicles, "vehicles", log, stampVehicles, nil)
 			writeQueue(b.deps.DB, b.queues.Markers, "markers", log, stampMarkers, func(items []model.Marker) {
 				for _, marker := range items {
 					if marker.ID != 0 {
