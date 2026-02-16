@@ -41,17 +41,26 @@ func (b *Backend) Close() error {
 	return b.conn.close()
 }
 
-// sendEnvelope marshals the payload into an Envelope and pushes it
-// to the write loop (fire-and-forget).
-func (b *Backend) sendEnvelope(msgType string, payload any) error {
+// marshalEnvelope builds a JSON-encoded Envelope from a message type and payload.
+func marshalEnvelope(msgType string, payload any) ([]byte, error) {
 	raw, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("marshal %s payload: %w", msgType, err)
+		return nil, fmt.Errorf("marshal %s payload: %w", msgType, err)
 	}
 	env := Envelope{Type: msgType, Payload: raw}
 	data, err := json.Marshal(env)
 	if err != nil {
-		return fmt.Errorf("marshal %s envelope: %w", msgType, err)
+		return nil, fmt.Errorf("marshal %s envelope: %w", msgType, err)
+	}
+	return data, nil
+}
+
+// sendEnvelope marshals the payload into an Envelope and pushes it
+// to the write loop (fire-and-forget).
+func (b *Backend) sendEnvelope(msgType string, payload any) error {
+	data, err := marshalEnvelope(msgType, payload)
+	if err != nil {
+		return err
 	}
 	b.conn.send(data)
 	return nil
@@ -59,29 +68,18 @@ func (b *Backend) sendEnvelope(msgType string, payload any) error {
 
 // sendEnvelopeAndWait marshals the payload and waits for a server ack.
 func (b *Backend) sendEnvelopeAndWait(msgType string, payload any) error {
-	raw, err := json.Marshal(payload)
+	data, err := marshalEnvelope(msgType, payload)
 	if err != nil {
-		return fmt.Errorf("marshal %s payload: %w", msgType, err)
-	}
-	env := Envelope{Type: msgType, Payload: raw}
-	data, err := json.Marshal(env)
-	if err != nil {
-		return fmt.Errorf("marshal %s envelope: %w", msgType, err)
+		return err
 	}
 	return b.conn.sendAndWait(data, msgType, ackTimeout)
 }
 
 // StartMission sends mission and world data and waits for server ack.
 func (b *Backend) StartMission(mission *core.Mission, world *core.World) error {
-	payload := StartMissionPayload{Mission: mission, World: world}
-	raw, err := json.Marshal(payload)
+	data, err := marshalEnvelope(TypeStartMission, StartMissionPayload{Mission: mission, World: world})
 	if err != nil {
-		return fmt.Errorf("marshal start_mission payload: %w", err)
-	}
-	env := Envelope{Type: TypeStartMission, Payload: raw}
-	data, err := json.Marshal(env)
-	if err != nil {
-		return fmt.Errorf("marshal start_mission envelope: %w", err)
+		return err
 	}
 
 	// Cache for reconnect replay.

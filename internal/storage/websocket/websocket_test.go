@@ -50,7 +50,8 @@ func testServer(t *testing.T) (*httptest.Server, *messageLog) {
 			// Ack start_mission and end_mission.
 			if env.Type == TypeStartMission || env.Type == TypeEndMission {
 				ack := AckMessage{Type: "ack", For: env.Type}
-				data, _ := json.Marshal(ack)
+				data, err := json.Marshal(ack)
+				require.NoError(t, err)
 				if err := c.WriteMessage(ws.TextMessage, data); err != nil {
 					return
 				}

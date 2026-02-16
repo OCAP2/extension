@@ -1,6 +1,10 @@
 package websocket
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/OCAP2/extension/v5/pkg/core"
+)
 
 // Message type constants matching the streaming protocol.
 const (
@@ -40,8 +44,8 @@ type AckMessage struct {
 
 // StartMissionPayload carries mission and world data.
 type StartMissionPayload struct {
-	Mission any `json:"mission"`
-	World   any `json:"world"`
+	Mission *core.Mission `json:"mission"`
+	World   *core.World   `json:"world"`
 }
 
 // DeleteMarkerPayload carries marker deletion data.

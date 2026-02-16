@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/url"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	ws "github.com/gorilla/websocket"
@@ -26,8 +27,9 @@ type connection struct {
 	conn   *ws.Conn
 	sendCh chan []byte
 	ackCh  chan AckMessage
-	done   chan struct{} // closed on shutdown
-	closed bool
+	done         chan struct{} // closed on shutdown
+	closed       bool
+	reconnecting atomic.Bool
 
 	wsURL  string
 	secret string
@@ -157,6 +159,11 @@ func (c *connection) readLoop() {
 // exponential backoff. On success it replays the cached start_mission
 // message and restarts the read/write loops.
 func (c *connection) reconnect() {
+	if !c.reconnecting.CompareAndSwap(false, true) {
+		return // another reconnection is already in progress
+	}
+	defer c.reconnecting.Store(false)
+
 	c.mu.Lock()
 	if c.closed {
 		c.mu.Unlock()
