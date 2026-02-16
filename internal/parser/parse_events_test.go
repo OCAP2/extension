@@ -880,6 +880,117 @@ func TestParseTelemetryEvent(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "error: bad sides JSON",
+			input: []string{
+				"0", "[50,40]", "not_json",
+				"[0,0,0,0,0,0,0,0]", "[0,0,0,0,0]",
+				"[0,0,0,0,0,0,0,0,0,0,0,0]", "[]",
+			},
+			wantErr: true,
+		},
+		{
+			name: "error: bad global JSON",
+			input: []string{
+				"0", "[50,40]", zeroSides,
+				"not_json", "[0,0,0,0,0]",
+				"[0,0,0,0,0,0,0,0,0,0,0,0]", "[]",
+			},
+			wantErr: true,
+		},
+		{
+			name: "error: bad scripts JSON",
+			input: []string{
+				"0", "[50,40]", zeroSides,
+				"[0,0,0,0,0,0,0,0]", "not_json",
+				"[0,0,0,0,0,0,0,0,0,0,0,0]", "[]",
+			},
+			wantErr: true,
+		},
+		{
+			name: "error: bad weather JSON",
+			input: []string{
+				"0", "[50,40]", zeroSides,
+				"[0,0,0,0,0,0,0,0]", "[0,0,0,0,0]",
+				"not_json", "[]",
+			},
+			wantErr: true,
+		},
+		{
+			name: "error: bad players JSON",
+			input: []string{
+				"0", "[50,40]", zeroSides,
+				"[0,0,0,0,0,0,0,0]", "[0,0,0,0,0]",
+				"[0,0,0,0,0,0,0,0,0,0,0,0]", "not_json",
+			},
+			wantErr: true,
+		},
+		{
+			name: "player with < 5 elements skipped",
+			input: []string{
+				"0", "[50,40]", zeroSides,
+				"[0,0,0,0,0,0,0,0]", "[0,0,0,0,0]",
+				"[0,0,0,0,0,0,0,0,0,0,0,0]", `[["uid","name",10]]`,
+			},
+			check: func(t *testing.T, e core.TelemetryEvent) {
+				assert.Empty(t, e.Players)
+			},
+		},
+		{
+			name: "player with bad uid type skipped",
+			input: []string{
+				"0", "[50,40]", zeroSides,
+				"[0,0,0,0,0,0,0,0]", "[0,0,0,0,0]",
+				"[0,0,0,0,0,0,0,0,0,0,0,0]", `[[123,"name",10,20,0]]`,
+			},
+			check: func(t *testing.T, e core.TelemetryEvent) {
+				assert.Empty(t, e.Players)
+			},
+		},
+		{
+			name: "player with bad name type skipped",
+			input: []string{
+				"0", "[50,40]", zeroSides,
+				"[0,0,0,0,0,0,0,0]", "[0,0,0,0,0]",
+				"[0,0,0,0,0,0,0,0,0,0,0,0]", `[["uid",123,10,20,0]]`,
+			},
+			check: func(t *testing.T, e core.TelemetryEvent) {
+				assert.Empty(t, e.Players)
+			},
+		},
+		{
+			name: "player with bad ping type skipped",
+			input: []string{
+				"0", "[50,40]", zeroSides,
+				"[0,0,0,0,0,0,0,0]", "[0,0,0,0,0]",
+				"[0,0,0,0,0,0,0,0,0,0,0,0]", `[["uid","name","bad",20,0]]`,
+			},
+			check: func(t *testing.T, e core.TelemetryEvent) {
+				assert.Empty(t, e.Players)
+			},
+		},
+		{
+			name: "player with bad bw type skipped",
+			input: []string{
+				"0", "[50,40]", zeroSides,
+				"[0,0,0,0,0,0,0,0]", "[0,0,0,0,0]",
+				"[0,0,0,0,0,0,0,0,0,0,0,0]", `[["uid","name",10,"bad",0]]`,
+			},
+			check: func(t *testing.T, e core.TelemetryEvent) {
+				assert.Empty(t, e.Players)
+			},
+		},
+		{
+			name: "player with bad desync type skipped",
+			input: []string{
+				"0", "[50,40]", zeroSides,
+				"[0,0,0,0,0,0,0,0]", "[0,0,0,0,0]",
+				"[0,0,0,0,0,0,0,0,0,0,0,0]", `[["uid","name",10,20,"bad"]]`,
+			},
+			check: func(t *testing.T, e core.TelemetryEvent) {
+				assert.Empty(t, e.Players)
+			},
+		},
 	}
 
 	for _, tt := range tests {
