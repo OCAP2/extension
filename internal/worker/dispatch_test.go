@@ -223,39 +223,6 @@ func (b *mockBackend) DeleteMarker(name string, endFrame uint) {
 	b.deletedMarkers[name] = endFrame
 }
 
-func (b *mockBackend) GetSoldierByObjectID(ocapID uint16) (*core.Soldier, bool) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	for _, s := range b.soldiers {
-		if s.ID == ocapID {
-			return s, true
-		}
-	}
-	return nil, false
-}
-
-func (b *mockBackend) GetVehicleByObjectID(ocapID uint16) (*core.Vehicle, bool) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	for _, v := range b.vehicles {
-		if v.ID == ocapID {
-			return v, true
-		}
-	}
-	return nil, false
-}
-
-func (b *mockBackend) GetMarkerByName(name string) (*core.Marker, bool) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	for _, m := range b.markers {
-		if m.MarkerName == name {
-			return m, true
-		}
-	}
-	return nil, false
-}
-
 // mockParserService provides a minimal implementation for testing
 type mockParserService struct {
 	mu sync.Mutex

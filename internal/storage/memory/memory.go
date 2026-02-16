@@ -7,7 +7,6 @@ import (
 
 	"github.com/OCAP2/extension/v5/internal/config"
 	"github.com/OCAP2/extension/v5/pkg/core"
-	"github.com/OCAP2/extension/v5/internal/storage"
 	v1 "github.com/OCAP2/extension/v5/internal/storage/memory/export/v1"
 )
 
@@ -37,7 +36,7 @@ type Backend struct {
 	world   *core.World
 
 	lastExportPath     string           // path to the last exported file
-	lastExportMetadata storage.UploadMetadata // cached metadata from last export
+	lastExportMetadata core.UploadMetadata // cached metadata from last export
 
 	soldiers      map[uint16]*SoldierRecord // keyed by ObjectID
 	vehicles      map[uint16]*VehicleRecord // keyed by ObjectID
@@ -182,39 +181,6 @@ func (b *Backend) AddMarker(m *core.Marker) error {
 	b.markers[m.MarkerName] = record
 	b.markersByID[m.ID] = record
 	return nil
-}
-
-// GetSoldierByObjectID looks up a soldier by their ObjectID
-func (b *Backend) GetSoldierByObjectID(ocapID uint16) (*core.Soldier, bool) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	if record, ok := b.soldiers[ocapID]; ok {
-		return &record.Soldier, true
-	}
-	return nil, false
-}
-
-// GetVehicleByObjectID looks up a vehicle by its ObjectID
-func (b *Backend) GetVehicleByObjectID(ocapID uint16) (*core.Vehicle, bool) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	if record, ok := b.vehicles[ocapID]; ok {
-		return &record.Vehicle, true
-	}
-	return nil, false
-}
-
-// GetMarkerByName looks up a marker by name
-func (b *Backend) GetMarkerByName(name string) (*core.Marker, bool) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	if record, ok := b.markers[name]; ok {
-		return &record.Marker, true
-	}
-	return nil, false
 }
 
 // RecordSoldierState records a soldier state update.
@@ -367,7 +333,7 @@ func (b *Backend) GetExportedFilePath() string {
 // GetExportMetadata returns metadata about the last export.
 // If a mission is active (before EndMission), computes metadata from live data.
 // After EndMission, returns cached metadata from the export.
-func (b *Backend) GetExportMetadata() storage.UploadMetadata {
+func (b *Backend) GetExportMetadata() core.UploadMetadata {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -379,9 +345,9 @@ func (b *Backend) GetExportMetadata() storage.UploadMetadata {
 
 // computeExportMetadata builds upload metadata from the current in-memory data.
 // Caller must hold at least b.mu.RLock.
-func (b *Backend) computeExportMetadata() storage.UploadMetadata {
+func (b *Backend) computeExportMetadata() core.UploadMetadata {
 	if b.mission == nil || b.world == nil {
-		return storage.UploadMetadata{}
+		return core.UploadMetadata{}
 	}
 
 	var endFrame uint
@@ -402,7 +368,7 @@ func (b *Backend) computeExportMetadata() storage.UploadMetadata {
 
 	duration := float64(endFrame) * float64(b.mission.CaptureDelay) / 1000.0
 
-	return storage.UploadMetadata{
+	return core.UploadMetadata{
 		WorldName:       b.world.WorldName,
 		MissionName:     b.mission.MissionName,
 		MissionDuration: duration,

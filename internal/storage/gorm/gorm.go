@@ -166,8 +166,17 @@ func (b *Backend) StartMission(coreMission *core.Mission, coreWorld *core.World)
 	}
 
 	// World get-or-insert
-	if _, err := gormWorld.GetOrInsert(db); err != nil {
-		return fmt.Errorf("failed to get or insert world: %w", err)
+	var existingWorld model.World
+	if err := db.Where("world_name = ?", gormWorld.WorldName).First(&existingWorld).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			if err = db.Create(&gormWorld).Error; err != nil {
+				return fmt.Errorf("failed to create world: %w", err)
+			}
+		} else {
+			return fmt.Errorf("failed to find world: %w", err)
+		}
+	} else {
+		gormWorld = existingWorld
 	}
 
 	// Mission create
@@ -334,34 +343,6 @@ func (b *Backend) RecordAce3UnconsciousEvent(e *core.Ace3UnconsciousEvent) error
 	gormObj := convert.CoreToAce3UnconsciousEvent(*e)
 	b.queues.Ace3UnconsciousEvents.Push(gormObj)
 	return nil
-}
-
-// GetSoldierByObjectID looks up a soldier in the EntityCache (which stores core types).
-func (b *Backend) GetSoldierByObjectID(ocapID uint16) (*core.Soldier, bool) {
-	s, ok := b.deps.EntityCache.GetSoldier(ocapID)
-	if !ok {
-		return nil, false
-	}
-	return &s, true
-}
-
-// GetVehicleByObjectID looks up a vehicle in the EntityCache (which stores core types).
-func (b *Backend) GetVehicleByObjectID(ocapID uint16) (*core.Vehicle, bool) {
-	v, ok := b.deps.EntityCache.GetVehicle(ocapID)
-	if !ok {
-		return nil, false
-	}
-	return &v, true
-}
-
-// GetMarkerByName looks up a marker by name via the MarkerCache.
-func (b *Backend) GetMarkerByName(name string) (*core.Marker, bool) {
-	_, ok := b.deps.MarkerCache.Get(name)
-	if !ok {
-		return nil, false
-	}
-	// MarkerCache only stores name → ID mapping. Return a minimal core.Marker.
-	return &core.Marker{MarkerName: name}, true
 }
 
 // writeQueue writes all items from a queue to the database in a transaction.

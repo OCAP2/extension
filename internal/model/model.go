@@ -118,25 +118,6 @@ func (*World) TableName() string {
 	return "worlds"
 }
 
-func (w *World) GetOrInsert(db *gorm.DB) (
-	created bool,
-	err error,
-) {
-	var existingWorld World
-	err = db.Where("world_name = ?", w.WorldName).First(&existingWorld).Error
-	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			// insert
-			err = db.Create(w).Error
-			return true, err
-		}
-		return false, err
-	}
-	// overwrite with db record if found
-	*w = existingWorld
-	return false, nil
-}
-
 // Mission is the main model for a mission
 type Mission struct {
 	gorm.Model
@@ -232,13 +213,6 @@ type Soldier struct {
 
 func (*Soldier) TableName() string {
 	return "soldiers"
-}
-
-func (s *Soldier) Get(db *gorm.DB) (err error) {
-	err = db.Where(&s).Order(
-		"join_time DESC",
-	).First(&s).Error
-	return err
 }
 
 // SoldierState tracks soldier state at a point in time
@@ -512,16 +486,6 @@ type Ace3UnconsciousEvent struct {
 
 func (a *Ace3UnconsciousEvent) TableName() string {
 	return "ace3_unconscious_events"
-}
-
-var ChatChannels map[int]string = map[int]string{
-	0:  "Global",
-	1:  "Side",
-	2:  "Command",
-	3:  "Group",
-	4:  "Vehicle",
-	5:  "Direct",
-	16: "System",
 }
 
 // ChatEvent records chat messages

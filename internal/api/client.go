@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/OCAP2/extension/v5/internal/storage"
+	"github.com/OCAP2/extension/v5/pkg/core"
 )
 
 // Client handles communication with the OCAP web frontend.
@@ -45,7 +45,7 @@ func (c *Client) Healthcheck() error {
 }
 
 // Upload sends a gzipped JSON mission file to the OCAP web frontend.
-func (c *Client) Upload(filePath string, meta storage.UploadMetadata) error {
+func (c *Client) Upload(filePath string, meta core.UploadMetadata) error {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return fmt.Errorf("failed to open file: %w", err)
@@ -104,9 +104,4 @@ func (c *Client) Upload(filePath string, meta storage.UploadMetadata) error {
 		return fmt.Errorf("upload returned status %d", resp.StatusCode)
 	}
 	return nil
-}
-
-// writeFile is a helper for tests
-func writeFile(path string, content []byte) error {
-	return os.WriteFile(path, content, 0644)
 }

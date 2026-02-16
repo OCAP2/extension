@@ -4,9 +4,10 @@ package api
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
-	"github.com/OCAP2/extension/v5/internal/storage"
+	"github.com/OCAP2/extension/v5/pkg/core"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -92,7 +93,7 @@ func TestUpload_Success(t *testing.T) {
 	require.NoError(t, err)
 
 	c := New(server.URL, "mysecret")
-	meta := storage.UploadMetadata{
+	meta := core.UploadMetadata{
 		WorldName:       "Altis",
 		MissionName:     "Test Mission",
 		MissionDuration: 3600.5,
@@ -113,7 +114,7 @@ func TestUpload_Success(t *testing.T) {
 
 func TestUpload_FileNotFound(t *testing.T) {
 	c := New("http://localhost:5000", "secret")
-	err := c.Upload("/nonexistent/file.json.gz", storage.UploadMetadata{})
+	err := c.Upload("/nonexistent/file.json.gz", core.UploadMetadata{})
 	assert.Error(t, err)
 }
 
@@ -128,10 +129,10 @@ func TestUpload_ServerError(t *testing.T) {
 	_ = writeTestFile(testFile, []byte("content"))
 
 	c := New(server.URL, "wrong-secret")
-	err := c.Upload(testFile, storage.UploadMetadata{})
+	err := c.Upload(testFile, core.UploadMetadata{})
 	assert.Error(t, err)
 }
 
 func writeTestFile(path string, content []byte) error {
-	return writeFile(path, content)
+	return os.WriteFile(path, content, 0644)
 }

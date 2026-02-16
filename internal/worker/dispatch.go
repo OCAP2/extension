@@ -51,9 +51,7 @@ func (m *Manager) handleNewSoldier(e dispatcher.Event) (any, error) {
 	// Always cache for state handler lookups
 	m.deps.EntityCache.AddSoldier(obj)
 
-	m.backend.AddSoldier(&obj)
-
-	return nil, nil
+	return nil, m.backend.AddSoldier(&obj)
 }
 
 func (m *Manager) handleNewVehicle(e dispatcher.Event) (any, error) {
@@ -65,9 +63,7 @@ func (m *Manager) handleNewVehicle(e dispatcher.Event) (any, error) {
 	// Always cache for state handler lookups
 	m.deps.EntityCache.AddVehicle(obj)
 
-	m.backend.AddVehicle(&obj)
-
-	return nil, nil
+	return nil, m.backend.AddVehicle(&obj)
 }
 
 func (m *Manager) handleSoldierState(e dispatcher.Event) (any, error) {
@@ -88,9 +84,7 @@ func (m *Manager) handleSoldierState(e dispatcher.Event) (any, error) {
 		obj.Side = soldier.Side
 	}
 
-	m.backend.RecordSoldierState(&obj)
-
-	return nil, nil
+	return nil, m.backend.RecordSoldierState(&obj)
 }
 
 func (m *Manager) handleVehicleState(e dispatcher.Event) (any, error) {
@@ -104,9 +98,7 @@ func (m *Manager) handleVehicleState(e dispatcher.Event) (any, error) {
 		return nil, ErrTooEarlyForStateAssociation
 	}
 
-	m.backend.RecordVehicleState(&obj)
-
-	return nil, nil
+	return nil, m.backend.RecordVehicleState(&obj)
 }
 
 func (m *Manager) handleTimeState(e dispatcher.Event) (any, error) {
@@ -115,9 +107,7 @@ func (m *Manager) handleTimeState(e dispatcher.Event) (any, error) {
 		return nil, fmt.Errorf("failed to log time state: %w", err)
 	}
 
-	m.backend.RecordTimeState(&obj)
-
-	return nil, nil
+	return nil, m.backend.RecordTimeState(&obj)
 }
 
 func (m *Manager) handleProjectileEvent(e dispatcher.Event) (any, error) {
@@ -139,8 +129,7 @@ func (m *Manager) handleProjectileEvent(e dispatcher.Event) (any, error) {
 		Hits:            m.classifyHitParts(parsed.HitParts),
 	}
 
-	m.backend.RecordProjectileEvent(&coreEvent)
-	return nil, nil
+	return nil, m.backend.RecordProjectileEvent(&coreEvent)
 }
 
 // classifyHitParts classifies each HitPart as soldier or vehicle hit using EntityCache.
@@ -176,9 +165,7 @@ func (m *Manager) handleGeneralEvent(e dispatcher.Event) (any, error) {
 		return nil, fmt.Errorf("failed to log general event: %w", err)
 	}
 
-	m.backend.RecordGeneralEvent(&obj)
-
-	return nil, nil
+	return nil, m.backend.RecordGeneralEvent(&obj)
 }
 
 func (m *Manager) handleKillEvent(e dispatcher.Event) (any, error) {
@@ -219,9 +206,7 @@ func (m *Manager) handleKillEvent(e dispatcher.Event) (any, error) {
 		m.deps.LogManager.Logger().Warn("Kill event killer not found in cache", "killerID", parsed.KillerID)
 	}
 
-	m.backend.RecordKillEvent(&coreEvent)
-
-	return nil, nil
+	return nil, m.backend.RecordKillEvent(&coreEvent)
 }
 
 func (m *Manager) handleChatEvent(e dispatcher.Event) (any, error) {
@@ -237,9 +222,7 @@ func (m *Manager) handleChatEvent(e dispatcher.Event) (any, error) {
 		}
 	}
 
-	m.backend.RecordChatEvent(&obj)
-
-	return nil, nil
+	return nil, m.backend.RecordChatEvent(&obj)
 }
 
 func (m *Manager) handleRadioEvent(e dispatcher.Event) (any, error) {
@@ -255,9 +238,7 @@ func (m *Manager) handleRadioEvent(e dispatcher.Event) (any, error) {
 		}
 	}
 
-	m.backend.RecordRadioEvent(&obj)
-
-	return nil, nil
+	return nil, m.backend.RecordRadioEvent(&obj)
 }
 
 func (m *Manager) handleFpsEvent(e dispatcher.Event) (any, error) {
@@ -266,9 +247,7 @@ func (m *Manager) handleFpsEvent(e dispatcher.Event) (any, error) {
 		return nil, fmt.Errorf("failed to log fps event: %w", err)
 	}
 
-	m.backend.RecordServerFpsEvent(&obj)
-
-	return nil, nil
+	return nil, m.backend.RecordServerFpsEvent(&obj)
 }
 
 func (m *Manager) handleAce3DeathEvent(e dispatcher.Event) (any, error) {
@@ -292,9 +271,7 @@ func (m *Manager) handleAce3DeathEvent(e dispatcher.Event) (any, error) {
 		}
 	}
 
-	m.backend.RecordAce3DeathEvent(&obj)
-
-	return nil, nil
+	return nil, m.backend.RecordAce3DeathEvent(&obj)
 }
 
 func (m *Manager) handleAce3UnconsciousEvent(e dispatcher.Event) (any, error) {
@@ -308,9 +285,7 @@ func (m *Manager) handleAce3UnconsciousEvent(e dispatcher.Event) (any, error) {
 		return nil, fmt.Errorf("could not find soldier with ocap id %d for ace3 unconscious event", obj.SoldierID)
 	}
 
-	m.backend.RecordAce3UnconsciousEvent(&obj)
-
-	return nil, nil
+	return nil, m.backend.RecordAce3UnconsciousEvent(&obj)
 }
 
 func (m *Manager) handleMarkerCreate(e dispatcher.Event) (any, error) {
@@ -319,7 +294,9 @@ func (m *Manager) handleMarkerCreate(e dispatcher.Event) (any, error) {
 		return nil, fmt.Errorf("failed to create marker: %w", err)
 	}
 
-	m.backend.AddMarker(&marker)
+	if err := m.backend.AddMarker(&marker); err != nil {
+		return nil, fmt.Errorf("add marker: %w", err)
+	}
 	// Cache the assigned ID so state updates can find this marker
 	m.deps.MarkerCache.Set(marker.MarkerName, marker.ID)
 
@@ -347,9 +324,7 @@ func (m *Manager) handleMarkerMove(e dispatcher.Event) (any, error) {
 		Time:         parsed.Time,
 	}
 
-	m.backend.RecordMarkerState(&coreState)
-
-	return nil, nil
+	return nil, m.backend.RecordMarkerState(&coreState)
 }
 
 func (m *Manager) handleMarkerDelete(e dispatcher.Event) (any, error) {
