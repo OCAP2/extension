@@ -249,7 +249,9 @@ func (c *connection) sendAndWait(data []byte, ackFor string, timeout time.Durati
 	}
 }
 
-// close sends a WebSocket close frame and shuts down all goroutines.
+// close shuts down all goroutines and closes the underlying connection.
+// It does not send a WebSocket close frame because the writeLoop may
+// still be writing; closing the TCP connection is sufficient.
 func (c *connection) close() error {
 	c.mu.Lock()
 	if c.closed {
@@ -263,10 +265,6 @@ func (c *connection) close() error {
 	c.mu.Unlock()
 
 	if conn != nil {
-		_ = conn.WriteMessage(
-			ws.CloseMessage,
-			ws.FormatCloseMessage(ws.CloseNormalClosure, ""),
-		)
 		return conn.Close()
 	}
 	return nil
