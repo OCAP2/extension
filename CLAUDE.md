@@ -25,7 +25,7 @@ docker run --rm -v ${PWD}:/go/work -w /go/work golang:1.24-bullseye go build -bu
 /internal/dispatcher/        - Event routing with async buffering
 /internal/parser/            - Command parsing (args → core types)
 /internal/worker/            - Handler registration and DB writer loop
-/internal/storage/           - Storage backends (memory, postgres, sqlite)
+/internal/storage/           - Storage backends (memory, postgres, sqlite, websocket)
 /internal/model/             - GORM database models + converters
 /internal/queue/             - Thread-safe queue implementations
 /internal/cache/             - Entity caching layer
@@ -92,7 +92,7 @@ File: `ocap_recorder.cfg.json` (placed alongside DLL)
   "logsDir": "./ocaplogs",
   "defaultTag": "TvT",
   "api": {
-    "serverUrl": "http://127.0.0.1:5000",
+    "serverUrl": "http://127.0.0.1:5000/api",
     "apiKey": "secret"
   },
   "db": {
@@ -115,7 +115,7 @@ File: `ocap_recorder.cfg.json` (placed alongside DLL)
 }
 ```
 
-Storage types: `"memory"` (JSON export), `"postgres"` (PostgreSQL), `"sqlite"` (in-memory with periodic disk dump).
+Storage types: `"memory"` (JSON export), `"postgres"` (PostgreSQL), `"sqlite"` (in-memory with periodic disk dump), `"websocket"` (real-time streaming to OCAP2 web server).
 
 ## Key Dependencies
 
@@ -123,3 +123,4 @@ Storage types: `"memory"` (JSON export), `"postgres"` (PostgreSQL), `"sqlite"` (
 - **peterstace/simplefeatures** - Geometry/GIS support
 - **log/slog** - Structured logging (stdlib)
 - **spf13/viper** - Configuration management
+- **gorilla/websocket** - WebSocket client for streaming storage backend
