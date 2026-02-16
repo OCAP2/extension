@@ -174,14 +174,7 @@ func TestAllMessageTypes(t *testing.T) {
 	}
 
 	// Every message type should appear exactly once.
-	for _, typ := range []string{
-		streaming.TypeStartMission, streaming.TypeEndMission,
-		streaming.TypeAddSoldier, streaming.TypeAddVehicle, streaming.TypeAddMarker,
-		streaming.TypeSoldierState, streaming.TypeVehicleState, streaming.TypeMarkerState, streaming.TypeDeleteMarker,
-		streaming.TypeFiredEvent, streaming.TypeProjectileEvent, streaming.TypeGeneralEvent,
-		streaming.TypeHitEvent, streaming.TypeKillEvent, streaming.TypeChatEvent, streaming.TypeRadioEvent,
-		streaming.TypeServerFps, streaming.TypeTimeState, streaming.TypeAce3Death, streaming.TypeAce3Unconscious,
-	} {
+	for _, typ := range streaming.AllMessageTypes {
 		assert.Equalf(t, 1, types[typ], "expected exactly 1 message of type %q", typ)
 	}
 }
