@@ -17,6 +17,7 @@ import (
 
 	"github.com/OCAP2/extension/v5/internal/storage"
 	"github.com/OCAP2/extension/v5/pkg/core"
+	"github.com/OCAP2/extension/v5/pkg/streaming"
 )
 
 // Compile-time interface check.
@@ -43,15 +44,15 @@ func testServer(t *testing.T) (*httptest.Server, *messageLog) {
 				return
 			}
 
-			var env Envelope
+			var env streaming.Envelope
 			if err := json.Unmarshal(msg, &env); err != nil {
 				continue
 			}
 			ml.add(env)
 
 			// Ack start_mission and end_mission.
-			if env.Type == TypeStartMission || env.Type == TypeEndMission {
-				ack := AckMessage{Type: "ack", For: env.Type}
+			if env.Type == streaming.TypeStartMission || env.Type == streaming.TypeEndMission {
+				ack := streaming.AckMessage{Type: "ack", For: env.Type}
 				data, err := json.Marshal(ack)
 				require.NoError(t, err)
 				if err := c.WriteMessage(ws.TextMessage, data); err != nil {
@@ -66,19 +67,19 @@ func testServer(t *testing.T) (*httptest.Server, *messageLog) {
 
 type messageLog struct {
 	mu       sync.Mutex
-	messages []Envelope
+	messages []streaming.Envelope
 }
 
-func (m *messageLog) add(env Envelope) {
+func (m *messageLog) add(env streaming.Envelope) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.messages = append(m.messages, env)
 }
 
-func (m *messageLog) all() []Envelope {
+func (m *messageLog) all() []streaming.Envelope {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	cp := make([]Envelope, len(m.messages))
+	cp := make([]streaming.Envelope, len(m.messages))
 	copy(cp, m.messages)
 	return cp
 }
@@ -123,8 +124,8 @@ func TestStartAndEndMission(t *testing.T) {
 
 	msgs := ml.all()
 	require.GreaterOrEqual(t, len(msgs), 2)
-	assert.Equal(t, TypeStartMission, msgs[0].Type)
-	assert.Equal(t, TypeEndMission, msgs[len(msgs)-1].Type)
+	assert.Equal(t, streaming.TypeStartMission, msgs[0].Type)
+	assert.Equal(t, streaming.TypeEndMission, msgs[len(msgs)-1].Type)
 }
 
 func TestAllMessageTypes(t *testing.T) {
@@ -173,14 +174,7 @@ func TestAllMessageTypes(t *testing.T) {
 	}
 
 	// Every message type should appear exactly once.
-	for _, typ := range []string{
-		TypeStartMission, TypeEndMission,
-		TypeAddSoldier, TypeAddVehicle, TypeAddMarker,
-		TypeSoldierState, TypeVehicleState, TypeMarkerState, TypeDeleteMarker,
-		TypeFiredEvent, TypeProjectileEvent, TypeGeneralEvent,
-		TypeHitEvent, TypeKillEvent, TypeChatEvent, TypeRadioEvent,
-		TypeServerFps, TypeTimeState, TypeAce3Death, TypeAce3Unconscious,
-	} {
+	for _, typ := range streaming.AllMessageTypes {
 		assert.Equalf(t, 1, types[typ], "expected exactly 1 message of type %q", typ)
 	}
 }
@@ -208,13 +202,13 @@ func TestEnvelopeSerialization(t *testing.T) {
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
 
-	env := Envelope{Type: TypeDeleteMarker, Payload: raw}
+	env := streaming.Envelope{Type: streaming.TypeDeleteMarker, Payload: raw}
 	data, err := json.Marshal(env)
 	require.NoError(t, err)
 
-	var decoded Envelope
+	var decoded streaming.Envelope
 	require.NoError(t, json.Unmarshal(data, &decoded))
-	assert.Equal(t, TypeDeleteMarker, decoded.Type)
+	assert.Equal(t, streaming.TypeDeleteMarker, decoded.Type)
 
 	var dp core.DeleteMarker
 	require.NoError(t, json.Unmarshal(decoded.Payload, &dp))
@@ -299,10 +293,10 @@ func TestAckTimeout(t *testing.T) {
 	require.NoError(t, b.Init())
 	defer b.Close()
 
-	data, err := marshalEnvelope(TypeStartMission, StartMissionPayload{})
+	data, err := marshalEnvelope(streaming.TypeStartMission, streaming.StartMissionPayload{})
 	require.NoError(t, err)
 
-	err = b.conn.sendAndWait(data, TypeStartMission, 100*time.Millisecond)
+	err = b.conn.sendAndWait(data, streaming.TypeStartMission, 100*time.Millisecond)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "timeout waiting for ack")
 }
@@ -316,10 +310,10 @@ func TestSendAndWaitClosedConnection(t *testing.T) {
 
 	require.NoError(t, b.Close())
 
-	data, err := marshalEnvelope(TypeEndMission, nil)
+	data, err := marshalEnvelope(streaming.TypeEndMission, nil)
 	require.NoError(t, err)
 
-	err = b.conn.sendAndWait(data, TypeEndMission, 100*time.Millisecond)
+	err = b.conn.sendAndWait(data, streaming.TypeEndMission, 100*time.Millisecond)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "connection closed")
 }
@@ -431,9 +425,9 @@ func TestReadLoopNonJsonMessage(t *testing.T) {
 			// Send garbage first (covers json.Unmarshal error in readLoop).
 			_ = c.WriteMessage(ws.TextMessage, []byte("not json"))
 
-			var env Envelope
-			if json.Unmarshal(msg, &env) == nil && env.Type == TypeStartMission {
-				ack, _ := json.Marshal(AckMessage{Type: "ack", For: env.Type})
+			var env streaming.Envelope
+			if json.Unmarshal(msg, &env) == nil && env.Type == streaming.TypeStartMission {
+				ack, _ := json.Marshal(streaming.AckMessage{Type: "ack", For: env.Type})
 				_ = c.WriteMessage(ws.TextMessage, ack)
 			}
 		}
@@ -445,11 +439,11 @@ func TestReadLoopNonJsonMessage(t *testing.T) {
 	defer b.Close()
 
 	// StartMission will get garbage first, then a valid ack.
-	data, err := marshalEnvelope(TypeStartMission, StartMissionPayload{
+	data, err := marshalEnvelope(streaming.TypeStartMission, streaming.StartMissionPayload{
 		Mission: &core.Mission{}, World: &core.World{},
 	})
 	require.NoError(t, err)
-	require.NoError(t, b.conn.sendAndWait(data, TypeStartMission, 2*time.Second))
+	require.NoError(t, b.conn.sendAndWait(data, streaming.TypeStartMission, 2*time.Second))
 }
 
 func TestReadLoopNonAckMessage(t *testing.T) {
@@ -470,9 +464,9 @@ func TestReadLoopNonAckMessage(t *testing.T) {
 			// Send a non-ack JSON message (valid JSON, but type != "ack").
 			_ = c.WriteMessage(ws.TextMessage, []byte(`{"type":"info","data":"hello"}`))
 
-			var env Envelope
-			if json.Unmarshal(msg, &env) == nil && env.Type == TypeStartMission {
-				ack, _ := json.Marshal(AckMessage{Type: "ack", For: env.Type})
+			var env streaming.Envelope
+			if json.Unmarshal(msg, &env) == nil && env.Type == streaming.TypeStartMission {
+				ack, _ := json.Marshal(streaming.AckMessage{Type: "ack", For: env.Type})
 				_ = c.WriteMessage(ws.TextMessage, ack)
 			}
 		}
@@ -483,11 +477,11 @@ func TestReadLoopNonAckMessage(t *testing.T) {
 	require.NoError(t, b.Init())
 	defer b.Close()
 
-	data, err := marshalEnvelope(TypeStartMission, StartMissionPayload{
+	data, err := marshalEnvelope(streaming.TypeStartMission, streaming.StartMissionPayload{
 		Mission: &core.Mission{}, World: &core.World{},
 	})
 	require.NoError(t, err)
-	require.NoError(t, b.conn.sendAndWait(data, TypeStartMission, 2*time.Second))
+	require.NoError(t, b.conn.sendAndWait(data, streaming.TypeStartMission, 2*time.Second))
 }
 
 // --- reconnect tests (called directly for reliable coverage) ---
@@ -515,7 +509,7 @@ func TestReconnectDirectSuccess(t *testing.T) {
 	c.mu.Unlock()
 
 	// Send a message to verify the connection works.
-	data, err := marshalEnvelope(TypeAddSoldier, &core.Soldier{ID: 1})
+	data, err := marshalEnvelope(streaming.TypeAddSoldier, &core.Soldier{ID: 1})
 	require.NoError(t, err)
 	c.send(data)
 	time.Sleep(200 * time.Millisecond)
@@ -532,7 +526,7 @@ func TestReconnectDirectWithCachedMessage(t *testing.T) {
 	defer c.close()
 
 	// Set a cached start_mission message for replay.
-	startData, err := marshalEnvelope(TypeStartMission, StartMissionPayload{
+	startData, err := marshalEnvelope(streaming.TypeStartMission, streaming.StartMissionPayload{
 		Mission: &core.Mission{MissionName: "Reconnect"},
 		World:   &core.World{WorldName: "Altis"},
 	})
@@ -551,7 +545,7 @@ func TestReconnectDirectWithCachedMessage(t *testing.T) {
 
 	msgs := ml.all()
 	require.GreaterOrEqual(t, len(msgs), 1)
-	assert.Equal(t, TypeStartMission, msgs[0].Type, "start_mission should be replayed")
+	assert.Equal(t, streaming.TypeStartMission, msgs[0].Type, "start_mission should be replayed")
 }
 
 func TestReconnectWhenClosed(t *testing.T) {
@@ -747,14 +741,14 @@ func (rs *restartableServer) handler() http.Handler {
 			if err != nil {
 				return
 			}
-			var env Envelope
+			var env streaming.Envelope
 			if err := json.Unmarshal(msg, &env); err != nil {
 				continue
 			}
 			rs.ml.add(env)
 
-			if env.Type == TypeStartMission || env.Type == TypeEndMission {
-				ack := AckMessage{Type: "ack", For: env.Type}
+			if env.Type == streaming.TypeStartMission || env.Type == streaming.TypeEndMission {
+				ack := streaming.AckMessage{Type: "ack", For: env.Type}
 				data, _ := json.Marshal(ack)
 				if err := c.WriteMessage(ws.TextMessage, data); err != nil {
 					return
@@ -826,6 +820,6 @@ func TestReconnectAfterServerRestart(t *testing.T) {
 		types[m.Type]++
 	}
 
-	assert.GreaterOrEqual(t, types[TypeStartMission], 1, "start_mission should be replayed on reconnect")
-	assert.GreaterOrEqual(t, types[TypeAddSoldier], 1, "message after reconnect should arrive")
+	assert.GreaterOrEqual(t, types[streaming.TypeStartMission], 1, "start_mission should be replayed on reconnect")
+	assert.GreaterOrEqual(t, types[streaming.TypeAddSoldier], 1, "message after reconnect should arrive")
 }

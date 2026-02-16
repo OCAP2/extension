@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 
 	"github.com/OCAP2/extension/v5/pkg/core"
+	"github.com/OCAP2/extension/v5/pkg/streaming"
 )
 
 // Config holds WebSocket backend configuration.
@@ -47,7 +48,7 @@ func marshalEnvelope(msgType string, payload any) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("marshal %s payload: %w", msgType, err)
 	}
-	env := Envelope{Type: msgType, Payload: raw}
+	env := streaming.Envelope{Type: msgType, Payload: raw}
 	data, err := json.Marshal(env)
 	if err != nil {
 		return nil, fmt.Errorf("marshal %s envelope: %w", msgType, err)
@@ -77,7 +78,7 @@ func (b *Backend) sendEnvelopeAndWait(msgType string, payload any) error {
 
 // StartMission sends mission and world data and waits for server ack.
 func (b *Backend) StartMission(mission *core.Mission, world *core.World) error {
-	data, err := marshalEnvelope(TypeStartMission, StartMissionPayload{Mission: mission, World: world})
+	data, err := marshalEnvelope(streaming.TypeStartMission, streaming.StartMissionPayload{Mission: mission, World: world})
 	if err != nil {
 		return err
 	}
@@ -87,12 +88,12 @@ func (b *Backend) StartMission(mission *core.Mission, world *core.World) error {
 	b.conn.cachedStartMsg = data
 	b.conn.mu.Unlock()
 
-	return b.conn.sendAndWait(data, TypeStartMission, ackTimeout)
+	return b.conn.sendAndWait(data, streaming.TypeStartMission, ackTimeout)
 }
 
 // EndMission sends end_mission and waits for server ack.
 func (b *Backend) EndMission() error {
-	err := b.sendEnvelopeAndWait(TypeEndMission, nil)
+	err := b.sendEnvelopeAndWait(streaming.TypeEndMission, nil)
 
 	// Clear cached state regardless of error.
 	b.conn.mu.Lock()
@@ -104,75 +105,75 @@ func (b *Backend) EndMission() error {
 }
 
 func (b *Backend) AddSoldier(s *core.Soldier) error {
-	return b.sendEnvelope(TypeAddSoldier, s)
+	return b.sendEnvelope(streaming.TypeAddSoldier, s)
 }
 
 func (b *Backend) AddVehicle(v *core.Vehicle) error {
-	return b.sendEnvelope(TypeAddVehicle, v)
+	return b.sendEnvelope(streaming.TypeAddVehicle, v)
 }
 
 // AddMarker assigns an auto-increment ID and sends the marker.
 func (b *Backend) AddMarker(m *core.Marker) error {
 	m.ID = uint(b.nextMarkerID.Add(1))
-	return b.sendEnvelope(TypeAddMarker, m)
+	return b.sendEnvelope(streaming.TypeAddMarker, m)
 }
 
 func (b *Backend) RecordSoldierState(s *core.SoldierState) error {
-	return b.sendEnvelope(TypeSoldierState, s)
+	return b.sendEnvelope(streaming.TypeSoldierState, s)
 }
 
 func (b *Backend) RecordVehicleState(v *core.VehicleState) error {
-	return b.sendEnvelope(TypeVehicleState, v)
+	return b.sendEnvelope(streaming.TypeVehicleState, v)
 }
 
 func (b *Backend) RecordMarkerState(s *core.MarkerState) error {
-	return b.sendEnvelope(TypeMarkerState, s)
+	return b.sendEnvelope(streaming.TypeMarkerState, s)
 }
 
 func (b *Backend) DeleteMarker(dm *core.DeleteMarker) error {
-	return b.sendEnvelope(TypeDeleteMarker, dm)
+	return b.sendEnvelope(streaming.TypeDeleteMarker, dm)
 }
 
 func (b *Backend) RecordFiredEvent(e *core.FiredEvent) error {
-	return b.sendEnvelope(TypeFiredEvent, e)
+	return b.sendEnvelope(streaming.TypeFiredEvent, e)
 }
 
 func (b *Backend) RecordProjectileEvent(e *core.ProjectileEvent) error {
-	return b.sendEnvelope(TypeProjectileEvent, e)
+	return b.sendEnvelope(streaming.TypeProjectileEvent, e)
 }
 
 func (b *Backend) RecordGeneralEvent(e *core.GeneralEvent) error {
-	return b.sendEnvelope(TypeGeneralEvent, e)
+	return b.sendEnvelope(streaming.TypeGeneralEvent, e)
 }
 
 func (b *Backend) RecordHitEvent(e *core.HitEvent) error {
-	return b.sendEnvelope(TypeHitEvent, e)
+	return b.sendEnvelope(streaming.TypeHitEvent, e)
 }
 
 func (b *Backend) RecordKillEvent(e *core.KillEvent) error {
-	return b.sendEnvelope(TypeKillEvent, e)
+	return b.sendEnvelope(streaming.TypeKillEvent, e)
 }
 
 func (b *Backend) RecordChatEvent(e *core.ChatEvent) error {
-	return b.sendEnvelope(TypeChatEvent, e)
+	return b.sendEnvelope(streaming.TypeChatEvent, e)
 }
 
 func (b *Backend) RecordRadioEvent(e *core.RadioEvent) error {
-	return b.sendEnvelope(TypeRadioEvent, e)
+	return b.sendEnvelope(streaming.TypeRadioEvent, e)
 }
 
 func (b *Backend) RecordServerFpsEvent(e *core.ServerFpsEvent) error {
-	return b.sendEnvelope(TypeServerFps, e)
+	return b.sendEnvelope(streaming.TypeServerFps, e)
 }
 
 func (b *Backend) RecordTimeState(t *core.TimeState) error {
-	return b.sendEnvelope(TypeTimeState, t)
+	return b.sendEnvelope(streaming.TypeTimeState, t)
 }
 
 func (b *Backend) RecordAce3DeathEvent(e *core.Ace3DeathEvent) error {
-	return b.sendEnvelope(TypeAce3Death, e)
+	return b.sendEnvelope(streaming.TypeAce3Death, e)
 }
 
 func (b *Backend) RecordAce3UnconsciousEvent(e *core.Ace3UnconsciousEvent) error {
-	return b.sendEnvelope(TypeAce3Unconscious, e)
+	return b.sendEnvelope(streaming.TypeAce3Unconscious, e)
 }

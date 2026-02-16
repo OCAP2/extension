@@ -1,4 +1,4 @@
-package websocket
+package streaming
 
 import (
 	"encoding/json"
@@ -29,6 +29,16 @@ const (
 	TypeAce3Death       = "ace3_death"
 	TypeAce3Unconscious = "ace3_unconscious"
 )
+
+// AllMessageTypes lists every streaming message type.
+var AllMessageTypes = []string{
+	TypeStartMission, TypeEndMission,
+	TypeAddSoldier, TypeAddVehicle, TypeAddMarker,
+	TypeSoldierState, TypeVehicleState, TypeMarkerState, TypeDeleteMarker,
+	TypeFiredEvent, TypeProjectileEvent, TypeGeneralEvent,
+	TypeHitEvent, TypeKillEvent, TypeChatEvent, TypeRadioEvent,
+	TypeServerFps, TypeTimeState, TypeAce3Death, TypeAce3Unconscious,
+}
 
 // Envelope wraps all messages sent over the WebSocket.
 type Envelope struct {

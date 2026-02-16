@@ -10,6 +10,8 @@ import (
 	"time"
 
 	ws "github.com/gorilla/websocket"
+
+	"github.com/OCAP2/extension/v5/pkg/streaming"
 )
 
 const (
@@ -26,7 +28,7 @@ type connection struct {
 	mu     sync.Mutex
 	conn   *ws.Conn
 	sendCh chan []byte
-	ackCh  chan AckMessage
+	ackCh  chan streaming.AckMessage
 	done         chan struct{} // closed on shutdown
 	closed       bool
 	reconnecting atomic.Bool
@@ -43,7 +45,7 @@ type connection struct {
 func newConnection(logger *slog.Logger) *connection {
 	return &connection{
 		sendCh: make(chan []byte, sendChSize),
-		ackCh:  make(chan AckMessage, ackChSize),
+		ackCh:  make(chan streaming.AckMessage, ackChSize),
 		done:   make(chan struct{}),
 		logger: logger,
 	}
@@ -139,7 +141,7 @@ func (c *connection) readLoop() {
 			return
 		}
 
-		var ack AckMessage
+		var ack streaming.AckMessage
 		if err := json.Unmarshal(message, &ack); err != nil {
 			c.logger.Debug("Non-ack message received", "raw", string(message))
 			continue
