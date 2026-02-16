@@ -76,7 +76,7 @@ func createStorageBackend(storageCfg config.StorageConfig) (storage.Backend, err
 		return backend, nil
 
 	case "websocket":
-		wsURL := httpToWS(viper.GetString("api.serverUrl")) + "/api/v1/stream"
+		wsURL := httpToWS(viper.GetString("api.serverUrl")) + "/api"
 		secret := viper.GetString("api.apiKey")
 		Logger.Info("WebSocket storage backend initialized", "url", wsURL)
 		return wsstorage.New(wsstorage.Config{
