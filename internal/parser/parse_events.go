@@ -230,36 +230,187 @@ func (p *Parser) ParseKillEvent(data []string) (KillEvent, error) {
 	return result, nil
 }
 
-// ParseFpsEvent parses FPS event data and returns a core ServerFpsEvent
-func (p *Parser) ParseFpsEvent(data []string) (core.ServerFpsEvent, error) {
-	var fpsEvent core.ServerFpsEvent
+// ParseTelemetryEvent parses a unified telemetry snapshot sent every ~10 seconds.
+// Replaces the old :FPS: and :METRIC: commands.
+//
+// ArmA's callExtension flattens the top-level SQF array into 7 separate string args:
+//
+//	data[0] — Frame number (OCAP_recorder_captureFrameNo). Plain integer string.
+//	           Example: "134"
+//
+//	data[1] — Server FPS: [diag_fps, diag_fpsmin].
+//	           Example: "[43.3604,4.36681]"
+//
+//	data[2] — Per-side entity counts. Array[4] in order [east, west, independent, civilian].
+//	           Each side: [[server_local], [remote]].
+//	           Each locality: [units_total, units_alive, units_dead, groups_total,
+//	                           vehicles_total, vehicles_weaponholder].
+//	           Note: units_total ≈ units_alive (allUnits typically only contains living units;
+//	           they may diverge with ACE unconscious units).
+//	           Example: "[[[1,1,0,1,0,0],[0,0,0,0,0,0]],[[10,10,0,8,0,0],[0,0,0,0,0,0]],...]"
+//
+//	data[3] — Global entity counts: [units_alive, units_dead, groups_total, vehicles_total,
+//	           vehicles_weaponholder, players_alive, players_dead, players_connected].
+//	           Example: "[22,12,15,28,0,1,0,1]"
+//
+//	data[4] — Running scripts: [spawn, execVM, exec, execFSM, pfh].
+//	           Indices 0–3 from diag_activeScripts; index 4 is CBA per-frame handler count.
+//	           Example: "[28,4,0,4,2]"
+//
+//	data[5] — Weather snapshot (12 floats): [fog, overcast, rain, humidity, waves,
+//	           windDir (0–360°), windStr, gusts, lightnings, moonIntensity,
+//	           moonPhase (0=new, 0.5=full, 1=new), sunOrMoon (0=night, 1=day)].
+//	           Example: "[0.2,0.25,0,0,0.1,160.864,0.25,0.175,0.003153,0.441581,0.421672,1]"
+//
+//	data[6] — Player network data. Variable-length array, one entry per connected human player
+//	           (excludes headless clients). Each entry: [playerUID, playerName, avgPing,
+//	           avgBandwidth, desync]. Empty when no players: "[]".
+//	           Note: avgBandwidth may use scientific notation (e.g. 1.67772e+07).
+//	           Example: "[["76561198000074241","info",100,28,0]]"
+func (p *Parser) ParseTelemetryEvent(data []string) (core.TelemetryEvent, error) {
+	var result core.TelemetryEvent
+
+	if len(data) < 7 {
+		return result, fmt.Errorf("telemetry: expected 7 args, got %d", len(data))
+	}
 
 	// fix received data
 	for i, v := range data {
 		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
 	}
 
-	capframe, err := strconv.ParseFloat(data[0], 64)
+	result.Time = time.Now()
+
+	// [0] captureFrameNo — plain integer string
+	frameNo, err := strconv.ParseFloat(data[0], 64)
 	if err != nil {
-		return fpsEvent, fmt.Errorf("error converting capture frame to int: %w", err)
+		return result, fmt.Errorf("telemetry: parse frameNo: %w", err)
+	}
+	result.CaptureFrame = uint(frameNo)
+
+	// [1] Server FPS: [diag_fps, diag_fpsmin]
+	var fps [2]float64
+	if err := json.Unmarshal([]byte(data[1]), &fps); err != nil {
+		return result, fmt.Errorf("telemetry: parse fps: %w", err)
+	}
+	result.FpsAverage = float32(fps[0])
+	result.FpsMin = float32(fps[1])
+
+	// [2] Per-side entity counts: [east, west, independent, civilian]
+	//     Each side: [[server_local], [remote]]
+	//     Each locality: [units_total, units_alive, units_dead, groups_total, vehicles_total, vehicles_weaponholder]
+	var sides [4][2][6]float64
+	if err := json.Unmarshal([]byte(data[2]), &sides); err != nil {
+		return result, fmt.Errorf("telemetry: parse side data: %w", err)
+	}
+	parseSide := func(s [2][6]float64) core.SideEntityCount {
+		return core.SideEntityCount{
+			Local: core.EntityLocality{
+				UnitsTotal: uint(s[0][0]), UnitsAlive: uint(s[0][1]),
+				UnitsDead: uint(s[0][2]), Groups: uint(s[0][3]),
+				Vehicles: uint(s[0][4]), WeaponHolders: uint(s[0][5]),
+			},
+			Remote: core.EntityLocality{
+				UnitsTotal: uint(s[1][0]), UnitsAlive: uint(s[1][1]),
+				UnitsDead: uint(s[1][2]), Groups: uint(s[1][3]),
+				Vehicles: uint(s[1][4]), WeaponHolders: uint(s[1][5]),
+			},
+		}
+	}
+	result.SideEntityCounts = core.SideEntityCounts{
+		East:        parseSide(sides[0]),
+		West:        parseSide(sides[1]),
+		Independent: parseSide(sides[2]),
+		Civilian:    parseSide(sides[3]),
 	}
 
-	fpsEvent.CaptureFrame = uint(capframe)
-	fpsEvent.Time = time.Now()
-
-	fps, err := strconv.ParseFloat(data[1], 64)
-	if err != nil {
-		return fpsEvent, fmt.Errorf("error converting fps to float: %w", err)
+	// [3] Global entity counts:
+	//     [units_alive, units_dead, groups_total, vehicles_total,
+	//      vehicles_weaponholder, players_alive, players_dead, players_connected]
+	var global [8]float64
+	if err := json.Unmarshal([]byte(data[3]), &global); err != nil {
+		return result, fmt.Errorf("telemetry: parse global counts: %w", err)
 	}
-	fpsEvent.FpsAverage = float32(fps)
-
-	fpsMin, err := strconv.ParseFloat(data[2], 64)
-	if err != nil {
-		return fpsEvent, fmt.Errorf("error converting fpsMin to float: %w", err)
+	result.GlobalCounts = core.GlobalEntityCount{
+		UnitsAlive: uint(global[0]), UnitsDead: uint(global[1]),
+		Groups: uint(global[2]), Vehicles: uint(global[3]),
+		WeaponHolders: uint(global[4]), PlayersAlive: uint(global[5]),
+		PlayersDead: uint(global[6]), PlayersConnected: uint(global[7]),
 	}
-	fpsEvent.FpsMin = float32(fpsMin)
 
-	return fpsEvent, nil
+	// [4] Running scripts: [spawn, execVM, exec, execFSM, pfh]
+	//     0–3 from diag_activeScripts; 4 is CBA per-frame handler count
+	var scripts [5]float64
+	if err := json.Unmarshal([]byte(data[4]), &scripts); err != nil {
+		return result, fmt.Errorf("telemetry: parse scripts: %w", err)
+	}
+	result.Scripts = core.ScriptCounts{
+		Spawn: uint(scripts[0]), ExecVM: uint(scripts[1]),
+		Exec: uint(scripts[2]), ExecFSM: uint(scripts[3]),
+		PFH: uint(scripts[4]),
+	}
+
+	// [5] Weather (12 floats):
+	//     [fog, overcast, rain, humidity, waves, windDir, windStr, gusts,
+	//      lightnings, moonIntensity, moonPhase, sunOrMoon]
+	var weather [12]float64
+	if err := json.Unmarshal([]byte(data[5]), &weather); err != nil {
+		return result, fmt.Errorf("telemetry: parse weather: %w", err)
+	}
+	result.Weather = core.WeatherData{
+		Fog: float32(weather[0]), Overcast: float32(weather[1]),
+		Rain: float32(weather[2]), Humidity: float32(weather[3]),
+		Waves: float32(weather[4]), WindDir: float32(weather[5]),
+		WindStr: float32(weather[6]), Gusts: float32(weather[7]),
+		Lightnings: float32(weather[8]), MoonIntensity: float32(weather[9]),
+		MoonPhase: float32(weather[10]), SunOrMoon: float32(weather[11]),
+	}
+
+	// [6] Player network data: [[playerUID, playerName, avgPing, avgBandwidth, desync], ...]
+	//     Variable length; empty "[]" when no players connected.
+	//     Excludes headless clients. Bandwidth may use scientific notation.
+	//     Unmarshal each entry as []any in one call (instead of 5 separate RawMessage unmarshals)
+	//     for fewer allocations per player.
+	var players [][]any
+	if err := json.Unmarshal([]byte(data[6]), &players); err != nil {
+		return result, fmt.Errorf("telemetry: parse players: %w", err)
+	}
+	for _, pArr := range players {
+		if len(pArr) < 5 {
+			continue
+		}
+		uid, ok := pArr[0].(string)
+		if !ok {
+			p.logger.Warn("telemetry: skip player, bad uid", "value", pArr[0])
+			continue
+		}
+		name, ok := pArr[1].(string)
+		if !ok {
+			p.logger.Warn("telemetry: skip player, bad name", "value", pArr[1])
+			continue
+		}
+		ping, ok := pArr[2].(float64)
+		if !ok {
+			p.logger.Warn("telemetry: skip player, bad ping", "value", pArr[2])
+			continue
+		}
+		bw, ok := pArr[3].(float64)
+		if !ok {
+			p.logger.Warn("telemetry: skip player, bad bw", "value", pArr[3])
+			continue
+		}
+		desync, ok := pArr[4].(float64)
+		if !ok {
+			p.logger.Warn("telemetry: skip player, bad desync", "value", pArr[4])
+			continue
+		}
+		result.Players = append(result.Players, core.PlayerNetworkData{
+			UID: uid, Name: name,
+			Ping: float32(ping), BW: float32(bw), Desync: float32(desync),
+		})
+	}
+
+	return result, nil
 }
 
 // ParseTimeState parses time state data and returns a core TimeState

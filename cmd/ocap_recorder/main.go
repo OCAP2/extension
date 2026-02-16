@@ -372,12 +372,6 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 		return nil, nil
 	})
 
-	// :METRIC: receives telemetry data from the addon (stub - metrics are logged but not stored)
-	d.Register(":METRIC:", func(e dispatcher.Event) (any, error) {
-		// Metrics are currently not stored, just acknowledged
-		return nil, nil
-	})
-
 	d.Register(":NEW:MISSION:", handleNewMission, dispatcher.Buffered(1), dispatcher.Blocking(), dispatcher.Gated(storageReady))
 
 	d.Register(":SAVE:MISSION:", func(e dispatcher.Event) (any, error) {

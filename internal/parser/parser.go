@@ -63,13 +63,13 @@ type Service interface {
 	ParseKillEvent(args []string) (KillEvent, error)
 	ParseChatEvent(args []string) (core.ChatEvent, error)
 	ParseRadioEvent(args []string) (core.RadioEvent, error)
-	ParseFpsEvent(args []string) (core.ServerFpsEvent, error)
 	ParseTimeState(args []string) (core.TimeState, error)
 	ParseAce3DeathEvent(args []string) (core.Ace3DeathEvent, error)
 	ParseAce3UnconsciousEvent(args []string) (core.Ace3UnconsciousEvent, error)
 	ParseMarkerCreate(args []string) (core.Marker, error)
 	ParseMarkerMove(args []string) (MarkerMove, error)
 	ParseMarkerDelete(args []string) (*core.DeleteMarker, error)
+	ParseTelemetryEvent(args []string) (core.TelemetryEvent, error)
 }
 
 var _ Service = (*Parser)(nil)

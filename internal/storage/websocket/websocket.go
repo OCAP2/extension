@@ -165,8 +165,8 @@ func (b *Backend) RecordRadioEvent(e *core.RadioEvent) error {
 	return b.sendEnvelope(streaming.TypeRadioEvent, e)
 }
 
-func (b *Backend) RecordServerFpsEvent(e *core.ServerFpsEvent) error {
-	return b.sendEnvelope(streaming.TypeServerFps, e)
+func (b *Backend) RecordTelemetryEvent(e *core.TelemetryEvent) error {
+	return b.sendEnvelope(streaming.TypeTelemetry, e)
 }
 
 func (b *Backend) RecordTimeState(t *core.TimeState) error {

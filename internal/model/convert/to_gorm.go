@@ -266,16 +266,6 @@ func CoreToRadioEvent(e core.RadioEvent) model.RadioEvent {
 	return result
 }
 
-// CoreToServerFpsEvent converts a core.ServerFpsEvent to a GORM model.ServerFpsEvent.
-func CoreToServerFpsEvent(e core.ServerFpsEvent) model.ServerFpsEvent {
-	return model.ServerFpsEvent{
-		Time:         e.Time,
-		CaptureFrame: e.CaptureFrame,
-		FpsAverage:   e.FpsAverage,
-		FpsMin:       e.FpsMin,
-	}
-}
-
 // CoreToAce3DeathEvent converts a core.Ace3DeathEvent to a GORM model.Ace3DeathEvent.
 func CoreToAce3DeathEvent(e core.Ace3DeathEvent) model.Ace3DeathEvent {
 	result := model.Ace3DeathEvent{

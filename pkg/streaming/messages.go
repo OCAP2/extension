@@ -24,7 +24,7 @@ const (
 	TypeKillEvent       = "kill_event"
 	TypeChatEvent       = "chat_event"
 	TypeRadioEvent      = "radio_event"
-	TypeServerFps       = "server_fps"
+	TypeTelemetry       = "telemetry"
 	TypeTimeState       = "time_state"
 	TypeAce3Death       = "ace3_death"
 	TypeAce3Unconscious = "ace3_unconscious"
@@ -37,7 +37,7 @@ var AllMessageTypes = []string{
 	TypeSoldierState, TypeVehicleState, TypeMarkerState, TypeDeleteMarker,
 	TypeFiredEvent, TypeProjectileEvent, TypeGeneralEvent,
 	TypeHitEvent, TypeKillEvent, TypeChatEvent, TypeRadioEvent,
-	TypeServerFps, TypeTimeState, TypeAce3Death, TypeAce3Unconscious,
+	TypeTelemetry, TypeTimeState, TypeAce3Death, TypeAce3Unconscious,
 }
 
 // Envelope wraps all messages sent over the WebSocket.

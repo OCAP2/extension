@@ -535,10 +535,8 @@ func (r *RadioEvent) TableName() string {
 	return "radio_events"
 }
 
-// ServerFpsEvent records server performance metrics
-//
-// SQF Command: :FPS:
-// Args: [frameNo, currentFps, minFps]
+// ServerFpsEvent records server performance metrics.
+// Populated from :TELEMETRY: command data (FPS fields).
 type ServerFpsEvent struct {
 	Time         time.Time `json:"time" gorm:"type:timestamptz;"`                              // Server time when measurement taken
 	MissionID    uint      `json:"missionId" gorm:"index:idx_serverfpsevent_mission_id"`
