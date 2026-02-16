@@ -4,11 +4,11 @@ package gormstorage
 
 import (
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/OCAP2/extension/v5/internal/cache"
 	"github.com/OCAP2/extension/v5/internal/logging"
-	"github.com/OCAP2/extension/v5/internal/mission"
 	"github.com/OCAP2/extension/v5/internal/model"
 	"github.com/OCAP2/extension/v5/internal/model/convert"
 	"github.com/OCAP2/extension/v5/pkg/core"
@@ -19,11 +19,10 @@ import (
 
 // Dependencies holds all dependencies for the GORM storage backend.
 type Dependencies struct {
-	DB             *gorm.DB
-	EntityCache    *cache.EntityCache
-	MarkerCache    *cache.MarkerCache
-	LogManager     *logging.SlogManager
-	MissionContext *mission.Context
+	DB          *gorm.DB
+	EntityCache *cache.EntityCache
+	MarkerCache *cache.MarkerCache
+	LogManager  *logging.SlogManager
 }
 
 // queues holds all the write queues for batch DB insertion.
@@ -65,11 +64,11 @@ func newQueues() *queues {
 
 // Backend implements storage.Backend using GORM/PostgreSQL with queue-based batch writes.
 type Backend struct {
-	deps                Dependencies
-	queues              *queues
-	lastDBWriteDuration time.Duration
-	stopChan            chan struct{}
-	dbReady             bool
+	deps      Dependencies
+	queues    *queues
+	missionID atomic.Uint64
+	stopChan  chan struct{}
+	dbReady   bool
 }
 
 // New creates a new GORM storage backend.
@@ -181,10 +180,15 @@ func (b *Backend) StartMission(coreMission *core.Mission, coreWorld *core.World)
 	coreMission.ID = gormMission.ID
 	coreWorld.ID = gormWorld.ID
 
-	// Set mission context
-	b.deps.MissionContext.SetMission(&gormMission, &gormWorld)
+	// Store mission ID for the DB writer goroutine
+	b.missionID.Store(uint64(gormMission.ID))
 
 	return nil
+}
+
+// SetMissionID sets the current mission ID for the DB writer (used by CLI tools).
+func (b *Backend) SetMissionID(id uint) {
+	b.missionID.Store(uint64(id))
 }
 
 // EndMission is a no-op — mission lifecycle is managed by main.go.
@@ -211,8 +215,7 @@ func (b *Backend) AddVehicle(v *core.Vehicle) error {
 func (b *Backend) AddMarker(m *core.Marker) error {
 	gormObj := convert.CoreToMarker(*m)
 	if b.deps.DB != nil {
-		missionID := b.deps.MissionContext.GetMission().ID
-		gormObj.MissionID = missionID
+		gormObj.MissionID = uint(b.missionID.Load())
 		if err := b.deps.DB.Create(&gormObj).Error; err != nil {
 			return fmt.Errorf("failed to insert marker: %w", err)
 		}
@@ -361,11 +364,6 @@ func (b *Backend) GetMarkerByName(name string) (*core.Marker, bool) {
 	return &core.Marker{MarkerName: name}, true
 }
 
-// GetLastDBWriteDuration returns the duration of the last DB write cycle.
-func (b *Backend) GetLastDBWriteDuration() time.Duration {
-	return b.lastDBWriteDuration
-}
-
 // writeQueue writes all items from a queue to the database in a transaction.
 func writeQueue[T any](db *gorm.DB, q *queue.Queue[T], name string, log func(string, string, string), prepare func([]T), onSuccess func([]T)) {
 	if q.Empty() {
@@ -407,10 +405,8 @@ func (b *Backend) startDBWriters() {
 				continue
 			}
 
-			writeStart := time.Now()
-
 			// Read missionID once per write cycle
-			missionID := b.deps.MissionContext.GetMission().ID
+			missionID := uint(b.missionID.Load())
 
 			// stampMissionID helpers
 			stampSoldiers := func(items []model.Soldier) {
@@ -516,7 +512,6 @@ func (b *Backend) startDBWriters() {
 			writeQueue(b.deps.DB, b.queues.Ace3DeathEvents, "ace3 death events", log, stampAce3DeathEvents, nil)
 			writeQueue(b.deps.DB, b.queues.Ace3UnconsciousEvents, "ace3 unconscious events", log, stampAce3UnconsciousEvents, nil)
 
-			b.lastDBWriteDuration = time.Since(writeStart)
 			time.Sleep(2 * time.Second)
 		}
 	}()

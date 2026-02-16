@@ -12,7 +12,6 @@ import (
 	"github.com/OCAP2/extension/v5/internal/cache"
 	"github.com/OCAP2/extension/v5/internal/database"
 	"github.com/OCAP2/extension/v5/internal/logging"
-	"github.com/OCAP2/extension/v5/internal/mission"
 	"github.com/OCAP2/extension/v5/pkg/core"
 	gormstorage "github.com/OCAP2/extension/v5/internal/storage/gorm"
 
@@ -35,18 +34,17 @@ type Backend struct {
 }
 
 // New creates a new SQLite storage backend.
-func New(cfg Config, entityCache *cache.EntityCache, markerCache *cache.MarkerCache, logManager *logging.SlogManager, missionCtx *mission.Context) (*Backend, error) {
+func New(cfg Config, entityCache *cache.EntityCache, markerCache *cache.MarkerCache, logManager *logging.SlogManager) (*Backend, error) {
 	db, err := database.GetSqliteDBStandalone("")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create in-memory SQLite DB: %w", err)
 	}
 
 	gormBackend := gormstorage.New(gormstorage.Dependencies{
-		DB:             db,
-		EntityCache:    entityCache,
-		MarkerCache:    markerCache,
-		LogManager:     logManager,
-		MissionContext: missionCtx,
+		DB:          db,
+		EntityCache: entityCache,
+		MarkerCache: markerCache,
+		LogManager:  logManager,
 	})
 
 	return &Backend{

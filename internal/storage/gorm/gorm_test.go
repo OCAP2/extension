@@ -7,7 +7,6 @@ import (
 
 	"github.com/OCAP2/extension/v5/internal/cache"
 	"github.com/OCAP2/extension/v5/internal/logging"
-	"github.com/OCAP2/extension/v5/internal/mission"
 	"github.com/OCAP2/extension/v5/internal/model"
 	"github.com/OCAP2/extension/v5/internal/queue"
 	"github.com/OCAP2/extension/v5/internal/storage"
@@ -21,11 +20,10 @@ import (
 // newTestBackend creates a Backend with no DB (queue-only mode for unit testing).
 func newTestBackend() *Backend {
 	return New(Dependencies{
-		DB:             nil,
-		EntityCache:    cache.NewEntityCache(),
-		MarkerCache:    cache.NewMarkerCache(),
-		LogManager:     logging.NewSlogManager(),
-		MissionContext: mission.NewContext(),
+		DB:          nil,
+		EntityCache: cache.NewEntityCache(),
+		MarkerCache: cache.NewMarkerCache(),
+		LogManager:  logging.NewSlogManager(),
 	})
 }
 
@@ -390,17 +388,6 @@ func TestGetMarkerByName(t *testing.T) {
 	assert.Equal(t, "TestMarker", marker.MarkerName)
 }
 
-func TestGetLastDBWriteDuration(t *testing.T) {
-	b := newTestBackend()
-	b.Init()
-	defer b.Close()
-
-	assert.Equal(t, time.Duration(0), b.GetLastDBWriteDuration())
-
-	b.lastDBWriteDuration = 100 * time.Millisecond
-	assert.Equal(t, 100*time.Millisecond, b.GetLastDBWriteDuration())
-}
-
 // newTestDB creates an in-memory SQLite DB with auto-migrated tables.
 // MaxOpenConns=1 ensures all operations use the same connection (in-memory
 // SQLite databases are per-connection, so multiple connections would each
@@ -508,16 +495,13 @@ func TestAddMarker_WithDB(t *testing.T) {
 	// Create a mission first (foreign key)
 	db.Create(&model.Mission{MissionName: "test"})
 
-	mCtx := mission.NewContext()
-	mCtx.SetMission(&model.Mission{Model: gorm.Model{ID: 1}}, &model.World{})
-
 	b := New(Dependencies{
-		DB:             db,
-		EntityCache:    cache.NewEntityCache(),
-		MarkerCache:    cache.NewMarkerCache(),
-		LogManager:     logging.NewSlogManager(),
-		MissionContext: mCtx,
+		DB:          db,
+		EntityCache: cache.NewEntityCache(),
+		MarkerCache: cache.NewMarkerCache(),
+		LogManager:  logging.NewSlogManager(),
 	})
+	b.missionID.Store(1)
 	b.Init()
 	defer b.Close()
 
@@ -542,16 +526,13 @@ func TestStartDBWriters_DrainsQueues(t *testing.T) {
 	// Create a mission first (foreign key)
 	db.Create(&model.Mission{MissionName: "test"})
 
-	mCtx := mission.NewContext()
-	mCtx.SetMission(&model.Mission{Model: gorm.Model{ID: 1}}, &model.World{})
-
 	b := New(Dependencies{
-		DB:             db,
-		EntityCache:    cache.NewEntityCache(),
-		MarkerCache:    cache.NewMarkerCache(),
-		LogManager:     logging.NewSlogManager(),
-		MissionContext: mCtx,
+		DB:          db,
+		EntityCache: cache.NewEntityCache(),
+		MarkerCache: cache.NewMarkerCache(),
+		LogManager:  logging.NewSlogManager(),
 	})
+	b.missionID.Store(1)
 	b.Init()
 	defer b.Close()
 
@@ -575,5 +556,4 @@ func TestStartDBWriters_DrainsQueues(t *testing.T) {
 	assert.Equal(t, int64(1), soldierCount)
 	assert.Equal(t, int64(1), eventCount)
 	assert.Equal(t, int64(1), fpsCount)
-	assert.NotZero(t, b.GetLastDBWriteDuration())
 }

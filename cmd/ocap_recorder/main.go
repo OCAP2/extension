@@ -29,9 +29,7 @@ import (
 	"github.com/OCAP2/extension/v5/internal/database"
 	"github.com/OCAP2/extension/v5/internal/dispatcher"
 	"github.com/OCAP2/extension/v5/internal/logging"
-	"github.com/OCAP2/extension/v5/internal/mission"
 	"github.com/OCAP2/extension/v5/internal/model"
-	"github.com/OCAP2/extension/v5/internal/model/convert"
 	intOtel "github.com/OCAP2/extension/v5/internal/otel"
 	"github.com/OCAP2/extension/v5/internal/parser"
 	"github.com/OCAP2/extension/v5/internal/storage"
@@ -82,9 +80,6 @@ var (
 	// DB is the GORM DB interface (set for postgres mode, used by CLI commands)
 	DB *gorm.DB
 
-	// IsDatabaseValid indicates whether or not any DB connection could be established
-	IsDatabaseValid bool = false
-
 	// SlogManager handles all slog-based logging
 	SlogManager *logging.SlogManager
 
@@ -113,7 +108,6 @@ var (
 
 	// Services
 	parserService   parser.Service
-	missionCtx      *mission.Context
 	workerManager   *worker.Manager
 	eventDispatcher *dispatcher.Dispatcher
 
@@ -223,23 +217,6 @@ func init() {
 	Logger = SlogManager.Logger()
 	Logger.Info("Logging to file", "path", OcapLogFilePath)
 
-	// Set up dynamic state callbacks for logging
-	SlogManager.GetMissionName = func() string {
-		if missionCtx != nil {
-			return missionCtx.GetMission().MissionName
-		}
-		return ""
-	}
-	SlogManager.GetMissionID = func() uint {
-		if missionCtx != nil {
-			return missionCtx.GetMission().ID
-		}
-		return 0
-	}
-	SlogManager.IsUsingLocalDB = func() bool {
-		return config.GetStorageConfig().Type == "sqlite"
-	}
-
 	// set up a3interfaces
 	Logger.Info("Setting up a3interface...")
 	err = setupA3Interface()
@@ -304,7 +281,6 @@ func initStorage() error {
 			a3interface.WriteArmaCallback(ExtensionName, ":STORAGE:ERROR:", err.Error())
 			return err
 		}
-		IsDatabaseValid = true
 		a3interface.WriteArmaCallback(ExtensionName, ":STORAGE:OK:", DB.Dialector.Name())
 
 	default:
@@ -384,9 +360,6 @@ func getPostgresDB() (db *gorm.DB, err error) {
 func startGoroutines() (err error) {
 	functionName := "startGoroutines"
 
-	// Initialize mission context
-	missionCtx = mission.NewContext()
-
 	// Initialize handler service
 	parserService = parser.NewParser(Logger)
 
@@ -403,7 +376,7 @@ func startGoroutines() (err error) {
 		backend, err := sqlitestorage.New(sqlitestorage.Config{
 			DumpInterval: storageCfg.SQLite.DumpInterval,
 			DumpPath:     sqliteDBFilePath,
-		}, EntityCache, MarkerCache, SlogManager, missionCtx)
+		}, EntityCache, MarkerCache, SlogManager)
 		if err != nil {
 			Logger.Error("Failed to create SQLite backend", "error", err)
 			return err
@@ -414,11 +387,10 @@ func startGoroutines() (err error) {
 
 	default: // postgres, gorm, database
 		storageBackend = gormstorage.New(gormstorage.Dependencies{
-			DB:             DB,
-			EntityCache:    EntityCache,
-			MarkerCache:    MarkerCache,
-			LogManager:     SlogManager,
-			MissionContext: missionCtx,
+			DB:          DB,
+			EntityCache: EntityCache,
+			MarkerCache: MarkerCache,
+			LogManager:  SlogManager,
 		})
 		storageBackend.Init()
 		Logger.Info("GORM storage backend initialized")
@@ -461,20 +433,12 @@ func handleNewMission(e dispatcher.Event) (any, error) {
 	MarkerCache.Reset()
 	EntityCache.Reset()
 
-	// 3. Start backend (handles DB ops for GORM/SQLite backends, sets missionCtx)
+	// 3. Start backend (handles DB ops for GORM/SQLite backends, stores missionID internally)
 	if storageBackend != nil {
 		if err := storageBackend.StartMission(&coreMission, &coreWorld); err != nil {
 			Logger.Error("Failed to start mission in storage backend", "error", err)
 			return nil, err
 		}
-	}
-
-	// 4. Ensure missionCtx is set (memory backend doesn't set it)
-	if missionCtx.GetMission().ID == 0 {
-		gormMission := convert.CoreToMission(coreMission)
-		gormWorld := convert.CoreToWorld(coreWorld)
-		gormMission.World = gormWorld
-		missionCtx.SetMission(&gormMission, &gormWorld)
 	}
 
 	Logger.Info("New mission logged", "missionName", coreMission.MissionName)
@@ -591,7 +555,7 @@ func dispatchDemoEvent(command string, args []string) {
 }
 
 func populateDemoData() {
-	if !IsDatabaseValid {
+	if DB == nil {
 		return
 	}
 
@@ -724,8 +688,8 @@ func populateDemoData() {
 
 	waitGroup = sync.WaitGroup{}
 	for _, mission := range missions {
-		if missionCtx != nil {
-			missionCtx.SetMission(&mission, nil)
+		if gb, ok := storageBackend.(*gormstorage.Backend); ok {
+			gb.SetMissionID(mission.ID)
 		}
 
 		fmt.Printf("Populating mission with ID %d\n", mission.ID)
