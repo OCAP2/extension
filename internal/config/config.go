@@ -92,7 +92,9 @@ type StorageConfig struct {
 // GetStorageConfig returns the storage backend configuration
 func GetStorageConfig() StorageConfig {
 	var cfg StorageConfig
-	viper.UnmarshalKey("storage", &cfg)
+	if err := viper.UnmarshalKey("storage", &cfg); err != nil {
+		cfg.Type = "memory"
+	}
 	return cfg
 }
 
@@ -108,6 +110,6 @@ type OTelConfig struct {
 // GetOTelConfig returns the OpenTelemetry configuration
 func GetOTelConfig() OTelConfig {
 	var cfg OTelConfig
-	viper.UnmarshalKey("otel", &cfg)
+	_ = viper.UnmarshalKey("otel", &cfg)
 	return cfg
 }

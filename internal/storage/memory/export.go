@@ -57,7 +57,7 @@ func writeJSON(path string, data v1.Export) error {
 	if err != nil {
 		return fmt.Errorf("failed to create file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	encoder := json.NewEncoder(f)
 	return encoder.Encode(data)
@@ -68,10 +68,10 @@ func writeGzipJSON(path string, data v1.Export) error {
 	if err != nil {
 		return fmt.Errorf("failed to create file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	gzWriter := gzip.NewWriter(f)
-	defer gzWriter.Close()
+	defer func() { _ = gzWriter.Close() }()
 
 	encoder := json.NewEncoder(gzWriter)
 	return encoder.Encode(data)
