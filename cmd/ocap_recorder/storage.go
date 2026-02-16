@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/OCAP2/extension/v5/internal/config"
 	"github.com/OCAP2/extension/v5/internal/storage"
@@ -12,6 +13,7 @@ import (
 	wsstorage "github.com/OCAP2/extension/v5/internal/storage/websocket"
 	"github.com/OCAP2/extension/v5/internal/worker"
 	"github.com/OCAP2/extension/v5/pkg/a3interface"
+	"github.com/spf13/viper"
 )
 
 func initStorage() error {
@@ -74,14 +76,24 @@ func createStorageBackend(storageCfg config.StorageConfig) (storage.Backend, err
 		return backend, nil
 
 	case "websocket":
-		Logger.Info("WebSocket storage backend initialized")
+		wsURL := httpToWS(viper.GetString("api.serverUrl")) + "/api/v1/stream"
+		secret := viper.GetString("api.apiKey")
+		Logger.Info("WebSocket storage backend initialized", "url", wsURL)
 		return wsstorage.New(wsstorage.Config{
-			URL:    storageCfg.WebSocket.URL,
-			Secret: storageCfg.WebSocket.Secret,
+			URL:    wsURL,
+			Secret: secret,
 		}), nil
 
 	default:
 		Logger.Info("Memory storage backend initialized")
 		return memory.New(storageCfg.Memory), nil
 	}
+}
+
+// httpToWS converts an HTTP(S) URL to a WebSocket URL.
+func httpToWS(httpURL string) string {
+	s := strings.TrimRight(httpURL, "/")
+	s = strings.Replace(s, "https://", "wss://", 1)
+	s = strings.Replace(s, "http://", "ws://", 1)
+	return s
 }
