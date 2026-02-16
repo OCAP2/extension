@@ -659,6 +659,38 @@ func TestWriteLoopExitsOnDone(t *testing.T) {
 	}
 }
 
+func TestWriteLoopSkipsNilConn(t *testing.T) {
+	srv, _ := testServer(t)
+	defer srv.Close()
+
+	c := newIdleConn(t, wsURL(srv))
+
+	// Set conn to nil so writeLoop hits the conn == nil continue path.
+	c.mu.Lock()
+	_ = c.conn.Close()
+	c.conn = nil
+	c.mu.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		c.writeLoop()
+		close(done)
+	}()
+
+	// Push a message — writeLoop will see conn == nil and continue.
+	c.sendCh <- []byte(`{"type":"test"}`)
+
+	// Give it a moment to process, then shut down.
+	time.Sleep(50 * time.Millisecond)
+	c.close()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("writeLoop did not exit")
+	}
+}
+
 // --- readLoop error paths ---
 
 func TestReadLoopReconnectsOnError(t *testing.T) {
