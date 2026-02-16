@@ -1,6 +1,6 @@
-// Package gormstorage implements the storage.Backend interface using GORM/PostgreSQL
+// Package postgres implements the storage.Backend interface using GORM/PostgreSQL
 // with internal queues and a background DB writer goroutine.
-package gormstorage
+package postgres
 
 import (
 	"fmt"

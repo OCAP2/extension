@@ -1,4 +1,4 @@
-package gormstorage
+package postgres
 
 import (
 	"sync/atomic"

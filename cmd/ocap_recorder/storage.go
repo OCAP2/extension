@@ -6,7 +6,7 @@ import (
 
 	"github.com/OCAP2/extension/v5/internal/config"
 	"github.com/OCAP2/extension/v5/internal/storage"
-	gormstorage "github.com/OCAP2/extension/v5/internal/storage/gorm"
+	pgstorage "github.com/OCAP2/extension/v5/internal/storage/postgres"
 	"github.com/OCAP2/extension/v5/internal/storage/memory"
 	sqlitestorage "github.com/OCAP2/extension/v5/internal/storage/sqlite"
 	"github.com/OCAP2/extension/v5/internal/worker"
@@ -65,7 +65,7 @@ func createStorageBackend(storageCfg config.StorageConfig) (storage.Backend, err
 
 	default: // postgres, gorm, database
 		Logger.Info("GORM storage backend initialized")
-		return gormstorage.New(gormstorage.Dependencies{
+		return pgstorage.New(pgstorage.Dependencies{
 			EntityCache: EntityCache,
 			MarkerCache: MarkerCache,
 			LogManager:  SlogManager,

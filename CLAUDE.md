@@ -25,7 +25,7 @@ docker run --rm -v ${PWD}:/go/work -w /go/work golang:1.24-bullseye go build -bu
 /internal/dispatcher/        - Event routing with async buffering
 /internal/parser/            - Command parsing (args → core types)
 /internal/worker/            - Handler registration and DB writer loop
-/internal/storage/           - Storage backends (memory, gorm/postgres, sqlite)
+/internal/storage/           - Storage backends (memory, postgres, sqlite)
 /internal/model/             - GORM database models + converters
 /internal/queue/             - Thread-safe queue implementations
 /internal/cache/             - Entity caching layer
