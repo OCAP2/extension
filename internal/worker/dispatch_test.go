@@ -8,6 +8,7 @@ import (
 
 	"github.com/OCAP2/extension/v5/internal/cache"
 	"github.com/OCAP2/extension/v5/internal/dispatcher"
+	"github.com/OCAP2/extension/v5/internal/logging"
 	"github.com/OCAP2/extension/v5/pkg/core"
 	"github.com/OCAP2/extension/v5/internal/parser"
 	"github.com/stretchr/testify/assert"
@@ -224,6 +225,16 @@ func (b *mockBackend) DeleteMarker(name string, endFrame uint) error {
 	return nil
 }
 
+// errorBackend is a mockBackend that returns an error from AddMarker.
+type errorBackend struct {
+	mockBackend
+	err error
+}
+
+func (b *errorBackend) AddMarker(_ *core.Marker) error {
+	return b.err
+}
+
 // mockParserService provides a minimal implementation for testing
 type mockParserService struct {
 	mu sync.Mutex
@@ -425,6 +436,23 @@ func (h *mockParserService) ParseMarkerDelete(args []string) (string, uint, erro
 		return "", 0, errors.New(h.errorMsg)
 	}
 	return h.deletedMarker, h.deleteFrame, nil
+}
+
+// waitFor polls until check returns true or times out after 2s.
+func waitFor(t *testing.T, check func() bool, msg string) {
+	t.Helper()
+	deadline := time.After(2 * time.Second)
+	for {
+		if check() {
+			return
+		}
+		select {
+		case <-deadline:
+			require.Fail(t, msg)
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
 }
 
 func newTestDispatcher(t *testing.T) (*dispatcher.Dispatcher, *mockLogger) {
@@ -945,23 +973,370 @@ func TestHandleMarkerDelete_WithBackend(t *testing.T) {
 	_, err = d.Dispatch(dispatcher.Event{Command: ":DELETE:MARKER:", Args: []string{}})
 	require.NoError(t, err)
 
-	// Wait for the buffered handler to process
-	deadline := time.After(2 * time.Second)
-	for {
+	waitFor(t, func() bool {
 		backend.mu.Lock()
-		endFrame, ok := backend.deletedMarkers["Projectile#123"]
+		_, ok := backend.deletedMarkers["Projectile#123"]
 		backend.mu.Unlock()
+		return ok
+	}, "timed out waiting for marker delete")
 
-		if ok {
-			assert.Equal(t, uint(500), endFrame)
-			return
-		}
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	assert.Equal(t, uint(500), backend.deletedMarkers["Projectile#123"])
+}
 
-		select {
-		case <-deadline:
-			require.Fail(t, "timed out waiting for marker delete to be processed")
-		default:
-			time.Sleep(10 * time.Millisecond)
-		}
+func TestHandleVehicleState_HappyPath(t *testing.T) {
+	d, _ := newTestDispatcher(t)
+	entityCache := cache.NewEntityCache()
+	entityCache.AddVehicle(core.Vehicle{ID: 50, OcapType: "car"})
+
+	parserService := &mockParserService{
+		vehicleState: core.VehicleState{VehicleID: 50, CaptureFrame: 10},
 	}
+
+	backend := &mockBackend{}
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   entityCache,
+	}, backend)
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:VEHICLE:STATE:", Args: []string{}})
+	require.NoError(t, err)
+
+	waitFor(t, func() bool {
+		backend.mu.Lock()
+		n := len(backend.vehicleStates)
+		backend.mu.Unlock()
+		return n > 0
+	}, "timed out waiting for vehicle state")
+
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	require.Equal(t, 1, len(backend.vehicleStates))
+	assert.Equal(t, uint16(50), backend.vehicleStates[0].VehicleID)
+}
+
+func TestHandleTimeState(t *testing.T) {
+	d, _ := newTestDispatcher(t)
+
+	now := time.Now()
+	parserService := &mockParserService{
+		timeState: core.TimeState{CaptureFrame: 200, Time: now, MissionTime: 600.0},
+	}
+
+	backend := &mockBackend{}
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   cache.NewEntityCache(),
+	}, backend)
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:TIME:STATE:", Args: []string{}})
+	require.NoError(t, err)
+
+	waitFor(t, func() bool {
+		backend.mu.Lock()
+		n := len(backend.timeStates)
+		backend.mu.Unlock()
+		return n > 0
+	}, "timed out waiting for time state")
+
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	require.Equal(t, 1, len(backend.timeStates))
+	assert.Equal(t, uint(200), backend.timeStates[0].CaptureFrame)
+}
+
+func TestHandleGeneralEvent(t *testing.T) {
+	d, _ := newTestDispatcher(t)
+
+	parserService := &mockParserService{
+		generalEvent: core.GeneralEvent{CaptureFrame: 300, Name: "connected", Message: "Player joined"},
+	}
+
+	backend := &mockBackend{}
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   cache.NewEntityCache(),
+	}, backend)
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":EVENT:", Args: []string{}})
+	require.NoError(t, err)
+
+	waitFor(t, func() bool {
+		backend.mu.Lock()
+		n := len(backend.generalEvents)
+		backend.mu.Unlock()
+		return n > 0
+	}, "timed out waiting for general event")
+
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	require.Equal(t, 1, len(backend.generalEvents))
+	assert.Equal(t, "connected", backend.generalEvents[0].Name)
+}
+
+func TestHandleRadioEvent_ValidSender(t *testing.T) {
+	d, _ := newTestDispatcher(t)
+	entityCache := cache.NewEntityCache()
+	entityCache.AddSoldier(core.Soldier{ID: 3})
+
+	senderID := uint(3)
+	parserService := &mockParserService{
+		radioEvent: core.RadioEvent{SoldierID: &senderID, CaptureFrame: 400, Radio: "ACRE_PRC152"},
+	}
+
+	backend := &mockBackend{}
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   entityCache,
+	}, backend)
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":RADIO:", Args: []string{}})
+	require.NoError(t, err)
+
+	waitFor(t, func() bool {
+		backend.mu.Lock()
+		n := len(backend.radioEvents)
+		backend.mu.Unlock()
+		return n > 0
+	}, "timed out waiting for radio event")
+
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	require.Equal(t, 1, len(backend.radioEvents))
+	assert.Equal(t, "ACRE_PRC152", backend.radioEvents[0].Radio)
+}
+
+func TestHandleFpsEvent(t *testing.T) {
+	d, _ := newTestDispatcher(t)
+
+	parserService := &mockParserService{
+		fpsEvent: core.ServerFpsEvent{CaptureFrame: 500, FpsAverage: 45.5, FpsMin: 30.0},
+	}
+
+	backend := &mockBackend{}
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   cache.NewEntityCache(),
+	}, backend)
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":FPS:", Args: []string{}})
+	require.NoError(t, err)
+
+	waitFor(t, func() bool {
+		backend.mu.Lock()
+		n := len(backend.fpsEvents)
+		backend.mu.Unlock()
+		return n > 0
+	}, "timed out waiting for fps event")
+
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	require.Equal(t, 1, len(backend.fpsEvents))
+	assert.Equal(t, float32(45.5), backend.fpsEvents[0].FpsAverage)
+}
+
+func TestHandleAce3DeathEvent(t *testing.T) {
+	d, _ := newTestDispatcher(t)
+	entityCache := cache.NewEntityCache()
+	entityCache.AddSoldier(core.Soldier{ID: 8})
+	entityCache.AddSoldier(core.Soldier{ID: 9})
+
+	sourceID := uint(9)
+	parserService := &mockParserService{
+		ace3Death: core.Ace3DeathEvent{
+			SoldierID:          8,
+			CaptureFrame:       600,
+			Reason:             "cardiac_arrest",
+			LastDamageSourceID: &sourceID,
+		},
+	}
+
+	backend := &mockBackend{}
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   entityCache,
+		LogManager:    logging.NewSlogManager(),
+	}, backend)
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":ACE3:DEATH:", Args: []string{}})
+	require.NoError(t, err)
+
+	waitFor(t, func() bool {
+		backend.mu.Lock()
+		n := len(backend.ace3Deaths)
+		backend.mu.Unlock()
+		return n > 0
+	}, "timed out waiting for ace3 death event")
+
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	require.Equal(t, 1, len(backend.ace3Deaths))
+	assert.Equal(t, uint(8), backend.ace3Deaths[0].SoldierID)
+	assert.Equal(t, "cardiac_arrest", backend.ace3Deaths[0].Reason)
+}
+
+func TestHandleAce3DeathEvent_VehicleDamageSource(t *testing.T) {
+	d, _ := newTestDispatcher(t)
+	entityCache := cache.NewEntityCache()
+	entityCache.AddSoldier(core.Soldier{ID: 8})
+	entityCache.AddVehicle(core.Vehicle{ID: 15}) // damage source is a vehicle
+
+	sourceID := uint(15)
+	parserService := &mockParserService{
+		ace3Death: core.Ace3DeathEvent{
+			SoldierID:          8,
+			CaptureFrame:       601,
+			Reason:             "bleedout",
+			LastDamageSourceID: &sourceID,
+		},
+	}
+
+	backend := &mockBackend{}
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   entityCache,
+		LogManager:    logging.NewSlogManager(),
+	}, backend)
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":ACE3:DEATH:", Args: []string{}})
+	require.NoError(t, err)
+
+	waitFor(t, func() bool {
+		backend.mu.Lock()
+		n := len(backend.ace3Deaths)
+		backend.mu.Unlock()
+		return n > 0
+	}, "timed out waiting for ace3 death event")
+
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	require.Equal(t, 1, len(backend.ace3Deaths))
+}
+
+func TestHandleAce3UnconsciousEvent(t *testing.T) {
+	d, _ := newTestDispatcher(t)
+	entityCache := cache.NewEntityCache()
+	entityCache.AddSoldier(core.Soldier{ID: 12})
+
+	parserService := &mockParserService{
+		ace3Uncon: core.Ace3UnconsciousEvent{SoldierID: 12, CaptureFrame: 700, IsUnconscious: true},
+	}
+
+	backend := &mockBackend{}
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   entityCache,
+	}, backend)
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":ACE3:UNCONSCIOUS:", Args: []string{}})
+	require.NoError(t, err)
+
+	waitFor(t, func() bool {
+		backend.mu.Lock()
+		n := len(backend.ace3Uncon)
+		backend.mu.Unlock()
+		return n > 0
+	}, "timed out waiting for ace3 unconscious event")
+
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	require.Equal(t, 1, len(backend.ace3Uncon))
+	assert.Equal(t, true, backend.ace3Uncon[0].IsUnconscious)
+}
+
+func TestHandleChatEvent_ValidSender(t *testing.T) {
+	d, _ := newTestDispatcher(t)
+	entityCache := cache.NewEntityCache()
+	entityCache.AddSoldier(core.Soldier{ID: 5})
+
+	senderID := uint(5)
+	parserService := &mockParserService{
+		chatEvent: core.ChatEvent{SoldierID: &senderID, CaptureFrame: 800, Channel: "side", Message: "Hello"},
+	}
+
+	backend := &mockBackend{}
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   entityCache,
+	}, backend)
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":CHAT:", Args: []string{}})
+	require.NoError(t, err)
+
+	waitFor(t, func() bool {
+		backend.mu.Lock()
+		n := len(backend.chatEvents)
+		backend.mu.Unlock()
+		return n > 0
+	}, "timed out waiting for chat event")
+
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	require.Equal(t, 1, len(backend.chatEvents))
+	assert.Equal(t, "Hello", backend.chatEvents[0].Message)
+}
+
+func TestHandleMarkerCreate_BackendError(t *testing.T) {
+	d, _ := newTestDispatcher(t)
+	markerCache := cache.NewMarkerCache()
+
+	parserService := &mockParserService{
+		marker: core.Marker{MarkerName: "test_marker"},
+	}
+
+	backend := &errorBackend{err: errors.New("db failure")}
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   cache.NewEntityCache(),
+		MarkerCache:   markerCache,
+	}, backend)
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:MARKER:", Args: []string{}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "add marker")
+
+	// Marker should NOT be in cache since backend failed
+	_, found := markerCache.Get("test_marker")
+	assert.False(t, found, "marker should not be cached when backend fails")
+}
+
+func TestClassifyEntity_Vehicle(t *testing.T) {
+	entityCache := cache.NewEntityCache()
+	entityCache.AddVehicle(core.Vehicle{ID: 25})
+
+	backend := &mockBackend{}
+	manager := NewManager(Dependencies{
+		EntityCache: entityCache,
+		LogManager:  logging.NewSlogManager(),
+	}, backend)
+
+	soldierID, vehicleID := manager.classifyEntity(25)
+	assert.Nil(t, soldierID)
+	require.NotNil(t, vehicleID)
+	assert.Equal(t, uint(25), *vehicleID)
+}
+
+func TestClassifyEntity_NotFound(t *testing.T) {
+	entityCache := cache.NewEntityCache()
+
+	backend := &mockBackend{}
+	manager := NewManager(Dependencies{
+		EntityCache: entityCache,
+		LogManager:  logging.NewSlogManager(),
+	}, backend)
+
+	soldierID, vehicleID := manager.classifyEntity(999)
+	assert.Nil(t, soldierID)
+	assert.Nil(t, vehicleID)
 }

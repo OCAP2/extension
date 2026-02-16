@@ -724,3 +724,14 @@ func TestGetExportMetadataWithoutStartMission(t *testing.T) {
 	assert.Empty(t, meta.Tag)
 	assert.Equal(t, 0.0, meta.MissionDuration)
 }
+
+func TestComputeExportMetadata_NilMission(t *testing.T) {
+	b := New(config.MemoryConfig{})
+
+	// Directly call computeExportMetadata with nil mission/world
+	meta := b.computeExportMetadata()
+
+	assert.Empty(t, meta.WorldName)
+	assert.Empty(t, meta.MissionName)
+	assert.Equal(t, 0.0, meta.MissionDuration)
+}

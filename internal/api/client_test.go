@@ -133,6 +133,18 @@ func TestUpload_ServerError(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestUpload_ServerDown(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := tmpDir + "/test.json.gz"
+	_ = writeTestFile(testFile, []byte("content"))
+
+	// Server URL that is unreachable
+	c := New("http://localhost:59999", "secret")
+	err := c.Upload(testFile, core.UploadMetadata{})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "upload request failed")
+}
+
 func writeTestFile(path string, content []byte) error {
 	return os.WriteFile(path, content, 0644)
 }
