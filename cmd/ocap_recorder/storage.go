@@ -47,9 +47,13 @@ func initStorage() error {
 
 func createStorageBackend(storageCfg config.StorageConfig) (storage.Backend, error) {
 	switch storageCfg.Type {
-	case "memory":
-		Logger.Info("Memory storage backend initialized")
-		return memory.New(storageCfg.Memory), nil
+	case "postgres":
+		Logger.Info("Postgres storage backend initialized")
+		return pgstorage.New(pgstorage.Dependencies{
+			EntityCache: EntityCache,
+			MarkerCache: MarkerCache,
+			LogManager:  SlogManager,
+		}), nil
 
 	case "sqlite":
 		sqliteDBFilePath := filepath.Join(AddonFolder, fmt.Sprintf("%s_%s.db", ExtensionName, SessionStartTime.Format("20060102_150405")))
@@ -63,12 +67,8 @@ func createStorageBackend(storageCfg config.StorageConfig) (storage.Backend, err
 		Logger.Info("SQLite storage backend initialized")
 		return backend, nil
 
-	default: // postgres, gorm, database
-		Logger.Info("GORM storage backend initialized")
-		return pgstorage.New(pgstorage.Dependencies{
-			EntityCache: EntityCache,
-			MarkerCache: MarkerCache,
-			LogManager:  SlogManager,
-		}), nil
+	default:
+		Logger.Info("Memory storage backend initialized")
+		return memory.New(storageCfg.Memory), nil
 	}
 }

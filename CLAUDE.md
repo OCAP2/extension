@@ -115,7 +115,7 @@ File: `ocap_recorder.cfg.json` (placed alongside DLL)
 }
 ```
 
-Storage types: `"memory"` (JSON export), `"postgres"` / `"gorm"` / `"database"` (PostgreSQL via GORM), `"sqlite"` (in-memory with periodic disk dump).
+Storage types: `"memory"` (JSON export), `"postgres"` (PostgreSQL), `"sqlite"` (in-memory with periodic disk dump).
 
 ## Key Dependencies
 

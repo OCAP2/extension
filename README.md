@@ -26,7 +26,7 @@ Dispatcher.Dispatch(Event)
                                               ↓
                                    Storage Backend
                                      ├─ Memory → in-memory append → JSON export on save
-                                     ├─ GORM   → Queue → DB writer (batch insert every 2s) → PostgreSQL
+                                     ├─ Postgres → Queue → DB writer (batch insert every 2s) → PostgreSQL
                                      └─ SQLite → Queue → DB writer (batch insert every 2s) → SQLite
 ```
 
@@ -61,8 +61,8 @@ internal/
 ├── worker/                  Handler registration and DB writer loop
 ├── queue/                   Thread-safe queues for batch writes
 ├── cache/                   Entity lookup caching (ObjectID → model)
-├── model/                   GORM database models + converters
-├── storage/                 Storage backends (memory, gorm/postgres, sqlite)
+├── model/                   Database models + converters
+├── storage/                 Storage backends (memory, postgres, sqlite)
 └── geo/                     Coordinate/geometry utilities
 ```
 
@@ -71,7 +71,7 @@ internal/
 1. **Low latency**: Async buffered handlers don't block ArmA's game loop
 2. **High throughput**: Batch writes every 2 seconds instead of per-event
 3. **Entity caching**: Sync entity creation → cache → async state updates use cached FK
-4. **Pluggable storage**: Memory (JSON export), PostgreSQL (GORM), or SQLite (in-memory with periodic disk dump)
+4. **Pluggable storage**: Memory (JSON export), PostgreSQL, or SQLite (in-memory with periodic disk dump)
 5. **Observability**: OpenTelemetry metrics and structured logging (slog)
 
 ## Building
