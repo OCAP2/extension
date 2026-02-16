@@ -125,7 +125,7 @@ Copy `ocap_recorder.cfg.json.example` to `ocap_recorder.cfg.json` alongside the 
 | `:EVENT:` | 1,000 | General gameplay event |
 | `:CHAT:` | 1,000 | Chat message |
 | `:RADIO:` | 1,000 | Radio transmission |
-| `:FPS:` | 1,000 | Server FPS sample |
+| `:TELEMETRY:` | 1,000 | Server telemetry (FPS, entity counts, weather, player network stats) |
 | `:NEW:TIME:STATE:` | 100 | Mission time/date tracking |
 
 ### Marker Commands
