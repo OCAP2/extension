@@ -211,11 +211,11 @@ func TestExportGzipJSON(t *testing.T) {
 
 	f, err := os.Open(matches[0])
 	require.NoError(t, err)
-	defer func() { _ = f.Close() }()
+	defer func() { require.NoError(t, f.Close()) }()
 
 	gzReader, err := gzip.NewReader(f)
 	require.NoError(t, err)
-	defer func() { _ = gzReader.Close() }()
+	defer func() { require.NoError(t, gzReader.Close()) }()
 
 	var export v1.Export
 	require.NoError(t, json.NewDecoder(gzReader).Decode(&export))

@@ -62,8 +62,8 @@ func TestInitClose(t *testing.T) {
 
 func TestAddSoldier_QueuesToInternalQueue(t *testing.T) {
 	b := newTestBackend()
-	_ = b.Init()
-	defer func() { _ = b.Close() }()
+	b.Init() //nolint:errcheck // Init fails (no postgres) but queues are created for testing
+	defer func() { require.NoError(t, b.Close()) }()
 
 	soldier := &core.Soldier{
 		ID:       42,
@@ -78,8 +78,8 @@ func TestAddSoldier_QueuesToInternalQueue(t *testing.T) {
 
 func TestAddVehicle_QueuesToInternalQueue(t *testing.T) {
 	b := newTestBackend()
-	_ = b.Init()
-	defer func() { _ = b.Close() }()
+	b.Init() //nolint:errcheck // Init fails (no postgres) but queues are created for testing
+	defer func() { require.NoError(t, b.Close()) }()
 
 	vehicle := &core.Vehicle{
 		ID:          10,
@@ -94,8 +94,8 @@ func TestAddVehicle_QueuesToInternalQueue(t *testing.T) {
 
 func TestAddMarker_NoDB_NoError(t *testing.T) {
 	b := newTestBackend()
-	_ = b.Init()
-	defer func() { _ = b.Close() }()
+	b.Init() //nolint:errcheck // Init fails (no postgres) but queues are created for testing
+	defer func() { require.NoError(t, b.Close()) }()
 
 	marker := &core.Marker{
 		MarkerName: "TestMarker",
@@ -109,8 +109,8 @@ func TestAddMarker_NoDB_NoError(t *testing.T) {
 
 func TestRecordSoldierState_QueuesToInternalQueue(t *testing.T) {
 	b := newTestBackend()
-	_ = b.Init()
-	defer func() { _ = b.Close() }()
+	b.Init() //nolint:errcheck // Init fails (no postgres) but queues are created for testing
+	defer func() { require.NoError(t, b.Close()) }()
 
 	state := &core.SoldierState{
 		SoldierID:    42,
@@ -125,8 +125,8 @@ func TestRecordSoldierState_QueuesToInternalQueue(t *testing.T) {
 
 func TestRecordVehicleState_QueuesToInternalQueue(t *testing.T) {
 	b := newTestBackend()
-	_ = b.Init()
-	defer func() { _ = b.Close() }()
+	b.Init() //nolint:errcheck // Init fails (no postgres) but queues are created for testing
+	defer func() { require.NoError(t, b.Close()) }()
 
 	state := &core.VehicleState{
 		VehicleID:    10,
@@ -140,8 +140,8 @@ func TestRecordVehicleState_QueuesToInternalQueue(t *testing.T) {
 
 func TestRecordMarkerState_QueuesToInternalQueue(t *testing.T) {
 	b := newTestBackend()
-	_ = b.Init()
-	defer func() { _ = b.Close() }()
+	b.Init() //nolint:errcheck // Init fails (no postgres) but queues are created for testing
+	defer func() { require.NoError(t, b.Close()) }()
 
 	state := &core.MarkerState{
 		MarkerID:     5,
@@ -155,8 +155,8 @@ func TestRecordMarkerState_QueuesToInternalQueue(t *testing.T) {
 
 func TestRecordProjectileEvent_QueuesToInternalQueue(t *testing.T) {
 	b := newTestBackend()
-	_ = b.Init()
-	defer func() { _ = b.Close() }()
+	b.Init() //nolint:errcheck // Init fails (no postgres) but queues are created for testing
+	defer func() { require.NoError(t, b.Close()) }()
 
 	event := &core.ProjectileEvent{
 		FirerObjectID: 1,
@@ -174,8 +174,8 @@ func TestRecordProjectileEvent_QueuesToInternalQueue(t *testing.T) {
 
 func TestRecordGeneralEvent_QueuesToInternalQueue(t *testing.T) {
 	b := newTestBackend()
-	_ = b.Init()
-	defer func() { _ = b.Close() }()
+	b.Init() //nolint:errcheck // Init fails (no postgres) but queues are created for testing
+	defer func() { require.NoError(t, b.Close()) }()
 
 	event := &core.GeneralEvent{
 		Name:    "connected",
@@ -189,8 +189,8 @@ func TestRecordGeneralEvent_QueuesToInternalQueue(t *testing.T) {
 
 func TestRecordKillEvent_QueuesToInternalQueue(t *testing.T) {
 	b := newTestBackend()
-	_ = b.Init()
-	defer func() { _ = b.Close() }()
+	b.Init() //nolint:errcheck // Init fails (no postgres) but queues are created for testing
+	defer func() { require.NoError(t, b.Close()) }()
 
 	victimID := uint(5)
 	event := &core.KillEvent{
@@ -205,8 +205,8 @@ func TestRecordKillEvent_QueuesToInternalQueue(t *testing.T) {
 
 func TestRecordChatEvent_QueuesToInternalQueue(t *testing.T) {
 	b := newTestBackend()
-	_ = b.Init()
-	defer func() { _ = b.Close() }()
+	b.Init() //nolint:errcheck // Init fails (no postgres) but queues are created for testing
+	defer func() { require.NoError(t, b.Close()) }()
 
 	event := &core.ChatEvent{
 		Channel: "Global",
@@ -220,8 +220,8 @@ func TestRecordChatEvent_QueuesToInternalQueue(t *testing.T) {
 
 func TestRecordRadioEvent_QueuesToInternalQueue(t *testing.T) {
 	b := newTestBackend()
-	_ = b.Init()
-	defer func() { _ = b.Close() }()
+	b.Init() //nolint:errcheck // Init fails (no postgres) but queues are created for testing
+	defer func() { require.NoError(t, b.Close()) }()
 
 	event := &core.RadioEvent{
 		Radio:     "AN/PRC-152",
@@ -235,8 +235,8 @@ func TestRecordRadioEvent_QueuesToInternalQueue(t *testing.T) {
 
 func TestRecordServerFpsEvent_QueuesToInternalQueue(t *testing.T) {
 	b := newTestBackend()
-	_ = b.Init()
-	defer func() { _ = b.Close() }()
+	b.Init() //nolint:errcheck // Init fails (no postgres) but queues are created for testing
+	defer func() { require.NoError(t, b.Close()) }()
 
 	event := &core.ServerFpsEvent{
 		FpsAverage: 50.0,
@@ -250,8 +250,8 @@ func TestRecordServerFpsEvent_QueuesToInternalQueue(t *testing.T) {
 
 func TestRecordAce3DeathEvent_QueuesToInternalQueue(t *testing.T) {
 	b := newTestBackend()
-	_ = b.Init()
-	defer func() { _ = b.Close() }()
+	b.Init() //nolint:errcheck // Init fails (no postgres) but queues are created for testing
+	defer func() { require.NoError(t, b.Close()) }()
 
 	event := &core.Ace3DeathEvent{
 		SoldierID: 5,
@@ -265,8 +265,8 @@ func TestRecordAce3DeathEvent_QueuesToInternalQueue(t *testing.T) {
 
 func TestRecordAce3UnconsciousEvent_QueuesToInternalQueue(t *testing.T) {
 	b := newTestBackend()
-	_ = b.Init()
-	defer func() { _ = b.Close() }()
+	b.Init() //nolint:errcheck // Init fails (no postgres) but queues are created for testing
+	defer func() { require.NoError(t, b.Close()) }()
 
 	event := &core.Ace3UnconsciousEvent{
 		SoldierID:     5,
@@ -280,8 +280,8 @@ func TestRecordAce3UnconsciousEvent_QueuesToInternalQueue(t *testing.T) {
 
 func TestRecordTimeState_IsNoOp(t *testing.T) {
 	b := newTestBackend()
-	_ = b.Init()
-	defer func() { _ = b.Close() }()
+	b.Init() //nolint:errcheck // Init fails (no postgres) but queues are created for testing
+	defer func() { require.NoError(t, b.Close()) }()
 
 	ts := &core.TimeState{
 		CaptureFrame: 100,
@@ -294,8 +294,8 @@ func TestRecordTimeState_IsNoOp(t *testing.T) {
 
 func TestRecordFiredEvent_IsNoOp(t *testing.T) {
 	b := newTestBackend()
-	_ = b.Init()
-	defer func() { _ = b.Close() }()
+	b.Init() //nolint:errcheck // Init fails (no postgres) but queues are created for testing
+	defer func() { require.NoError(t, b.Close()) }()
 
 	err := b.RecordFiredEvent(&core.FiredEvent{})
 	require.NoError(t, err)
@@ -303,8 +303,8 @@ func TestRecordFiredEvent_IsNoOp(t *testing.T) {
 
 func TestRecordHitEvent_IsNoOp(t *testing.T) {
 	b := newTestBackend()
-	_ = b.Init()
-	defer func() { _ = b.Close() }()
+	b.Init() //nolint:errcheck // Init fails (no postgres) but queues are created for testing
+	defer func() { require.NoError(t, b.Close()) }()
 
 	err := b.RecordHitEvent(&core.HitEvent{})
 	require.NoError(t, err)
@@ -312,8 +312,8 @@ func TestRecordHitEvent_IsNoOp(t *testing.T) {
 
 func TestStartMission_NoDB_NoOp(t *testing.T) {
 	b := newTestBackend()
-	_ = b.Init()
-	defer func() { _ = b.Close() }()
+	b.Init() //nolint:errcheck // Init fails (no postgres) but queues are created for testing
+	defer func() { require.NoError(t, b.Close()) }()
 
 	err := b.StartMission(&core.Mission{}, &core.World{})
 	require.NoError(t, err)
@@ -328,8 +328,8 @@ func TestStartMission_WithDB(t *testing.T) {
 		MarkerCache: cache.NewMarkerCache(),
 		LogManager:  logging.NewSlogManager(),
 	})
-	_ = b.Init()
-	defer func() { _ = b.Close() }()
+	require.NoError(t, b.Init())
+	defer func() { require.NoError(t, b.Close()) }()
 
 	mission := &core.Mission{
 		MissionName: "Test Mission",
@@ -381,8 +381,8 @@ func TestStartMission_WithDB(t *testing.T) {
 
 func TestSetMissionID(t *testing.T) {
 	b := newTestBackend()
-	_ = b.Init()
-	defer func() { _ = b.Close() }()
+	b.Init() //nolint:errcheck // Init fails (no postgres) but queues are created for testing
+	defer func() { require.NoError(t, b.Close()) }()
 
 	assert.Equal(t, uint64(0), b.missionID.Load())
 	b.SetMissionID(42)
@@ -409,7 +409,7 @@ func TestSetupDB_CreatesOcapInfo(t *testing.T) {
 	// Init calls setupDB
 	err = b.Init()
 	require.NoError(t, err)
-	defer func() { _ = b.Close() }()
+	defer func() { require.NoError(t, b.Close()) }()
 
 	var info model.OcapInfo
 	require.NoError(t, rawDB.First(&info).Error)
@@ -421,8 +421,8 @@ func TestSetupDB_CreatesOcapInfo(t *testing.T) {
 
 func TestEndMission_IsNoOp(t *testing.T) {
 	b := newTestBackend()
-	_ = b.Init()
-	defer func() { _ = b.Close() }()
+	b.Init() //nolint:errcheck // Init fails (no postgres) but queues are created for testing
+	defer func() { require.NoError(t, b.Close()) }()
 
 	err := b.EndMission()
 	require.NoError(t, err)
@@ -430,13 +430,13 @@ func TestEndMission_IsNoOp(t *testing.T) {
 
 func TestDeleteMarker_PushesAlphaZeroState(t *testing.T) {
 	b := newTestBackend()
-	_ = b.Init()
-	defer func() { _ = b.Close() }()
+	b.Init() //nolint:errcheck // Init fails (no postgres) but queues are created for testing
+	defer func() { require.NoError(t, b.Close()) }()
 
 	// Pre-populate marker cache
 	b.deps.MarkerCache.Set("TestMarker", 42)
 
-	_ = b.DeleteMarker("TestMarker", 500)
+	require.NoError(t, b.DeleteMarker("TestMarker", 500))
 
 	assert.Equal(t, 1, b.queues.MarkerStates.Len())
 	items := b.queues.MarkerStates.GetAndEmpty()
@@ -448,10 +448,10 @@ func TestDeleteMarker_PushesAlphaZeroState(t *testing.T) {
 
 func TestDeleteMarker_UnknownMarker_NoOp(t *testing.T) {
 	b := newTestBackend()
-	_ = b.Init()
-	defer func() { _ = b.Close() }()
+	b.Init() //nolint:errcheck // Init fails (no postgres) but queues are created for testing
+	defer func() { require.NoError(t, b.Close()) }()
 
-	_ = b.DeleteMarker("NonExistent", 500)
+	require.NoError(t, b.DeleteMarker("NonExistent", 500))
 
 	assert.Equal(t, 0, b.queues.MarkerStates.Len())
 }
@@ -543,7 +543,7 @@ func TestWriteQueue_OnSuccessCallback(t *testing.T) {
 func TestWriteQueue_FailureRequeues(t *testing.T) {
 	db := newTestDB(t)
 	// Drop the table so the insert fails
-	_ = db.Migrator().DropTable(&model.Soldier{})
+	require.NoError(t, db.Migrator().DropTable(&model.Soldier{}))
 
 	q := queue.New[model.Soldier]()
 	q.Push(model.Soldier{ObjectID: 1, MissionID: 1, UnitName: "Alpha", JoinTime: time.Now()})
@@ -570,8 +570,8 @@ func TestAddMarker_WithDB(t *testing.T) {
 		LogManager:  logging.NewSlogManager(),
 	})
 	b.missionID.Store(1)
-	_ = b.Init()
-	defer func() { _ = b.Close() }()
+	require.NoError(t, b.Init())
+	defer func() { require.NoError(t, b.Close()) }()
 
 	marker := &core.Marker{
 		MarkerName: "TestMarker",
@@ -601,22 +601,22 @@ func TestStartDBWriters_DrainsQueues(t *testing.T) {
 		LogManager:  logging.NewSlogManager(),
 	})
 	b.missionID.Store(1)
-	_ = b.Init()
-	defer func() { _ = b.Close() }()
+	require.NoError(t, b.Init())
+	defer func() { require.NoError(t, b.Close()) }()
 
 	// Push items via the public API (which queues GORM models internally)
-	_ = b.AddSoldier(&core.Soldier{ID: 1, UnitName: "Alpha", Side: "WEST"})
-	_ = b.AddVehicle(&core.Vehicle{ID: 2, ClassName: "Humvee"})
-	_ = b.RecordSoldierState(&core.SoldierState{SoldierID: 1})
-	_ = b.RecordVehicleState(&core.VehicleState{VehicleID: 2})
-	_ = b.RecordProjectileEvent(&core.ProjectileEvent{FirerObjectID: 1, CaptureFrame: 1})
-	_ = b.RecordGeneralEvent(&core.GeneralEvent{Name: "connected", Message: "Player1"})
-	_ = b.RecordKillEvent(&core.KillEvent{CaptureFrame: 1})
-	_ = b.RecordChatEvent(&core.ChatEvent{Message: "hello", CaptureFrame: 1})
-	_ = b.RecordRadioEvent(&core.RadioEvent{CaptureFrame: 1})
-	_ = b.RecordServerFpsEvent(&core.ServerFpsEvent{FpsAverage: 50, FpsMin: 30, CaptureFrame: 1})
-	_ = b.RecordAce3DeathEvent(&core.Ace3DeathEvent{SoldierID: 1, CaptureFrame: 1})
-	_ = b.RecordAce3UnconsciousEvent(&core.Ace3UnconsciousEvent{SoldierID: 1, CaptureFrame: 1})
+	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 1, UnitName: "Alpha", Side: "WEST"}))
+	require.NoError(t, b.AddVehicle(&core.Vehicle{ID: 2, ClassName: "Humvee"}))
+	require.NoError(t, b.RecordSoldierState(&core.SoldierState{SoldierID: 1}))
+	require.NoError(t, b.RecordVehicleState(&core.VehicleState{VehicleID: 2}))
+	require.NoError(t, b.RecordProjectileEvent(&core.ProjectileEvent{FirerObjectID: 1, CaptureFrame: 1}))
+	require.NoError(t, b.RecordGeneralEvent(&core.GeneralEvent{Name: "connected", Message: "Player1"}))
+	require.NoError(t, b.RecordKillEvent(&core.KillEvent{CaptureFrame: 1}))
+	require.NoError(t, b.RecordChatEvent(&core.ChatEvent{Message: "hello", CaptureFrame: 1}))
+	require.NoError(t, b.RecordRadioEvent(&core.RadioEvent{CaptureFrame: 1}))
+	require.NoError(t, b.RecordServerFpsEvent(&core.ServerFpsEvent{FpsAverage: 50, FpsMin: 30, CaptureFrame: 1}))
+	require.NoError(t, b.RecordAce3DeathEvent(&core.Ace3DeathEvent{SoldierID: 1, CaptureFrame: 1}))
+	require.NoError(t, b.RecordAce3UnconsciousEvent(&core.Ace3UnconsciousEvent{SoldierID: 1, CaptureFrame: 1}))
 
 	// Wait for the background writer to drain (it runs on a 2s loop, so wait up to 5s)
 	require.Eventually(t, func() bool {

@@ -57,7 +57,7 @@ func TestStartMission(t *testing.T) {
 
 	// Add some data before starting
 	soldier := &core.Soldier{ID: 1, UnitName: "Old Soldier"}
-	_ = b.AddSoldier(soldier)
+	require.NoError(t, b.AddSoldier(soldier))
 
 	// Start a new mission - should reset collections
 	require.NoError(t, b.StartMission(mission, world))
@@ -150,7 +150,7 @@ func TestRecordSoldierState(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
 	s := &core.Soldier{ID: 1, UnitName: "Test"}
-	_ = b.AddSoldier(s)
+	require.NoError(t, b.AddSoldier(s))
 
 	state1 := &core.SoldierState{
 		SoldierID:    s.ID,
@@ -184,7 +184,7 @@ func TestRecordVehicleState(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
 	v := &core.Vehicle{ID: 10, ClassName: "Car"}
-	_ = b.AddVehicle(v)
+	require.NoError(t, b.AddVehicle(v))
 
 	state := &core.VehicleState{
 		VehicleID:    v.ID,
@@ -207,7 +207,7 @@ func TestRecordMarkerState(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
 	m := &core.Marker{MarkerName: "test_marker"}
-	_ = b.AddMarker(m)
+	require.NoError(t, b.AddMarker(m))
 
 	state := &core.MarkerState{
 		MarkerID:     m.ID,
@@ -231,7 +231,7 @@ func TestDeleteMarker(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
 	m := &core.Marker{MarkerName: "grenade_1", EndFrame: -1}
-	_ = b.AddMarker(m)
+	require.NoError(t, b.AddMarker(m))
 
 	// Delete marker at frame 100
 	require.NoError(t, b.DeleteMarker("grenade_1", 100))
@@ -247,7 +247,7 @@ func TestRecordFiredEvent(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
 	s := &core.Soldier{ID: 1}
-	_ = b.AddSoldier(s)
+	require.NoError(t, b.AddSoldier(s))
 
 	fired := &core.FiredEvent{
 		SoldierID:    s.ID,
@@ -458,7 +458,7 @@ func TestConcurrentAccess(t *testing.T) {
 			for j := 0; j < numOperationsPerGoroutine; j++ {
 				ocapID := uint16(id*1000 + j)
 				s := &core.Soldier{ID: ocapID, UnitName: "Concurrent"}
-				_ = b.AddSoldier(s)
+				b.AddSoldier(s) //nolint:errcheck // concurrent stress test
 			}
 		}(i)
 	}
@@ -470,7 +470,7 @@ func TestConcurrentAccess(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < numOperationsPerGoroutine; j++ {
 				ocapID := uint16(id*1000 + j)
-				_ = b.RecordSoldierState(&core.SoldierState{SoldierID: ocapID, CaptureFrame: 0})
+				b.RecordSoldierState(&core.SoldierState{SoldierID: ocapID, CaptureFrame: 0}) //nolint:errcheck // concurrent stress test
 			}
 		}(i)
 	}
@@ -490,9 +490,9 @@ func TestIDsPreserved(t *testing.T) {
 	v := &core.Vehicle{ID: 10}
 	m := &core.Marker{MarkerName: "test"}
 
-	_ = b.AddSoldier(s)
-	_ = b.AddVehicle(v)
-	_ = b.AddMarker(m)
+	require.NoError(t, b.AddSoldier(s))
+	require.NoError(t, b.AddVehicle(v))
+	require.NoError(t, b.AddMarker(m))
 
 	// IDs should be preserved as set
 	assert.Equal(t, uint16(1), s.ID)
@@ -505,24 +505,24 @@ func TestStartMissionResetsEverything(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
 	// Populate with data
-	_ = b.AddSoldier(&core.Soldier{ID: 1})
-	_ = b.AddVehicle(&core.Vehicle{ID: 10})
-	_ = b.AddMarker(&core.Marker{MarkerName: "m1"})
-	_ = b.RecordGeneralEvent(&core.GeneralEvent{Name: "test"})
-	_ = b.RecordHitEvent(&core.HitEvent{})
-	_ = b.RecordKillEvent(&core.KillEvent{})
-	_ = b.RecordChatEvent(&core.ChatEvent{})
-	_ = b.RecordRadioEvent(&core.RadioEvent{})
-	_ = b.RecordServerFpsEvent(&core.ServerFpsEvent{})
-	_ = b.RecordTimeState(&core.TimeState{})
-	_ = b.RecordAce3DeathEvent(&core.Ace3DeathEvent{})
-	_ = b.RecordAce3UnconsciousEvent(&core.Ace3UnconsciousEvent{})
-	_ = b.RecordProjectileEvent(&core.ProjectileEvent{})
+	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 1}))
+	require.NoError(t, b.AddVehicle(&core.Vehicle{ID: 10}))
+	require.NoError(t, b.AddMarker(&core.Marker{MarkerName: "m1"}))
+	require.NoError(t, b.RecordGeneralEvent(&core.GeneralEvent{Name: "test"}))
+	require.NoError(t, b.RecordHitEvent(&core.HitEvent{}))
+	require.NoError(t, b.RecordKillEvent(&core.KillEvent{}))
+	require.NoError(t, b.RecordChatEvent(&core.ChatEvent{}))
+	require.NoError(t, b.RecordRadioEvent(&core.RadioEvent{}))
+	require.NoError(t, b.RecordServerFpsEvent(&core.ServerFpsEvent{}))
+	require.NoError(t, b.RecordTimeState(&core.TimeState{}))
+	require.NoError(t, b.RecordAce3DeathEvent(&core.Ace3DeathEvent{}))
+	require.NoError(t, b.RecordAce3UnconsciousEvent(&core.Ace3UnconsciousEvent{}))
+	require.NoError(t, b.RecordProjectileEvent(&core.ProjectileEvent{}))
 
 	// Start new mission
 	mission := &core.Mission{MissionName: "New"}
 	world := &core.World{WorldName: "Stratis"}
-	_ = b.StartMission(mission, world)
+	require.NoError(t, b.StartMission(mission, world))
 
 	assert.Len(t, b.soldiers, 0)
 	assert.Len(t, b.vehicles, 0)
@@ -562,8 +562,8 @@ func TestGetExportedFilePath_AfterExport(t *testing.T) {
 	}
 	world := &core.World{WorldName: "Altis"}
 
-	_ = b.StartMission(mission, world)
-	_ = b.EndMission()
+	require.NoError(t, b.StartMission(mission, world))
+	require.NoError(t, b.EndMission())
 
 	path := b.GetExportedFilePath()
 	require.NotEmpty(t, path)
@@ -584,8 +584,8 @@ func TestGetExportedFilePath_UncompressedExport(t *testing.T) {
 	}
 	world := &core.World{WorldName: "Altis"}
 
-	_ = b.StartMission(mission, world)
-	_ = b.EndMission()
+	require.NoError(t, b.StartMission(mission, world))
+	require.NoError(t, b.EndMission())
 
 	path := b.GetExportedFilePath()
 	require.NotEmpty(t, path)
@@ -605,15 +605,15 @@ func TestGetExportMetadata(t *testing.T) {
 		WorldName: "Altis",
 	}
 
-	_ = b.StartMission(mission, world)
+	require.NoError(t, b.StartMission(mission, world))
 
 	// Add some frames
 	s := &core.Soldier{ID: 1}
-	_ = b.AddSoldier(s)
-	_ = b.RecordSoldierState(&core.SoldierState{
+	require.NoError(t, b.AddSoldier(s))
+	require.NoError(t, b.RecordSoldierState(&core.SoldierState{
 		SoldierID:    s.ID,
 		CaptureFrame: 100,
-	})
+	}))
 
 	meta := b.GetExportMetadata()
 
@@ -634,23 +634,23 @@ func TestGetExportMetadata_VehicleEndFrame(t *testing.T) {
 	}
 	world := &core.World{WorldName: "Stratis"}
 
-	_ = b.StartMission(mission, world)
+	require.NoError(t, b.StartMission(mission, world))
 
 	// Add soldier with lower frame
 	s := &core.Soldier{ID: 1}
-	_ = b.AddSoldier(s)
-	_ = b.RecordSoldierState(&core.SoldierState{
+	require.NoError(t, b.AddSoldier(s))
+	require.NoError(t, b.RecordSoldierState(&core.SoldierState{
 		SoldierID:    s.ID,
 		CaptureFrame: 50,
-	})
+	}))
 
 	// Add vehicle with higher frame - this should determine endFrame
 	v := &core.Vehicle{ID: 10}
-	_ = b.AddVehicle(v)
-	_ = b.RecordVehicleState(&core.VehicleState{
+	require.NoError(t, b.AddVehicle(v))
+	require.NoError(t, b.RecordVehicleState(&core.VehicleState{
 		VehicleID:    v.ID,
 		CaptureFrame: 200,
-	})
+	}))
 
 	meta := b.GetExportMetadata()
 
@@ -668,7 +668,7 @@ func TestGetExportMetadata_EmptyMission(t *testing.T) {
 	}
 	world := &core.World{WorldName: "VR"}
 
-	_ = b.StartMission(mission, world)
+	require.NoError(t, b.StartMission(mission, world))
 
 	// No soldiers or vehicles added
 
@@ -692,14 +692,14 @@ func TestStartMissionResetsExportPath(t *testing.T) {
 	}
 	world := &core.World{WorldName: "Altis"}
 
-	_ = b.StartMission(mission, world)
-	_ = b.EndMission()
+	require.NoError(t, b.StartMission(mission, world))
+	require.NoError(t, b.EndMission())
 
 	firstPath := b.GetExportedFilePath()
 	require.NotEmpty(t, firstPath)
 
 	// Start new mission - should reset path
-	_ = b.StartMission(&core.Mission{MissionName: "Second", StartTime: time.Now()}, world)
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Second", StartTime: time.Now()}, world))
 
 	assert.Empty(t, b.GetExportedFilePath())
 }
