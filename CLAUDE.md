@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Go native DLL extension for ArmA 3 that records gameplay/mission replay data to PostgreSQL (with SQLite fallback).
+Go native DLL extension for ArmA 3 that records gameplay/mission replay data to PostgreSQL, SQLite, or in-memory JSON.
 
 ## Build Commands
 
@@ -22,11 +22,16 @@ docker run --rm -v ${PWD}:/go/work -w /go/work golang:1.24-bullseye go build -bu
 
 ```
 /cmd/ocap_recorder/main.go   - Main application entry point
-/internal/model/             - GORM database models
+/internal/dispatcher/        - Event routing with async buffering
+/internal/parser/            - Command parsing (args → core types)
+/internal/worker/            - Handler registration and DB writer loop
+/internal/storage/           - Storage backends (memory, gorm/postgres, sqlite)
+/internal/model/             - GORM database models + converters
 /internal/queue/             - Thread-safe queue implementations
 /internal/cache/             - Entity caching layer
 /internal/geo/               - Coordinate/geometry utilities
 /pkg/a3interface/            - ArmA 3 extension interface (RVExtension exports, module path)
+/pkg/core/                   - Core domain types (storage-agnostic)
 Dockerfile                   - Docker build for Linux
 go.mod, go.sum               - Go module dependencies
 createViews.sql              - PostgreSQL materialized views
@@ -96,13 +101,25 @@ File: `ocap_recorder.cfg.json` (placed alongside DLL)
     "username": "postgres",
     "password": "postgres",
     "database": "ocap"
+  },
+  "storage": {
+    "type": "memory",
+    "memory": {
+      "outputDir": "./recordings",
+      "compressOutput": true
+    },
+    "sqlite": {
+      "dumpInterval": "3m"
+    }
   }
 }
 ```
+
+Storage types: `"memory"` (JSON export), `"postgres"` / `"gorm"` / `"database"` (PostgreSQL via GORM), `"sqlite"` (in-memory with periodic disk dump).
 
 ## Key Dependencies
 
 - **GORM** - ORM for PostgreSQL/SQLite
 - **peterstace/simplefeatures** - Geometry/GIS support
-- **rs/zerolog** - Structured logging
+- **log/slog** - Structured logging (stdlib)
 - **spf13/viper** - Configuration management
