@@ -56,6 +56,7 @@ type mockBackend struct {
 	chatEvents        []*core.ChatEvent
 	radioEvents       []*core.RadioEvent
 	fpsEvents         []*core.ServerFpsEvent
+	telemetryEvents   []*core.TelemetryEvent
 	timeStates        []*core.TimeState
 	ace3Deaths        []*core.Ace3DeathEvent
 	ace3Uncon         []*core.Ace3UnconsciousEvent
@@ -194,6 +195,13 @@ func (b *mockBackend) RecordServerFpsEvent(e *core.ServerFpsEvent) error {
 	return nil
 }
 
+func (b *mockBackend) RecordTelemetryEvent(e *core.TelemetryEvent) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.telemetryEvents = append(b.telemetryEvents, e)
+	return nil
+}
+
 func (b *mockBackend) RecordTimeState(t *core.TimeState) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -248,8 +256,9 @@ type mockParserService struct {
 	killEvent     parser.KillEvent
 	chatEvent     core.ChatEvent
 	radioEvent    core.RadioEvent
-	fpsEvent      core.ServerFpsEvent
-	timeState     core.TimeState
+	fpsEvent       core.ServerFpsEvent
+	telemetryEvent core.TelemetryEvent
+	timeState      core.TimeState
 	ace3Death     core.Ace3DeathEvent
 	ace3Uncon     core.Ace3UnconsciousEvent
 	marker        core.Marker
@@ -374,6 +383,16 @@ func (h *mockParserService) ParseFpsEvent(args []string) (core.ServerFpsEvent, e
 	return h.fpsEvent, nil
 }
 
+func (h *mockParserService) ParseTelemetryEvent(args []string) (core.TelemetryEvent, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.calls = append(h.calls, "ParseTelemetryEvent")
+	if h.returnError {
+		return core.TelemetryEvent{}, errors.New(h.errorMsg)
+	}
+	return h.telemetryEvent, nil
+}
+
 func (h *mockParserService) ParseTimeState(args []string) (core.TimeState, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -479,7 +498,7 @@ func TestRegisterHandlers_RegistersAllCommands(t *testing.T) {
 		":EVENT:",
 		":CHAT:",
 		":RADIO:",
-		":FPS:",
+		":TELEMETRY:",
 		":ACE3:DEATH:",
 		":ACE3:UNCONSCIOUS:",
 		":NEW:MARKER:",
@@ -1108,11 +1127,18 @@ func TestHandleRadioEvent_ValidSender(t *testing.T) {
 	assert.Equal(t, "ACRE_PRC152", backend.radioEvents[0].Radio)
 }
 
-func TestHandleFpsEvent(t *testing.T) {
+func TestHandleTelemetryEvent(t *testing.T) {
 	d, _ := newTestDispatcher(t)
 
 	parserService := &mockParserService{
-		fpsEvent: core.ServerFpsEvent{CaptureFrame: 500, FpsAverage: 45.5, FpsMin: 30.0},
+		telemetryEvent: core.TelemetryEvent{
+			CaptureFrame: 500,
+			FpsAverage:   45.5,
+			FpsMin:       30.0,
+			GlobalCounts: core.GlobalEntityCount{
+				UnitsAlive: 20, PlayersConnected: 8,
+			},
+		},
 	}
 
 	backend := &mockBackend{}
@@ -1122,20 +1148,21 @@ func TestHandleFpsEvent(t *testing.T) {
 	}, backend)
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":FPS:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":TELEMETRY:", Args: []string{}})
 	require.NoError(t, err)
 
 	waitFor(t, func() bool {
 		backend.mu.Lock()
-		n := len(backend.fpsEvents)
+		n := len(backend.telemetryEvents)
 		backend.mu.Unlock()
 		return n > 0
-	}, "timed out waiting for fps event")
+	}, "timed out waiting for telemetry event")
 
 	backend.mu.Lock()
 	defer backend.mu.Unlock()
-	require.Equal(t, 1, len(backend.fpsEvents))
-	assert.Equal(t, float32(45.5), backend.fpsEvents[0].FpsAverage)
+	require.Equal(t, 1, len(backend.telemetryEvents))
+	assert.Equal(t, float32(45.5), backend.telemetryEvents[0].FpsAverage)
+	assert.Equal(t, uint(20), backend.telemetryEvents[0].GlobalCounts.UnitsAlive)
 }
 
 func TestHandleAce3DeathEvent(t *testing.T) {

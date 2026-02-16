@@ -169,6 +169,10 @@ func (b *Backend) RecordServerFpsEvent(e *core.ServerFpsEvent) error {
 	return b.sendEnvelope(streaming.TypeServerFps, e)
 }
 
+func (b *Backend) RecordTelemetryEvent(e *core.TelemetryEvent) error {
+	return b.sendEnvelope(streaming.TypeTelemetry, e)
+}
+
 func (b *Backend) RecordTimeState(t *core.TimeState) error {
 	return b.sendEnvelope(streaming.TypeTimeState, t)
 }

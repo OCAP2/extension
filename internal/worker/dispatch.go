@@ -29,7 +29,7 @@ func (m *Manager) RegisterHandlers(d *dispatcher.Dispatcher) {
 	d.Register(":EVENT:", m.handleGeneralEvent, dispatcher.Buffered(1000), dispatcher.Logged())
 	d.Register(":CHAT:", m.handleChatEvent, dispatcher.Buffered(1000), dispatcher.Logged())
 	d.Register(":RADIO:", m.handleRadioEvent, dispatcher.Buffered(1000), dispatcher.Logged())
-	d.Register(":FPS:", m.handleFpsEvent, dispatcher.Buffered(1000), dispatcher.Logged())
+	d.Register(":TELEMETRY:", m.handleTelemetryEvent, dispatcher.Buffered(100), dispatcher.Logged())
 
 	// ACE3 events - buffered
 	d.Register(":ACE3:DEATH:", m.handleAce3DeathEvent, dispatcher.Buffered(1000), dispatcher.Logged())
@@ -266,14 +266,14 @@ func (m *Manager) handleRadioEvent(e dispatcher.Event) (any, error) {
 	return nil, nil
 }
 
-func (m *Manager) handleFpsEvent(e dispatcher.Event) (any, error) {
-	obj, err := m.deps.ParserService.ParseFpsEvent(e.Args)
+func (m *Manager) handleTelemetryEvent(e dispatcher.Event) (any, error) {
+	obj, err := m.deps.ParserService.ParseTelemetryEvent(e.Args)
 	if err != nil {
-		return nil, fmt.Errorf("failed to log fps event: %w", err)
+		return nil, fmt.Errorf("failed to parse telemetry event: %w", err)
 	}
 
-	if err := m.backend.RecordServerFpsEvent(&obj); err != nil {
-		return nil, fmt.Errorf("record fps event: %w", err)
+	if err := m.backend.RecordTelemetryEvent(&obj); err != nil {
+		return nil, fmt.Errorf("record telemetry event: %w", err)
 	}
 	return nil, nil
 }

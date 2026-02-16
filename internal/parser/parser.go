@@ -70,6 +70,7 @@ type Service interface {
 	ParseMarkerCreate(args []string) (core.Marker, error)
 	ParseMarkerMove(args []string) (MarkerMove, error)
 	ParseMarkerDelete(args []string) (*core.DeleteMarker, error)
+	ParseTelemetryEvent(args []string) (core.TelemetryEvent, error)
 }
 
 var _ Service = (*Parser)(nil)

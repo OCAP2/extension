@@ -335,6 +335,19 @@ func (b *Backend) RecordServerFpsEvent(e *core.ServerFpsEvent) error {
 	return nil
 }
 
+// RecordTelemetryEvent extracts FPS data and queues it.
+// Full telemetry data is not stored in the database.
+func (b *Backend) RecordTelemetryEvent(e *core.TelemetryEvent) error {
+	fpsEvent := convert.CoreToServerFpsEvent(core.ServerFpsEvent{
+		Time:         e.Time,
+		CaptureFrame: e.CaptureFrame,
+		FpsAverage:   e.FpsAverage,
+		FpsMin:       e.FpsMin,
+	})
+	b.queues.FpsEvents.Push(fpsEvent)
+	return nil
+}
+
 // RecordTimeState is a no-op — TimeState is not in DatabaseModels, only used by memory backend.
 func (b *Backend) RecordTimeState(t *core.TimeState) error {
 	return nil

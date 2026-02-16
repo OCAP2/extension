@@ -159,6 +159,7 @@ func TestAllMessageTypes(t *testing.T) {
 	require.NoError(t, b.RecordChatEvent(&core.ChatEvent{Message: "hello"}))
 	require.NoError(t, b.RecordRadioEvent(&core.RadioEvent{Radio: "ACRE"}))
 	require.NoError(t, b.RecordServerFpsEvent(&core.ServerFpsEvent{FpsAverage: 50}))
+	require.NoError(t, b.RecordTelemetryEvent(&core.TelemetryEvent{CaptureFrame: 1, FpsAverage: 45}))
 	require.NoError(t, b.RecordTimeState(&core.TimeState{MissionTime: 120}))
 	require.NoError(t, b.RecordAce3DeathEvent(&core.Ace3DeathEvent{SoldierID: 1, Reason: "bleeding"}))
 	require.NoError(t, b.RecordAce3UnconsciousEvent(&core.Ace3UnconsciousEvent{SoldierID: 1, IsUnconscious: true}))

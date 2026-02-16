@@ -639,3 +639,97 @@ func TestParseTimeState(t *testing.T) {
 		})
 	}
 }
+
+func TestParseTelemetryEvent(t *testing.T) {
+	p := newTestParser()
+
+	// A valid telemetry JSON payload
+	validJSON := `[500,[45.5,30.0],[[[10,8,2,3,5,1],[4,3,1,1,2,0]],[[12,10,2,4,6,2],[5,4,1,2,3,1]],[[2,2,0,1,0,0],[0,0,0,0,0,0]],[[0,0,0,0,0,0],[0,0,0,0,0,0]]],[40,5,8,13,3,16,2,18],[3,2,1,0,5],[0.1,0.5,0.0,0.6,0.2,180.0,3.5,0.1,0.0,0.8,0.25,1.0],[["uid1","Player1",25.5,512.0,0.1],["uid2","Player2",30.0,480.0,0.05]]]`
+
+	tests := []struct {
+		name    string
+		input   []string
+		check   func(t *testing.T, e core.TelemetryEvent)
+		wantErr bool
+	}{
+		{
+			name:  "valid telemetry",
+			input: []string{validJSON},
+			check: func(t *testing.T, e core.TelemetryEvent) {
+				assert.Equal(t, uint(500), e.CaptureFrame)
+				assert.InDelta(t, float32(45.5), e.FpsAverage, 0.01)
+				assert.InDelta(t, float32(30.0), e.FpsMin, 0.01)
+
+				// Side data - east local
+				assert.Equal(t, uint(10), e.SideEntityCounts[0].Local.UnitsTotal)
+				assert.Equal(t, uint(8), e.SideEntityCounts[0].Local.UnitsAlive)
+				// Side data - west remote
+				assert.Equal(t, uint(5), e.SideEntityCounts[1].Remote.UnitsTotal)
+
+				// Global
+				assert.Equal(t, uint(40), e.GlobalCounts.UnitsAlive)
+				assert.Equal(t, uint(18), e.GlobalCounts.PlayersConnected)
+
+				// Scripts
+				assert.Equal(t, uint(3), e.Scripts.Spawn)
+				assert.Equal(t, uint(5), e.Scripts.PFH)
+
+				// Weather
+				assert.InDelta(t, float32(0.5), e.Weather.Overcast, 0.01)
+				assert.InDelta(t, float32(180.0), e.Weather.WindDir, 0.1)
+
+				// Players
+				require.Len(t, e.Players, 2)
+				assert.Equal(t, "uid1", e.Players[0].UID)
+				assert.Equal(t, "Player1", e.Players[0].Name)
+				assert.InDelta(t, float32(25.5), e.Players[0].Ping, 0.01)
+			},
+		},
+		{
+			name:  "empty players array",
+			input: []string{`[0,[50.0,40.0],[[[0,0,0,0,0,0],[0,0,0,0,0,0]],[[0,0,0,0,0,0],[0,0,0,0,0,0]],[[0,0,0,0,0,0],[0,0,0,0,0,0]],[[0,0,0,0,0,0],[0,0,0,0,0,0]]],[0,0,0,0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0],[]]`},
+			check: func(t *testing.T, e core.TelemetryEvent) {
+				assert.Equal(t, uint(0), e.CaptureFrame)
+				assert.InDelta(t, float32(50.0), e.FpsAverage, 0.01)
+				assert.Empty(t, e.Players)
+			},
+		},
+		{
+			name:    "error: no data",
+			input:   []string{},
+			wantErr: true,
+		},
+		{
+			name:    "error: bad JSON",
+			input:   []string{"not_json"},
+			wantErr: true,
+		},
+		{
+			name:    "error: too few elements",
+			input:   []string{`[500,[45.5,30.0]]`},
+			wantErr: true,
+		},
+		{
+			name:    "error: bad frame",
+			input:   []string{`["abc",[45.5,30.0],[[[0,0,0,0,0,0],[0,0,0,0,0,0]],[[0,0,0,0,0,0],[0,0,0,0,0,0]],[[0,0,0,0,0,0],[0,0,0,0,0,0]],[[0,0,0,0,0,0],[0,0,0,0,0,0]]],[0,0,0,0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0],[]]`},
+			wantErr: true,
+		},
+		{
+			name:    "error: bad fps array",
+			input:   []string{`[500,"bad",[[[0,0,0,0,0,0],[0,0,0,0,0,0]],[[0,0,0,0,0,0],[0,0,0,0,0,0]],[[0,0,0,0,0,0],[0,0,0,0,0,0]],[[0,0,0,0,0,0],[0,0,0,0,0,0]]],[0,0,0,0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0],[]]`},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := p.ParseTelemetryEvent(tt.input)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			tt.check(t, result)
+		})
+	}
+}

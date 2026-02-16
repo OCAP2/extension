@@ -262,6 +262,140 @@ func (p *Parser) ParseFpsEvent(data []string) (core.ServerFpsEvent, error) {
 	return fpsEvent, nil
 }
 
+// ParseTelemetryEvent parses a unified telemetry snapshot from a JSON array.
+// The data arrives as a single JSON string in data[0] containing a 7-element array:
+// [captureFrameNo, [fpsAvg, fpsMin], sideData, globalCounts, scripts, weather, players]
+func (p *Parser) ParseTelemetryEvent(data []string) (core.TelemetryEvent, error) {
+	var result core.TelemetryEvent
+
+	if len(data) < 1 {
+		return result, fmt.Errorf("telemetry: no data provided")
+	}
+
+	raw := util.FixEscapeQuotes(util.TrimQuotes(data[0]))
+
+	var arr []json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &arr); err != nil {
+		return result, fmt.Errorf("telemetry: unmarshal root array: %w", err)
+	}
+	if len(arr) < 7 {
+		return result, fmt.Errorf("telemetry: expected 7 elements, got %d", len(arr))
+	}
+
+	result.Time = time.Now()
+
+	// [0] captureFrameNo
+	var frameNo float64
+	if err := json.Unmarshal(arr[0], &frameNo); err != nil {
+		return result, fmt.Errorf("telemetry: parse frameNo: %w", err)
+	}
+	result.CaptureFrame = uint(frameNo)
+
+	// [1] FPS: [fpsAvg, fpsMin]
+	var fps [2]float64
+	if err := json.Unmarshal(arr[1], &fps); err != nil {
+		return result, fmt.Errorf("telemetry: parse fps: %w", err)
+	}
+	result.FpsAverage = float32(fps[0])
+	result.FpsMin = float32(fps[1])
+
+	// [2] Per-side entity counts: [[local, remote], ...] x4 sides
+	var sides [4][2][6]float64
+	if err := json.Unmarshal(arr[2], &sides); err != nil {
+		return result, fmt.Errorf("telemetry: parse side data: %w", err)
+	}
+	for i, side := range sides {
+		result.SideEntityCounts[i] = core.SideEntityCount{
+			Local: core.EntityLocality{
+				UnitsTotal: uint(side[0][0]), UnitsAlive: uint(side[0][1]),
+				UnitsDead: uint(side[0][2]), Groups: uint(side[0][3]),
+				Vehicles: uint(side[0][4]), WeaponHolders: uint(side[0][5]),
+			},
+			Remote: core.EntityLocality{
+				UnitsTotal: uint(side[1][0]), UnitsAlive: uint(side[1][1]),
+				UnitsDead: uint(side[1][2]), Groups: uint(side[1][3]),
+				Vehicles: uint(side[1][4]), WeaponHolders: uint(side[1][5]),
+			},
+		}
+	}
+
+	// [3] Global counts: [alive, dead, groups, vehicles, weaponholders, players_alive, players_dead, players_connected]
+	var global [8]float64
+	if err := json.Unmarshal(arr[3], &global); err != nil {
+		return result, fmt.Errorf("telemetry: parse global counts: %w", err)
+	}
+	result.GlobalCounts = core.GlobalEntityCount{
+		UnitsAlive: uint(global[0]), UnitsDead: uint(global[1]),
+		Groups: uint(global[2]), Vehicles: uint(global[3]),
+		WeaponHolders: uint(global[4]), PlayersAlive: uint(global[5]),
+		PlayersDead: uint(global[6]), PlayersConnected: uint(global[7]),
+	}
+
+	// [4] Scripts: [spawn, execVM, exec, execFSM, pfh]
+	var scripts [5]float64
+	if err := json.Unmarshal(arr[4], &scripts); err != nil {
+		return result, fmt.Errorf("telemetry: parse scripts: %w", err)
+	}
+	result.Scripts = core.ScriptCounts{
+		Spawn: uint(scripts[0]), ExecVM: uint(scripts[1]),
+		Exec: uint(scripts[2]), ExecFSM: uint(scripts[3]),
+		PFH: uint(scripts[4]),
+	}
+
+	// [5] Weather: 12 float values
+	var weather [12]float64
+	if err := json.Unmarshal(arr[5], &weather); err != nil {
+		return result, fmt.Errorf("telemetry: parse weather: %w", err)
+	}
+	result.Weather = core.WeatherData{
+		Fog: float32(weather[0]), Overcast: float32(weather[1]),
+		Rain: float32(weather[2]), Humidity: float32(weather[3]),
+		Waves: float32(weather[4]), WindDir: float32(weather[5]),
+		WindStr: float32(weather[6]), Gusts: float32(weather[7]),
+		Lightnings: float32(weather[8]), MoonIntensity: float32(weather[9]),
+		MoonPhase: float32(weather[10]), SunOrMoon: float32(weather[11]),
+	}
+
+	// [6] Player network: [[uid, name, ping, bw, desync], ...]
+	var players [][]json.RawMessage
+	if err := json.Unmarshal(arr[6], &players); err != nil {
+		return result, fmt.Errorf("telemetry: parse players: %w", err)
+	}
+	for _, pArr := range players {
+		if len(pArr) < 5 {
+			continue
+		}
+		var uid, name string
+		var ping, bw, desync float64
+		if err := json.Unmarshal(pArr[0], &uid); err != nil {
+			p.logger.Warn("telemetry: skip player, bad uid", "error", err)
+			continue
+		}
+		if err := json.Unmarshal(pArr[1], &name); err != nil {
+			p.logger.Warn("telemetry: skip player, bad name", "error", err)
+			continue
+		}
+		if err := json.Unmarshal(pArr[2], &ping); err != nil {
+			p.logger.Warn("telemetry: skip player, bad ping", "error", err)
+			continue
+		}
+		if err := json.Unmarshal(pArr[3], &bw); err != nil {
+			p.logger.Warn("telemetry: skip player, bad bw", "error", err)
+			continue
+		}
+		if err := json.Unmarshal(pArr[4], &desync); err != nil {
+			p.logger.Warn("telemetry: skip player, bad desync", "error", err)
+			continue
+		}
+		result.Players = append(result.Players, core.PlayerNetworkData{
+			UID: uid, Name: name,
+			Ping: float32(ping), BW: float32(bw), Desync: float32(desync),
+		})
+	}
+
+	return result, nil
+}
+
 // ParseTimeState parses time state data and returns a core TimeState
 // Args: [frameNo, systemTimeUTC, missionDateTime, timeMultiplier, missionTime]
 func (p *Parser) ParseTimeState(data []string) (core.TimeState, error) {
