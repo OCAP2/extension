@@ -4,7 +4,7 @@
 
 ## About
 
-A Go implementation of an ArmA 3 native extension that records gameplay to PostgreSQL (with SQLite fallback). Captures unit positions, combat events, markers, and more for mission replay and analytics.
+A Go implementation of an ArmA 3 native extension that records gameplay to PostgreSQL, SQLite, or in-memory JSON. Captures unit positions, combat events, markers, and more for mission replay and analytics.
 
 ## Architecture
 
@@ -55,12 +55,12 @@ cmd/ocap_recorder/main.go    Entry point, initialization, lifecycle commands
 pkg/a3interface/             CGo exports (RVExtension*)
 internal/
 ├── dispatcher/              Event routing with async buffering
+├── parser/                  Command parsing (args → core types)
 ├── worker/                  Handler registration and DB writer loop
-├── handlers/                Business logic for parsing and validation
 ├── queue/                   Thread-safe queues for batch writes
 ├── cache/                   Entity lookup caching (ObjectID → model)
-├── model/                   GORM database models
-├── storage/                 Optional alternative storage backend
+├── model/                   GORM database models + converters
+├── storage/                 Storage backends (memory, gorm/postgres, sqlite)
 └── geo/                     Coordinate/geometry utilities
 ```
 
@@ -69,7 +69,7 @@ internal/
 1. **Low latency**: Async buffered handlers don't block ArmA's game loop
 2. **High throughput**: Batch writes every 2 seconds instead of per-event
 3. **Entity caching**: Sync entity creation → cache → async state updates use cached FK
-4. **Graceful fallback**: PostgreSQL → SQLite if connection fails
+4. **Pluggable storage**: Memory (JSON export), PostgreSQL (GORM), or SQLite (in-memory with periodic disk dump)
 5. **Observability**: OpenTelemetry metrics and structured logging (slog)
 
 ## Building
@@ -147,7 +147,7 @@ Copy `ocap_recorder.cfg.json.example` to `ocap_recorder.cfg.json` alongside the 
 | Command | Purpose |
 |---------|---------|
 | `:INIT:` | Initialize extension |
-| `:INIT:DB:` | Connect to database |
+| `:INIT:STORAGE:` | Initialize storage backend |
 | `:NEW:MISSION:` | Start recording mission |
 | `:SAVE:` | End recording, flush data |
 | `:VERSION:` | Get extension version |

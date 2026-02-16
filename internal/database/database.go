@@ -11,22 +11,6 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-// GetBackupDBPaths returns paths to all .db files in the given directory.
-func GetBackupDBPaths(addonFolder string) ([]string, error) {
-	files, err := os.ReadDir(addonFolder)
-	if err != nil {
-		return nil, err
-	}
-
-	var dbPaths []string
-	for _, file := range files {
-		if !file.IsDir() && len(file.Name()) > 3 && file.Name()[len(file.Name())-3:] == ".db" {
-			dbPaths = append(dbPaths, addonFolder+"/"+file.Name())
-		}
-	}
-	return dbPaths, nil
-}
-
 // Standalone functions for direct usage without Manager
 
 // GetPostgresDBStandalone returns a connection to the Postgres database using viper config.

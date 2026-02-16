@@ -18,6 +18,9 @@
     "memory": {
       "outputDir": "./recordings",
       "compressOutput": true
+    },
+    "sqlite": {
+      "dumpInterval": "3m"
     }
   }
 }

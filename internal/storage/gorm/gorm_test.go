@@ -7,7 +7,6 @@ import (
 
 	"github.com/OCAP2/extension/v5/internal/cache"
 	"github.com/OCAP2/extension/v5/internal/logging"
-	"github.com/OCAP2/extension/v5/internal/mission"
 	"github.com/OCAP2/extension/v5/internal/model"
 	"github.com/OCAP2/extension/v5/internal/queue"
 	"github.com/OCAP2/extension/v5/internal/storage"
@@ -21,14 +20,10 @@ import (
 // newTestBackend creates a Backend with no DB (queue-only mode for unit testing).
 func newTestBackend() *Backend {
 	return New(Dependencies{
-		DB:              nil,
-		EntityCache:     cache.NewEntityCache(),
-		MarkerCache:     cache.NewMarkerCache(),
-		LogManager:      logging.NewSlogManager(),
-		MissionContext:  mission.NewContext(),
-		IsDatabaseValid: func() bool { return false },
-		ShouldSaveLocal: func() bool { return false },
-		DBInsertsPaused: func() bool { return false },
+		DB:          nil,
+		EntityCache: cache.NewEntityCache(),
+		MarkerCache: cache.NewMarkerCache(),
+		LogManager:  logging.NewSlogManager(),
 	})
 }
 
@@ -162,30 +157,6 @@ func TestRecordProjectileEvent_QueuesToInternalQueue(t *testing.T) {
 	err := b.RecordProjectileEvent(event)
 	require.NoError(t, err)
 	assert.Equal(t, 1, b.queues.ProjectileEvents.Len())
-}
-
-func TestRecordProjectileEvent_SkipsWhenSQLite(t *testing.T) {
-	b := New(Dependencies{
-		DB:              nil,
-		EntityCache:     cache.NewEntityCache(),
-		MarkerCache:     cache.NewMarkerCache(),
-		LogManager:      logging.NewSlogManager(),
-		MissionContext:  mission.NewContext(),
-		IsDatabaseValid: func() bool { return false },
-		ShouldSaveLocal: func() bool { return true }, // SQLite mode
-		DBInsertsPaused: func() bool { return false },
-	})
-	b.Init()
-	defer b.Close()
-
-	event := &core.ProjectileEvent{
-		FirerObjectID: 1,
-		CaptureFrame:  620,
-	}
-
-	err := b.RecordProjectileEvent(event)
-	require.NoError(t, err)
-	assert.Equal(t, 0, b.queues.ProjectileEvents.Len(), "should not queue when SQLite")
 }
 
 func TestRecordGeneralEvent_QueuesToInternalQueue(t *testing.T) {
@@ -326,13 +297,113 @@ func TestRecordHitEvent_IsNoOp(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestStartMission_IsNoOp(t *testing.T) {
+func TestStartMission_NoDB_NoOp(t *testing.T) {
 	b := newTestBackend()
 	b.Init()
 	defer b.Close()
 
 	err := b.StartMission(&core.Mission{}, &core.World{})
 	require.NoError(t, err)
+}
+
+func TestStartMission_WithDB(t *testing.T) {
+	db := newTestDB(t)
+
+	b := New(Dependencies{
+		DB:          db,
+		EntityCache: cache.NewEntityCache(),
+		MarkerCache: cache.NewMarkerCache(),
+		LogManager:  logging.NewSlogManager(),
+	})
+	b.Init()
+	defer b.Close()
+
+	mission := &core.Mission{
+		MissionName: "Test Mission",
+		Author:      "Test Author",
+		StartTime:   time.Now(),
+		Addons: []core.Addon{
+			{Name: "CBA_A3", WorkshopID: "450814997"},
+			{Name: "ACE3", WorkshopID: "463939057"},
+		},
+	}
+	world := &core.World{
+		WorldName:   "altis",
+		DisplayName: "Altis",
+		WorldSize:   30720,
+	}
+
+	err := b.StartMission(mission, world)
+	require.NoError(t, err)
+
+	assert.NotZero(t, mission.ID, "mission should get DB-assigned ID")
+	assert.NotZero(t, world.ID, "world should get DB-assigned ID")
+	assert.Equal(t, uint64(mission.ID), b.missionID.Load(), "backend missionID should be set")
+
+	// Verify DB state
+	var missionCount, worldCount, addonCount int64
+	db.Model(&model.Mission{}).Count(&missionCount)
+	db.Model(&model.World{}).Count(&worldCount)
+	db.Model(&model.Addon{}).Count(&addonCount)
+
+	assert.Equal(t, int64(1), missionCount)
+	assert.Equal(t, int64(1), worldCount)
+	assert.Equal(t, int64(2), addonCount)
+
+	// Second call with same addons should reuse them (get-or-create)
+	mission2 := &core.Mission{
+		MissionName: "Test Mission 2",
+		StartTime:   time.Now(),
+		Addons: []core.Addon{
+			{Name: "CBA_A3", WorkshopID: "450814997"},
+		},
+	}
+	err = b.StartMission(mission2, world)
+	require.NoError(t, err)
+
+	db.Model(&model.Addon{}).Count(&addonCount)
+	assert.Equal(t, int64(2), addonCount, "addons should be reused, not duplicated")
+	assert.Equal(t, uint64(mission2.ID), b.missionID.Load(), "missionID should update to latest")
+}
+
+func TestSetMissionID(t *testing.T) {
+	b := newTestBackend()
+	b.Init()
+	defer b.Close()
+
+	assert.Equal(t, uint64(0), b.missionID.Load())
+	b.SetMissionID(42)
+	assert.Equal(t, uint64(42), b.missionID.Load())
+}
+
+func TestSetupDB_CreatesOcapInfo(t *testing.T) {
+	// Use a raw DB without prior AutoMigrate so setupDB creates the OcapInfo table and seed row
+	rawDB, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{
+		SkipDefaultTransaction: true,
+	})
+	require.NoError(t, err)
+	sqlDB, err := rawDB.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+
+	b := New(Dependencies{
+		DB:          rawDB,
+		EntityCache: cache.NewEntityCache(),
+		MarkerCache: cache.NewMarkerCache(),
+		LogManager:  logging.NewSlogManager(),
+	})
+
+	// Init calls setupDB
+	err = b.Init()
+	require.NoError(t, err)
+	defer b.Close()
+
+	var info model.OcapInfo
+	require.NoError(t, rawDB.First(&info).Error)
+	assert.Equal(t, "OCAP", info.GroupName)
+
+	// Verify full schema was migrated
+	assert.True(t, rawDB.Migrator().HasTable(&model.Mission{}))
 }
 
 func TestEndMission_IsNoOp(t *testing.T) {
@@ -417,17 +488,6 @@ func TestGetMarkerByName(t *testing.T) {
 	assert.Equal(t, "TestMarker", marker.MarkerName)
 }
 
-func TestGetLastDBWriteDuration(t *testing.T) {
-	b := newTestBackend()
-	b.Init()
-	defer b.Close()
-
-	assert.Equal(t, time.Duration(0), b.GetLastDBWriteDuration())
-
-	b.lastDBWriteDuration = 100 * time.Millisecond
-	assert.Equal(t, 100*time.Millisecond, b.GetLastDBWriteDuration())
-}
-
 // newTestDB creates an in-memory SQLite DB with auto-migrated tables.
 // MaxOpenConns=1 ensures all operations use the same connection (in-memory
 // SQLite databases are per-connection, so multiple connections would each
@@ -441,7 +501,7 @@ func newTestDB(t *testing.T) *gorm.DB {
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
-	require.NoError(t, db.AutoMigrate(model.DatabaseModelsSQLite...))
+	require.NoError(t, db.AutoMigrate(model.DatabaseModels...))
 	return db
 }
 
@@ -535,19 +595,13 @@ func TestAddMarker_WithDB(t *testing.T) {
 	// Create a mission first (foreign key)
 	db.Create(&model.Mission{MissionName: "test"})
 
-	mCtx := mission.NewContext()
-	mCtx.SetMission(&model.Mission{Model: gorm.Model{ID: 1}}, &model.World{})
-
 	b := New(Dependencies{
-		DB:              db,
-		EntityCache:     cache.NewEntityCache(),
-		MarkerCache:     cache.NewMarkerCache(),
-		LogManager:      logging.NewSlogManager(),
-		MissionContext:  mCtx,
-		IsDatabaseValid: func() bool { return true },
-		ShouldSaveLocal: func() bool { return false },
-		DBInsertsPaused: func() bool { return false },
+		DB:          db,
+		EntityCache: cache.NewEntityCache(),
+		MarkerCache: cache.NewMarkerCache(),
+		LogManager:  logging.NewSlogManager(),
 	})
+	b.missionID.Store(1)
 	b.Init()
 	defer b.Close()
 
@@ -572,26 +626,29 @@ func TestStartDBWriters_DrainsQueues(t *testing.T) {
 	// Create a mission first (foreign key)
 	db.Create(&model.Mission{MissionName: "test"})
 
-	mCtx := mission.NewContext()
-	mCtx.SetMission(&model.Mission{Model: gorm.Model{ID: 1}}, &model.World{})
-
 	b := New(Dependencies{
-		DB:              db,
-		EntityCache:     cache.NewEntityCache(),
-		MarkerCache:     cache.NewMarkerCache(),
-		LogManager:      logging.NewSlogManager(),
-		MissionContext:  mCtx,
-		IsDatabaseValid: func() bool { return true },
-		ShouldSaveLocal: func() bool { return false },
-		DBInsertsPaused: func() bool { return false },
+		DB:          db,
+		EntityCache: cache.NewEntityCache(),
+		MarkerCache: cache.NewMarkerCache(),
+		LogManager:  logging.NewSlogManager(),
 	})
+	b.missionID.Store(1)
 	b.Init()
 	defer b.Close()
 
 	// Push items via the public API (which queues GORM models internally)
 	b.AddSoldier(&core.Soldier{ID: 1, UnitName: "Alpha", Side: "WEST"})
+	b.AddVehicle(&core.Vehicle{ID: 2, ClassName: "Humvee"})
+	b.RecordSoldierState(&core.SoldierState{SoldierID: 1})
+	b.RecordVehicleState(&core.VehicleState{VehicleID: 2})
+	b.RecordProjectileEvent(&core.ProjectileEvent{FirerObjectID: 1, CaptureFrame: 1})
 	b.RecordGeneralEvent(&core.GeneralEvent{Name: "connected", Message: "Player1"})
+	b.RecordKillEvent(&core.KillEvent{CaptureFrame: 1})
+	b.RecordChatEvent(&core.ChatEvent{Message: "hello", CaptureFrame: 1})
+	b.RecordRadioEvent(&core.RadioEvent{CaptureFrame: 1})
 	b.RecordServerFpsEvent(&core.ServerFpsEvent{FpsAverage: 50, FpsMin: 30, CaptureFrame: 1})
+	b.RecordAce3DeathEvent(&core.Ace3DeathEvent{SoldierID: 1, CaptureFrame: 1})
+	b.RecordAce3UnconsciousEvent(&core.Ace3UnconsciousEvent{SoldierID: 1, CaptureFrame: 1})
 
 	// Wait for the background writer to drain (it runs on a 2s loop, so wait up to 5s)
 	require.Eventually(t, func() bool {
@@ -600,13 +657,14 @@ func TestStartDBWriters_DrainsQueues(t *testing.T) {
 		return count > 0
 	}, 5*time.Second, 100*time.Millisecond, "soldiers should be written to DB")
 
-	var soldierCount, eventCount, fpsCount int64
+	var soldierCount, vehicleCount, generalCount, fpsCount int64
 	db.Model(&model.Soldier{}).Count(&soldierCount)
-	db.Model(&model.GeneralEvent{}).Count(&eventCount)
+	db.Model(&model.Vehicle{}).Count(&vehicleCount)
+	db.Model(&model.GeneralEvent{}).Count(&generalCount)
 	db.Model(&model.ServerFpsEvent{}).Count(&fpsCount)
 
 	assert.Equal(t, int64(1), soldierCount)
-	assert.Equal(t, int64(1), eventCount)
+	assert.Equal(t, int64(1), vehicleCount)
+	assert.Equal(t, int64(1), generalCount)
 	assert.Equal(t, int64(1), fpsCount)
-	assert.NotZero(t, b.GetLastDBWriteDuration())
 }

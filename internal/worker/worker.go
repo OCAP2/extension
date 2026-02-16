@@ -2,7 +2,6 @@ package worker
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/OCAP2/extension/v5/internal/cache"
 	"github.com/OCAP2/extension/v5/internal/logging"
@@ -35,17 +34,3 @@ func NewManager(deps Dependencies, backend storage.Backend) *Manager {
 	}
 }
 
-// DBWriteDurationProvider is an optional interface that backends can implement
-// to expose their last DB write duration for monitoring.
-type DBWriteDurationProvider interface {
-	GetLastDBWriteDuration() time.Duration
-}
-
-// GetLastDBWriteDuration returns the duration of the last DB write cycle.
-// Returns 0 if the backend doesn't support this metric.
-func (m *Manager) GetLastDBWriteDuration() time.Duration {
-	if p, ok := m.backend.(DBWriteDurationProvider); ok {
-		return p.GetLastDBWriteDuration()
-	}
-	return 0
-}

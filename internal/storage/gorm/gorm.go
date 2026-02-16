@@ -4,11 +4,11 @@ package gormstorage
 
 import (
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/OCAP2/extension/v5/internal/cache"
 	"github.com/OCAP2/extension/v5/internal/logging"
-	"github.com/OCAP2/extension/v5/internal/mission"
 	"github.com/OCAP2/extension/v5/internal/model"
 	"github.com/OCAP2/extension/v5/internal/model/convert"
 	"github.com/OCAP2/extension/v5/pkg/core"
@@ -19,14 +19,10 @@ import (
 
 // Dependencies holds all dependencies for the GORM storage backend.
 type Dependencies struct {
-	DB              *gorm.DB
-	EntityCache     *cache.EntityCache
-	MarkerCache     *cache.MarkerCache
-	LogManager      *logging.SlogManager
-	MissionContext  *mission.Context
-	IsDatabaseValid func() bool
-	ShouldSaveLocal func() bool
-	DBInsertsPaused func() bool
+	DB          *gorm.DB
+	EntityCache *cache.EntityCache
+	MarkerCache *cache.MarkerCache
+	LogManager  *logging.SlogManager
 }
 
 // queues holds all the write queues for batch DB insertion.
@@ -68,10 +64,11 @@ func newQueues() *queues {
 
 // Backend implements storage.Backend using GORM/PostgreSQL with queue-based batch writes.
 type Backend struct {
-	deps                Dependencies
-	queues              *queues
-	lastDBWriteDuration time.Duration
-	stopChan            chan struct{}
+	deps      Dependencies
+	queues    *queues
+	missionID atomic.Uint64
+	stopChan  chan struct{}
+	dbReady   bool
 }
 
 // New creates a new GORM storage backend.
@@ -81,11 +78,55 @@ func New(deps Dependencies) *Backend {
 	}
 }
 
-// Init creates internal queues and starts the DB writer goroutine.
+// Init creates internal queues, runs schema migration, and starts the DB writer goroutine.
 func (b *Backend) Init() error {
 	b.queues = newQueues()
 	b.stopChan = make(chan struct{})
+
+	if b.deps.DB != nil {
+		if err := b.setupDB(); err != nil {
+			return fmt.Errorf("failed to setup DB: %w", err)
+		}
+		b.dbReady = true
+	}
+
 	b.startDBWriters()
+	return nil
+}
+
+// setupDB migrates tables and creates default group settings if they don't exist.
+func (b *Backend) setupDB() error {
+	db := b.deps.DB
+	log := b.deps.LogManager
+
+	if !db.Migrator().HasTable(&model.OcapInfo{}) {
+		if err := db.AutoMigrate(&model.OcapInfo{}); err != nil {
+			log.WriteLog("setupDB", fmt.Sprintf("Failed to create ocap_info table: %s", err), "ERROR")
+			return fmt.Errorf("failed to auto-migrate OcapInfo: %w", err)
+		}
+		if err := db.Create(&model.OcapInfo{
+			GroupName:        "OCAP",
+			GroupDescription: "OCAP",
+			GroupLogo:        "https://i.imgur.com/0Q4z0ZP.png",
+			GroupWebsite:     "https://ocap.arma3.com",
+		}).Error; err != nil {
+			return fmt.Errorf("failed to create ocap_info entry: %w", err)
+		}
+	}
+
+	if db.Dialector.Name() == "postgres" {
+		if err := db.Exec(`CREATE Extension IF NOT EXISTS postgis;`).Error; err != nil {
+			return fmt.Errorf("failed to create PostGIS Extension: %w", err)
+		}
+		log.WriteLog("setupDB", "PostGIS Extension created", "INFO")
+	}
+
+	log.WriteLog("setupDB", "Migrating schema", "INFO")
+	if err := db.AutoMigrate(model.DatabaseModels...); err != nil {
+		return fmt.Errorf("failed to migrate schema: %w", err)
+	}
+
+	log.WriteLog("setupDB", "Database setup complete", "INFO")
 	return nil
 }
 
@@ -97,9 +138,57 @@ func (b *Backend) Close() error {
 	return nil
 }
 
-// StartMission is a no-op — mission lifecycle is managed by main.go.
-func (b *Backend) StartMission(mission *core.Mission, world *core.World) error {
+// StartMission performs addon get-or-create, world get-or-insert, and mission create in the DB.
+func (b *Backend) StartMission(coreMission *core.Mission, coreWorld *core.World) error {
+	if b.deps.DB == nil {
+		return nil
+	}
+
+	db := b.deps.DB
+	log := b.deps.LogManager
+
+	gormMission := convert.CoreToMission(*coreMission)
+	gormWorld := convert.CoreToWorld(*coreWorld)
+
+	// Addon get-or-create
+	for i, addon := range gormMission.Addons {
+		err := db.Where("name = ?", addon.Name).First(&gormMission.Addons[i]).Error
+		if err != nil {
+			if err == gorm.ErrRecordNotFound {
+				if err = db.Create(&gormMission.Addons[i]).Error; err != nil {
+					log.WriteLog("StartMission", fmt.Sprintf("Failed to create addon: %v", err), "ERROR")
+					return fmt.Errorf("failed to create addon %s: %w", addon.Name, err)
+				}
+			} else {
+				return fmt.Errorf("failed to find addon %s: %w", addon.Name, err)
+			}
+		}
+	}
+
+	// World get-or-insert
+	if _, err := gormWorld.GetOrInsert(db); err != nil {
+		return fmt.Errorf("failed to get or insert world: %w", err)
+	}
+
+	// Mission create
+	gormMission.World = gormWorld
+	if err := db.Create(&gormMission).Error; err != nil {
+		return fmt.Errorf("failed to insert new mission: %w", err)
+	}
+
+	// Assign DB-generated IDs back to core types
+	coreMission.ID = gormMission.ID
+	coreWorld.ID = gormWorld.ID
+
+	// Store mission ID for the DB writer goroutine
+	b.missionID.Store(uint64(gormMission.ID))
+
 	return nil
+}
+
+// SetMissionID sets the current mission ID for the DB writer (used by CLI tools).
+func (b *Backend) SetMissionID(id uint) {
+	b.missionID.Store(uint64(id))
 }
 
 // EndMission is a no-op — mission lifecycle is managed by main.go.
@@ -126,8 +215,7 @@ func (b *Backend) AddVehicle(v *core.Vehicle) error {
 func (b *Backend) AddMarker(m *core.Marker) error {
 	gormObj := convert.CoreToMarker(*m)
 	if b.deps.DB != nil {
-		missionID := b.deps.MissionContext.GetMission().ID
-		gormObj.MissionID = missionID
+		gormObj.MissionID = uint(b.missionID.Load())
 		if err := b.deps.DB.Create(&gormObj).Error; err != nil {
 			return fmt.Errorf("failed to insert marker: %w", err)
 		}
@@ -183,11 +271,7 @@ func (b *Backend) RecordFiredEvent(e *core.FiredEvent) error {
 }
 
 // RecordProjectileEvent converts and queues a projectile event.
-// No-op if ShouldSaveLocal() (SQLite can't handle LineStringZM).
 func (b *Backend) RecordProjectileEvent(e *core.ProjectileEvent) error {
-	if b.deps.ShouldSaveLocal() {
-		return nil
-	}
 	gormObj := convert.CoreToProjectileEvent(*e)
 	b.queues.ProjectileEvents.Push(gormObj)
 	return nil
@@ -280,11 +364,6 @@ func (b *Backend) GetMarkerByName(name string) (*core.Marker, bool) {
 	return &core.Marker{MarkerName: name}, true
 }
 
-// GetLastDBWriteDuration returns the duration of the last DB write cycle.
-func (b *Backend) GetLastDBWriteDuration() time.Duration {
-	return b.lastDBWriteDuration
-}
-
 // writeQueue writes all items from a queue to the database in a transaction.
 func writeQueue[T any](db *gorm.DB, q *queue.Queue[T], name string, log func(string, string, string), prepare func([]T), onSuccess func([]T)) {
 	if q.Empty() {
@@ -321,20 +400,13 @@ func (b *Backend) startDBWriters() {
 			default:
 			}
 
-			if !b.deps.IsDatabaseValid() {
+			if !b.dbReady {
 				time.Sleep(1 * time.Second)
 				continue
 			}
-
-			if b.deps.DBInsertsPaused() {
-				time.Sleep(1 * time.Second)
-				continue
-			}
-
-			writeStart := time.Now()
 
 			// Read missionID once per write cycle
-			missionID := b.deps.MissionContext.GetMission().ID
+			missionID := uint(b.missionID.Load())
 
 			// stampMissionID helpers
 			stampSoldiers := func(items []model.Soldier) {
@@ -440,7 +512,6 @@ func (b *Backend) startDBWriters() {
 			writeQueue(b.deps.DB, b.queues.Ace3DeathEvents, "ace3 death events", log, stampAce3DeathEvents, nil)
 			writeQueue(b.deps.DB, b.queues.Ace3UnconsciousEvents, "ace3 unconscious events", log, stampAce3UnconsciousEvents, nil)
 
-			b.lastDBWriteDuration = time.Since(writeStart)
 			time.Sleep(2 * time.Second)
 		}
 	}()

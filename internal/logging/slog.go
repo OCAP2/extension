@@ -16,25 +16,13 @@ import (
 type SlogManager struct {
 	logger *slog.Logger
 
-	// Callbacks for dynamic state (same interface as old Manager)
-	GetMissionName  func() string
-	GetMissionID    func() uint
-	IsUsingLocalDB  func() bool
-	IsStatusRunning func() bool
-
 	// OTel provider for flushing
 	logProvider *sdklog.LoggerProvider
 }
 
 // NewSlogManager creates a new slog-based logging manager.
 func NewSlogManager() *SlogManager {
-	return &SlogManager{
-		// Default callbacks return empty/false values
-		GetMissionName:  func() string { return "" },
-		GetMissionID:    func() uint { return 0 },
-		IsUsingLocalDB:  func() bool { return false },
-		IsStatusRunning: func() bool { return false },
-	}
+	return &SlogManager{}
 }
 
 // parseLevel converts a string log level to slog.Level.
@@ -92,21 +80,8 @@ func (m *SlogManager) Setup(file io.Writer, level string, provider *sdklog.Logge
 	// Combine all handlers
 	multiHandler := NewMultiHandler(handlers...)
 
-	// Wrap with context handler for dynamic attributes
-	contextHandler := NewContextHandler(multiHandler, m.contextProvider)
-
-	m.logger = slog.New(contextHandler)
+	m.logger = slog.New(multiHandler)
 	m.logger.Info("Logging initialized", "level", level)
-}
-
-// contextProvider returns dynamic context attributes for each log record.
-func (m *SlogManager) contextProvider() []slog.Attr {
-	return []slog.Attr{
-		slog.Bool("usingLocalDB", m.IsUsingLocalDB()),
-		slog.String("currentMission", m.GetMissionName()),
-		slog.Uint64("currentMissionID", uint64(m.GetMissionID())),
-		slog.Bool("statusMonitorActive", m.IsStatusRunning()),
-	}
 }
 
 // Logger returns the configured slog.Logger.

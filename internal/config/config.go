@@ -13,6 +13,11 @@ type MemoryConfig struct {
 	CompressOutput bool   `json:"compressOutput" mapstructure:"compressOutput"`
 }
 
+// SQLiteConfig holds SQLite storage backend settings
+type SQLiteConfig struct {
+	DumpInterval time.Duration `json:"dumpInterval" mapstructure:"dumpInterval"`
+}
+
 // Load reads configuration from JSON file and sets default values.
 // configDir is the directory containing the config file.
 func Load(configDir string) error {
@@ -41,6 +46,7 @@ func Load(configDir string) error {
 	viper.SetDefault("storage.type", "memory")
 	viper.SetDefault("storage.memory.outputDir", "./recordings")
 	viper.SetDefault("storage.memory.compressOutput", true)
+	viper.SetDefault("storage.sqlite.dumpInterval", "3m")
 
 	// OpenTelemetry defaults
 	viper.SetDefault("otel.enabled", false)
@@ -80,6 +86,7 @@ func GetBool(key string) bool {
 type StorageConfig struct {
 	Type   string       `json:"type" mapstructure:"type"`
 	Memory MemoryConfig `json:"memory" mapstructure:"memory"`
+	SQLite SQLiteConfig `json:"sqlite" mapstructure:"sqlite"`
 }
 
 // GetStorageConfig returns the storage backend configuration

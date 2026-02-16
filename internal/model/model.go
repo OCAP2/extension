@@ -33,31 +33,6 @@ var DatabaseModels = []interface{}{
 	&ServerFpsEvent{},
 	&Ace3DeathEvent{},
 	&Ace3UnconsciousEvent{},
-	&OcapPerformance{},
-	&Marker{},
-	&MarkerState{},
-}
-
-var DatabaseModelsSQLite = []interface{}{
-	&OcapInfo{},
-	&AfterActionReview{},
-	&World{},
-	&Mission{},
-	&Soldier{},
-	&SoldierState{},
-	&Vehicle{},
-	&VehicleState{},
-	&ProjectileEvent{},
-	&ProjectileHitsSoldier{},
-	&ProjectileHitsVehicle{},
-	&GeneralEvent{},
-	&KillEvent{},
-	&ChatEvent{},
-	&RadioEvent{},
-	&ServerFpsEvent{},
-	&Ace3DeathEvent{},
-	&Ace3UnconsciousEvent{},
-	&OcapPerformance{},
 	&Marker{},
 	&MarkerState{},
 }
@@ -79,58 +54,6 @@ func (*OcapInfo) TableName() string {
 	return "ocap_infos"
 }
 
-// OcapPerformance is the model for extension performance metrics
-type OcapPerformance struct {
-	Time                time.Time         `json:"time" gorm:"type:timestamptz;index:idx_time"`
-	MissionID           uint              `json:"missionId" gorm:"index:idx_ocapperformance_mission_id"`
-	Mission             Mission           `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:MissionID;"`
-	BufferLengths       BufferLengths     `json:"bufferLengths" gorm:"embedded;embeddedPrefix:buffer_"`
-	WriteQueueLengths   WriteQueueLengths `json:"writeQueueLengths" gorm:"embedded;embeddedPrefix:writequeue_"`
-	LastWriteDurationMs float32           `json:"lastWriteDurationMs"`
-}
-
-func (*OcapPerformance) TableName() string {
-	return "ocap_performances"
-}
-
-// BufferLengths is the model for the buffer lengths
-type BufferLengths struct {
-	Soldiers              uint16 `json:"soldiers"`
-	Vehicles              uint16 `json:"vehicles"`
-	SoldierStates         uint16 `json:"soldierStates"`
-	VehicleStates         uint16 `json:"vehicleStates"`
-	GeneralEvents         uint16 `json:"generalEvents"`
-	KillEvents            uint16 `json:"killEvents"`
-	ChatEvents            uint16 `json:"chatEvents"`
-	RadioEvents           uint16 `json:"radioEvents"`
-	ServerFpsEvents       uint16 `json:"serverFpsEvents"`
-	Ace3DeathEvents       uint16 `json:"ace3DeathEvents"`
-	Ace3UnconsciousEvents uint16 `json:"ace3UnconsciousEvents"`
-	MarkerCreates         uint16 `json:"markerCreates"`
-	MarkerMoves           uint16 `json:"markerMoves"`
-	MarkerDeletes         uint16 `json:"markerDeletes"`
-}
-
-// WriteQueueLengths is the model for the write queue lengths
-type WriteQueueLengths struct {
-	Soldiers              uint16 `json:"soldiers"`
-	Vehicles              uint16 `json:"vehicles"`
-	SoldierStates         uint16 `json:"soldierStates"`
-	VehicleStates         uint16 `json:"vehicleStates"`
-	GeneralEvents         uint16 `json:"generalEvents"`
-	KillEvents            uint16 `json:"killEvents"`
-	ChatEvents            uint16 `json:"chatEvents"`
-	RadioEvents           uint16 `json:"radioEvents"`
-	ServerFpsEvents       uint16 `json:"serverFpsEvents"`
-	Ace3DeathEvents       uint16 `json:"ace3DeathEvents"`
-	Ace3UnconsciousEvents uint16 `json:"ace3UnconsciousEvents"`
-	Markers               uint16 `json:"markers"`
-	MarkerStates          uint16 `json:"markerStates"`
-}
-
-func (b *BufferLengths) TableName() string {
-	return "buffer_lengths"
-}
 
 ////////////////////////
 // RETRIEVAL
