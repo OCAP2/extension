@@ -255,10 +255,10 @@ func (b *Backend) RecordMarkerState(s *core.MarkerState) error {
 }
 
 // DeleteMarker pushes an alpha=0 MarkerState to the queue and marks the marker as deleted in DB.
-func (b *Backend) DeleteMarker(name string, endFrame uint) {
+func (b *Backend) DeleteMarker(name string, endFrame uint) error {
 	markerID, ok := b.deps.MarkerCache.Get(name)
 	if !ok {
-		return
+		return nil
 	}
 
 	deleteState := model.MarkerState{
@@ -272,6 +272,7 @@ func (b *Backend) DeleteMarker(name string, endFrame uint) {
 	if b.deps.DB != nil {
 		b.deps.DB.Model(&model.Marker{}).Where("id = ?", markerID).Update("is_deleted", true)
 	}
+	return nil
 }
 
 // RecordFiredEvent is a no-op — replaced by ProjectileEvent.

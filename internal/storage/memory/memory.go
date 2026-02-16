@@ -221,13 +221,14 @@ func (b *Backend) RecordMarkerState(s *core.MarkerState) error {
 }
 
 // DeleteMarker sets the end frame for a marker, marking it as deleted at that frame
-func (b *Backend) DeleteMarker(name string, endFrame uint) {
+func (b *Backend) DeleteMarker(name string, endFrame uint) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	if record, ok := b.markers[name]; ok {
 		record.Marker.EndFrame = int(endFrame)
 	}
+	return nil
 }
 
 // RecordFiredEvent records a fired event.

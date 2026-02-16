@@ -1,5 +1,4 @@
-// internal/storage/storage_test.go
-package storage_test
+package core_test
 
 import (
 	"testing"

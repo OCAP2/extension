@@ -159,6 +159,20 @@ func (m *Manager) classifyHitParts(hitParts []parser.HitPart) []core.ProjectileH
 	return hits
 }
 
+// classifyEntity looks up an entity ID in the cache and returns
+// a soldier or vehicle pointer accordingly. Both are nil if not found.
+func (m *Manager) classifyEntity(id uint16) (soldierID *uint, vehicleID *uint) {
+	if _, ok := m.deps.EntityCache.GetSoldier(id); ok {
+		v := uint(id)
+		return &v, nil
+	}
+	if _, ok := m.deps.EntityCache.GetVehicle(id); ok {
+		v := uint(id)
+		return nil, &v
+	}
+	return nil, nil
+}
+
 func (m *Manager) handleGeneralEvent(e dispatcher.Event) (any, error) {
 	obj, err := m.deps.ParserService.ParseGeneralEvent(e.Args)
 	if err != nil {
@@ -184,27 +198,8 @@ func (m *Manager) handleKillEvent(e dispatcher.Event) (any, error) {
 		Distance:       parsed.Distance,
 	}
 
-	// Classify victim as soldier or vehicle
-	if _, ok := m.deps.EntityCache.GetSoldier(parsed.VictimID); ok {
-		victimID := uint(parsed.VictimID)
-		coreEvent.VictimSoldierID = &victimID
-	} else if _, ok := m.deps.EntityCache.GetVehicle(parsed.VictimID); ok {
-		victimID := uint(parsed.VictimID)
-		coreEvent.VictimVehicleID = &victimID
-	} else {
-		m.deps.LogManager.Logger().Warn("Kill event victim not found in cache", "victimID", parsed.VictimID)
-	}
-
-	// Classify killer as soldier or vehicle
-	if _, ok := m.deps.EntityCache.GetSoldier(parsed.KillerID); ok {
-		killerID := uint(parsed.KillerID)
-		coreEvent.KillerSoldierID = &killerID
-	} else if _, ok := m.deps.EntityCache.GetVehicle(parsed.KillerID); ok {
-		killerID := uint(parsed.KillerID)
-		coreEvent.KillerVehicleID = &killerID
-	} else {
-		m.deps.LogManager.Logger().Warn("Kill event killer not found in cache", "killerID", parsed.KillerID)
-	}
+	coreEvent.VictimSoldierID, coreEvent.VictimVehicleID = m.classifyEntity(parsed.VictimID)
+	coreEvent.KillerSoldierID, coreEvent.KillerVehicleID = m.classifyEntity(parsed.KillerID)
 
 	return nil, m.backend.RecordKillEvent(&coreEvent)
 }
@@ -333,6 +328,5 @@ func (m *Manager) handleMarkerDelete(e dispatcher.Event) (any, error) {
 		return nil, fmt.Errorf("failed to delete marker: %w", err)
 	}
 
-	m.backend.DeleteMarker(markerName, frameNo)
-	return nil, nil
+	return nil, m.backend.DeleteMarker(markerName, frameNo)
 }

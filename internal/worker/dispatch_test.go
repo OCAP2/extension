@@ -214,13 +214,14 @@ func (b *mockBackend) RecordAce3UnconsciousEvent(e *core.Ace3UnconsciousEvent) e
 	return nil
 }
 
-func (b *mockBackend) DeleteMarker(name string, endFrame uint) {
+func (b *mockBackend) DeleteMarker(name string, endFrame uint) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.deletedMarkers == nil {
 		b.deletedMarkers = make(map[string]uint)
 	}
 	b.deletedMarkers[name] = endFrame
+	return nil
 }
 
 // mockParserService provides a minimal implementation for testing
