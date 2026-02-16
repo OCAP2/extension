@@ -894,3 +894,74 @@ func TestParseTelemetryEvent(t *testing.T) {
 		})
 	}
 }
+
+// Benchmarks using real RPT data
+
+func BenchmarkParseTelemetryEvent_1Player(b *testing.B) {
+	p := newTestParser()
+	// RPT frame 0: mission start, 1 player
+	args := []string{
+		"0",
+		"[43.3604,4.36681]",
+		`[[[1,1,0,1,0,0],[0,0,0,0,0,0]],[[10,10,0,8,0,0],[0,0,0,0,0,0]],[[6,6,0,6,0,0],[0,0,0,0,0,0]],[[5,5,12,0,24,0],[0,0,0,0,0,0]]]`,
+		"[22,12,15,28,0,1,0,1]",
+		"[28,4,0,4,2]",
+		"[0.2,0.25,0,0,0.1,0,0.25,0.315,0,0.423059,0.421672,1]",
+		`[["76561198000074241","info",100,28,0]]`,
+	}
+	b.ResetTimer()
+	for b.Loop() {
+		// Copy args to avoid mutation from TrimQuotes/FixEscapeQuotes
+		input := make([]string, len(args))
+		copy(input, args)
+		p.ParseTelemetryEvent(input) //nolint:errcheck
+	}
+}
+
+func BenchmarkParseTelemetryEvent_NoPlayers(b *testing.B) {
+	p := newTestParser()
+	args := []string{
+		"0",
+		"[50.0,40.0]",
+		`[[[0,0,0,0,0,0],[0,0,0,0,0,0]],[[0,0,0,0,0,0],[0,0,0,0,0,0]],[[0,0,0,0,0,0],[0,0,0,0,0,0]],[[0,0,0,0,0,0],[0,0,0,0,0,0]]]`,
+		"[0,0,0,0,0,0,0,0]",
+		"[0,0,0,0,0]",
+		"[0,0,0,0,0,0,0,0,0,0,0,0]",
+		"[]",
+	}
+	b.ResetTimer()
+	for b.Loop() {
+		input := make([]string, len(args))
+		copy(input, args)
+		p.ParseTelemetryEvent(input) //nolint:errcheck
+	}
+}
+
+func BenchmarkParseTelemetryEvent_20Players(b *testing.B) {
+	p := newTestParser()
+	// Simulate a populated server: 20 connected players
+	args := []string{
+		"114",
+		"[122.137,90.9091]",
+		`[[[32,32,0,10,0,0],[0,0,0,0,0,0]],[[6,6,0,8,1,0],[0,0,0,0,0,0]],[[6,6,0,6,0,0],[0,0,0,0,0,0]],[[4,4,19,0,23,22],[0,0,0,0,0,0]]]`,
+		"[48,19,24,28,22,1,0,1]",
+		"[17,3,0,4,3]",
+		"[0.2,0.25,0,0,0.1,160.864,0.25,0.175,0.003153,0.441581,0.421672,1]",
+		`[["76561198000000001","Alpha1",45,512,0.1],["76561198000000002","Alpha2",52,480,0.05],` +
+			`["76561198000000003","Alpha3",38,510,0],["76561198000000004","Alpha4",61,490,0.2],` +
+			`["76561198000000005","Bravo1",44,505,0],["76561198000000006","Bravo2",55,495,0.1],` +
+			`["76561198000000007","Bravo3",39,515,0],["76561198000000008","Bravo4",48,500,0.05],` +
+			`["76561198000000009","Charlie1",42,508,0],["76561198000000010","Charlie2",57,488,0.15],` +
+			`["76561198000000011","Charlie3",35,520,0],["76561198000000012","Charlie4",63,475,0.3],` +
+			`["76561198000000013","Delta1",41,512,0],["76561198000000014","Delta2",50,498,0.1],` +
+			`["76561198000000015","Delta3",37,516,0],["76561198000000016","Delta4",59,485,0.2],` +
+			`["76561198000000017","Echo1",43,507,0],["76561198000000018","Echo2",54,492,0.1],` +
+			`["76561198000000019","Echo3",36,518,0],["76561198000000020","Echo4",62,478,0.25]]`,
+	}
+	b.ResetTimer()
+	for b.Loop() {
+		input := make([]string, len(args))
+		copy(input, args)
+		p.ParseTelemetryEvent(input) //nolint:errcheck
+	}
+}

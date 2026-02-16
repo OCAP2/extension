@@ -395,7 +395,9 @@ func (p *Parser) ParseTelemetryEvent(data []string) (core.TelemetryEvent, error)
 	// [6] Player network data: [[playerUID, playerName, avgPing, avgBandwidth, desync], ...]
 	//     Variable length; empty "[]" when no players connected.
 	//     Excludes headless clients. Bandwidth may use scientific notation.
-	var players [][]json.RawMessage
+	//     Unmarshal each entry as []any in one call (instead of 5 separate RawMessage unmarshals)
+	//     for fewer allocations per player.
+	var players [][]any
 	if err := json.Unmarshal([]byte(data[6]), &players); err != nil {
 		return result, fmt.Errorf("telemetry: parse players: %w", err)
 	}
@@ -403,26 +405,29 @@ func (p *Parser) ParseTelemetryEvent(data []string) (core.TelemetryEvent, error)
 		if len(pArr) < 5 {
 			continue
 		}
-		var uid, name string
-		var ping, bw, desync float64
-		if err := json.Unmarshal(pArr[0], &uid); err != nil {
-			p.logger.Warn("telemetry: skip player, bad uid", "error", err)
+		uid, ok := pArr[0].(string)
+		if !ok {
+			p.logger.Warn("telemetry: skip player, bad uid", "value", pArr[0])
 			continue
 		}
-		if err := json.Unmarshal(pArr[1], &name); err != nil {
-			p.logger.Warn("telemetry: skip player, bad name", "error", err)
+		name, ok := pArr[1].(string)
+		if !ok {
+			p.logger.Warn("telemetry: skip player, bad name", "value", pArr[1])
 			continue
 		}
-		if err := json.Unmarshal(pArr[2], &ping); err != nil {
-			p.logger.Warn("telemetry: skip player, bad ping", "error", err)
+		ping, ok := pArr[2].(float64)
+		if !ok {
+			p.logger.Warn("telemetry: skip player, bad ping", "value", pArr[2])
 			continue
 		}
-		if err := json.Unmarshal(pArr[3], &bw); err != nil {
-			p.logger.Warn("telemetry: skip player, bad bw", "error", err)
+		bw, ok := pArr[3].(float64)
+		if !ok {
+			p.logger.Warn("telemetry: skip player, bad bw", "value", pArr[3])
 			continue
 		}
-		if err := json.Unmarshal(pArr[4], &desync); err != nil {
-			p.logger.Warn("telemetry: skip player, bad desync", "error", err)
+		desync, ok := pArr[4].(float64)
+		if !ok {
+			p.logger.Warn("telemetry: skip player, bad desync", "value", pArr[4])
 			continue
 		}
 		result.Players = append(result.Players, core.PlayerNetworkData{

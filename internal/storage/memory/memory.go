@@ -309,8 +309,8 @@ func (b *Backend) RecordServerFpsEvent(e *core.ServerFpsEvent) error {
 // RecordTelemetryEvent records a telemetry event.
 func (b *Backend) RecordTelemetryEvent(e *core.TelemetryEvent) error {
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	b.telemetryEvents = append(b.telemetryEvents, *e)
+	b.mu.Unlock()
 	return nil
 }
 
