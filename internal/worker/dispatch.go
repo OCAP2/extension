@@ -3,7 +3,6 @@ package worker
 import (
 	"database/sql"
 	"fmt"
-	"time"
 
 	"github.com/OCAP2/extension/v5/internal/dispatcher"
 	"github.com/OCAP2/extension/v5/internal/model"
@@ -14,7 +13,6 @@ import (
 )
 
 // RegisterHandlers registers all event handlers with the dispatcher.
-// This replaces the channel-based StartAsyncProcessors approach.
 func (m *Manager) RegisterHandlers(d *dispatcher.Dispatcher) {
 	// Entity creation - sync (need to cache before states arrive)
 	d.Register(":NEW:SOLDIER:", m.handleNewSoldier, dispatcher.Logged())
@@ -49,10 +47,6 @@ func (m *Manager) RegisterHandlers(d *dispatcher.Dispatcher) {
 }
 
 func (m *Manager) handleNewSoldier(e dispatcher.Event) (any, error) {
-	if !m.deps.IsDatabaseValid() && !m.hasBackend() {
-		return nil, nil
-	}
-
 	obj, err := m.deps.ParserService.ParseSoldier(e.Args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to log new soldier: %w", err)
@@ -61,21 +55,13 @@ func (m *Manager) handleNewSoldier(e dispatcher.Event) (any, error) {
 	// Always cache for state handler lookups
 	m.deps.EntityCache.AddSoldier(obj)
 
-	if m.hasBackend() {
-		coreObj := convert.SoldierToCore(obj)
-		m.backend.AddSoldier(&coreObj)
-	} else {
-		m.queues.Soldiers.Push(obj)
-	}
+	coreObj := convert.SoldierToCore(obj)
+	m.backend.AddSoldier(&coreObj)
 
 	return nil, nil
 }
 
 func (m *Manager) handleNewVehicle(e dispatcher.Event) (any, error) {
-	if !m.deps.IsDatabaseValid() && !m.hasBackend() {
-		return nil, nil
-	}
-
 	obj, err := m.deps.ParserService.ParseVehicle(e.Args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to log new vehicle: %w", err)
@@ -84,21 +70,13 @@ func (m *Manager) handleNewVehicle(e dispatcher.Event) (any, error) {
 	// Always cache for state handler lookups
 	m.deps.EntityCache.AddVehicle(obj)
 
-	if m.hasBackend() {
-		coreObj := convert.VehicleToCore(obj)
-		m.backend.AddVehicle(&coreObj)
-	} else {
-		m.queues.Vehicles.Push(obj)
-	}
+	coreObj := convert.VehicleToCore(obj)
+	m.backend.AddVehicle(&coreObj)
 
 	return nil, nil
 }
 
 func (m *Manager) handleSoldierState(e dispatcher.Event) (any, error) {
-	if !m.deps.IsDatabaseValid() && !m.hasBackend() {
-		return nil, nil
-	}
-
 	obj, err := m.deps.ParserService.ParseSoldierState(e.Args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to log soldier state: %w", err)
@@ -116,21 +94,13 @@ func (m *Manager) handleSoldierState(e dispatcher.Event) (any, error) {
 		obj.Side = soldier.Side
 	}
 
-	if m.hasBackend() {
-		coreObj := convert.SoldierStateToCore(obj)
-		m.backend.RecordSoldierState(&coreObj)
-	} else {
-		m.queues.SoldierStates.Push(obj)
-	}
+	coreObj := convert.SoldierStateToCore(obj)
+	m.backend.RecordSoldierState(&coreObj)
 
 	return nil, nil
 }
 
 func (m *Manager) handleVehicleState(e dispatcher.Event) (any, error) {
-	if !m.deps.IsDatabaseValid() && !m.hasBackend() {
-		return nil, nil
-	}
-
 	obj, err := m.deps.ParserService.ParseVehicleState(e.Args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to log vehicle state: %w", err)
@@ -141,21 +111,13 @@ func (m *Manager) handleVehicleState(e dispatcher.Event) (any, error) {
 		return nil, ErrTooEarlyForStateAssociation
 	}
 
-	if m.hasBackend() {
-		coreObj := convert.VehicleStateToCore(obj)
-		m.backend.RecordVehicleState(&coreObj)
-	} else {
-		m.queues.VehicleStates.Push(obj)
-	}
+	coreObj := convert.VehicleStateToCore(obj)
+	m.backend.RecordVehicleState(&coreObj)
 
 	return nil, nil
 }
 
 func (m *Manager) handleTimeState(e dispatcher.Event) (any, error) {
-	if !m.hasBackend() {
-		return nil, nil
-	}
-
 	obj, err := m.deps.ParserService.ParseTimeState(e.Args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to log time state: %w", err)
@@ -168,29 +130,13 @@ func (m *Manager) handleTimeState(e dispatcher.Event) (any, error) {
 }
 
 func (m *Manager) handleProjectileEvent(e dispatcher.Event) (any, error) {
-	if m.hasBackend() {
-		parsed, err := m.deps.ParserService.ParseProjectileEvent(e.Args)
-		if err != nil {
-			return nil, fmt.Errorf("failed to log projectile event: %w", err)
-		}
-		m.classifyHitParts(&parsed)
-		coreObj := convert.ProjectileEventToCore(parsed.Event)
-		m.backend.RecordProjectileEvent(&coreObj)
-		return nil, nil
-	}
-
-	// Projectile events use linestringzm geo format, not supported by SQLite
-	if !m.deps.IsDatabaseValid() || m.deps.ShouldSaveLocal() {
-		return nil, nil
-	}
-
 	parsed, err := m.deps.ParserService.ParseProjectileEvent(e.Args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to log projectile event: %w", err)
 	}
 	m.classifyHitParts(&parsed)
-
-	m.queues.ProjectileEvents.Push(parsed.Event)
+	coreObj := convert.ProjectileEventToCore(parsed.Event)
+	m.backend.RecordProjectileEvent(&coreObj)
 	return nil, nil
 }
 
@@ -218,30 +164,18 @@ func (m *Manager) classifyHitParts(parsed *parser.ParsedProjectileEvent) {
 }
 
 func (m *Manager) handleGeneralEvent(e dispatcher.Event) (any, error) {
-	if !m.deps.IsDatabaseValid() && !m.hasBackend() {
-		return nil, nil
-	}
-
 	obj, err := m.deps.ParserService.ParseGeneralEvent(e.Args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to log general event: %w", err)
 	}
 
-	if m.hasBackend() {
-		coreObj := convert.GeneralEventToCore(obj)
-		m.backend.RecordGeneralEvent(&coreObj)
-	} else {
-		m.queues.GeneralEvents.Push(obj)
-	}
+	coreObj := convert.GeneralEventToCore(obj)
+	m.backend.RecordGeneralEvent(&coreObj)
 
 	return nil, nil
 }
 
 func (m *Manager) handleKillEvent(e dispatcher.Event) (any, error) {
-	if !m.deps.IsDatabaseValid() && !m.hasBackend() {
-		return nil, nil
-	}
-
 	parsed, err := m.deps.ParserService.ParseKillEvent(e.Args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to log kill event: %w", err)
@@ -267,21 +201,13 @@ func (m *Manager) handleKillEvent(e dispatcher.Event) (any, error) {
 
 	obj := parsed.Event
 
-	if m.hasBackend() {
-		coreObj := convert.KillEventToCore(obj)
-		m.backend.RecordKillEvent(&coreObj)
-	} else {
-		m.queues.KillEvents.Push(obj)
-	}
+	coreObj := convert.KillEventToCore(obj)
+	m.backend.RecordKillEvent(&coreObj)
 
 	return nil, nil
 }
 
 func (m *Manager) handleChatEvent(e dispatcher.Event) (any, error) {
-	if !m.deps.IsDatabaseValid() && !m.hasBackend() {
-		return nil, nil
-	}
-
 	obj, err := m.deps.ParserService.ParseChatEvent(e.Args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to log chat event: %w", err)
@@ -294,21 +220,13 @@ func (m *Manager) handleChatEvent(e dispatcher.Event) (any, error) {
 		}
 	}
 
-	if m.hasBackend() {
-		coreObj := convert.ChatEventToCore(obj)
-		m.backend.RecordChatEvent(&coreObj)
-	} else {
-		m.queues.ChatEvents.Push(obj)
-	}
+	coreObj := convert.ChatEventToCore(obj)
+	m.backend.RecordChatEvent(&coreObj)
 
 	return nil, nil
 }
 
 func (m *Manager) handleRadioEvent(e dispatcher.Event) (any, error) {
-	if !m.deps.IsDatabaseValid() && !m.hasBackend() {
-		return nil, nil
-	}
-
 	obj, err := m.deps.ParserService.ParseRadioEvent(e.Args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to log radio event: %w", err)
@@ -321,41 +239,25 @@ func (m *Manager) handleRadioEvent(e dispatcher.Event) (any, error) {
 		}
 	}
 
-	if m.hasBackend() {
-		coreObj := convert.RadioEventToCore(obj)
-		m.backend.RecordRadioEvent(&coreObj)
-	} else {
-		m.queues.RadioEvents.Push(obj)
-	}
+	coreObj := convert.RadioEventToCore(obj)
+	m.backend.RecordRadioEvent(&coreObj)
 
 	return nil, nil
 }
 
 func (m *Manager) handleFpsEvent(e dispatcher.Event) (any, error) {
-	if !m.deps.IsDatabaseValid() && !m.hasBackend() {
-		return nil, nil
-	}
-
 	obj, err := m.deps.ParserService.ParseFpsEvent(e.Args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to log fps event: %w", err)
 	}
 
-	if m.hasBackend() {
-		coreObj := convert.ServerFpsEventToCore(obj)
-		m.backend.RecordServerFpsEvent(&coreObj)
-	} else {
-		m.queues.FpsEvents.Push(obj)
-	}
+	coreObj := convert.ServerFpsEventToCore(obj)
+	m.backend.RecordServerFpsEvent(&coreObj)
 
 	return nil, nil
 }
 
 func (m *Manager) handleAce3DeathEvent(e dispatcher.Event) (any, error) {
-	if !m.deps.IsDatabaseValid() && !m.hasBackend() {
-		return nil, nil
-	}
-
 	obj, err := m.deps.ParserService.ParseAce3DeathEvent(e.Args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to log ace3 death event: %w", err)
@@ -376,21 +278,13 @@ func (m *Manager) handleAce3DeathEvent(e dispatcher.Event) (any, error) {
 		}
 	}
 
-	if m.hasBackend() {
-		coreObj := convert.Ace3DeathEventToCore(obj)
-		m.backend.RecordAce3DeathEvent(&coreObj)
-	} else {
-		m.queues.Ace3DeathEvents.Push(obj)
-	}
+	coreObj := convert.Ace3DeathEventToCore(obj)
+	m.backend.RecordAce3DeathEvent(&coreObj)
 
 	return nil, nil
 }
 
 func (m *Manager) handleAce3UnconsciousEvent(e dispatcher.Event) (any, error) {
-	if !m.deps.IsDatabaseValid() && !m.hasBackend() {
-		return nil, nil
-	}
-
 	obj, err := m.deps.ParserService.ParseAce3UnconsciousEvent(e.Args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to log ace3 unconscious event: %w", err)
@@ -401,43 +295,27 @@ func (m *Manager) handleAce3UnconsciousEvent(e dispatcher.Event) (any, error) {
 		return nil, fmt.Errorf("could not find soldier with ocap id %d for ace3 unconscious event", obj.SoldierObjectID)
 	}
 
-	if m.hasBackend() {
-		coreObj := convert.Ace3UnconsciousEventToCore(obj)
-		m.backend.RecordAce3UnconsciousEvent(&coreObj)
-	} else {
-		m.queues.Ace3UnconsciousEvents.Push(obj)
-	}
+	coreObj := convert.Ace3UnconsciousEventToCore(obj)
+	m.backend.RecordAce3UnconsciousEvent(&coreObj)
 
 	return nil, nil
 }
 
 func (m *Manager) handleMarkerCreate(e dispatcher.Event) (any, error) {
-	if !m.deps.IsDatabaseValid() && !m.hasBackend() {
-		return nil, nil
-	}
-
 	marker, err := m.deps.ParserService.ParseMarkerCreate(e.Args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create marker: %w", err)
 	}
 
-	if m.hasBackend() {
-		coreObj := convert.MarkerToCore(marker)
-		m.backend.AddMarker(&coreObj)
-		// Cache the assigned ID so state updates can find this marker
-		m.deps.MarkerCache.Set(marker.MarkerName, coreObj.ID)
-	} else {
-		m.queues.Markers.Push(marker)
-	}
+	coreObj := convert.MarkerToCore(marker)
+	m.backend.AddMarker(&coreObj)
+	// Cache the assigned ID so state updates can find this marker
+	m.deps.MarkerCache.Set(marker.MarkerName, coreObj.ID)
 
 	return nil, nil
 }
 
 func (m *Manager) handleMarkerMove(e dispatcher.Event) (any, error) {
-	if !m.deps.IsDatabaseValid() && !m.hasBackend() {
-		return nil, nil
-	}
-
 	parsed, err := m.deps.ParserService.ParseMarkerMove(e.Args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to log marker move: %w", err)
@@ -450,44 +328,18 @@ func (m *Manager) handleMarkerMove(e dispatcher.Event) (any, error) {
 	}
 	parsed.State.MarkerID = markerID
 
-	if m.hasBackend() {
-		coreObj := convert.MarkerStateToCore(parsed.State)
-		m.backend.RecordMarkerState(&coreObj)
-	} else {
-		m.queues.MarkerStates.Push(parsed.State)
-	}
+	coreObj := convert.MarkerStateToCore(parsed.State)
+	m.backend.RecordMarkerState(&coreObj)
 
 	return nil, nil
 }
 
 func (m *Manager) handleMarkerDelete(e dispatcher.Event) (any, error) {
-	if !m.deps.IsDatabaseValid() && !m.hasBackend() {
-		return nil, nil
-	}
-
 	markerName, frameNo, err := m.deps.ParserService.ParseMarkerDelete(e.Args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete marker: %w", err)
 	}
 
-	if m.hasBackend() {
-		m.backend.DeleteMarker(markerName, frameNo)
-		return nil, nil
-	}
-
-	markerID, ok := m.deps.MarkerCache.Get(markerName)
-	if ok {
-		deleteState := model.MarkerState{
-			MarkerID:     markerID,
-			CaptureFrame: frameNo,
-			Time:         time.Now(),
-			Alpha:        0,
-		}
-		m.queues.MarkerStates.Push(deleteState)
-		if m.deps.DB != nil {
-			m.deps.DB.Model(&model.Marker{}).Where("id = ?", markerID).Update("is_deleted", true)
-		}
-	}
-
+	m.backend.DeleteMarker(markerName, frameNo)
 	return nil, nil
 }

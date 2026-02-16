@@ -475,13 +475,8 @@ func newTestDispatcher(t *testing.T) (*dispatcher.Dispatcher, *mockLogger) {
 func TestRegisterHandlers_RegistersAllCommands(t *testing.T) {
 	d, _ := newTestDispatcher(t)
 
-	deps := Dependencies{
-		IsDatabaseValid: func() bool { return false },
-		ShouldSaveLocal: func() bool { return false },
-		DBInsertsPaused: func() bool { return false },
-	}
-	queues := NewQueues()
-	manager := NewManager(deps, queues)
+	backend := &mockBackend{}
+	manager := NewManager(Dependencies{}, backend)
 
 	manager.RegisterHandlers(d)
 
@@ -509,74 +504,11 @@ func TestRegisterHandlers_RegistersAllCommands(t *testing.T) {
 	}
 }
 
-func TestHandler_NoDatabaseNoBackend_ReturnsNil(t *testing.T) {
-	d, _ := newTestDispatcher(t)
-
-	deps := Dependencies{
-		IsDatabaseValid: func() bool { return false },
-		ShouldSaveLocal: func() bool { return false },
-		DBInsertsPaused: func() bool { return false },
-	}
-	queues := NewQueues()
-	manager := NewManager(deps, queues)
-	manager.RegisterHandlers(d)
-
-	// Test that handlers do nothing when there's no valid database or backend
-	result, err := d.Dispatch(dispatcher.Event{Command: ":NEW:SOLDIER:", Args: []string{}})
-
-	assert.NoError(t, err)
-	assert.Nil(t, result, "expected nil result when no database/backend")
-}
-
-func TestSetBackend(t *testing.T) {
-	deps := Dependencies{
-		IsDatabaseValid: func() bool { return false },
-		ShouldSaveLocal: func() bool { return false },
-		DBInsertsPaused: func() bool { return false },
-	}
-	queues := NewQueues()
-	manager := NewManager(deps, queues)
-
-	assert.False(t, manager.hasBackend(), "expected no backend initially")
-
-	backend := &mockBackend{}
-	manager.SetBackend(backend)
-
-	assert.True(t, manager.hasBackend(), "expected backend to be set")
-}
-
-func TestNewQueues(t *testing.T) {
-	queues := NewQueues()
-
-	require.NotNil(t, queues, "expected non-nil queues")
-	assert.NotNil(t, queues.Soldiers, "expected Soldiers queue to be initialized")
-	assert.NotNil(t, queues.SoldierStates, "expected SoldierStates queue to be initialized")
-	assert.NotNil(t, queues.Vehicles, "expected Vehicles queue to be initialized")
-	assert.NotNil(t, queues.VehicleStates, "expected VehicleStates queue to be initialized")
-	assert.NotNil(t, queues.ProjectileEvents, "expected ProjectileEvents queue to be initialized")
-	assert.NotNil(t, queues.GeneralEvents, "expected GeneralEvents queue to be initialized")
-	assert.NotNil(t, queues.KillEvents, "expected KillEvents queue to be initialized")
-	assert.NotNil(t, queues.ChatEvents, "expected ChatEvents queue to be initialized")
-	assert.NotNil(t, queues.RadioEvents, "expected RadioEvents queue to be initialized")
-	assert.NotNil(t, queues.FpsEvents, "expected FpsEvents queue to be initialized")
-	assert.NotNil(t, queues.Ace3DeathEvents, "expected Ace3DeathEvents queue to be initialized")
-	assert.NotNil(t, queues.Ace3UnconsciousEvents, "expected Ace3UnconsciousEvents queue to be initialized")
-	assert.NotNil(t, queues.Markers, "expected Markers queue to be initialized")
-	assert.NotNil(t, queues.MarkerStates, "expected MarkerStates queue to be initialized")
-}
-
 func TestNewManager(t *testing.T) {
-	deps := Dependencies{
-		IsDatabaseValid: func() bool { return true },
-		ShouldSaveLocal: func() bool { return false },
-		DBInsertsPaused: func() bool { return false },
-	}
-	queues := NewQueues()
-
-	manager := NewManager(deps, queues)
+	backend := &mockBackend{}
+	manager := NewManager(Dependencies{}, backend)
 
 	require.NotNil(t, manager, "expected non-nil manager")
-	assert.False(t, manager.hasBackend(), "expected no backend initially")
 }
 
 func TestHandleNewSoldier_CachesEntityWithBackend(t *testing.T) {
@@ -587,18 +519,11 @@ func TestHandleNewSoldier_CachesEntityWithBackend(t *testing.T) {
 		soldier: model.Soldier{ObjectID: 42, UnitName: "Test Soldier"},
 	}
 
-	deps := Dependencies{
-		IsDatabaseValid:  func() bool { return false },
-		ShouldSaveLocal:  func() bool { return false },
-		DBInsertsPaused:  func() bool { return false },
-		ParserService:   parserService,
-		EntityCache:      entityCache,
-	}
-	queues := NewQueues()
-	manager := NewManager(deps, queues)
-
 	backend := &mockBackend{}
-	manager.SetBackend(backend)
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   entityCache,
+	}, backend)
 	manager.RegisterHandlers(d)
 
 	// Dispatch new soldier event
@@ -624,18 +549,11 @@ func TestHandleNewVehicle_CachesEntityWithBackend(t *testing.T) {
 		vehicle: model.Vehicle{ObjectID: 99, OcapType: "car"},
 	}
 
-	deps := Dependencies{
-		IsDatabaseValid:  func() bool { return false },
-		ShouldSaveLocal:  func() bool { return false },
-		DBInsertsPaused:  func() bool { return false },
-		ParserService:   parserService,
-		EntityCache:      entityCache,
-	}
-	queues := NewQueues()
-	manager := NewManager(deps, queues)
-
 	backend := &mockBackend{}
-	manager.SetBackend(backend)
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   entityCache,
+	}, backend)
 	manager.RegisterHandlers(d)
 
 	// Dispatch new vehicle event
@@ -653,40 +571,6 @@ func TestHandleNewVehicle_CachesEntityWithBackend(t *testing.T) {
 	assert.Equal(t, "car", cachedVehicle.OcapType)
 }
 
-func TestHandleNewSoldier_CachesEntityWithoutBackend(t *testing.T) {
-	d, _ := newTestDispatcher(t)
-	entityCache := cache.NewEntityCache()
-
-	parserService := &mockParserService{
-		soldier: model.Soldier{ObjectID: 55, UnitName: "Queue Soldier"},
-	}
-
-	deps := Dependencies{
-		IsDatabaseValid:  func() bool { return true }, // DB valid, no backend
-		ShouldSaveLocal:  func() bool { return false },
-		DBInsertsPaused:  func() bool { return false },
-		ParserService:   parserService,
-		EntityCache:      entityCache,
-	}
-	queues := NewQueues()
-	manager := NewManager(deps, queues)
-	// No backend set - should use queues
-	manager.RegisterHandlers(d)
-
-	// Dispatch new soldier event
-	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:SOLDIER:", Args: []string{}})
-
-	require.NoError(t, err)
-
-	// Verify soldier is in queue
-	assert.Equal(t, 1, queues.Soldiers.Len(), "expected 1 soldier in queue")
-
-	// Verify soldier is also in EntityCache
-	cachedSoldier, found := entityCache.GetSoldier(55)
-	assert.True(t, found, "expected soldier to be cached in EntityCache even when using queue")
-	assert.Equal(t, "Queue Soldier", cachedSoldier.UnitName)
-}
-
 func TestHandleSoldierState_ValidatesAndFillsGroupSide(t *testing.T) {
 	d, _ := newTestDispatcher(t)
 	entityCache := cache.NewEntityCache()
@@ -702,18 +586,11 @@ func TestHandleSoldierState_ValidatesAndFillsGroupSide(t *testing.T) {
 		},
 	}
 
-	deps := Dependencies{
-		IsDatabaseValid: func() bool { return false },
-		ShouldSaveLocal: func() bool { return false },
-		DBInsertsPaused: func() bool { return false },
-		ParserService:   parserService,
-		EntityCache:     entityCache,
-	}
-	queues := NewQueues()
-	manager := NewManager(deps, queues)
-
 	backend := &mockBackend{}
-	manager.SetBackend(backend)
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   entityCache,
+	}, backend)
 	manager.RegisterHandlers(d)
 
 	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:SOLDIER:STATE:", Args: []string{}})
@@ -752,15 +629,11 @@ func TestHandleSoldierState_ReturnsErrorWhenNotCached(t *testing.T) {
 		soldierState: model.SoldierState{SoldierObjectID: 999},
 	}
 
-	deps := Dependencies{
-		IsDatabaseValid: func() bool { return true },
-		ShouldSaveLocal: func() bool { return false },
-		DBInsertsPaused: func() bool { return false },
-		ParserService:   parserService,
-		EntityCache:     entityCache,
-	}
-	queues := NewQueues()
-	manager := NewManager(deps, queues)
+	backend := &mockBackend{}
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   entityCache,
+	}, backend)
 	manager.RegisterHandlers(d)
 
 	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:SOLDIER:STATE:", Args: []string{}})
@@ -769,8 +642,10 @@ func TestHandleSoldierState_ReturnsErrorWhenNotCached(t *testing.T) {
 	// Give buffer time to process
 	time.Sleep(200 * time.Millisecond)
 
-	// Queue should be empty since the soldier wasn't cached
-	assert.Equal(t, 0, queues.SoldierStates.Len(), "state should not be queued when soldier not cached")
+	// Backend should have no states since the soldier wasn't cached
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	assert.Equal(t, 0, len(backend.soldierStates), "state should not be recorded when soldier not cached")
 }
 
 func TestHandleVehicleState_ReturnsErrorWhenNotCached(t *testing.T) {
@@ -781,15 +656,11 @@ func TestHandleVehicleState_ReturnsErrorWhenNotCached(t *testing.T) {
 		vehicleState: model.VehicleState{VehicleObjectID: 888},
 	}
 
-	deps := Dependencies{
-		IsDatabaseValid: func() bool { return true },
-		ShouldSaveLocal: func() bool { return false },
-		DBInsertsPaused: func() bool { return false },
-		ParserService:   parserService,
-		EntityCache:     entityCache,
-	}
-	queues := NewQueues()
-	manager := NewManager(deps, queues)
+	backend := &mockBackend{}
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   entityCache,
+	}, backend)
 	manager.RegisterHandlers(d)
 
 	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:VEHICLE:STATE:", Args: []string{}})
@@ -797,7 +668,9 @@ func TestHandleVehicleState_ReturnsErrorWhenNotCached(t *testing.T) {
 
 	time.Sleep(200 * time.Millisecond)
 
-	assert.Equal(t, 0, queues.VehicleStates.Len(), "state should not be queued when vehicle not cached")
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	assert.Equal(t, 0, len(backend.vehicleStates), "state should not be recorded when vehicle not cached")
 }
 
 func TestHandleKillEvent_ClassifiesVictimAndKiller(t *testing.T) {
@@ -816,18 +689,11 @@ func TestHandleKillEvent_ClassifiesVictimAndKiller(t *testing.T) {
 		},
 	}
 
-	deps := Dependencies{
-		IsDatabaseValid: func() bool { return false },
-		ShouldSaveLocal: func() bool { return false },
-		DBInsertsPaused: func() bool { return false },
-		ParserService:   parserService,
-		EntityCache:     entityCache,
-	}
-	queues := NewQueues()
-	manager := NewManager(deps, queues)
-
 	backend := &mockBackend{}
-	manager.SetBackend(backend)
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   entityCache,
+	}, backend)
 	manager.RegisterHandlers(d)
 
 	_, err := d.Dispatch(dispatcher.Event{Command: ":KILL:", Args: []string{}})
@@ -900,19 +766,12 @@ func TestHandleProjectile_ClassifiesHitParts(t *testing.T) {
 		},
 	}
 
-	deps := Dependencies{
-		IsDatabaseValid: func() bool { return false },
-		ShouldSaveLocal: func() bool { return false },
-		DBInsertsPaused: func() bool { return false },
-		ParserService:   parserService,
-		EntityCache:     entityCache,
-		MarkerCache:     cache.NewMarkerCache(),
-	}
-	queues := NewQueues()
-	manager := NewManager(deps, queues)
-
 	backend := &mockBackend{}
-	manager.SetBackend(backend)
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   entityCache,
+		MarkerCache:   cache.NewMarkerCache(),
+	}, backend)
 	manager.RegisterHandlers(d)
 
 	_, err := d.Dispatch(dispatcher.Event{Command: ":PROJECTILE:", Args: []string{}})
@@ -988,19 +847,12 @@ func TestHandleProjectile_RecordsProjectileEvent(t *testing.T) {
 		},
 	}
 
-	deps := Dependencies{
-		IsDatabaseValid: func() bool { return false },
-		ShouldSaveLocal: func() bool { return false },
-		DBInsertsPaused: func() bool { return false },
-		ParserService:  parserService,
-		EntityCache:     cache.NewEntityCache(),
-		MarkerCache:     cache.NewMarkerCache(),
-	}
-	queues := NewQueues()
-	manager := NewManager(deps, queues)
-
 	backend := &mockBackend{}
-	manager.SetBackend(backend)
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   cache.NewEntityCache(),
+		MarkerCache:   cache.NewMarkerCache(),
+	}, backend)
 	manager.RegisterHandlers(d)
 
 	// Dispatch a projectile event
@@ -1061,19 +913,12 @@ func TestHandleMarkerMove_ResolvesMarkerName(t *testing.T) {
 		},
 	}
 
-	deps := Dependencies{
-		IsDatabaseValid: func() bool { return false },
-		ShouldSaveLocal: func() bool { return false },
-		DBInsertsPaused: func() bool { return false },
-		ParserService:   parserService,
-		EntityCache:     cache.NewEntityCache(),
-		MarkerCache:     markerCache,
-	}
-	queues := NewQueues()
-	manager := NewManager(deps, queues)
-
 	backend := &mockBackend{}
-	manager.SetBackend(backend)
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   cache.NewEntityCache(),
+		MarkerCache:   markerCache,
+	}, backend)
 	manager.RegisterHandlers(d)
 
 	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:MARKER:STATE:", Args: []string{}})
@@ -1113,15 +958,11 @@ func TestHandleChatEvent_ValidatesSender(t *testing.T) {
 		},
 	}
 
-	deps := Dependencies{
-		IsDatabaseValid: func() bool { return true },
-		ShouldSaveLocal: func() bool { return false },
-		DBInsertsPaused: func() bool { return false },
-		ParserService:   parserService,
-		EntityCache:     entityCache,
-	}
-	queues := NewQueues()
-	manager := NewManager(deps, queues)
+	backend := &mockBackend{}
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   entityCache,
+	}, backend)
 	manager.RegisterHandlers(d)
 
 	_, err := d.Dispatch(dispatcher.Event{Command: ":CHAT:", Args: []string{}})
@@ -1129,8 +970,10 @@ func TestHandleChatEvent_ValidatesSender(t *testing.T) {
 
 	time.Sleep(200 * time.Millisecond)
 
-	// Chat event should not be queued since sender doesn't exist
-	assert.Equal(t, 0, queues.ChatEvents.Len(), "chat event should not be queued when sender not cached")
+	// Chat event should not be recorded since sender doesn't exist
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	assert.Equal(t, 0, len(backend.chatEvents), "chat event should not be recorded when sender not cached")
 }
 
 func TestHandleMarkerDelete_WithBackend(t *testing.T) {
@@ -1143,19 +986,12 @@ func TestHandleMarkerDelete_WithBackend(t *testing.T) {
 		deleteFrame:   500,
 	}
 
-	deps := Dependencies{
-		IsDatabaseValid: func() bool { return false },
-		ShouldSaveLocal: func() bool { return false },
-		DBInsertsPaused: func() bool { return false },
-		ParserService:  parserService,
-		EntityCache:     cache.NewEntityCache(),
-		MarkerCache:     markerCache,
-	}
-	queues := NewQueues()
-	manager := NewManager(deps, queues)
-
 	backend := &mockBackend{}
-	manager.SetBackend(backend)
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   cache.NewEntityCache(),
+		MarkerCache:   markerCache,
+	}, backend)
 	manager.RegisterHandlers(d)
 
 	// First create a marker so it exists in cache (sync handler)

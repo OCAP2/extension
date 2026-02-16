@@ -37,6 +37,7 @@ import (
 	"github.com/OCAP2/extension/v5/internal/monitor"
 	intOtel "github.com/OCAP2/extension/v5/internal/otel"
 	"github.com/OCAP2/extension/v5/internal/storage"
+	gormstorage "github.com/OCAP2/extension/v5/internal/storage/gorm"
 	"github.com/OCAP2/extension/v5/internal/storage/memory"
 	"github.com/OCAP2/extension/v5/internal/util"
 	"github.com/OCAP2/extension/v5/internal/worker"
@@ -129,7 +130,6 @@ var (
 	missionCtx      *mission.Context
 	workerManager   *worker.Manager
 	monitorService  *monitor.Service
-	queues          *worker.Queues
 	eventDispatcher *dispatcher.Dispatcher
 
 	// Storage backend (optional)
@@ -518,45 +518,45 @@ func setupDB(db *gorm.DB) (err error) {
 func startGoroutines() (err error) {
 	functionName := "startGoroutines"
 
-	// Initialize queues
-	queues = worker.NewQueues()
-
 	// Initialize mission context
 	missionCtx = mission.NewContext()
 
 	// Initialize handler service
 	parserService = parser.NewParser(Logger)
 
-	// Initialize worker manager
-	workerManager = worker.NewManager(worker.Dependencies{
-		DB:              DB,
-		EntityCache:     EntityCache,
-		MarkerCache:     MarkerCache,
-		LogManager:      SlogManager,
-		ParserService:   parserService,
-		MissionContext:  missionCtx,
-		IsDatabaseValid: func() bool { return IsDatabaseValid },
-		ShouldSaveLocal: func() bool { return ShouldSaveLocal },
-		DBInsertsPaused: func() bool { return DBInsertsPaused },
-	}, queues)
-
-	// Initialize storage backend if configured for memory mode
+	// Initialize storage backend based on config
 	storageCfg := config.GetStorageConfig()
 	if storageCfg.Type == "memory" {
 		storageBackend = memory.New(storageCfg.Memory)
 		storageBackend.Init()
-		workerManager.SetBackend(storageBackend)
 		Logger.Info("Memory storage backend initialized")
+	} else {
+		storageBackend = gormstorage.New(gormstorage.Dependencies{
+			DB:              DB,
+			EntityCache:     EntityCache,
+			MarkerCache:     MarkerCache,
+			LogManager:      SlogManager,
+			MissionContext:  missionCtx,
+			IsDatabaseValid: func() bool { return IsDatabaseValid },
+			ShouldSaveLocal: func() bool { return ShouldSaveLocal },
+			DBInsertsPaused: func() bool { return DBInsertsPaused },
+		})
+		storageBackend.Init()
+		Logger.Info("GORM storage backend initialized")
 	}
+
+	// Initialize worker manager
+	workerManager = worker.NewManager(worker.Dependencies{
+		EntityCache:   EntityCache,
+		MarkerCache:   MarkerCache,
+		LogManager:    SlogManager,
+		ParserService: parserService,
+	}, storageBackend)
 
 	// Register worker handlers with the early dispatcher (created in setupA3Interface)
 	Logger.Debug("Registering worker handlers with dispatcher")
 	workerManager.RegisterHandlers(eventDispatcher)
 	Logger.Info("Worker handlers registered with dispatcher")
-
-	// Start DB writers (processes queues filled by dispatcher handlers)
-	Logger.Debug("Starting DB writers")
-	workerManager.StartDBWriters()
 
 	// Initialize monitor service
 	monitorService = monitor.NewService(monitor.Dependencies{
@@ -564,7 +564,6 @@ func startGoroutines() (err error) {
 		LogManager:      SlogManager,
 		MissionContext:  missionCtx,
 		WorkerManager:   workerManager,
-		Queues:          queues,
 		AddonFolder:     AddonFolder,
 		IsDatabaseValid: func() bool { return IsDatabaseValid },
 	})
