@@ -1,4 +1,4 @@
-// internal/model/core/mission.go
+// pkg/core/mission.go
 package core
 
 import "time"

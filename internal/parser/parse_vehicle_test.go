@@ -3,7 +3,7 @@ package parser
 import (
 	"testing"
 
-	"github.com/OCAP2/extension/v5/internal/model"
+	"github.com/OCAP2/extension/v5/pkg/core"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -14,7 +14,7 @@ func TestParseVehicle(t *testing.T) {
 	tests := []struct {
 		name    string
 		input   []string
-		check   func(t *testing.T, v model.Vehicle)
+		check   func(t *testing.T, v core.Vehicle)
 		wantErr bool
 	}{
 		{
@@ -27,9 +27,9 @@ func TestParseVehicle(t *testing.T) {
 				"B_Heli_Transport_01_F",     // 4: className
 				`[["Black",1],[]]`,          // 5: customization
 			},
-			check: func(t *testing.T, v model.Vehicle) {
+			check: func(t *testing.T, v core.Vehicle) {
 				assert.Equal(t, uint(0), v.JoinFrame)
-				assert.Equal(t, uint16(30), v.ObjectID)
+				assert.Equal(t, uint16(30), v.ID)
 				assert.Equal(t, "heli", v.OcapType)
 				assert.Equal(t, "UH-80 Ghost Hawk", v.DisplayName)
 				assert.Equal(t, "B_Heli_Transport_01_F", v.ClassName)
@@ -46,8 +46,8 @@ func TestParseVehicle(t *testing.T) {
 				"O_APC_Wheeled_02_rcws_F",    // 4: className
 				`[["Hex",1],[]]`,             // 5: customization
 			},
-			check: func(t *testing.T, v model.Vehicle) {
-				assert.Equal(t, uint16(33), v.ObjectID)
+			check: func(t *testing.T, v core.Vehicle) {
+				assert.Equal(t, uint16(33), v.ID)
 				assert.Equal(t, "apc", v.OcapType)
 				assert.Equal(t, "MSE-3 Marid", v.DisplayName)
 			},
@@ -62,8 +62,8 @@ func TestParseVehicle(t *testing.T) {
 				"C_Hatchback_01_F",      // 4: className
 				`[["Yellow",1],[]]`,     // 5: customization
 			},
-			check: func(t *testing.T, v model.Vehicle) {
-				assert.Equal(t, uint16(7), v.ObjectID)
+			check: func(t *testing.T, v core.Vehicle) {
+				assert.Equal(t, uint16(7), v.ID)
 				assert.Equal(t, "car", v.OcapType)
 			},
 		},
@@ -72,9 +72,9 @@ func TestParseVehicle(t *testing.T) {
 			input: []string{
 				"10.00", "50.00", "boat", "Speedboat", "C_Boat_Civil_01_F", "[]",
 			},
-			check: func(t *testing.T, v model.Vehicle) {
+			check: func(t *testing.T, v core.Vehicle) {
 				assert.Equal(t, uint(10), v.JoinFrame)
-				assert.Equal(t, uint16(50), v.ObjectID)
+				assert.Equal(t, uint16(50), v.ID)
 			},
 		},
 		{
@@ -139,7 +139,7 @@ func TestParseVehicleState_CrewPreservesBrackets(t *testing.T) {
 			state, err := p.ParseVehicleState(data)
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedCrew, state.Crew)
-			assert.Equal(t, uint16(10), state.VehicleObjectID)
+			assert.Equal(t, uint16(10), state.VehicleID)
 		})
 	}
 }
@@ -167,7 +167,7 @@ func TestParseVehicleState_FloatOcapId(t *testing.T) {
 
 	state, err := p.ParseVehicleState(data)
 	require.NoError(t, err)
-	assert.Equal(t, uint16(32), state.VehicleObjectID)
+	assert.Equal(t, uint16(32), state.VehicleID)
 }
 
 func TestParseVehicleState_AllFields(t *testing.T) {
@@ -176,7 +176,7 @@ func TestParseVehicleState_AllFields(t *testing.T) {
 	tests := []struct {
 		name    string
 		input   []string
-		check   func(t *testing.T, v model.VehicleState)
+		check   func(t *testing.T, v core.VehicleState)
 		wantErr bool
 	}{
 		{
@@ -198,8 +198,8 @@ func TestParseVehicleState_AllFields(t *testing.T) {
 				"90.5",               // 13: turretAzimuth
 				"-5.2",               // 14: turretElevation
 			},
-			check: func(t *testing.T, v model.VehicleState) {
-				assert.Equal(t, uint16(10), v.VehicleObjectID)
+			check: func(t *testing.T, v core.VehicleState) {
+				assert.Equal(t, uint16(10), v.VehicleID)
 				assert.Equal(t, uint(500), v.CaptureFrame)
 				assert.True(t, v.IsAlive)
 				assert.Equal(t, "[20,21,22]", v.Crew)
@@ -213,7 +213,7 @@ func TestParseVehicleState_AllFields(t *testing.T) {
 				assert.InDelta(t, float32(90.5), v.TurretAzimuth, 0.01)
 				assert.InDelta(t, float32(-5.2), v.TurretElevation, 0.01)
 				assert.Equal(t, uint16(270), v.Bearing)
-				assert.False(t, v.Position.IsEmpty())
+				assert.NotEqual(t, core.Position3D{}, v.Position)
 			},
 		},
 		{
@@ -235,7 +235,7 @@ func TestParseVehicleState_AllFields(t *testing.T) {
 				"0",                   // 13: turretAzimuth
 				"0",                   // 14: turretElevation
 			},
-			check: func(t *testing.T, v model.VehicleState) {
+			check: func(t *testing.T, v core.VehicleState) {
 				assert.False(t, v.IsAlive)
 				assert.Equal(t, float32(0), v.Fuel)
 				assert.Equal(t, float32(1.0), v.Damage)
@@ -261,7 +261,7 @@ func TestParseVehicleState_AllFields(t *testing.T) {
 				"180.0",                    // 13: turretAzimuth
 				"-30.0",                    // 14: turretElevation
 			},
-			check: func(t *testing.T, v model.VehicleState) {
+			check: func(t *testing.T, v core.VehicleState) {
 				assert.True(t, v.IsAlive)
 				assert.True(t, v.Locked)
 				assert.Equal(t, uint16(45), v.Bearing)
@@ -269,7 +269,7 @@ func TestParseVehicleState_AllFields(t *testing.T) {
 				assert.InDelta(t, float32(0.1), v.Damage, 0.01)
 				assert.InDelta(t, float32(180.0), v.TurretAzimuth, 0.01)
 				assert.InDelta(t, float32(-30.0), v.TurretElevation, 0.01)
-				assert.True(t, v.ElevationASL > 0)
+				assert.True(t, v.Position.Z > 0)
 			},
 		},
 	}

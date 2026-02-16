@@ -1,8 +1,6 @@
 package worker
 
 import (
-	"database/sql"
-	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -10,10 +8,8 @@ import (
 
 	"github.com/OCAP2/extension/v5/internal/cache"
 	"github.com/OCAP2/extension/v5/internal/dispatcher"
-	"github.com/OCAP2/extension/v5/internal/model"
-	"github.com/OCAP2/extension/v5/internal/model/core"
+	"github.com/OCAP2/extension/v5/pkg/core"
 	"github.com/OCAP2/extension/v5/internal/parser"
-	geom "github.com/peterstace/simplefeatures/geom"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -265,23 +261,23 @@ type mockParserService struct {
 	mu sync.Mutex
 
 	// Return values
-	mission       model.Mission
-	world         model.World
-	soldier       model.Soldier
-	vehicle       model.Vehicle
-	soldierState  model.SoldierState
-	vehicleState  model.VehicleState
-	projectile    parser.ParsedProjectileEvent
-	generalEvent  model.GeneralEvent
-	killEvent     parser.ParsedKillEvent
-	chatEvent     model.ChatEvent
-	radioEvent    model.RadioEvent
-	fpsEvent      model.ServerFpsEvent
-	timeState     model.TimeState
-	ace3Death     model.Ace3DeathEvent
-	ace3Uncon     model.Ace3UnconsciousEvent
-	marker        model.Marker
-	markerMove    parser.ParsedMarkerMove
+	mission       core.Mission
+	world         core.World
+	soldier       core.Soldier
+	vehicle       core.Vehicle
+	soldierState  core.SoldierState
+	vehicleState  core.VehicleState
+	projectile    parser.ProjectileEvent
+	generalEvent  core.GeneralEvent
+	killEvent     parser.KillEvent
+	chatEvent     core.ChatEvent
+	radioEvent    core.RadioEvent
+	fpsEvent      core.ServerFpsEvent
+	timeState     core.TimeState
+	ace3Death     core.Ace3DeathEvent
+	ace3Uncon     core.Ace3UnconsciousEvent
+	marker        core.Marker
+	markerMove    parser.MarkerMove
 	deletedMarker string
 	deleteFrame   uint
 
@@ -293,162 +289,162 @@ type mockParserService struct {
 	calls []string
 }
 
-func (h *mockParserService) ParseMission(args []string) (model.Mission, model.World, error) {
+func (h *mockParserService) ParseMission(args []string) (core.Mission, core.World, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.calls = append(h.calls, "ParseMission")
 	if h.returnError {
-		return model.Mission{}, model.World{}, errors.New(h.errorMsg)
+		return core.Mission{}, core.World{}, errors.New(h.errorMsg)
 	}
 	return h.mission, h.world, nil
 }
 
-func (h *mockParserService) ParseSoldier(args []string) (model.Soldier, error) {
+func (h *mockParserService) ParseSoldier(args []string) (core.Soldier, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.calls = append(h.calls, "ParseSoldier")
 	if h.returnError {
-		return model.Soldier{}, errors.New(h.errorMsg)
+		return core.Soldier{}, errors.New(h.errorMsg)
 	}
 	return h.soldier, nil
 }
 
-func (h *mockParserService) ParseVehicle(args []string) (model.Vehicle, error) {
+func (h *mockParserService) ParseVehicle(args []string) (core.Vehicle, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.calls = append(h.calls, "ParseVehicle")
 	if h.returnError {
-		return model.Vehicle{}, errors.New(h.errorMsg)
+		return core.Vehicle{}, errors.New(h.errorMsg)
 	}
 	return h.vehicle, nil
 }
 
-func (h *mockParserService) ParseSoldierState(args []string) (model.SoldierState, error) {
+func (h *mockParserService) ParseSoldierState(args []string) (core.SoldierState, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.calls = append(h.calls, "ParseSoldierState")
 	if h.returnError {
-		return model.SoldierState{}, errors.New(h.errorMsg)
+		return core.SoldierState{}, errors.New(h.errorMsg)
 	}
 	return h.soldierState, nil
 }
 
-func (h *mockParserService) ParseVehicleState(args []string) (model.VehicleState, error) {
+func (h *mockParserService) ParseVehicleState(args []string) (core.VehicleState, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.calls = append(h.calls, "ParseVehicleState")
 	if h.returnError {
-		return model.VehicleState{}, errors.New(h.errorMsg)
+		return core.VehicleState{}, errors.New(h.errorMsg)
 	}
 	return h.vehicleState, nil
 }
 
-func (h *mockParserService) ParseProjectileEvent(args []string) (parser.ParsedProjectileEvent, error) {
+func (h *mockParserService) ParseProjectileEvent(args []string) (parser.ProjectileEvent, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.calls = append(h.calls, "ParseProjectileEvent")
 	if h.returnError {
-		return parser.ParsedProjectileEvent{}, errors.New(h.errorMsg)
+		return parser.ProjectileEvent{}, errors.New(h.errorMsg)
 	}
 	return h.projectile, nil
 }
 
-func (h *mockParserService) ParseGeneralEvent(args []string) (model.GeneralEvent, error) {
+func (h *mockParserService) ParseGeneralEvent(args []string) (core.GeneralEvent, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.calls = append(h.calls, "ParseGeneralEvent")
 	if h.returnError {
-		return model.GeneralEvent{}, errors.New(h.errorMsg)
+		return core.GeneralEvent{}, errors.New(h.errorMsg)
 	}
 	return h.generalEvent, nil
 }
 
-func (h *mockParserService) ParseKillEvent(args []string) (parser.ParsedKillEvent, error) {
+func (h *mockParserService) ParseKillEvent(args []string) (parser.KillEvent, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.calls = append(h.calls, "ParseKillEvent")
 	if h.returnError {
-		return parser.ParsedKillEvent{}, errors.New(h.errorMsg)
+		return parser.KillEvent{}, errors.New(h.errorMsg)
 	}
 	return h.killEvent, nil
 }
 
-func (h *mockParserService) ParseChatEvent(args []string) (model.ChatEvent, error) {
+func (h *mockParserService) ParseChatEvent(args []string) (core.ChatEvent, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.calls = append(h.calls, "ParseChatEvent")
 	if h.returnError {
-		return model.ChatEvent{}, errors.New(h.errorMsg)
+		return core.ChatEvent{}, errors.New(h.errorMsg)
 	}
 	return h.chatEvent, nil
 }
 
-func (h *mockParserService) ParseRadioEvent(args []string) (model.RadioEvent, error) {
+func (h *mockParserService) ParseRadioEvent(args []string) (core.RadioEvent, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.calls = append(h.calls, "ParseRadioEvent")
 	if h.returnError {
-		return model.RadioEvent{}, errors.New(h.errorMsg)
+		return core.RadioEvent{}, errors.New(h.errorMsg)
 	}
 	return h.radioEvent, nil
 }
 
-func (h *mockParserService) ParseFpsEvent(args []string) (model.ServerFpsEvent, error) {
+func (h *mockParserService) ParseFpsEvent(args []string) (core.ServerFpsEvent, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.calls = append(h.calls, "ParseFpsEvent")
 	if h.returnError {
-		return model.ServerFpsEvent{}, errors.New(h.errorMsg)
+		return core.ServerFpsEvent{}, errors.New(h.errorMsg)
 	}
 	return h.fpsEvent, nil
 }
 
-func (h *mockParserService) ParseTimeState(args []string) (model.TimeState, error) {
+func (h *mockParserService) ParseTimeState(args []string) (core.TimeState, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.calls = append(h.calls, "ParseTimeState")
 	if h.returnError {
-		return model.TimeState{}, errors.New(h.errorMsg)
+		return core.TimeState{}, errors.New(h.errorMsg)
 	}
 	return h.timeState, nil
 }
 
-func (h *mockParserService) ParseAce3DeathEvent(args []string) (model.Ace3DeathEvent, error) {
+func (h *mockParserService) ParseAce3DeathEvent(args []string) (core.Ace3DeathEvent, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.calls = append(h.calls, "ParseAce3DeathEvent")
 	if h.returnError {
-		return model.Ace3DeathEvent{}, errors.New(h.errorMsg)
+		return core.Ace3DeathEvent{}, errors.New(h.errorMsg)
 	}
 	return h.ace3Death, nil
 }
 
-func (h *mockParserService) ParseAce3UnconsciousEvent(args []string) (model.Ace3UnconsciousEvent, error) {
+func (h *mockParserService) ParseAce3UnconsciousEvent(args []string) (core.Ace3UnconsciousEvent, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.calls = append(h.calls, "ParseAce3UnconsciousEvent")
 	if h.returnError {
-		return model.Ace3UnconsciousEvent{}, errors.New(h.errorMsg)
+		return core.Ace3UnconsciousEvent{}, errors.New(h.errorMsg)
 	}
 	return h.ace3Uncon, nil
 }
 
-func (h *mockParserService) ParseMarkerCreate(args []string) (model.Marker, error) {
+func (h *mockParserService) ParseMarkerCreate(args []string) (core.Marker, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.calls = append(h.calls, "ParseMarkerCreate")
 	if h.returnError {
-		return model.Marker{}, errors.New(h.errorMsg)
+		return core.Marker{}, errors.New(h.errorMsg)
 	}
 	return h.marker, nil
 }
 
-func (h *mockParserService) ParseMarkerMove(args []string) (parser.ParsedMarkerMove, error) {
+func (h *mockParserService) ParseMarkerMove(args []string) (parser.MarkerMove, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.calls = append(h.calls, "ParseMarkerMove")
 	if h.returnError {
-		return parser.ParsedMarkerMove{}, errors.New(h.errorMsg)
+		return parser.MarkerMove{}, errors.New(h.errorMsg)
 	}
 	return h.markerMove, nil
 }
@@ -475,13 +471,8 @@ func newTestDispatcher(t *testing.T) (*dispatcher.Dispatcher, *mockLogger) {
 func TestRegisterHandlers_RegistersAllCommands(t *testing.T) {
 	d, _ := newTestDispatcher(t)
 
-	deps := Dependencies{
-		IsDatabaseValid: func() bool { return false },
-		ShouldSaveLocal: func() bool { return false },
-		DBInsertsPaused: func() bool { return false },
-	}
-	queues := NewQueues()
-	manager := NewManager(deps, queues)
+	backend := &mockBackend{}
+	manager := NewManager(Dependencies{}, backend)
 
 	manager.RegisterHandlers(d)
 
@@ -509,74 +500,11 @@ func TestRegisterHandlers_RegistersAllCommands(t *testing.T) {
 	}
 }
 
-func TestHandler_NoDatabaseNoBackend_ReturnsNil(t *testing.T) {
-	d, _ := newTestDispatcher(t)
-
-	deps := Dependencies{
-		IsDatabaseValid: func() bool { return false },
-		ShouldSaveLocal: func() bool { return false },
-		DBInsertsPaused: func() bool { return false },
-	}
-	queues := NewQueues()
-	manager := NewManager(deps, queues)
-	manager.RegisterHandlers(d)
-
-	// Test that handlers do nothing when there's no valid database or backend
-	result, err := d.Dispatch(dispatcher.Event{Command: ":NEW:SOLDIER:", Args: []string{}})
-
-	assert.NoError(t, err)
-	assert.Nil(t, result, "expected nil result when no database/backend")
-}
-
-func TestSetBackend(t *testing.T) {
-	deps := Dependencies{
-		IsDatabaseValid: func() bool { return false },
-		ShouldSaveLocal: func() bool { return false },
-		DBInsertsPaused: func() bool { return false },
-	}
-	queues := NewQueues()
-	manager := NewManager(deps, queues)
-
-	assert.False(t, manager.hasBackend(), "expected no backend initially")
-
-	backend := &mockBackend{}
-	manager.SetBackend(backend)
-
-	assert.True(t, manager.hasBackend(), "expected backend to be set")
-}
-
-func TestNewQueues(t *testing.T) {
-	queues := NewQueues()
-
-	require.NotNil(t, queues, "expected non-nil queues")
-	assert.NotNil(t, queues.Soldiers, "expected Soldiers queue to be initialized")
-	assert.NotNil(t, queues.SoldierStates, "expected SoldierStates queue to be initialized")
-	assert.NotNil(t, queues.Vehicles, "expected Vehicles queue to be initialized")
-	assert.NotNil(t, queues.VehicleStates, "expected VehicleStates queue to be initialized")
-	assert.NotNil(t, queues.ProjectileEvents, "expected ProjectileEvents queue to be initialized")
-	assert.NotNil(t, queues.GeneralEvents, "expected GeneralEvents queue to be initialized")
-	assert.NotNil(t, queues.KillEvents, "expected KillEvents queue to be initialized")
-	assert.NotNil(t, queues.ChatEvents, "expected ChatEvents queue to be initialized")
-	assert.NotNil(t, queues.RadioEvents, "expected RadioEvents queue to be initialized")
-	assert.NotNil(t, queues.FpsEvents, "expected FpsEvents queue to be initialized")
-	assert.NotNil(t, queues.Ace3DeathEvents, "expected Ace3DeathEvents queue to be initialized")
-	assert.NotNil(t, queues.Ace3UnconsciousEvents, "expected Ace3UnconsciousEvents queue to be initialized")
-	assert.NotNil(t, queues.Markers, "expected Markers queue to be initialized")
-	assert.NotNil(t, queues.MarkerStates, "expected MarkerStates queue to be initialized")
-}
-
 func TestNewManager(t *testing.T) {
-	deps := Dependencies{
-		IsDatabaseValid: func() bool { return true },
-		ShouldSaveLocal: func() bool { return false },
-		DBInsertsPaused: func() bool { return false },
-	}
-	queues := NewQueues()
-
-	manager := NewManager(deps, queues)
+	backend := &mockBackend{}
+	manager := NewManager(Dependencies{}, backend)
 
 	require.NotNil(t, manager, "expected non-nil manager")
-	assert.False(t, manager.hasBackend(), "expected no backend initially")
 }
 
 func TestHandleNewSoldier_CachesEntityWithBackend(t *testing.T) {
@@ -584,21 +512,14 @@ func TestHandleNewSoldier_CachesEntityWithBackend(t *testing.T) {
 	entityCache := cache.NewEntityCache()
 
 	parserService := &mockParserService{
-		soldier: model.Soldier{ObjectID: 42, UnitName: "Test Soldier"},
+		soldier: core.Soldier{ID: 42, UnitName: "Test Soldier"},
 	}
-
-	deps := Dependencies{
-		IsDatabaseValid:  func() bool { return false },
-		ShouldSaveLocal:  func() bool { return false },
-		DBInsertsPaused:  func() bool { return false },
-		ParserService:   parserService,
-		EntityCache:      entityCache,
-	}
-	queues := NewQueues()
-	manager := NewManager(deps, queues)
 
 	backend := &mockBackend{}
-	manager.SetBackend(backend)
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   entityCache,
+	}, backend)
 	manager.RegisterHandlers(d)
 
 	// Dispatch new soldier event
@@ -621,21 +542,14 @@ func TestHandleNewVehicle_CachesEntityWithBackend(t *testing.T) {
 	entityCache := cache.NewEntityCache()
 
 	parserService := &mockParserService{
-		vehicle: model.Vehicle{ObjectID: 99, OcapType: "car"},
+		vehicle: core.Vehicle{ID: 99, OcapType: "car"},
 	}
-
-	deps := Dependencies{
-		IsDatabaseValid:  func() bool { return false },
-		ShouldSaveLocal:  func() bool { return false },
-		DBInsertsPaused:  func() bool { return false },
-		ParserService:   parserService,
-		EntityCache:      entityCache,
-	}
-	queues := NewQueues()
-	manager := NewManager(deps, queues)
 
 	backend := &mockBackend{}
-	manager.SetBackend(backend)
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   entityCache,
+	}, backend)
 	manager.RegisterHandlers(d)
 
 	// Dispatch new vehicle event
@@ -653,67 +567,26 @@ func TestHandleNewVehicle_CachesEntityWithBackend(t *testing.T) {
 	assert.Equal(t, "car", cachedVehicle.OcapType)
 }
 
-func TestHandleNewSoldier_CachesEntityWithoutBackend(t *testing.T) {
-	d, _ := newTestDispatcher(t)
-	entityCache := cache.NewEntityCache()
-
-	parserService := &mockParserService{
-		soldier: model.Soldier{ObjectID: 55, UnitName: "Queue Soldier"},
-	}
-
-	deps := Dependencies{
-		IsDatabaseValid:  func() bool { return true }, // DB valid, no backend
-		ShouldSaveLocal:  func() bool { return false },
-		DBInsertsPaused:  func() bool { return false },
-		ParserService:   parserService,
-		EntityCache:      entityCache,
-	}
-	queues := NewQueues()
-	manager := NewManager(deps, queues)
-	// No backend set - should use queues
-	manager.RegisterHandlers(d)
-
-	// Dispatch new soldier event
-	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:SOLDIER:", Args: []string{}})
-
-	require.NoError(t, err)
-
-	// Verify soldier is in queue
-	assert.Equal(t, 1, queues.Soldiers.Len(), "expected 1 soldier in queue")
-
-	// Verify soldier is also in EntityCache
-	cachedSoldier, found := entityCache.GetSoldier(55)
-	assert.True(t, found, "expected soldier to be cached in EntityCache even when using queue")
-	assert.Equal(t, "Queue Soldier", cachedSoldier.UnitName)
-}
-
 func TestHandleSoldierState_ValidatesAndFillsGroupSide(t *testing.T) {
 	d, _ := newTestDispatcher(t)
 	entityCache := cache.NewEntityCache()
 
 	// Pre-cache a soldier with GroupID and Side
-	entityCache.AddSoldier(model.Soldier{ObjectID: 10, GroupID: "Alpha 1", Side: "WEST"})
+	entityCache.AddSoldier(core.Soldier{ID: 10, GroupID: "Alpha 1", Side: "WEST"})
 
 	parserService := &mockParserService{
-		soldierState: model.SoldierState{
-			SoldierObjectID: 10,
-			GroupID:         "", // empty - should be filled from cache
-			Side:            "", // empty - should be filled from cache
+		soldierState: core.SoldierState{
+			SoldierID: 10,
+			GroupID:   "", // empty - should be filled from cache
+			Side:      "", // empty - should be filled from cache
 		},
 	}
 
-	deps := Dependencies{
-		IsDatabaseValid: func() bool { return false },
-		ShouldSaveLocal: func() bool { return false },
-		DBInsertsPaused: func() bool { return false },
-		ParserService:   parserService,
-		EntityCache:     entityCache,
-	}
-	queues := NewQueues()
-	manager := NewManager(deps, queues)
-
 	backend := &mockBackend{}
-	manager.SetBackend(backend)
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   entityCache,
+	}, backend)
 	manager.RegisterHandlers(d)
 
 	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:SOLDIER:STATE:", Args: []string{}})
@@ -749,18 +622,14 @@ func TestHandleSoldierState_ReturnsErrorWhenNotCached(t *testing.T) {
 	// No soldier cached
 
 	parserService := &mockParserService{
-		soldierState: model.SoldierState{SoldierObjectID: 999},
+		soldierState: core.SoldierState{SoldierID: 999},
 	}
 
-	deps := Dependencies{
-		IsDatabaseValid: func() bool { return true },
-		ShouldSaveLocal: func() bool { return false },
-		DBInsertsPaused: func() bool { return false },
-		ParserService:   parserService,
-		EntityCache:     entityCache,
-	}
-	queues := NewQueues()
-	manager := NewManager(deps, queues)
+	backend := &mockBackend{}
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   entityCache,
+	}, backend)
 	manager.RegisterHandlers(d)
 
 	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:SOLDIER:STATE:", Args: []string{}})
@@ -769,8 +638,10 @@ func TestHandleSoldierState_ReturnsErrorWhenNotCached(t *testing.T) {
 	// Give buffer time to process
 	time.Sleep(200 * time.Millisecond)
 
-	// Queue should be empty since the soldier wasn't cached
-	assert.Equal(t, 0, queues.SoldierStates.Len(), "state should not be queued when soldier not cached")
+	// Backend should have no states since the soldier wasn't cached
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	assert.Equal(t, 0, len(backend.soldierStates), "state should not be recorded when soldier not cached")
 }
 
 func TestHandleVehicleState_ReturnsErrorWhenNotCached(t *testing.T) {
@@ -778,18 +649,14 @@ func TestHandleVehicleState_ReturnsErrorWhenNotCached(t *testing.T) {
 	entityCache := cache.NewEntityCache()
 
 	parserService := &mockParserService{
-		vehicleState: model.VehicleState{VehicleObjectID: 888},
+		vehicleState: core.VehicleState{VehicleID: 888},
 	}
 
-	deps := Dependencies{
-		IsDatabaseValid: func() bool { return true },
-		ShouldSaveLocal: func() bool { return false },
-		DBInsertsPaused: func() bool { return false },
-		ParserService:   parserService,
-		EntityCache:     entityCache,
-	}
-	queues := NewQueues()
-	manager := NewManager(deps, queues)
+	backend := &mockBackend{}
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   entityCache,
+	}, backend)
 	manager.RegisterHandlers(d)
 
 	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:VEHICLE:STATE:", Args: []string{}})
@@ -797,7 +664,9 @@ func TestHandleVehicleState_ReturnsErrorWhenNotCached(t *testing.T) {
 
 	time.Sleep(200 * time.Millisecond)
 
-	assert.Equal(t, 0, queues.VehicleStates.Len(), "state should not be queued when vehicle not cached")
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	assert.Equal(t, 0, len(backend.vehicleStates), "state should not be recorded when vehicle not cached")
 }
 
 func TestHandleKillEvent_ClassifiesVictimAndKiller(t *testing.T) {
@@ -805,29 +674,22 @@ func TestHandleKillEvent_ClassifiesVictimAndKiller(t *testing.T) {
 	entityCache := cache.NewEntityCache()
 
 	// Soldier victim, vehicle killer
-	entityCache.AddSoldier(model.Soldier{ObjectID: 5})
-	entityCache.AddVehicle(model.Vehicle{ObjectID: 20})
+	entityCache.AddSoldier(core.Soldier{ID: 5})
+	entityCache.AddVehicle(core.Vehicle{ID: 20})
 
 	parserService := &mockParserService{
-		killEvent: parser.ParsedKillEvent{
-			Event:    model.KillEvent{CaptureFrame: 100},
-			VictimID: 5,
-			KillerID: 20,
+		killEvent: parser.KillEvent{
+			CaptureFrame: 100,
+			VictimID:     5,
+			KillerID:     20,
 		},
 	}
 
-	deps := Dependencies{
-		IsDatabaseValid: func() bool { return false },
-		ShouldSaveLocal: func() bool { return false },
-		DBInsertsPaused: func() bool { return false },
-		ParserService:   parserService,
-		EntityCache:     entityCache,
-	}
-	queues := NewQueues()
-	manager := NewManager(deps, queues)
-
 	backend := &mockBackend{}
-	manager.SetBackend(backend)
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   entityCache,
+	}, backend)
 	manager.RegisterHandlers(d)
 
 	_, err := d.Dispatch(dispatcher.Event{Command: ":KILL:", Args: []string{}})
@@ -870,49 +732,30 @@ func TestHandleProjectile_ClassifiesHitParts(t *testing.T) {
 	d, _ := newTestDispatcher(t)
 	entityCache := cache.NewEntityCache()
 
-	entityCache.AddSoldier(model.Soldier{ObjectID: 7})
-	entityCache.AddVehicle(model.Vehicle{ObjectID: 30})
-
-	componentsJSON, _ := json.Marshal([]string{"head"})
-	vehicleComponentsJSON, _ := json.Marshal([]string{"hull"})
-
-	// Create a LineStringZM for positions
-	coords := []float64{
-		6456.5, 5345.7, 10.0, 620.0,
-		6448.0, 5337.0, 15.0, 625.0,
-	}
-	seq := geom.NewSequence(coords, geom.DimXYZM)
-	ls := geom.NewLineString(seq)
+	entityCache.AddSoldier(core.Soldier{ID: 7})
+	entityCache.AddVehicle(core.Vehicle{ID: 30})
 
 	parserService := &mockParserService{
-		projectile: parser.ParsedProjectileEvent{
-			Event: model.ProjectileEvent{
-				FirerObjectID: 1,
-				CaptureFrame:  620,
-				Positions:     ls.AsGeometry(),
-				HitSoldiers:   []model.ProjectileHitsSoldier{},
-				HitVehicles:   []model.ProjectileHitsVehicle{},
+		projectile: parser.ProjectileEvent{
+			FirerObjectID: 1,
+			CaptureFrame:  620,
+			Trajectory: []core.TrajectoryPoint{
+				{Position: core.Position3D{X: 6456.5, Y: 5345.7, Z: 10.0}, Frame: 620},
+				{Position: core.Position3D{X: 6448.0, Y: 5337.0, Z: 15.0}, Frame: 625},
 			},
-			HitParts: []parser.RawHitPart{
-				{EntityID: 7, ComponentsHit: componentsJSON, CaptureFrame: 625},
-				{EntityID: 30, ComponentsHit: vehicleComponentsJSON, CaptureFrame: 626},
+			HitParts: []parser.HitPart{
+				{EntityID: 7, ComponentsHit: []string{"head"}, CaptureFrame: 625},
+				{EntityID: 30, ComponentsHit: []string{"hull"}, CaptureFrame: 626},
 			},
 		},
 	}
 
-	deps := Dependencies{
-		IsDatabaseValid: func() bool { return false },
-		ShouldSaveLocal: func() bool { return false },
-		DBInsertsPaused: func() bool { return false },
-		ParserService:   parserService,
-		EntityCache:     entityCache,
-		MarkerCache:     cache.NewMarkerCache(),
-	}
-	queues := NewQueues()
-	manager := NewManager(deps, queues)
-
 	backend := &mockBackend{}
-	manager.SetBackend(backend)
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   entityCache,
+		MarkerCache:   cache.NewMarkerCache(),
+	}, backend)
 	manager.RegisterHandlers(d)
 
 	_, err := d.Dispatch(dispatcher.Event{Command: ":PROJECTILE:", Args: []string{}})
@@ -962,45 +805,28 @@ func TestHandleProjectile_ClassifiesHitParts(t *testing.T) {
 func TestHandleProjectile_RecordsProjectileEvent(t *testing.T) {
 	d, _ := newTestDispatcher(t)
 
-	// Create a LineStringZM with 3 positions (thrown, mid-flight, impact)
-	coords := []float64{
-		6456.5, 5345.7, 10.443, 620.0,
-		6448.0, 5337.0, 15.0, 625.0,
-		6441.55, 5328.46, 9.88, 630.0,
-	}
-	seq := geom.NewSequence(coords, geom.DimXYZM)
-	ls := geom.NewLineString(seq)
-
 	parserService := &mockParserService{
-		projectile: parser.ParsedProjectileEvent{
-			Event: model.ProjectileEvent{
-				FirerObjectID:   1,
-				CaptureFrame:    620,
-				Weapon:          "throw",
-				WeaponDisplay:   "Throw",
-				MagazineDisplay: "RGO Grenade",
-				MagazineIcon:    `\A3\Weapons_F\Data\UI\gear_M67_CA.paa`,
-				Mode:            "HandGrenadeMuzzle",
-				Positions:       ls.AsGeometry(),
-				HitSoldiers:     []model.ProjectileHitsSoldier{},
-				HitVehicles:     []model.ProjectileHitsVehicle{},
+		projectile: parser.ProjectileEvent{
+			FirerObjectID:   1,
+			CaptureFrame:    620,
+			WeaponDisplay:   "Throw",
+			MagazineDisplay: "RGO Grenade",
+			MagazineIcon:    `\A3\Weapons_F\Data\UI\gear_M67_CA.paa`,
+			SimulationType:  "shotShell",
+			Trajectory: []core.TrajectoryPoint{
+				{Position: core.Position3D{X: 6456.5, Y: 5345.7, Z: 10.443}, Frame: 620},
+				{Position: core.Position3D{X: 6448.0, Y: 5337.0, Z: 15.0}, Frame: 625},
+				{Position: core.Position3D{X: 6441.55, Y: 5328.46, Z: 9.88}, Frame: 630},
 			},
 		},
 	}
 
-	deps := Dependencies{
-		IsDatabaseValid: func() bool { return false },
-		ShouldSaveLocal: func() bool { return false },
-		DBInsertsPaused: func() bool { return false },
-		ParserService:  parserService,
-		EntityCache:     cache.NewEntityCache(),
-		MarkerCache:     cache.NewMarkerCache(),
-	}
-	queues := NewQueues()
-	manager := NewManager(deps, queues)
-
 	backend := &mockBackend{}
-	manager.SetBackend(backend)
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   cache.NewEntityCache(),
+		MarkerCache:   cache.NewMarkerCache(),
+	}, backend)
 	manager.RegisterHandlers(d)
 
 	// Dispatch a projectile event
@@ -1036,7 +862,7 @@ func TestHandleProjectile_RecordsProjectileEvent(t *testing.T) {
 	assert.Equal(t, uint(620), pe.CaptureFrame)
 	assert.Equal(t, "RGO Grenade", pe.MagazineDisplay)
 
-	// Trajectory should have 3 points from the LineStringZM
+	// Trajectory should have 3 points
 	require.Len(t, pe.Trajectory, 3)
 	assert.Equal(t, 6456.5, pe.Trajectory[0].Position.X)
 	assert.Equal(t, uint(620), pe.Trajectory[0].Frame)
@@ -1055,25 +881,18 @@ func TestHandleMarkerMove_ResolvesMarkerName(t *testing.T) {
 	markerCache.Set("marker_alpha", 42)
 
 	parserService := &mockParserService{
-		markerMove: parser.ParsedMarkerMove{
-			State:      model.MarkerState{CaptureFrame: 100},
-			MarkerName: "marker_alpha",
+		markerMove: parser.MarkerMove{
+			CaptureFrame: 100,
+			MarkerName:   "marker_alpha",
 		},
 	}
 
-	deps := Dependencies{
-		IsDatabaseValid: func() bool { return false },
-		ShouldSaveLocal: func() bool { return false },
-		DBInsertsPaused: func() bool { return false },
-		ParserService:   parserService,
-		EntityCache:     cache.NewEntityCache(),
-		MarkerCache:     markerCache,
-	}
-	queues := NewQueues()
-	manager := NewManager(deps, queues)
-
 	backend := &mockBackend{}
-	manager.SetBackend(backend)
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   cache.NewEntityCache(),
+		MarkerCache:   markerCache,
+	}, backend)
 	manager.RegisterHandlers(d)
 
 	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:MARKER:STATE:", Args: []string{}})
@@ -1107,21 +926,18 @@ func TestHandleChatEvent_ValidatesSender(t *testing.T) {
 	entityCache := cache.NewEntityCache()
 	// No soldier cached — sender validation should fail
 
+	senderID := uint(5)
 	parserService := &mockParserService{
-		chatEvent: model.ChatEvent{
-			SoldierObjectID: sql.NullInt32{Int32: 5, Valid: true},
+		chatEvent: core.ChatEvent{
+			SoldierID: &senderID,
 		},
 	}
 
-	deps := Dependencies{
-		IsDatabaseValid: func() bool { return true },
-		ShouldSaveLocal: func() bool { return false },
-		DBInsertsPaused: func() bool { return false },
-		ParserService:   parserService,
-		EntityCache:     entityCache,
-	}
-	queues := NewQueues()
-	manager := NewManager(deps, queues)
+	backend := &mockBackend{}
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   entityCache,
+	}, backend)
 	manager.RegisterHandlers(d)
 
 	_, err := d.Dispatch(dispatcher.Event{Command: ":CHAT:", Args: []string{}})
@@ -1129,8 +945,10 @@ func TestHandleChatEvent_ValidatesSender(t *testing.T) {
 
 	time.Sleep(200 * time.Millisecond)
 
-	// Chat event should not be queued since sender doesn't exist
-	assert.Equal(t, 0, queues.ChatEvents.Len(), "chat event should not be queued when sender not cached")
+	// Chat event should not be recorded since sender doesn't exist
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	assert.Equal(t, 0, len(backend.chatEvents), "chat event should not be recorded when sender not cached")
 }
 
 func TestHandleMarkerDelete_WithBackend(t *testing.T) {
@@ -1138,24 +956,17 @@ func TestHandleMarkerDelete_WithBackend(t *testing.T) {
 	markerCache := cache.NewMarkerCache()
 
 	parserService := &mockParserService{
-		marker:        model.Marker{MarkerName: "Projectile#123"},
+		marker:        core.Marker{MarkerName: "Projectile#123"},
 		deletedMarker: "Projectile#123",
 		deleteFrame:   500,
 	}
 
-	deps := Dependencies{
-		IsDatabaseValid: func() bool { return false },
-		ShouldSaveLocal: func() bool { return false },
-		DBInsertsPaused: func() bool { return false },
-		ParserService:  parserService,
-		EntityCache:     cache.NewEntityCache(),
-		MarkerCache:     markerCache,
-	}
-	queues := NewQueues()
-	manager := NewManager(deps, queues)
-
 	backend := &mockBackend{}
-	manager.SetBackend(backend)
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   cache.NewEntityCache(),
+		MarkerCache:   markerCache,
+	}, backend)
 	manager.RegisterHandlers(d)
 
 	// First create a marker so it exists in cache (sync handler)

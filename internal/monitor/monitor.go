@@ -22,7 +22,6 @@ type Dependencies struct {
 	LogManager      *logging.SlogManager
 	MissionContext  *mission.Context
 	WorkerManager   *worker.Manager
-	Queues          *worker.Queues
 	AddonFolder     string
 	IsDatabaseValid func() bool
 }
@@ -61,21 +60,8 @@ func (s *Service) GetProgramStatus(
 	// Buffer lengths are now tracked via OTEL metrics in the dispatcher
 	buffersObj := model.BufferLengths{}
 
-	writeQueuesObj := model.WriteQueueLengths{
-		Soldiers:              uint16(s.deps.Queues.Soldiers.Len()),
-		Vehicles:              uint16(s.deps.Queues.Vehicles.Len()),
-		SoldierStates:         uint16(s.deps.Queues.SoldierStates.Len()),
-		VehicleStates:         uint16(s.deps.Queues.VehicleStates.Len()),
-		GeneralEvents:         uint16(s.deps.Queues.GeneralEvents.Len()),
-		KillEvents:            uint16(s.deps.Queues.KillEvents.Len()),
-		ChatEvents:            uint16(s.deps.Queues.ChatEvents.Len()),
-		RadioEvents:           uint16(s.deps.Queues.RadioEvents.Len()),
-		ServerFpsEvents:       uint16(s.deps.Queues.FpsEvents.Len()),
-		Ace3DeathEvents:       uint16(s.deps.Queues.Ace3DeathEvents.Len()),
-		Ace3UnconsciousEvents: uint16(s.deps.Queues.Ace3UnconsciousEvents.Len()),
-		Markers:               uint16(s.deps.Queues.Markers.Len()),
-		MarkerStates:          uint16(s.deps.Queues.MarkerStates.Len()),
-	}
+	// Write queue lengths are now internal to the GORM backend; zeroed here.
+	writeQueuesObj := model.WriteQueueLengths{}
 
 	perf := model.OcapPerformance{
 		Time:              time.Now(),

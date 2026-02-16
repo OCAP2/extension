@@ -59,8 +59,8 @@ func Logged() Option {
 }
 
 // Gated makes the handler wait for a ready signal before processing.
-// Events are buffered until the ready channel is closed.
-// Must be used with Buffered().
+// For buffered handlers, events are queued and processing starts when the channel closes.
+// For sync handlers, Dispatch blocks until the channel closes.
 func Gated(ready <-chan struct{}) Option {
 	return func(c *config) {
 		c.readyChan = ready
@@ -154,6 +154,8 @@ func (d *Dispatcher) Register(command string, h HandlerFunc, opts ...Option) {
 
 	if cfg.bufferSize > 0 {
 		handler = d.withBuffer(command, cfg, handler)
+	} else if cfg.readyChan != nil {
+		handler = d.withGate(cfg.readyChan, handler)
 	}
 
 	d.mu.Lock()
@@ -233,6 +235,13 @@ func (d *Dispatcher) safeHandle(command string, cmdAttr attribute.KeyValue, h Ha
 		d.logger.Error("buffered handler failed", "command", command, "error", err)
 	}
 	d.processed.Add(context.Background(), 1, metric.WithAttributes(cmdAttr))
+}
+
+func (d *Dispatcher) withGate(ready <-chan struct{}, h HandlerFunc) HandlerFunc {
+	return func(e Event) (any, error) {
+		<-ready
+		return h(e)
+	}
 }
 
 func (d *Dispatcher) withLogging(command string, h HandlerFunc) HandlerFunc {

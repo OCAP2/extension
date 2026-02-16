@@ -1,7 +1,9 @@
-// internal/model/core/events.go
+// pkg/core/events.go
 package core
 
-import "time"
+import (
+	"time"
+)
 
 // FiredEvent represents a weapon being fired.
 // SoldierID is the ObjectID of the soldier who fired.
@@ -122,10 +124,11 @@ type TrajectoryPoint struct {
 
 // ProjectileHit represents a hit from a projectile on a soldier or vehicle.
 type ProjectileHit struct {
-	CaptureFrame uint
-	Position     Position3D
-	SoldierID    *uint16 // set if soldier was hit
-	VehicleID    *uint16 // set if vehicle was hit
+	CaptureFrame  uint
+	Position      Position3D
+	SoldierID     *uint16  // set if soldier was hit
+	VehicleID     *uint16  // set if vehicle was hit
+	ComponentsHit []string // body/vehicle parts hit
 }
 
 // ProjectileEvent represents a raw projectile event from the game.

@@ -1,4 +1,4 @@
-// internal/model/core/soldier.go
+// pkg/core/soldier.go
 package core
 
 import "time"

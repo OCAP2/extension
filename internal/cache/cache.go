@@ -3,30 +3,30 @@ package cache
 import (
 	"sync"
 
-	"github.com/OCAP2/extension/v5/internal/model"
+	"github.com/OCAP2/extension/v5/pkg/core"
 )
 
 // EntityCache caches soldiers and vehicles when they are created to avoid subsequent db reads.
 // Latency in these calls is critical to quickly process incoming data.
 type EntityCache struct {
 	m        sync.Mutex
-	Soldiers map[uint16]model.Soldier
-	Vehicles map[uint16]model.Vehicle
+	Soldiers map[uint16]core.Soldier
+	Vehicles map[uint16]core.Vehicle
 }
 
 func NewEntityCache() *EntityCache {
 	return &EntityCache{
 		m:        sync.Mutex{},
-		Soldiers: make(map[uint16]model.Soldier),
-		Vehicles: make(map[uint16]model.Vehicle),
+		Soldiers: make(map[uint16]core.Soldier),
+		Vehicles: make(map[uint16]core.Vehicle),
 	}
 }
 
 func (c *EntityCache) Reset() {
 	c.m.Lock()
 	defer c.m.Unlock()
-	c.Soldiers = make(map[uint16]model.Soldier)
-	c.Vehicles = make(map[uint16]model.Vehicle)
+	c.Soldiers = make(map[uint16]core.Soldier)
+	c.Vehicles = make(map[uint16]core.Vehicle)
 }
 
 func (c *EntityCache) Lock() {
@@ -37,34 +37,34 @@ func (c *EntityCache) Unlock() {
 	c.m.Unlock()
 }
 
-func (c *EntityCache) GetSoldier(id uint16) (model.Soldier, bool) {
+func (c *EntityCache) GetSoldier(id uint16) (core.Soldier, bool) {
 	c.m.Lock()
 	defer c.m.Unlock()
 	if s, ok := c.Soldiers[id]; ok {
 		return s, true
 	}
-	return model.Soldier{}, false
+	return core.Soldier{}, false
 }
 
-func (c *EntityCache) GetVehicle(id uint16) (model.Vehicle, bool) {
+func (c *EntityCache) GetVehicle(id uint16) (core.Vehicle, bool) {
 	c.m.Lock()
 	defer c.m.Unlock()
 	if v, ok := c.Vehicles[id]; ok {
 		return v, true
 	}
-	return model.Vehicle{}, false
+	return core.Vehicle{}, false
 }
 
-func (c *EntityCache) AddSoldier(s model.Soldier) {
+func (c *EntityCache) AddSoldier(s core.Soldier) {
 	c.m.Lock()
 	defer c.m.Unlock()
-	c.Soldiers[s.ObjectID] = s
+	c.Soldiers[s.ID] = s
 }
 
-func (c *EntityCache) AddVehicle(v model.Vehicle) {
+func (c *EntityCache) AddVehicle(v core.Vehicle) {
 	c.m.Lock()
 	defer c.m.Unlock()
-	c.Vehicles[v.ObjectID] = v
+	c.Vehicles[v.ID] = v
 }
 
 // SafeCounter is a thread-safe counter

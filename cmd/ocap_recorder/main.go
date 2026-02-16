@@ -37,6 +37,7 @@ import (
 	"github.com/OCAP2/extension/v5/internal/monitor"
 	intOtel "github.com/OCAP2/extension/v5/internal/otel"
 	"github.com/OCAP2/extension/v5/internal/storage"
+	gormstorage "github.com/OCAP2/extension/v5/internal/storage/gorm"
 	"github.com/OCAP2/extension/v5/internal/storage/memory"
 	"github.com/OCAP2/extension/v5/internal/util"
 	"github.com/OCAP2/extension/v5/internal/worker"
@@ -129,7 +130,6 @@ var (
 	missionCtx      *mission.Context
 	workerManager   *worker.Manager
 	monitorService  *monitor.Service
-	queues          *worker.Queues
 	eventDispatcher *dispatcher.Dispatcher
 
 	// Storage backend (optional)
@@ -518,45 +518,45 @@ func setupDB(db *gorm.DB) (err error) {
 func startGoroutines() (err error) {
 	functionName := "startGoroutines"
 
-	// Initialize queues
-	queues = worker.NewQueues()
-
 	// Initialize mission context
 	missionCtx = mission.NewContext()
 
 	// Initialize handler service
 	parserService = parser.NewParser(Logger)
 
-	// Initialize worker manager
-	workerManager = worker.NewManager(worker.Dependencies{
-		DB:              DB,
-		EntityCache:     EntityCache,
-		MarkerCache:     MarkerCache,
-		LogManager:      SlogManager,
-		ParserService:   parserService,
-		MissionContext:  missionCtx,
-		IsDatabaseValid: func() bool { return IsDatabaseValid },
-		ShouldSaveLocal: func() bool { return ShouldSaveLocal },
-		DBInsertsPaused: func() bool { return DBInsertsPaused },
-	}, queues)
-
-	// Initialize storage backend if configured for memory mode
+	// Initialize storage backend based on config
 	storageCfg := config.GetStorageConfig()
 	if storageCfg.Type == "memory" {
 		storageBackend = memory.New(storageCfg.Memory)
 		storageBackend.Init()
-		workerManager.SetBackend(storageBackend)
 		Logger.Info("Memory storage backend initialized")
+	} else {
+		storageBackend = gormstorage.New(gormstorage.Dependencies{
+			DB:              DB,
+			EntityCache:     EntityCache,
+			MarkerCache:     MarkerCache,
+			LogManager:      SlogManager,
+			MissionContext:  missionCtx,
+			IsDatabaseValid: func() bool { return IsDatabaseValid },
+			ShouldSaveLocal: func() bool { return ShouldSaveLocal },
+			DBInsertsPaused: func() bool { return DBInsertsPaused },
+		})
+		storageBackend.Init()
+		Logger.Info("GORM storage backend initialized")
 	}
+
+	// Initialize worker manager
+	workerManager = worker.NewManager(worker.Dependencies{
+		EntityCache:   EntityCache,
+		MarkerCache:   MarkerCache,
+		LogManager:    SlogManager,
+		ParserService: parserService,
+	}, storageBackend)
 
 	// Register worker handlers with the early dispatcher (created in setupA3Interface)
 	Logger.Debug("Registering worker handlers with dispatcher")
 	workerManager.RegisterHandlers(eventDispatcher)
 	Logger.Info("Worker handlers registered with dispatcher")
-
-	// Start DB writers (processes queues filled by dispatcher handlers)
-	Logger.Debug("Starting DB writers")
-	workerManager.StartDBWriters()
 
 	// Initialize monitor service
 	monitorService = monitor.NewService(monitor.Dependencies{
@@ -564,7 +564,6 @@ func startGoroutines() (err error) {
 		LogManager:      SlogManager,
 		MissionContext:  missionCtx,
 		WorkerManager:   workerManager,
-		Queues:          queues,
 		AddonFolder:     AddonFolder,
 		IsDatabaseValid: func() bool { return IsDatabaseValid },
 	})
@@ -783,21 +782,25 @@ func handleNewMission(e dispatcher.Event) (any, error) {
 		return nil, nil
 	}
 
-	// 1. Parse
-	mission, world, err := parserService.ParseMission(e.Args)
+	// 1. Parse (returns core types)
+	coreMission, coreWorld, err := parserService.ParseMission(e.Args)
 	if err != nil {
 		return nil, err
 	}
-	mission.AddonVersion = addonVersion
-	mission.ExtensionVersion = BuildVersion
+	coreMission.AddonVersion = addonVersion
+	coreMission.ExtensionVersion = BuildVersion
 
-	// 2. DB operations (addon lookup/create, world get/insert, mission create)
+	// 2. Convert to GORM for DB operations
+	gormMission := convert.CoreToMission(coreMission)
+	gormWorld := convert.CoreToWorld(coreWorld)
+
+	// 3. DB operations (addon lookup/create, world get/insert, mission create)
 	if DB != nil {
-		for i, addon := range mission.Addons {
-			err = DB.Where("name = ?", addon.Name).First(&mission.Addons[i]).Error
+		for i, addon := range gormMission.Addons {
+			err = DB.Where("name = ?", addon.Name).First(&gormMission.Addons[i]).Error
 			if err != nil {
 				if err == gorm.ErrRecordNotFound {
-					if err = DB.Create(&mission.Addons[i]).Error; err != nil {
+					if err = DB.Create(&gormMission.Addons[i]).Error; err != nil {
 						Logger.Error("Failed to create addon", "error", err, "name", addon.Name)
 						return nil, err
 					}
@@ -808,44 +811,46 @@ func handleNewMission(e dispatcher.Event) (any, error) {
 			}
 		}
 
-		created, err := world.GetOrInsert(DB)
+		created, err := gormWorld.GetOrInsert(DB)
 		if err != nil {
 			Logger.Error("Failed to get or insert world", "error", err)
 			return nil, err
 		}
 		if created {
-			Logger.Debug("New world inserted", "worldName", world.WorldName)
+			Logger.Debug("New world inserted", "worldName", gormWorld.WorldName)
 		}
 
-		mission.World = world
-		if err = DB.Create(&mission).Error; err != nil {
+		gormMission.World = gormWorld
+		if err = DB.Create(&gormMission).Error; err != nil {
 			Logger.Error("Failed to insert new mission", "error", err)
 			return nil, err
 		}
 	} else {
-		mission.World = world
-		Logger.Debug("Memory-only mode: mission context set without DB persistence", "missionName", mission.MissionName)
+		gormMission.World = gormWorld
+		Logger.Debug("Memory-only mode: mission context set without DB persistence", "missionName", gormMission.MissionName)
 	}
 
-	// 3. Set mission context
-	missionCtx.SetMission(&mission, &world)
+	// 4. Capture DB-assigned IDs back to core
+	coreMission.ID = gormMission.ID
+	coreWorld.ID = gormWorld.ID
 
-	// 4. Reset caches
+	// 5. Set mission context (monitor uses GORM types)
+	missionCtx.SetMission(&gormMission, &gormWorld)
+
+	// 6. Reset caches
 	MarkerCache.Reset()
 	EntityCache.Reset()
 
-	// 5. Start backend
+	// 7. Start backend with core types
 	if storageBackend != nil {
-		coreMission := convert.MissionToCore(&mission)
-		coreWorld := convert.WorldToCore(&world)
 		if err := storageBackend.StartMission(&coreMission, &coreWorld); err != nil {
 			Logger.Error("Failed to start mission in storage backend", "error", err)
 		}
 	}
 
-	Logger.Info("New mission logged", "missionName", mission.MissionName)
+	Logger.Info("New mission logged", "missionName", coreMission.MissionName)
 
-	// 6. ArmA callback
+	// 8. ArmA callback
 	a3interface.WriteArmaCallback(ExtensionName, ":MISSION:OK:", "OK")
 	return nil, nil
 }

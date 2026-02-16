@@ -1,0 +1,447 @@
+// Package gormstorage implements the storage.Backend interface using GORM/PostgreSQL
+// with internal queues and a background DB writer goroutine.
+package gormstorage
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/OCAP2/extension/v5/internal/cache"
+	"github.com/OCAP2/extension/v5/internal/logging"
+	"github.com/OCAP2/extension/v5/internal/mission"
+	"github.com/OCAP2/extension/v5/internal/model"
+	"github.com/OCAP2/extension/v5/internal/model/convert"
+	"github.com/OCAP2/extension/v5/pkg/core"
+	"github.com/OCAP2/extension/v5/internal/queue"
+
+	"gorm.io/gorm"
+)
+
+// Dependencies holds all dependencies for the GORM storage backend.
+type Dependencies struct {
+	DB              *gorm.DB
+	EntityCache     *cache.EntityCache
+	MarkerCache     *cache.MarkerCache
+	LogManager      *logging.SlogManager
+	MissionContext  *mission.Context
+	IsDatabaseValid func() bool
+	ShouldSaveLocal func() bool
+	DBInsertsPaused func() bool
+}
+
+// queues holds all the write queues for batch DB insertion.
+type queues struct {
+	Soldiers              *queue.Queue[model.Soldier]
+	SoldierStates         *queue.Queue[model.SoldierState]
+	Vehicles              *queue.Queue[model.Vehicle]
+	VehicleStates         *queue.Queue[model.VehicleState]
+	ProjectileEvents      *queue.Queue[model.ProjectileEvent]
+	GeneralEvents         *queue.Queue[model.GeneralEvent]
+	KillEvents            *queue.Queue[model.KillEvent]
+	ChatEvents            *queue.Queue[model.ChatEvent]
+	RadioEvents           *queue.Queue[model.RadioEvent]
+	FpsEvents             *queue.Queue[model.ServerFpsEvent]
+	Ace3DeathEvents       *queue.Queue[model.Ace3DeathEvent]
+	Ace3UnconsciousEvents *queue.Queue[model.Ace3UnconsciousEvent]
+	Markers               *queue.Queue[model.Marker]
+	MarkerStates          *queue.Queue[model.MarkerState]
+}
+
+func newQueues() *queues {
+	return &queues{
+		Soldiers:              queue.New[model.Soldier](),
+		SoldierStates:         queue.New[model.SoldierState](),
+		Vehicles:              queue.New[model.Vehicle](),
+		VehicleStates:         queue.New[model.VehicleState](),
+		ProjectileEvents:      queue.New[model.ProjectileEvent](),
+		GeneralEvents:         queue.New[model.GeneralEvent](),
+		KillEvents:            queue.New[model.KillEvent](),
+		ChatEvents:            queue.New[model.ChatEvent](),
+		RadioEvents:           queue.New[model.RadioEvent](),
+		FpsEvents:             queue.New[model.ServerFpsEvent](),
+		Ace3DeathEvents:       queue.New[model.Ace3DeathEvent](),
+		Ace3UnconsciousEvents: queue.New[model.Ace3UnconsciousEvent](),
+		Markers:               queue.New[model.Marker](),
+		MarkerStates:          queue.New[model.MarkerState](),
+	}
+}
+
+// Backend implements storage.Backend using GORM/PostgreSQL with queue-based batch writes.
+type Backend struct {
+	deps                Dependencies
+	queues              *queues
+	lastDBWriteDuration time.Duration
+	stopChan            chan struct{}
+}
+
+// New creates a new GORM storage backend.
+func New(deps Dependencies) *Backend {
+	return &Backend{
+		deps: deps,
+	}
+}
+
+// Init creates internal queues and starts the DB writer goroutine.
+func (b *Backend) Init() error {
+	b.queues = newQueues()
+	b.stopChan = make(chan struct{})
+	b.startDBWriters()
+	return nil
+}
+
+// Close stops the DB writer goroutine.
+func (b *Backend) Close() error {
+	if b.stopChan != nil {
+		close(b.stopChan)
+	}
+	return nil
+}
+
+// StartMission is a no-op — mission lifecycle is managed by main.go.
+func (b *Backend) StartMission(mission *core.Mission, world *core.World) error {
+	return nil
+}
+
+// EndMission is a no-op — mission lifecycle is managed by main.go.
+func (b *Backend) EndMission() error {
+	return nil
+}
+
+// AddSoldier converts a core soldier to GORM and pushes to the write queue.
+func (b *Backend) AddSoldier(s *core.Soldier) error {
+	gormObj := convert.CoreToSoldier(*s)
+	b.queues.Soldiers.Push(gormObj)
+	return nil
+}
+
+// AddVehicle converts a core vehicle to GORM and pushes to the write queue.
+func (b *Backend) AddVehicle(v *core.Vehicle) error {
+	gormObj := convert.CoreToVehicle(*v)
+	b.queues.Vehicles.Push(gormObj)
+	return nil
+}
+
+// AddMarker inserts a marker synchronously (not queued) because markers are low-volume
+// and need immediate ID assignment for the MarkerCache.
+func (b *Backend) AddMarker(m *core.Marker) error {
+	gormObj := convert.CoreToMarker(*m)
+	if b.deps.DB != nil {
+		missionID := b.deps.MissionContext.GetMission().ID
+		gormObj.MissionID = missionID
+		if err := b.deps.DB.Create(&gormObj).Error; err != nil {
+			return fmt.Errorf("failed to insert marker: %w", err)
+		}
+		m.ID = gormObj.ID
+	}
+	return nil
+}
+
+// RecordSoldierState converts and queues a soldier state.
+func (b *Backend) RecordSoldierState(s *core.SoldierState) error {
+	gormObj := convert.CoreToSoldierState(*s)
+	b.queues.SoldierStates.Push(gormObj)
+	return nil
+}
+
+// RecordVehicleState converts and queues a vehicle state.
+func (b *Backend) RecordVehicleState(v *core.VehicleState) error {
+	gormObj := convert.CoreToVehicleState(*v)
+	b.queues.VehicleStates.Push(gormObj)
+	return nil
+}
+
+// RecordMarkerState converts and queues a marker state.
+func (b *Backend) RecordMarkerState(s *core.MarkerState) error {
+	gormObj := convert.CoreToMarkerState(*s)
+	b.queues.MarkerStates.Push(gormObj)
+	return nil
+}
+
+// DeleteMarker pushes an alpha=0 MarkerState to the queue and marks the marker as deleted in DB.
+func (b *Backend) DeleteMarker(name string, endFrame uint) {
+	markerID, ok := b.deps.MarkerCache.Get(name)
+	if !ok {
+		return
+	}
+
+	deleteState := model.MarkerState{
+		MarkerID:     markerID,
+		CaptureFrame: endFrame,
+		Time:         time.Now(),
+		Alpha:        0,
+	}
+	b.queues.MarkerStates.Push(deleteState)
+
+	if b.deps.DB != nil {
+		b.deps.DB.Model(&model.Marker{}).Where("id = ?", markerID).Update("is_deleted", true)
+	}
+}
+
+// RecordFiredEvent is a no-op — replaced by ProjectileEvent.
+func (b *Backend) RecordFiredEvent(e *core.FiredEvent) error {
+	return nil
+}
+
+// RecordProjectileEvent converts and queues a projectile event.
+// No-op if ShouldSaveLocal() (SQLite can't handle LineStringZM).
+func (b *Backend) RecordProjectileEvent(e *core.ProjectileEvent) error {
+	if b.deps.ShouldSaveLocal() {
+		return nil
+	}
+	gormObj := convert.CoreToProjectileEvent(*e)
+	b.queues.ProjectileEvents.Push(gormObj)
+	return nil
+}
+
+// RecordGeneralEvent converts and queues a general event.
+func (b *Backend) RecordGeneralEvent(e *core.GeneralEvent) error {
+	gormObj := convert.CoreToGeneralEvent(*e)
+	b.queues.GeneralEvents.Push(gormObj)
+	return nil
+}
+
+// RecordHitEvent is a no-op — replaced by ProjectileEvent.
+func (b *Backend) RecordHitEvent(e *core.HitEvent) error {
+	return nil
+}
+
+// RecordKillEvent converts and queues a kill event.
+func (b *Backend) RecordKillEvent(e *core.KillEvent) error {
+	gormObj := convert.CoreToKillEvent(*e)
+	b.queues.KillEvents.Push(gormObj)
+	return nil
+}
+
+// RecordChatEvent converts and queues a chat event.
+func (b *Backend) RecordChatEvent(e *core.ChatEvent) error {
+	gormObj := convert.CoreToChatEvent(*e)
+	b.queues.ChatEvents.Push(gormObj)
+	return nil
+}
+
+// RecordRadioEvent converts and queues a radio event.
+func (b *Backend) RecordRadioEvent(e *core.RadioEvent) error {
+	gormObj := convert.CoreToRadioEvent(*e)
+	b.queues.RadioEvents.Push(gormObj)
+	return nil
+}
+
+// RecordServerFpsEvent converts and queues a server FPS event.
+func (b *Backend) RecordServerFpsEvent(e *core.ServerFpsEvent) error {
+	gormObj := convert.CoreToServerFpsEvent(*e)
+	b.queues.FpsEvents.Push(gormObj)
+	return nil
+}
+
+// RecordTimeState is a no-op — TimeState is not in DatabaseModels, only used by memory backend.
+func (b *Backend) RecordTimeState(t *core.TimeState) error {
+	return nil
+}
+
+// RecordAce3DeathEvent converts and queues an ACE3 death event.
+func (b *Backend) RecordAce3DeathEvent(e *core.Ace3DeathEvent) error {
+	gormObj := convert.CoreToAce3DeathEvent(*e)
+	b.queues.Ace3DeathEvents.Push(gormObj)
+	return nil
+}
+
+// RecordAce3UnconsciousEvent converts and queues an ACE3 unconscious event.
+func (b *Backend) RecordAce3UnconsciousEvent(e *core.Ace3UnconsciousEvent) error {
+	gormObj := convert.CoreToAce3UnconsciousEvent(*e)
+	b.queues.Ace3UnconsciousEvents.Push(gormObj)
+	return nil
+}
+
+// GetSoldierByObjectID looks up a soldier in the EntityCache (which stores core types).
+func (b *Backend) GetSoldierByObjectID(ocapID uint16) (*core.Soldier, bool) {
+	s, ok := b.deps.EntityCache.GetSoldier(ocapID)
+	if !ok {
+		return nil, false
+	}
+	return &s, true
+}
+
+// GetVehicleByObjectID looks up a vehicle in the EntityCache (which stores core types).
+func (b *Backend) GetVehicleByObjectID(ocapID uint16) (*core.Vehicle, bool) {
+	v, ok := b.deps.EntityCache.GetVehicle(ocapID)
+	if !ok {
+		return nil, false
+	}
+	return &v, true
+}
+
+// GetMarkerByName looks up a marker by name via the MarkerCache.
+func (b *Backend) GetMarkerByName(name string) (*core.Marker, bool) {
+	_, ok := b.deps.MarkerCache.Get(name)
+	if !ok {
+		return nil, false
+	}
+	// MarkerCache only stores name → ID mapping. Return a minimal core.Marker.
+	return &core.Marker{MarkerName: name}, true
+}
+
+// GetLastDBWriteDuration returns the duration of the last DB write cycle.
+func (b *Backend) GetLastDBWriteDuration() time.Duration {
+	return b.lastDBWriteDuration
+}
+
+// writeQueue writes all items from a queue to the database in a transaction.
+func writeQueue[T any](db *gorm.DB, q *queue.Queue[T], name string, log func(string, string, string), prepare func([]T), onSuccess func([]T)) {
+	if q.Empty() {
+		return
+	}
+
+	tx := db.Begin()
+	items := q.GetAndEmpty()
+	if prepare != nil {
+		prepare(items)
+	}
+	if err := tx.Create(&items).Error; err != nil {
+		log(":DB:WRITER:", fmt.Sprintf("Error creating %s: %v", name, err), "ERROR")
+		tx.Rollback()
+		q.Push(items...)
+		return
+	}
+
+	tx.Commit()
+	if onSuccess != nil {
+		onSuccess(items)
+	}
+}
+
+// startDBWriters starts the background goroutine that periodically drains queues into the DB.
+func (b *Backend) startDBWriters() {
+	log := b.deps.LogManager.WriteLog
+
+	go func() {
+		for {
+			select {
+			case <-b.stopChan:
+				return
+			default:
+			}
+
+			if !b.deps.IsDatabaseValid() {
+				time.Sleep(1 * time.Second)
+				continue
+			}
+
+			if b.deps.DBInsertsPaused() {
+				time.Sleep(1 * time.Second)
+				continue
+			}
+
+			writeStart := time.Now()
+
+			// Read missionID once per write cycle
+			missionID := b.deps.MissionContext.GetMission().ID
+
+			// stampMissionID helpers
+			stampSoldiers := func(items []model.Soldier) {
+				for i := range items {
+					items[i].MissionID = missionID
+				}
+			}
+			stampSoldierStates := func(items []model.SoldierState) {
+				for i := range items {
+					items[i].MissionID = missionID
+				}
+			}
+			stampVehicles := func(items []model.Vehicle) {
+				for i := range items {
+					items[i].MissionID = missionID
+				}
+			}
+			stampVehicleStates := func(items []model.VehicleState) {
+				for i := range items {
+					items[i].MissionID = missionID
+				}
+			}
+			stampMarkers := func(items []model.Marker) {
+				for i := range items {
+					items[i].MissionID = missionID
+				}
+			}
+			stampMarkerStates := func(items []model.MarkerState) {
+				for i := range items {
+					items[i].MissionID = missionID
+				}
+			}
+			stampProjectileEvents := func(items []model.ProjectileEvent) {
+				for i := range items {
+					items[i].MissionID = missionID
+					for j := range items[i].HitSoldiers {
+						items[i].HitSoldiers[j].MissionID = missionID
+					}
+					for j := range items[i].HitVehicles {
+						items[i].HitVehicles[j].MissionID = missionID
+					}
+				}
+			}
+			stampGeneralEvents := func(items []model.GeneralEvent) {
+				for i := range items {
+					items[i].MissionID = missionID
+				}
+			}
+			stampKillEvents := func(items []model.KillEvent) {
+				for i := range items {
+					items[i].MissionID = missionID
+				}
+			}
+			stampChatEvents := func(items []model.ChatEvent) {
+				for i := range items {
+					items[i].MissionID = missionID
+				}
+			}
+			stampRadioEvents := func(items []model.RadioEvent) {
+				for i := range items {
+					items[i].MissionID = missionID
+				}
+			}
+			stampFpsEvents := func(items []model.ServerFpsEvent) {
+				for i := range items {
+					items[i].MissionID = missionID
+				}
+			}
+			stampAce3DeathEvents := func(items []model.Ace3DeathEvent) {
+				for i := range items {
+					items[i].MissionID = missionID
+				}
+			}
+			stampAce3UnconsciousEvents := func(items []model.Ace3UnconsciousEvent) {
+				for i := range items {
+					items[i].MissionID = missionID
+				}
+			}
+
+			// Entities (cache already populated by worker at parse time with core types)
+			writeQueue(b.deps.DB, b.queues.Soldiers, "soldiers", log, stampSoldiers, nil)
+			writeQueue(b.deps.DB, b.queues.Vehicles, "vehicles", log, stampVehicles, nil)
+			writeQueue(b.deps.DB, b.queues.Markers, "markers", log, stampMarkers, func(items []model.Marker) {
+				for _, marker := range items {
+					if marker.ID != 0 {
+						b.deps.MarkerCache.Set(marker.MarkerName, marker.ID)
+					}
+				}
+			})
+
+			// State updates
+			writeQueue(b.deps.DB, b.queues.SoldierStates, "soldier states", log, stampSoldierStates, nil)
+			writeQueue(b.deps.DB, b.queues.VehicleStates, "vehicle states", log, stampVehicleStates, nil)
+			writeQueue(b.deps.DB, b.queues.MarkerStates, "marker states", log, stampMarkerStates, nil)
+
+			// Events
+			writeQueue(b.deps.DB, b.queues.ProjectileEvents, "projectile events", log, stampProjectileEvents, nil)
+			writeQueue(b.deps.DB, b.queues.GeneralEvents, "general events", log, stampGeneralEvents, nil)
+			writeQueue(b.deps.DB, b.queues.KillEvents, "kill events", log, stampKillEvents, nil)
+			writeQueue(b.deps.DB, b.queues.ChatEvents, "chat events", log, stampChatEvents, nil)
+			writeQueue(b.deps.DB, b.queues.RadioEvents, "radio events", log, stampRadioEvents, nil)
+			writeQueue(b.deps.DB, b.queues.FpsEvents, "serverfps events", log, stampFpsEvents, nil)
+			writeQueue(b.deps.DB, b.queues.Ace3DeathEvents, "ace3 death events", log, stampAce3DeathEvents, nil)
+			writeQueue(b.deps.DB, b.queues.Ace3UnconsciousEvents, "ace3 unconscious events", log, stampAce3UnconsciousEvents, nil)
+
+			b.lastDBWriteDuration = time.Since(writeStart)
+			time.Sleep(2 * time.Second)
+		}
+	}()
+}

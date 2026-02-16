@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -9,13 +8,13 @@ import (
 	"time"
 
 	"github.com/OCAP2/extension/v5/internal/geo"
-	"github.com/OCAP2/extension/v5/internal/model"
+	"github.com/OCAP2/extension/v5/pkg/core"
 	"github.com/OCAP2/extension/v5/internal/util"
 )
 
-// ParseSoldier parses soldier data and returns a Soldier model
-func (p *Parser) ParseSoldier(data []string) (model.Soldier, error) {
-	var soldier model.Soldier
+// ParseSoldier parses soldier data and returns a core Soldier
+func (p *Parser) ParseSoldier(data []string) (core.Soldier, error) {
+	var soldier core.Soldier
 
 	// fix received data
 	for i, v := range data {
@@ -35,7 +34,7 @@ func (p *Parser) ParseSoldier(data []string) (model.Soldier, error) {
 	if err != nil {
 		return soldier, fmt.Errorf("error converting ocapId to uint: %w", err)
 	}
-	soldier.ObjectID = uint16(ocapID)
+	soldier.ID = uint16(ocapID)
 	soldier.UnitName = data[2]
 	soldier.GroupID = data[3]
 	soldier.Side = data[4]
@@ -57,12 +56,12 @@ func (p *Parser) ParseSoldier(data []string) (model.Soldier, error) {
 	return soldier, nil
 }
 
-// ParseSoldierState parses soldier state data and returns a SoldierState model.
-// Sets SoldierObjectID directly from the parsed ocapID (no cache lookup).
+// ParseSoldierState parses soldier state data and returns a core SoldierState.
+// Sets SoldierID directly from the parsed ocapID (no cache lookup).
 // If groupID/side fields are not in the data (len < 17), they are left empty
 // for the worker layer to fill from cache.
-func (p *Parser) ParseSoldierState(data []string) (model.SoldierState, error) {
-	var soldierState model.SoldierState
+func (p *Parser) ParseSoldierState(data []string) (core.SoldierState, error) {
+	var soldierState core.SoldierState
 
 	// fix received data
 	for i, v := range data {
@@ -81,7 +80,7 @@ func (p *Parser) ParseSoldierState(data []string) (model.SoldierState, error) {
 	if err != nil {
 		return soldierState, fmt.Errorf("error converting ocapId to uint: %w", err)
 	}
-	soldierState.SoldierObjectID = uint16(ocapID)
+	soldierState.SoldierID = uint16(ocapID)
 
 	soldierState.Time = time.Now()
 
@@ -89,14 +88,13 @@ func (p *Parser) ParseSoldierState(data []string) (model.SoldierState, error) {
 	pos := data[1]
 	pos = strings.TrimPrefix(pos, "[")
 	pos = strings.TrimSuffix(pos, "]")
-	point, elev, err := geo.Coord3857FromString(pos)
+	pos3d, err := geo.Position3DFromString(pos)
 	if err != nil {
 		jsonData, _ := json.Marshal(data)
 		p.logger.Error("Error converting position to Point", "data", string(jsonData), "error", err)
 		return soldierState, err
 	}
-	soldierState.Position = point
-	soldierState.ElevationASL = float32(elev)
+	soldierState.Position = pos3d
 
 	// bearing
 	bearing, _ := strconv.Atoi(data[2])
@@ -134,7 +132,7 @@ func (p *Parser) ParseSoldierState(data []string) (model.SoldierState, error) {
 				scoresInt[i] = uint8(num)
 			}
 
-			soldierState.Scores = model.SoldierScores{
+			soldierState.Scores = core.SoldierScores{
 				InfantryKills: scoresInt[0],
 				VehicleKills:  scoresInt[1],
 				ArmorKills:    scoresInt[2],
@@ -152,10 +150,9 @@ func (p *Parser) ParseSoldierState(data []string) (model.SoldierState, error) {
 
 	// InVehicleObjectID, if -1 not in a vehicle
 	inVehicleID, _ := strconv.Atoi(data[13])
-	if inVehicleID == -1 {
-		soldierState.InVehicleObjectID = sql.NullInt32{Int32: 0, Valid: false}
-	} else {
-		soldierState.InVehicleObjectID = sql.NullInt32{Int32: int32(inVehicleID), Valid: true}
+	if inVehicleID != -1 {
+		ptr := uint16(inVehicleID)
+		soldierState.InVehicleObjectID = &ptr
 	}
 
 	// stance

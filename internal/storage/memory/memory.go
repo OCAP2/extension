@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"github.com/OCAP2/extension/v5/internal/config"
-	"github.com/OCAP2/extension/v5/internal/model/core"
+	"github.com/OCAP2/extension/v5/pkg/core"
 	"github.com/OCAP2/extension/v5/internal/storage"
 	v1 "github.com/OCAP2/extension/v5/internal/storage/memory/export/v1"
 )

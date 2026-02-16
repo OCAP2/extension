@@ -485,6 +485,44 @@ func TestDispatcher_ConcurrentRegisterAndDispatch(t *testing.T) {
 	wg.Wait()
 }
 
+func TestDispatcher_GatedSyncHandler(t *testing.T) {
+	d, _ := newTestDispatcher(t)
+
+	ready := make(chan struct{})
+	var result atomic.Value
+
+	d.Register(":GATED_SYNC:", func(e Event) (any, error) {
+		return "handled", nil
+	}, Gated(ready))
+
+	// Dispatch before gate opens - should block
+	done := make(chan struct{})
+	go func() {
+		r, err := d.Dispatch(Event{Command: ":GATED_SYNC:"})
+		assert.NoError(t, err)
+		result.Store(r)
+		close(done)
+	}()
+
+	// Verify blocked
+	select {
+	case <-done:
+		t.Error("sync gated dispatch should block until gate opens")
+	case <-time.After(50 * time.Millisecond):
+		// Expected
+	}
+
+	// Open gate
+	close(ready)
+
+	select {
+	case <-done:
+		assert.Equal(t, "handled", result.Load())
+	case <-time.After(time.Second):
+		t.Error("sync gated dispatch should complete after gate opens")
+	}
+}
+
 func TestDispatcher_GatedLogsWhenOpened(t *testing.T) {
 	d, logger := newTestDispatcher(t)
 
