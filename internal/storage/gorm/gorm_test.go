@@ -638,8 +638,17 @@ func TestStartDBWriters_DrainsQueues(t *testing.T) {
 
 	// Push items via the public API (which queues GORM models internally)
 	b.AddSoldier(&core.Soldier{ID: 1, UnitName: "Alpha", Side: "WEST"})
+	b.AddVehicle(&core.Vehicle{ID: 2, ClassName: "Humvee"})
+	b.RecordSoldierState(&core.SoldierState{SoldierID: 1})
+	b.RecordVehicleState(&core.VehicleState{VehicleID: 2})
+	b.RecordProjectileEvent(&core.ProjectileEvent{FirerObjectID: 1, CaptureFrame: 1})
 	b.RecordGeneralEvent(&core.GeneralEvent{Name: "connected", Message: "Player1"})
+	b.RecordKillEvent(&core.KillEvent{CaptureFrame: 1})
+	b.RecordChatEvent(&core.ChatEvent{Message: "hello", CaptureFrame: 1})
+	b.RecordRadioEvent(&core.RadioEvent{CaptureFrame: 1})
 	b.RecordServerFpsEvent(&core.ServerFpsEvent{FpsAverage: 50, FpsMin: 30, CaptureFrame: 1})
+	b.RecordAce3DeathEvent(&core.Ace3DeathEvent{SoldierID: 1, CaptureFrame: 1})
+	b.RecordAce3UnconsciousEvent(&core.Ace3UnconsciousEvent{SoldierID: 1, CaptureFrame: 1})
 
 	// Wait for the background writer to drain (it runs on a 2s loop, so wait up to 5s)
 	require.Eventually(t, func() bool {
@@ -648,12 +657,14 @@ func TestStartDBWriters_DrainsQueues(t *testing.T) {
 		return count > 0
 	}, 5*time.Second, 100*time.Millisecond, "soldiers should be written to DB")
 
-	var soldierCount, eventCount, fpsCount int64
+	var soldierCount, vehicleCount, generalCount, fpsCount int64
 	db.Model(&model.Soldier{}).Count(&soldierCount)
-	db.Model(&model.GeneralEvent{}).Count(&eventCount)
+	db.Model(&model.Vehicle{}).Count(&vehicleCount)
+	db.Model(&model.GeneralEvent{}).Count(&generalCount)
 	db.Model(&model.ServerFpsEvent{}).Count(&fpsCount)
 
 	assert.Equal(t, int64(1), soldierCount)
-	assert.Equal(t, int64(1), eventCount)
+	assert.Equal(t, int64(1), vehicleCount)
+	assert.Equal(t, int64(1), generalCount)
 	assert.Equal(t, int64(1), fpsCount)
 }
