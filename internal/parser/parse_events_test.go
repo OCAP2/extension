@@ -643,15 +643,44 @@ func TestParseTimeState(t *testing.T) {
 func TestParseTelemetryEvent(t *testing.T) {
 	p := newTestParser()
 
-	// Each element is a separate string arg, as ArmA's callExtension sends them
-	validArgs := []string{
-		"500",                                          // [0] frameNo
-		"[45.5,30.0]",                                  // [1] fps
-		`[[[10,8,2,3,5,1],[4,3,1,1,2,0]],[[12,10,2,4,6,2],[5,4,1,2,3,1]],[[2,2,0,1,0,0],[0,0,0,0,0,0]],[[0,0,0,0,0,0],[0,0,0,0,0,0]]]`, // [2] sides
-		"[40,5,8,13,3,16,2,18]",                        // [3] global
-		"[3,2,1,0,5]",                                  // [4] scripts
-		"[0.1,0.5,0.0,0.6,0.2,180.0,3.5,0.1,0.0,0.8,0.25,1.0]", // [5] weather
-		`[["uid1","Player1",25.5,512.0,0.1],["uid2","Player2",30.0,480.0,0.05]]`, // [6] players
+	// Real data from ArmA 3 RPT: mission start (frame 0)
+	// Sides order: [east, west, independent, civilian], each [[server_local], [remote]]
+	// Locality: [units_total, units_alive, units_dead, groups_total, vehicles_total, vehicles_weaponholder]
+	// Global: [units_alive, units_dead, groups_total, vehicles_total, vehicles_weaponholder, players_alive, players_dead, players_connected]
+	// Scripts: [spawn, execVM, exec, execFSM, pfh]
+	// Weather: [fog, overcast, rain, humidity, waves, windDir, windStr, gusts, lightnings, moonIntensity, moonPhase, sunOrMoon]
+	// Players: [[uid, name, avgPing, avgBandwidth, desync], ...]
+	missionStart := []string{
+		"0",                          // frame
+		"[43.3604,4.36681]",          // fps
+		`[[[1,1,0,1,0,0],[0,0,0,0,0,0]],[[10,10,0,8,0,0],[0,0,0,0,0,0]],[[6,6,0,6,0,0],[0,0,0,0,0,0]],[[5,5,12,0,24,0],[0,0,0,0,0,0]]]`, // sides
+		"[22,12,15,28,0,1,0,1]",      // global
+		"[28,4,0,4,2]",               // scripts
+		"[0.2,0.25,0,0,0.1,0,0.25,0.315,0,0.423059,0.421672,1]", // weather
+		`[["76561198000074241","info",100,28,0]]`, // players
+	}
+
+	// Real data from RPT: mid-mission (frame 114) — combat started, casualties, vehicles deployed
+	// Notable: bandwidth uses scientific notation (1.67772e+07)
+	midMission := []string{
+		"114",                        // frame
+		"[122.137,90.9091]",          // fps
+		`[[[32,32,0,10,0,0],[0,0,0,0,0,0]],[[6,6,0,8,1,0],[0,0,0,0,0,0]],[[6,6,0,6,0,0],[0,0,0,0,0,0]],[[4,4,19,0,23,22],[0,0,0,0,0,0]]]`, // sides
+		"[48,19,24,28,22,1,0,1]",     // global
+		"[17,3,0,4,3]",               // scripts
+		"[0.2,0.25,0,0,0.1,160.864,0.25,0.175,0.003153,0.441581,0.421672,1]", // weather
+		`[["76561198000074241","info",0,1.67772e+07,0]]`, // players
+	}
+
+	// Real data from RPT: late mission (frame 234) — more casualties, weapon holders on ground
+	lateMission := []string{
+		"234",                        // frame
+		"[132.231,76.9231]",          // fps
+		`[[[30,30,0,10,0,0],[0,0,0,0,0,0]],[[3,3,0,8,1,0],[0,0,0,0,0,0]],[[2,2,0,6,0,0],[0,0,0,0,0,0]],[[2,2,22,0,21,24],[0,0,0,0,0,0]]]`, // sides
+		"[37,22,24,26,24,1,0,1]",     // global
+		"[18,3,0,4,4]",               // scripts
+		"[0.2,0.25,0,0,0.1,10.289,0.25,0.175,0.00649121,0.441576,0.421672,1]", // weather
+		`[["76561198000074241","info",0,1.67772e+07,0]]`, // players
 	}
 
 	zeroSides := `[[[0,0,0,0,0,0],[0,0,0,0,0,0]],[[0,0,0,0,0,0],[0,0,0,0,0,0]],[[0,0,0,0,0,0],[0,0,0,0,0,0]],[[0,0,0,0,0,0],[0,0,0,0,0,0]]]`
@@ -663,40 +692,155 @@ func TestParseTelemetryEvent(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name:  "valid telemetry",
-			input: validArgs,
+			name:  "RPT mission start (frame 0)",
+			input: missionStart,
 			check: func(t *testing.T, e core.TelemetryEvent) {
-				assert.Equal(t, uint(500), e.CaptureFrame)
-				assert.InDelta(t, float32(45.5), e.FpsAverage, 0.01)
-				assert.InDelta(t, float32(30.0), e.FpsMin, 0.01)
+				assert.Equal(t, uint(0), e.CaptureFrame)
+				assert.InDelta(t, 43.3604, float64(e.FpsAverage), 0.001)
+				assert.InDelta(t, 4.36681, float64(e.FpsMin), 0.001)
 
-				// Side data - east local
-				assert.Equal(t, uint(10), e.SideEntityCounts[0].Local.UnitsTotal)
-				assert.Equal(t, uint(8), e.SideEntityCounts[0].Local.UnitsAlive)
-				// Side data - west remote
-				assert.Equal(t, uint(5), e.SideEntityCounts[1].Remote.UnitsTotal)
+				// East: 1 local unit alive, 1 group, no vehicles
+				east := e.SideEntityCounts[0]
+				assert.Equal(t, uint(1), east.Local.UnitsTotal)
+				assert.Equal(t, uint(1), east.Local.UnitsAlive)
+				assert.Equal(t, uint(0), east.Local.UnitsDead)
+				assert.Equal(t, uint(1), east.Local.Groups)
+				assert.Equal(t, uint(0), east.Local.Vehicles)
+				assert.Equal(t, uint(0), east.Local.WeaponHolders)
+				// East remote: all zero
+				assert.Equal(t, uint(0), east.Remote.UnitsTotal)
+
+				// West: 10 local units, 8 groups
+				assert.Equal(t, uint(10), e.SideEntityCounts[1].Local.UnitsTotal)
+				assert.Equal(t, uint(8), e.SideEntityCounts[1].Local.Groups)
+
+				// Independent: 6 local units, 6 groups
+				assert.Equal(t, uint(6), e.SideEntityCounts[2].Local.UnitsTotal)
+				assert.Equal(t, uint(6), e.SideEntityCounts[2].Local.Groups)
+
+				// Civilian: 5 alive, 12 dead, 24 vehicles, no weapon holders
+				civ := e.SideEntityCounts[3].Local
+				assert.Equal(t, uint(5), civ.UnitsTotal)
+				assert.Equal(t, uint(5), civ.UnitsAlive)
+				assert.Equal(t, uint(12), civ.UnitsDead)
+				assert.Equal(t, uint(0), civ.Groups)
+				assert.Equal(t, uint(24), civ.Vehicles)
+				assert.Equal(t, uint(0), civ.WeaponHolders)
 
 				// Global
-				assert.Equal(t, uint(40), e.GlobalCounts.UnitsAlive)
-				assert.Equal(t, uint(18), e.GlobalCounts.PlayersConnected)
+				assert.Equal(t, uint(22), e.GlobalCounts.UnitsAlive)
+				assert.Equal(t, uint(12), e.GlobalCounts.UnitsDead)
+				assert.Equal(t, uint(15), e.GlobalCounts.Groups)
+				assert.Equal(t, uint(28), e.GlobalCounts.Vehicles)
+				assert.Equal(t, uint(0), e.GlobalCounts.WeaponHolders)
+				assert.Equal(t, uint(1), e.GlobalCounts.PlayersAlive)
+				assert.Equal(t, uint(0), e.GlobalCounts.PlayersDead)
+				assert.Equal(t, uint(1), e.GlobalCounts.PlayersConnected)
 
-				// Scripts
-				assert.Equal(t, uint(3), e.Scripts.Spawn)
-				assert.Equal(t, uint(5), e.Scripts.PFH)
+				// Scripts: 28 spawn, 4 execVM, 0 exec, 4 execFSM, 2 pfh
+				assert.Equal(t, uint(28), e.Scripts.Spawn)
+				assert.Equal(t, uint(4), e.Scripts.ExecVM)
+				assert.Equal(t, uint(0), e.Scripts.Exec)
+				assert.Equal(t, uint(4), e.Scripts.ExecFSM)
+				assert.Equal(t, uint(2), e.Scripts.PFH)
 
-				// Weather
-				assert.InDelta(t, float32(0.5), e.Weather.Overcast, 0.01)
-				assert.InDelta(t, float32(180.0), e.Weather.WindDir, 0.1)
+				// Weather: daytime (sunOrMoon=1), low wind, no rain
+				assert.InDelta(t, 0.2, float64(e.Weather.Fog), 0.001)
+				assert.InDelta(t, 0.25, float64(e.Weather.Overcast), 0.001)
+				assert.InDelta(t, 0.0, float64(e.Weather.Rain), 0.001)
+				assert.InDelta(t, 0.0, float64(e.Weather.Humidity), 0.001)
+				assert.InDelta(t, 0.1, float64(e.Weather.Waves), 0.001)
+				assert.InDelta(t, 0.0, float64(e.Weather.WindDir), 0.001)
+				assert.InDelta(t, 0.25, float64(e.Weather.WindStr), 0.001)
+				assert.InDelta(t, 0.315, float64(e.Weather.Gusts), 0.001)
+				assert.InDelta(t, 0.0, float64(e.Weather.Lightnings), 0.001)
+				assert.InDelta(t, 0.423059, float64(e.Weather.MoonIntensity), 0.0001)
+				assert.InDelta(t, 0.421672, float64(e.Weather.MoonPhase), 0.0001)
+				assert.InDelta(t, 1.0, float64(e.Weather.SunOrMoon), 0.001)
 
-				// Players
-				require.Len(t, e.Players, 2)
-				assert.Equal(t, "uid1", e.Players[0].UID)
-				assert.Equal(t, "Player1", e.Players[0].Name)
-				assert.InDelta(t, float32(25.5), e.Players[0].Ping, 0.01)
+				// One player connected
+				require.Len(t, e.Players, 1)
+				assert.Equal(t, "76561198000074241", e.Players[0].UID)
+				assert.Equal(t, "info", e.Players[0].Name)
+				assert.InDelta(t, 100.0, float64(e.Players[0].Ping), 0.01)
+				assert.InDelta(t, 28.0, float64(e.Players[0].BW), 0.01)
+				assert.InDelta(t, 0.0, float64(e.Players[0].Desync), 0.01)
 			},
 		},
 		{
-			name: "empty players array",
+			name:  "RPT mid-mission (frame 114) — combat, scientific notation bandwidth",
+			input: midMission,
+			check: func(t *testing.T, e core.TelemetryEvent) {
+				assert.Equal(t, uint(114), e.CaptureFrame)
+				assert.InDelta(t, 122.137, float64(e.FpsAverage), 0.01)
+				assert.InDelta(t, 90.9091, float64(e.FpsMin), 0.01)
+
+				// East lost 1 unit (33→32 in later frame, but at 114: 32 local)
+				assert.Equal(t, uint(32), e.SideEntityCounts[0].Local.UnitsTotal)
+
+				// West: 1 vehicle now present
+				assert.Equal(t, uint(1), e.SideEntityCounts[1].Local.Vehicles)
+
+				// Civilian: 19 dead (was 12 at start), 23 vehicles, 22 weapon holders on ground
+				civ := e.SideEntityCounts[3].Local
+				assert.Equal(t, uint(4), civ.UnitsTotal)
+				assert.Equal(t, uint(19), civ.UnitsDead)
+				assert.Equal(t, uint(23), civ.Vehicles)
+				assert.Equal(t, uint(22), civ.WeaponHolders)
+
+				// Global: 22 weapon holders (from dropped equipment)
+				assert.Equal(t, uint(48), e.GlobalCounts.UnitsAlive)
+				assert.Equal(t, uint(22), e.GlobalCounts.WeaponHolders)
+
+				// Wind direction changed to 160.864°
+				assert.InDelta(t, 160.864, float64(e.Weather.WindDir), 0.01)
+
+				// Player bandwidth in scientific notation: 1.67772e+07 ≈ 16777200
+				require.Len(t, e.Players, 1)
+				assert.InDelta(t, 1.67772e+07, float64(e.Players[0].BW), 100)
+				assert.InDelta(t, 0.0, float64(e.Players[0].Ping), 0.01)
+			},
+		},
+		{
+			name:  "RPT late mission (frame 234) — more casualties, weapon holders",
+			input: lateMission,
+			check: func(t *testing.T, e core.TelemetryEvent) {
+				assert.Equal(t, uint(234), e.CaptureFrame)
+				assert.InDelta(t, 132.231, float64(e.FpsAverage), 0.01)
+				assert.InDelta(t, 76.9231, float64(e.FpsMin), 0.01)
+
+				// East: down to 30 local units
+				assert.Equal(t, uint(30), e.SideEntityCounts[0].Local.UnitsTotal)
+
+				// West: down to 3 units, still 1 vehicle
+				west := e.SideEntityCounts[1].Local
+				assert.Equal(t, uint(3), west.UnitsTotal)
+				assert.Equal(t, uint(1), west.Vehicles)
+
+				// Independent: down to 2 units
+				assert.Equal(t, uint(2), e.SideEntityCounts[2].Local.UnitsTotal)
+
+				// Civilian: 22 dead, 21 vehicles, 24 weapon holders
+				civ := e.SideEntityCounts[3].Local
+				assert.Equal(t, uint(22), civ.UnitsDead)
+				assert.Equal(t, uint(21), civ.Vehicles)
+				assert.Equal(t, uint(24), civ.WeaponHolders)
+
+				// Global: 24 weapon holders, 22 dead overall
+				assert.Equal(t, uint(37), e.GlobalCounts.UnitsAlive)
+				assert.Equal(t, uint(22), e.GlobalCounts.UnitsDead)
+				assert.Equal(t, uint(24), e.GlobalCounts.WeaponHolders)
+
+				// Scripts: pfh increased to 4
+				assert.Equal(t, uint(18), e.Scripts.Spawn)
+				assert.Equal(t, uint(4), e.Scripts.PFH)
+
+				// Weather: wind shifted to 10.289°
+				assert.InDelta(t, 10.289, float64(e.Weather.WindDir), 0.01)
+			},
+		},
+		{
+			name: "empty players (no human players connected)",
 			input: []string{
 				"0", "[50.0,40.0]", zeroSides,
 				"[0,0,0,0,0,0,0,0]", "[0,0,0,0,0]",
@@ -704,7 +848,7 @@ func TestParseTelemetryEvent(t *testing.T) {
 			},
 			check: func(t *testing.T, e core.TelemetryEvent) {
 				assert.Equal(t, uint(0), e.CaptureFrame)
-				assert.InDelta(t, float32(50.0), e.FpsAverage, 0.01)
+				assert.InDelta(t, 50.0, float64(e.FpsAverage), 0.01)
 				assert.Empty(t, e.Players)
 			},
 		},
