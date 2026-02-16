@@ -62,7 +62,7 @@ func TestUpload_Success(t *testing.T) {
 	var receivedFileContent []byte
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/api/v1/operations/add", r.URL.Path)
+		assert.Equal(t, "/v1/operations/add", r.URL.Path)
 		assert.Equal(t, http.MethodPost, r.Method)
 
 		err := r.ParseMultipartForm(10 << 20)
