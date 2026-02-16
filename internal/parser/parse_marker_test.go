@@ -198,41 +198,41 @@ func TestParseMarkerMove(t *testing.T) {
 	tests := []struct {
 		name    string
 		input   []string
-		check   func(t *testing.T, r ParsedMarkerMove)
+		check   func(t *testing.T, r MarkerMove)
 		wantErr bool
 	}{
 		{
 			name:  "normal move",
 			input: []string{"markerName", "517", "6069.06,5627.81,17.81", "0", "1"},
-			check: func(t *testing.T, r ParsedMarkerMove) {
+			check: func(t *testing.T, r MarkerMove) {
 				assert.Equal(t, "markerName", r.MarkerName)
-				assert.Equal(t, uint(517), r.State.CaptureFrame)
-				assert.NotEqual(t, core.Position3D{}, r.State.Position)
-				assert.Equal(t, float32(0), r.State.Direction)
-				assert.Equal(t, float32(1), r.State.Alpha)
+				assert.Equal(t, uint(517), r.CaptureFrame)
+				assert.NotEqual(t, core.Position3D{}, r.Position)
+				assert.Equal(t, float32(0), r.Direction)
+				assert.Equal(t, float32(1), r.Alpha)
 			},
 		},
 		{
 			name:  "with direction and alpha",
 			input: []string{"sector_1", "200", "5000.0,4000.0,0", "-40.08", "0.5"},
-			check: func(t *testing.T, r ParsedMarkerMove) {
+			check: func(t *testing.T, r MarkerMove) {
 				assert.Equal(t, "sector_1", r.MarkerName)
-				assert.InDelta(t, float32(-40.08), r.State.Direction, 0.01)
-				assert.InDelta(t, float32(0.5), r.State.Alpha, 0.01)
+				assert.InDelta(t, float32(-40.08), r.Direction, 0.01)
+				assert.InDelta(t, float32(0.5), r.Alpha, 0.01)
 			},
 		},
 		{
 			name:  "bad direction falls back to 0",
 			input: []string{"marker1", "100", "1000.0,2000.0,0", "not_float", "1"},
-			check: func(t *testing.T, r ParsedMarkerMove) {
-				assert.Equal(t, float32(0), r.State.Direction)
+			check: func(t *testing.T, r MarkerMove) {
+				assert.Equal(t, float32(0), r.Direction)
 			},
 		},
 		{
 			name:  "bad alpha falls back to 1.0",
 			input: []string{"marker1", "100", "1000.0,2000.0,0", "0", "not_float"},
-			check: func(t *testing.T, r ParsedMarkerMove) {
-				assert.Equal(t, float32(1.0), r.State.Alpha)
+			check: func(t *testing.T, r MarkerMove) {
+				assert.Equal(t, float32(1.0), r.Alpha)
 			},
 		},
 		{

@@ -2,37 +2,60 @@ package parser
 
 import (
 	"encoding/json"
+	"time"
 
 	"github.com/OCAP2/extension/v5/internal/model/core"
 )
 
-// RawHitPart holds parsed hit data before entity classification (soldier vs vehicle).
-// The worker layer uses EntityCache to classify each hit.
-type RawHitPart struct {
+// HitPart represents a single hit from a projectile as parsed from ArmA data.
+// EntityID is a raw ArmA object ID that the worker classifies as soldier or vehicle.
+type HitPart struct {
 	EntityID      uint16
 	ComponentsHit json.RawMessage
 	CaptureFrame  uint
 	Position      core.Position3D
 }
 
-// ParsedProjectileEvent holds a projectile event with raw hit parts
-// that need entity classification by the worker layer.
-type ParsedProjectileEvent struct {
-	Event    core.ProjectileEvent
-	HitParts []RawHitPart
+// ProjectileEvent represents a projectile event as parsed from ArmA data.
+// HitParts contain raw entity IDs that need classification by the worker.
+type ProjectileEvent struct {
+	CaptureFrame    uint
+	FirerObjectID   uint16
+	VehicleObjectID *uint16
+
+	WeaponDisplay   string
+	MagazineDisplay string
+	MuzzleDisplay   string
+
+	SimulationType string
+	MagazineIcon   string
+
+	Trajectory []core.TrajectoryPoint
+	HitParts   []HitPart
 }
 
-// ParsedKillEvent holds a kill event with raw victim/killer IDs
-// that need entity classification (soldier vs vehicle) by the worker layer.
-type ParsedKillEvent struct {
-	Event    core.KillEvent
-	VictimID uint16
-	KillerID uint16
+// KillEvent represents a kill event as parsed from ArmA data.
+// VictimID and KillerID are raw ArmA object IDs that the worker classifies
+// as soldier or vehicle.
+type KillEvent struct {
+	Time           time.Time
+	CaptureFrame   uint
+	VictimID       uint16
+	KillerID       uint16
+	WeaponVehicle  string
+	WeaponName     string
+	WeaponMagazine string
+	EventText      string
+	Distance       float32
 }
 
-// ParsedMarkerMove holds a marker state with the marker name
-// that needs resolution to a MarkerID via MarkerCache by the worker layer.
-type ParsedMarkerMove struct {
-	State      core.MarkerState
-	MarkerName string
+// MarkerMove represents a marker position update as parsed from ArmA data.
+// MarkerName needs resolution to a MarkerID via MarkerCache by the worker.
+type MarkerMove struct {
+	MarkerName   string
+	CaptureFrame uint
+	Position     core.Position3D
+	Direction    float32
+	Alpha        float32
+	Time         time.Time
 }

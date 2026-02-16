@@ -58,9 +58,9 @@ type Service interface {
 	ParseVehicle(args []string) (core.Vehicle, error)
 	ParseSoldierState(args []string) (core.SoldierState, error)
 	ParseVehicleState(args []string) (core.VehicleState, error)
-	ParseProjectileEvent(args []string) (ParsedProjectileEvent, error)
+	ParseProjectileEvent(args []string) (ProjectileEvent, error)
 	ParseGeneralEvent(args []string) (core.GeneralEvent, error)
-	ParseKillEvent(args []string) (ParsedKillEvent, error)
+	ParseKillEvent(args []string) (KillEvent, error)
 	ParseChatEvent(args []string) (core.ChatEvent, error)
 	ParseRadioEvent(args []string) (core.RadioEvent, error)
 	ParseFpsEvent(args []string) (core.ServerFpsEvent, error)
@@ -68,7 +68,7 @@ type Service interface {
 	ParseAce3DeathEvent(args []string) (core.Ace3DeathEvent, error)
 	ParseAce3UnconsciousEvent(args []string) (core.Ace3UnconsciousEvent, error)
 	ParseMarkerCreate(args []string) (core.Marker, error)
-	ParseMarkerMove(args []string) (ParsedMarkerMove, error)
+	ParseMarkerMove(args []string) (MarkerMove, error)
 	ParseMarkerDelete(args []string) (string, uint, error)
 }
 

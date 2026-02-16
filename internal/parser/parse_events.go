@@ -11,12 +11,10 @@ import (
 	"github.com/OCAP2/extension/v5/internal/util"
 )
 
-// ParseProjectileEvent parses projectile event data and returns a ParsedProjectileEvent.
-// FirerObjectID, VehicleObjectID, and ActualFirerObjectID are set directly from parsed IDs.
-// Hit parts are returned as RawHitPart for the worker to classify as soldier/vehicle.
-func (p *Parser) ParseProjectileEvent(data []string) (ParsedProjectileEvent, error) {
-	var result ParsedProjectileEvent
-	var projectileEvent core.ProjectileEvent
+// ParseProjectileEvent parses projectile event data into a ProjectileEvent.
+// Hit parts are returned as HitPart for the worker to classify as soldier/vehicle.
+func (p *Parser) ParseProjectileEvent(data []string) (ProjectileEvent, error) {
+	var result ProjectileEvent
 
 	// fix received data
 	for i, v := range data {
@@ -32,14 +30,14 @@ func (p *Parser) ParseProjectileEvent(data []string) (ParsedProjectileEvent, err
 	if err != nil {
 		return result, fmt.Errorf("error parsing firedFrame: %v", err)
 	}
-	projectileEvent.CaptureFrame = uint(capframe)
+	result.CaptureFrame = uint(capframe)
 
 	// [2] firerID - set directly
 	firerID, err := parseUintFromFloat(data[2])
 	if err != nil {
 		return result, fmt.Errorf("error parsing firerID: %v", err)
 	}
-	projectileEvent.FirerObjectID = uint16(firerID)
+	result.FirerObjectID = uint16(firerID)
 
 	// [3] vehicleID (-1 if not in vehicle)
 	vehicleID, err := parseIntFromFloat(data[3])
@@ -48,13 +46,13 @@ func (p *Parser) ParseProjectileEvent(data []string) (ParsedProjectileEvent, err
 	}
 	if vehicleID >= 0 {
 		ptr := uint16(vehicleID)
-		projectileEvent.VehicleObjectID = &ptr
+		result.VehicleObjectID = &ptr
 	}
 
 	// [6-13] weapon info
-	projectileEvent.WeaponDisplay = data[7]
-	projectileEvent.MuzzleDisplay = data[9]
-	projectileEvent.MagazineDisplay = data[11]
+	result.WeaponDisplay = data[7]
+	result.MuzzleDisplay = data[9]
+	result.MagazineDisplay = data[11]
 
 	// [14] positions - SQF array "[[tickTime,frameNo,"x,y,z"],...]"
 	var positions [][]any
@@ -85,13 +83,13 @@ func (p *Parser) ParseProjectileEvent(data []string) (ParsedProjectileEvent, err
 			continue
 		}
 
-		projectileEvent.Trajectory = append(projectileEvent.Trajectory, core.TrajectoryPoint{
+		result.Trajectory = append(result.Trajectory, core.TrajectoryPoint{
 			Position: pos3d,
 			Frame:    uint(frameNo),
 		})
 	}
 
-	// [16] hitParts - parse into RawHitPart for worker classification
+	// [16] hitParts - parse into HitPart for worker classification
 	var hitParts [][]any
 	if err := json.Unmarshal([]byte(data[16]), &hitParts); err != nil {
 		p.logger.Warn("Error parsing hitParts", "error", err, "data", data[16])
@@ -135,7 +133,7 @@ func (p *Parser) ParseProjectileEvent(data []string) (ParsedProjectileEvent, err
 
 			hitComponentsJSON, _ := json.Marshal(hitComponents)
 
-			result.HitParts = append(result.HitParts, RawHitPart{
+			result.HitParts = append(result.HitParts, HitPart{
 				EntityID:      uint16(hitEntityID),
 				ComponentsHit: hitComponentsJSON,
 				CaptureFrame:  uint(hitFrame),
@@ -145,15 +143,11 @@ func (p *Parser) ParseProjectileEvent(data []string) (ParsedProjectileEvent, err
 	}
 
 	// [17] sim - simulation type
-	projectileEvent.SimulationType = data[17]
+	result.SimulationType = data[17]
 
 	// [19] magazineIcon
-	projectileEvent.MagazineIcon = data[19]
+	result.MagazineIcon = data[19]
 
-	// Initialize empty hits slice on the event
-	projectileEvent.Hits = []core.ProjectileHit{}
-
-	result.Event = projectileEvent
 	return result, nil
 }
 
@@ -188,10 +182,10 @@ func (p *Parser) ParseGeneralEvent(data []string) (core.GeneralEvent, error) {
 	return thisEvent, nil
 }
 
-// ParseKillEvent parses kill event data and returns a ParsedKillEvent.
+// ParseKillEvent parses kill event data into a KillEvent.
 // Raw victim/killer IDs are returned for the worker to classify as soldier vs vehicle.
-func (p *Parser) ParseKillEvent(data []string) (ParsedKillEvent, error) {
-	var result ParsedKillEvent
+func (p *Parser) ParseKillEvent(data []string) (KillEvent, error) {
+	var result KillEvent
 
 	// Save weapon array before FixEscapeQuotes
 	rawWeapon := util.TrimQuotes(data[3])
@@ -207,8 +201,8 @@ func (p *Parser) ParseKillEvent(data []string) (ParsedKillEvent, error) {
 		return result, fmt.Errorf("error converting capture frame to int: %w", err)
 	}
 
-	result.Event.Time = time.Now()
-	result.Event.CaptureFrame = uint(capframe)
+	result.Time = time.Now()
+	result.CaptureFrame = uint(capframe)
 
 	// parse victim ObjectID
 	victimObjectID, err := parseUintFromFloat(data[1])
@@ -225,15 +219,15 @@ func (p *Parser) ParseKillEvent(data []string) (ParsedKillEvent, error) {
 	result.KillerID = uint16(killerObjectID)
 
 	// get weapon info
-	result.Event.WeaponVehicle, result.Event.WeaponName, result.Event.WeaponMagazine = util.ParseSQFStringArray(rawWeapon)
-	result.Event.EventText = util.FormatWeaponText(result.Event.WeaponVehicle, result.Event.WeaponName, result.Event.WeaponMagazine)
+	result.WeaponVehicle, result.WeaponName, result.WeaponMagazine = util.ParseSQFStringArray(rawWeapon)
+	result.EventText = util.FormatWeaponText(result.WeaponVehicle, result.WeaponName, result.WeaponMagazine)
 
 	// get event distance
 	distance, err := strconv.ParseFloat(data[4], 64)
 	if err != nil {
 		return result, fmt.Errorf("error converting distance to float: %w", err)
 	}
-	result.Event.Distance = float32(distance)
+	result.Distance = float32(distance)
 
 	return result, nil
 }

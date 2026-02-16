@@ -126,17 +126,31 @@ func (m *Manager) handleProjectileEvent(e dispatcher.Event) (any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to log projectile event: %w", err)
 	}
-	m.classifyHitParts(&parsed)
-	m.backend.RecordProjectileEvent(&parsed.Event)
+
+	coreEvent := core.ProjectileEvent{
+		CaptureFrame:    parsed.CaptureFrame,
+		FirerObjectID:   parsed.FirerObjectID,
+		VehicleObjectID: parsed.VehicleObjectID,
+		WeaponDisplay:   parsed.WeaponDisplay,
+		MagazineDisplay: parsed.MagazineDisplay,
+		MuzzleDisplay:   parsed.MuzzleDisplay,
+		SimulationType:  parsed.SimulationType,
+		MagazineIcon:    parsed.MagazineIcon,
+		Trajectory:      parsed.Trajectory,
+		Hits:            m.classifyHitParts(parsed.HitParts),
+	}
+
+	m.backend.RecordProjectileEvent(&coreEvent)
 	return nil, nil
 }
 
-// classifyHitParts classifies each RawHitPart as soldier or vehicle hit using EntityCache.
-func (m *Manager) classifyHitParts(parsed *parser.ParsedProjectileEvent) {
-	for _, hp := range parsed.HitParts {
+// classifyHitParts classifies each HitPart as soldier or vehicle hit using EntityCache.
+func (m *Manager) classifyHitParts(hitParts []parser.HitPart) []core.ProjectileHit {
+	var hits []core.ProjectileHit
+	for _, hp := range hitParts {
 		if _, ok := m.deps.EntityCache.GetSoldier(hp.EntityID); ok {
 			soldierID := hp.EntityID
-			parsed.Event.Hits = append(parsed.Event.Hits, core.ProjectileHit{
+			hits = append(hits, core.ProjectileHit{
 				SoldierID:     &soldierID,
 				CaptureFrame:  hp.CaptureFrame,
 				Position:      hp.Position,
@@ -144,7 +158,7 @@ func (m *Manager) classifyHitParts(parsed *parser.ParsedProjectileEvent) {
 			})
 		} else if _, ok := m.deps.EntityCache.GetVehicle(hp.EntityID); ok {
 			vehicleID := hp.EntityID
-			parsed.Event.Hits = append(parsed.Event.Hits, core.ProjectileHit{
+			hits = append(hits, core.ProjectileHit{
 				VehicleID:     &vehicleID,
 				CaptureFrame:  hp.CaptureFrame,
 				Position:      hp.Position,
@@ -154,6 +168,7 @@ func (m *Manager) classifyHitParts(parsed *parser.ParsedProjectileEvent) {
 			m.deps.LogManager.Logger().Warn("Hit entity not found in cache", "hitEntityID", hp.EntityID)
 		}
 	}
+	return hits
 }
 
 func (m *Manager) handleGeneralEvent(e dispatcher.Event) (any, error) {
@@ -173,13 +188,23 @@ func (m *Manager) handleKillEvent(e dispatcher.Event) (any, error) {
 		return nil, fmt.Errorf("failed to log kill event: %w", err)
 	}
 
+	coreEvent := core.KillEvent{
+		Time:           parsed.Time,
+		CaptureFrame:   parsed.CaptureFrame,
+		WeaponVehicle:  parsed.WeaponVehicle,
+		WeaponName:     parsed.WeaponName,
+		WeaponMagazine: parsed.WeaponMagazine,
+		EventText:      parsed.EventText,
+		Distance:       parsed.Distance,
+	}
+
 	// Classify victim as soldier or vehicle
 	if _, ok := m.deps.EntityCache.GetSoldier(parsed.VictimID); ok {
 		victimID := uint(parsed.VictimID)
-		parsed.Event.VictimSoldierID = &victimID
+		coreEvent.VictimSoldierID = &victimID
 	} else if _, ok := m.deps.EntityCache.GetVehicle(parsed.VictimID); ok {
 		victimID := uint(parsed.VictimID)
-		parsed.Event.VictimVehicleID = &victimID
+		coreEvent.VictimVehicleID = &victimID
 	} else {
 		m.deps.LogManager.Logger().Warn("Kill event victim not found in cache", "victimID", parsed.VictimID)
 	}
@@ -187,15 +212,15 @@ func (m *Manager) handleKillEvent(e dispatcher.Event) (any, error) {
 	// Classify killer as soldier or vehicle
 	if _, ok := m.deps.EntityCache.GetSoldier(parsed.KillerID); ok {
 		killerID := uint(parsed.KillerID)
-		parsed.Event.KillerSoldierID = &killerID
+		coreEvent.KillerSoldierID = &killerID
 	} else if _, ok := m.deps.EntityCache.GetVehicle(parsed.KillerID); ok {
 		killerID := uint(parsed.KillerID)
-		parsed.Event.KillerVehicleID = &killerID
+		coreEvent.KillerVehicleID = &killerID
 	} else {
 		m.deps.LogManager.Logger().Warn("Kill event killer not found in cache", "killerID", parsed.KillerID)
 	}
 
-	m.backend.RecordKillEvent(&parsed.Event)
+	m.backend.RecordKillEvent(&coreEvent)
 
 	return nil, nil
 }
@@ -313,9 +338,17 @@ func (m *Manager) handleMarkerMove(e dispatcher.Event) (any, error) {
 	if !ok {
 		return nil, fmt.Errorf("marker %q not found in cache", parsed.MarkerName)
 	}
-	parsed.State.MarkerID = markerID
 
-	m.backend.RecordMarkerState(&parsed.State)
+	coreState := core.MarkerState{
+		MarkerID:     markerID,
+		CaptureFrame: parsed.CaptureFrame,
+		Position:     parsed.Position,
+		Direction:    parsed.Direction,
+		Alpha:        parsed.Alpha,
+		Time:         parsed.Time,
+	}
+
+	m.backend.RecordMarkerState(&coreState)
 
 	return nil, nil
 }

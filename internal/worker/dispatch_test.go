@@ -268,9 +268,9 @@ type mockParserService struct {
 	vehicle       core.Vehicle
 	soldierState  core.SoldierState
 	vehicleState  core.VehicleState
-	projectile    parser.ParsedProjectileEvent
+	projectile    parser.ProjectileEvent
 	generalEvent  core.GeneralEvent
-	killEvent     parser.ParsedKillEvent
+	killEvent     parser.KillEvent
 	chatEvent     core.ChatEvent
 	radioEvent    core.RadioEvent
 	fpsEvent      core.ServerFpsEvent
@@ -278,7 +278,7 @@ type mockParserService struct {
 	ace3Death     core.Ace3DeathEvent
 	ace3Uncon     core.Ace3UnconsciousEvent
 	marker        core.Marker
-	markerMove    parser.ParsedMarkerMove
+	markerMove    parser.MarkerMove
 	deletedMarker string
 	deleteFrame   uint
 
@@ -340,12 +340,12 @@ func (h *mockParserService) ParseVehicleState(args []string) (core.VehicleState,
 	return h.vehicleState, nil
 }
 
-func (h *mockParserService) ParseProjectileEvent(args []string) (parser.ParsedProjectileEvent, error) {
+func (h *mockParserService) ParseProjectileEvent(args []string) (parser.ProjectileEvent, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.calls = append(h.calls, "ParseProjectileEvent")
 	if h.returnError {
-		return parser.ParsedProjectileEvent{}, errors.New(h.errorMsg)
+		return parser.ProjectileEvent{}, errors.New(h.errorMsg)
 	}
 	return h.projectile, nil
 }
@@ -360,12 +360,12 @@ func (h *mockParserService) ParseGeneralEvent(args []string) (core.GeneralEvent,
 	return h.generalEvent, nil
 }
 
-func (h *mockParserService) ParseKillEvent(args []string) (parser.ParsedKillEvent, error) {
+func (h *mockParserService) ParseKillEvent(args []string) (parser.KillEvent, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.calls = append(h.calls, "ParseKillEvent")
 	if h.returnError {
-		return parser.ParsedKillEvent{}, errors.New(h.errorMsg)
+		return parser.KillEvent{}, errors.New(h.errorMsg)
 	}
 	return h.killEvent, nil
 }
@@ -440,12 +440,12 @@ func (h *mockParserService) ParseMarkerCreate(args []string) (core.Marker, error
 	return h.marker, nil
 }
 
-func (h *mockParserService) ParseMarkerMove(args []string) (parser.ParsedMarkerMove, error) {
+func (h *mockParserService) ParseMarkerMove(args []string) (parser.MarkerMove, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.calls = append(h.calls, "ParseMarkerMove")
 	if h.returnError {
-		return parser.ParsedMarkerMove{}, errors.New(h.errorMsg)
+		return parser.MarkerMove{}, errors.New(h.errorMsg)
 	}
 	return h.markerMove, nil
 }
@@ -679,10 +679,10 @@ func TestHandleKillEvent_ClassifiesVictimAndKiller(t *testing.T) {
 	entityCache.AddVehicle(core.Vehicle{ID: 20})
 
 	parserService := &mockParserService{
-		killEvent: parser.ParsedKillEvent{
-			Event:    core.KillEvent{CaptureFrame: 100},
-			VictimID: 5,
-			KillerID: 20,
+		killEvent: parser.KillEvent{
+			CaptureFrame: 100,
+			VictimID:     5,
+			KillerID:     20,
 		},
 	}
 
@@ -740,17 +740,14 @@ func TestHandleProjectile_ClassifiesHitParts(t *testing.T) {
 	vehicleComponentsJSON, _ := json.Marshal([]string{"hull"})
 
 	parserService := &mockParserService{
-		projectile: parser.ParsedProjectileEvent{
-			Event: core.ProjectileEvent{
-				FirerObjectID: 1,
-				CaptureFrame:  620,
-				Trajectory: []core.TrajectoryPoint{
-					{Position: core.Position3D{X: 6456.5, Y: 5345.7, Z: 10.0}, Frame: 620},
-					{Position: core.Position3D{X: 6448.0, Y: 5337.0, Z: 15.0}, Frame: 625},
-				},
-				Hits: []core.ProjectileHit{},
+		projectile: parser.ProjectileEvent{
+			FirerObjectID: 1,
+			CaptureFrame:  620,
+			Trajectory: []core.TrajectoryPoint{
+				{Position: core.Position3D{X: 6456.5, Y: 5345.7, Z: 10.0}, Frame: 620},
+				{Position: core.Position3D{X: 6448.0, Y: 5337.0, Z: 15.0}, Frame: 625},
 			},
-			HitParts: []parser.RawHitPart{
+			HitParts: []parser.HitPart{
 				{EntityID: 7, ComponentsHit: componentsJSON, CaptureFrame: 625},
 				{EntityID: 30, ComponentsHit: vehicleComponentsJSON, CaptureFrame: 626},
 			},
@@ -813,20 +810,17 @@ func TestHandleProjectile_RecordsProjectileEvent(t *testing.T) {
 	d, _ := newTestDispatcher(t)
 
 	parserService := &mockParserService{
-		projectile: parser.ParsedProjectileEvent{
-			Event: core.ProjectileEvent{
-				FirerObjectID:   1,
-				CaptureFrame:    620,
-				WeaponDisplay:   "Throw",
-				MagazineDisplay: "RGO Grenade",
-				MagazineIcon:    `\A3\Weapons_F\Data\UI\gear_M67_CA.paa`,
-				SimulationType:  "shotShell",
-				Trajectory: []core.TrajectoryPoint{
-					{Position: core.Position3D{X: 6456.5, Y: 5345.7, Z: 10.443}, Frame: 620},
-					{Position: core.Position3D{X: 6448.0, Y: 5337.0, Z: 15.0}, Frame: 625},
-					{Position: core.Position3D{X: 6441.55, Y: 5328.46, Z: 9.88}, Frame: 630},
-				},
-				Hits: []core.ProjectileHit{},
+		projectile: parser.ProjectileEvent{
+			FirerObjectID:   1,
+			CaptureFrame:    620,
+			WeaponDisplay:   "Throw",
+			MagazineDisplay: "RGO Grenade",
+			MagazineIcon:    `\A3\Weapons_F\Data\UI\gear_M67_CA.paa`,
+			SimulationType:  "shotShell",
+			Trajectory: []core.TrajectoryPoint{
+				{Position: core.Position3D{X: 6456.5, Y: 5345.7, Z: 10.443}, Frame: 620},
+				{Position: core.Position3D{X: 6448.0, Y: 5337.0, Z: 15.0}, Frame: 625},
+				{Position: core.Position3D{X: 6441.55, Y: 5328.46, Z: 9.88}, Frame: 630},
 			},
 		},
 	}
@@ -891,9 +885,9 @@ func TestHandleMarkerMove_ResolvesMarkerName(t *testing.T) {
 	markerCache.Set("marker_alpha", 42)
 
 	parserService := &mockParserService{
-		markerMove: parser.ParsedMarkerMove{
-			State:      core.MarkerState{CaptureFrame: 100},
-			MarkerName: "marker_alpha",
+		markerMove: parser.MarkerMove{
+			CaptureFrame: 100,
+			MarkerName:   "marker_alpha",
 		},
 	}
 

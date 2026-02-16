@@ -100,10 +100,10 @@ func (p *Parser) ParseMarkerCreate(data []string) (core.Marker, error) {
 	return marker, nil
 }
 
-// ParseMarkerMove parses marker move data and returns a ParsedMarkerMove.
+// ParseMarkerMove parses marker move data into a MarkerMove.
 // The MarkerName is returned for the worker to resolve to a MarkerID via MarkerCache.
-func (p *Parser) ParseMarkerMove(data []string) (ParsedMarkerMove, error) {
-	var result ParsedMarkerMove
+func (p *Parser) ParseMarkerMove(data []string) (MarkerMove, error) {
+	var result MarkerMove
 
 	// fix received data
 	for i, v := range data {
@@ -118,7 +118,7 @@ func (p *Parser) ParseMarkerMove(data []string) (ParsedMarkerMove, error) {
 	if err != nil {
 		return result, fmt.Errorf("error parsing capture frame: %w", err)
 	}
-	result.State.CaptureFrame = uint(capframe)
+	result.CaptureFrame = uint(capframe)
 
 	// position
 	pos := data[2]
@@ -128,7 +128,7 @@ func (p *Parser) ParseMarkerMove(data []string) (ParsedMarkerMove, error) {
 	if err != nil {
 		return result, fmt.Errorf("error parsing position: %w", err)
 	}
-	result.State.Position = pos3d
+	result.Position = pos3d
 
 	// direction
 	dir, err := strconv.ParseFloat(data[3], 32)
@@ -136,7 +136,7 @@ func (p *Parser) ParseMarkerMove(data []string) (ParsedMarkerMove, error) {
 		p.logger.Warn("Error parsing direction", "error", err)
 		dir = 0
 	}
-	result.State.Direction = float32(dir)
+	result.Direction = float32(dir)
 
 	// alpha
 	alpha, err := strconv.ParseFloat(data[4], 32)
@@ -144,9 +144,9 @@ func (p *Parser) ParseMarkerMove(data []string) (ParsedMarkerMove, error) {
 		p.logger.Warn("Error parsing alpha", "error", err)
 		alpha = 1.0
 	}
-	result.State.Alpha = float32(alpha)
+	result.Alpha = float32(alpha)
 
-	result.State.Time = time.Now()
+	result.Time = time.Now()
 
 	return result, nil
 }
