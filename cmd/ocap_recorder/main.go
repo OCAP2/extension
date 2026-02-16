@@ -443,7 +443,7 @@ func handleNewMission(e dispatcher.Event) (any, error) {
 
 	Logger.Info("New mission logged", "missionName", coreMission.MissionName)
 
-	// 5. ArmA callback
+	// 4. ArmA callback
 	a3interface.WriteArmaCallback(ExtensionName, ":MISSION:OK:", "OK")
 	return nil, nil
 }
@@ -688,8 +688,8 @@ func populateDemoData() {
 
 	waitGroup = sync.WaitGroup{}
 	for _, mission := range missions {
-		if gb, ok := storageBackend.(*gormstorage.Backend); ok {
-			gb.SetMissionID(mission.ID)
+		if setter, ok := storageBackend.(interface{ SetMissionID(uint) }); ok {
+			setter.SetMissionID(mission.ID)
 		}
 
 		fmt.Printf("Populating mission with ID %d\n", mission.ID)

@@ -306,6 +306,106 @@ func TestStartMission_NoDB_NoOp(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestStartMission_WithDB(t *testing.T) {
+	db := newTestDB(t)
+
+	b := New(Dependencies{
+		DB:          db,
+		EntityCache: cache.NewEntityCache(),
+		MarkerCache: cache.NewMarkerCache(),
+		LogManager:  logging.NewSlogManager(),
+	})
+	b.Init()
+	defer b.Close()
+
+	mission := &core.Mission{
+		MissionName: "Test Mission",
+		Author:      "Test Author",
+		StartTime:   time.Now(),
+		Addons: []core.Addon{
+			{Name: "CBA_A3", WorkshopID: "450814997"},
+			{Name: "ACE3", WorkshopID: "463939057"},
+		},
+	}
+	world := &core.World{
+		WorldName:   "altis",
+		DisplayName: "Altis",
+		WorldSize:   30720,
+	}
+
+	err := b.StartMission(mission, world)
+	require.NoError(t, err)
+
+	assert.NotZero(t, mission.ID, "mission should get DB-assigned ID")
+	assert.NotZero(t, world.ID, "world should get DB-assigned ID")
+	assert.Equal(t, uint64(mission.ID), b.missionID.Load(), "backend missionID should be set")
+
+	// Verify DB state
+	var missionCount, worldCount, addonCount int64
+	db.Model(&model.Mission{}).Count(&missionCount)
+	db.Model(&model.World{}).Count(&worldCount)
+	db.Model(&model.Addon{}).Count(&addonCount)
+
+	assert.Equal(t, int64(1), missionCount)
+	assert.Equal(t, int64(1), worldCount)
+	assert.Equal(t, int64(2), addonCount)
+
+	// Second call with same addons should reuse them (get-or-create)
+	mission2 := &core.Mission{
+		MissionName: "Test Mission 2",
+		StartTime:   time.Now(),
+		Addons: []core.Addon{
+			{Name: "CBA_A3", WorkshopID: "450814997"},
+		},
+	}
+	err = b.StartMission(mission2, world)
+	require.NoError(t, err)
+
+	db.Model(&model.Addon{}).Count(&addonCount)
+	assert.Equal(t, int64(2), addonCount, "addons should be reused, not duplicated")
+	assert.Equal(t, uint64(mission2.ID), b.missionID.Load(), "missionID should update to latest")
+}
+
+func TestSetMissionID(t *testing.T) {
+	b := newTestBackend()
+	b.Init()
+	defer b.Close()
+
+	assert.Equal(t, uint64(0), b.missionID.Load())
+	b.SetMissionID(42)
+	assert.Equal(t, uint64(42), b.missionID.Load())
+}
+
+func TestSetupDB_CreatesOcapInfo(t *testing.T) {
+	// Use a raw DB without prior AutoMigrate so setupDB creates the OcapInfo table and seed row
+	rawDB, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{
+		SkipDefaultTransaction: true,
+	})
+	require.NoError(t, err)
+	sqlDB, err := rawDB.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+
+	b := New(Dependencies{
+		DB:          rawDB,
+		EntityCache: cache.NewEntityCache(),
+		MarkerCache: cache.NewMarkerCache(),
+		LogManager:  logging.NewSlogManager(),
+	})
+
+	// Init calls setupDB
+	err = b.Init()
+	require.NoError(t, err)
+	defer b.Close()
+
+	var info model.OcapInfo
+	require.NoError(t, rawDB.First(&info).Error)
+	assert.Equal(t, "OCAP", info.GroupName)
+
+	// Verify full schema was migrated
+	assert.True(t, rawDB.Migrator().HasTable(&model.Mission{}))
+}
+
 func TestEndMission_IsNoOp(t *testing.T) {
 	b := newTestBackend()
 	b.Init()

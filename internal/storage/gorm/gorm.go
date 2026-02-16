@@ -102,7 +102,7 @@ func (b *Backend) setupDB() error {
 	if !db.Migrator().HasTable(&model.OcapInfo{}) {
 		if err := db.AutoMigrate(&model.OcapInfo{}); err != nil {
 			log.WriteLog("setupDB", fmt.Sprintf("Failed to create ocap_info table: %s", err), "ERROR")
-			return err
+			return fmt.Errorf("failed to auto-migrate OcapInfo: %w", err)
 		}
 		if err := db.Create(&model.OcapInfo{
 			GroupName:        "OCAP",
@@ -157,10 +157,10 @@ func (b *Backend) StartMission(coreMission *core.Mission, coreWorld *core.World)
 			if err == gorm.ErrRecordNotFound {
 				if err = db.Create(&gormMission.Addons[i]).Error; err != nil {
 					log.WriteLog("StartMission", fmt.Sprintf("Failed to create addon: %v", err), "ERROR")
-					return err
+					return fmt.Errorf("failed to create addon %s: %w", addon.Name, err)
 				}
 			} else {
-				return err
+				return fmt.Errorf("failed to find addon %s: %w", addon.Name, err)
 			}
 		}
 	}
