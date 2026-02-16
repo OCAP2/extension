@@ -146,7 +146,7 @@ func TestAllMessageTypes(t *testing.T) {
 	require.NoError(t, b.RecordSoldierState(&core.SoldierState{SoldierID: 1, CaptureFrame: 1}))
 	require.NoError(t, b.RecordVehicleState(&core.VehicleState{VehicleID: 100, CaptureFrame: 1}))
 	require.NoError(t, b.RecordMarkerState(&core.MarkerState{MarkerID: 1, CaptureFrame: 1}))
-	require.NoError(t, b.DeleteMarker("m1", 10))
+	require.NoError(t, b.DeleteMarker(&core.DeleteMarker{Name: "m1", EndFrame: 10}))
 
 	// Events
 	require.NoError(t, b.RecordFiredEvent(&core.FiredEvent{SoldierID: 1, Weapon: "arifle_MX_F"}))
@@ -204,7 +204,7 @@ func TestAddMarkerAssignsID(t *testing.T) {
 }
 
 func TestEnvelopeSerialization(t *testing.T) {
-	payload := DeleteMarkerPayload{Name: "mrk1", EndFrame: 42}
+	payload := core.DeleteMarker{Name: "mrk1", EndFrame: 42}
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
 
@@ -216,7 +216,7 @@ func TestEnvelopeSerialization(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &decoded))
 	assert.Equal(t, TypeDeleteMarker, decoded.Type)
 
-	var dp DeleteMarkerPayload
+	var dp core.DeleteMarker
 	require.NoError(t, json.Unmarshal(decoded.Payload, &dp))
 	assert.Equal(t, "mrk1", dp.Name)
 	assert.Equal(t, uint(42), dp.EndFrame)

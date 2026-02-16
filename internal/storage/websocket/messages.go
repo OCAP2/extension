@@ -47,9 +47,3 @@ type StartMissionPayload struct {
 	Mission *core.Mission `json:"mission"`
 	World   *core.World   `json:"world"`
 }
-
-// DeleteMarkerPayload carries marker deletion data.
-type DeleteMarkerPayload struct {
-	Name     string `json:"name"`
-	EndFrame uint   `json:"endFrame"`
-}

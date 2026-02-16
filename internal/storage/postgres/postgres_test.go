@@ -436,7 +436,7 @@ func TestDeleteMarker_PushesAlphaZeroState(t *testing.T) {
 	// Pre-populate marker cache
 	b.deps.MarkerCache.Set("TestMarker", 42)
 
-	require.NoError(t, b.DeleteMarker("TestMarker", 500))
+	require.NoError(t, b.DeleteMarker(&core.DeleteMarker{Name: "TestMarker", EndFrame: 500}))
 
 	assert.Equal(t, 1, b.queues.MarkerStates.Len())
 	items := b.queues.MarkerStates.GetAndEmpty()
@@ -451,7 +451,7 @@ func TestDeleteMarker_UnknownMarker_NoOp(t *testing.T) {
 	b.Init() //nolint:errcheck // Init fails (no postgres) but queues are created for testing
 	defer func() { require.NoError(t, b.Close()) }()
 
-	require.NoError(t, b.DeleteMarker("NonExistent", 500))
+	require.NoError(t, b.DeleteMarker(&core.DeleteMarker{Name: "NonExistent", EndFrame: 500}))
 
 	assert.Equal(t, 0, b.queues.MarkerStates.Len())
 }

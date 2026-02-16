@@ -60,7 +60,7 @@ type mockBackend struct {
 	ace3Deaths        []*core.Ace3DeathEvent
 	ace3Uncon         []*core.Ace3UnconsciousEvent
 	projectileEvents  []*core.ProjectileEvent
-	deletedMarkers    map[string]uint // name -> endFrame
+	deletedMarkers    []*core.DeleteMarker
 	initCalled     bool
 	closeCalled    bool
 	missionStarted bool
@@ -215,13 +215,10 @@ func (b *mockBackend) RecordAce3UnconsciousEvent(e *core.Ace3UnconsciousEvent) e
 	return nil
 }
 
-func (b *mockBackend) DeleteMarker(name string, endFrame uint) error {
+func (b *mockBackend) DeleteMarker(dm *core.DeleteMarker) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.deletedMarkers == nil {
-		b.deletedMarkers = make(map[string]uint)
-	}
-	b.deletedMarkers[name] = endFrame
+	b.deletedMarkers = append(b.deletedMarkers, dm)
 	return nil
 }
 
@@ -257,8 +254,7 @@ type mockParserService struct {
 	ace3Uncon     core.Ace3UnconsciousEvent
 	marker        core.Marker
 	markerMove    parser.MarkerMove
-	deletedMarker string
-	deleteFrame   uint
+	deleteMarker *core.DeleteMarker
 
 	// Error simulation
 	returnError bool
@@ -428,14 +424,14 @@ func (h *mockParserService) ParseMarkerMove(args []string) (parser.MarkerMove, e
 	return h.markerMove, nil
 }
 
-func (h *mockParserService) ParseMarkerDelete(args []string) (string, uint, error) {
+func (h *mockParserService) ParseMarkerDelete(args []string) (*core.DeleteMarker, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.calls = append(h.calls, "ParseMarkerDelete")
 	if h.returnError {
-		return "", 0, errors.New(h.errorMsg)
+		return nil, errors.New(h.errorMsg)
 	}
-	return h.deletedMarker, h.deleteFrame, nil
+	return h.deleteMarker, nil
 }
 
 // waitFor polls until check returns true or times out after 2s.
@@ -952,9 +948,8 @@ func TestHandleMarkerDelete_WithBackend(t *testing.T) {
 	markerCache := cache.NewMarkerCache()
 
 	parserService := &mockParserService{
-		marker:        core.Marker{MarkerName: "Projectile#123"},
-		deletedMarker: "Projectile#123",
-		deleteFrame:   500,
+		marker:       core.Marker{MarkerName: "Projectile#123"},
+		deleteMarker: &core.DeleteMarker{Name: "Projectile#123", EndFrame: 500},
 	}
 
 	backend := &mockBackend{}
@@ -975,14 +970,16 @@ func TestHandleMarkerDelete_WithBackend(t *testing.T) {
 
 	waitFor(t, func() bool {
 		backend.mu.Lock()
-		_, ok := backend.deletedMarkers["Projectile#123"]
+		n := len(backend.deletedMarkers)
 		backend.mu.Unlock()
-		return ok
+		return n > 0
 	}, "timed out waiting for marker delete")
 
 	backend.mu.Lock()
 	defer backend.mu.Unlock()
-	assert.Equal(t, uint(500), backend.deletedMarkers["Projectile#123"])
+	require.Len(t, backend.deletedMarkers, 1)
+	assert.Equal(t, "Projectile#123", backend.deletedMarkers[0].Name)
+	assert.Equal(t, uint(500), backend.deletedMarkers[0].EndFrame)
 }
 
 func TestHandleVehicleState_HappyPath(t *testing.T) {
