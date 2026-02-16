@@ -107,21 +107,10 @@ func getOcapRecording(missionIDs []string) (err error) {
 		}
 		ocapMission["worldName"] = world.WorldName
 
-		totalSoldiers := int64(0)
-		err = db.Model(&model.Soldier{}).Where("mission_id = ?", missionIDInt).Count(&totalSoldiers).Error
-		if err != nil {
-			return fmt.Errorf("error getting soldier count: %w", err)
-		}
-
-		totalVehicles := int64(0)
-		err = db.Model(&model.Vehicle{}).Where("mission_id = ?", missionIDInt).Count(&totalVehicles).Error
-		if err != nil {
-			return fmt.Errorf("error getting vehicle count: %w", err)
-		}
-
 		ocapMission["Rone"] = map[string]any{}
 		ocapMission["events"] = []any{}
 
+		// Bulk-fetch soldiers and all related data for this mission
 		soldiers := []model.Soldier{}
 		soldierTxStart := time.Now()
 		err = db.Model(&model.Soldier{}).Where("mission_id = ?", missionIDInt).Find(&soldiers).Error
@@ -129,6 +118,32 @@ func getOcapRecording(missionIDs []string) (err error) {
 			return fmt.Errorf("error getting soldiers: %w", err)
 		}
 		fmt.Println("Got soldiers in ", time.Since(soldierTxStart))
+
+		allSoldierStates := []model.SoldierState{}
+		err = db.Model(&model.SoldierState{}).
+			Where("mission_id = ?", missionIDInt).
+			Order("capture_frame ASC").
+			Find(&allSoldierStates).Error
+		if err != nil {
+			return fmt.Errorf("error getting soldier states: %w", err)
+		}
+		soldierStatesByID := map[uint16][]model.SoldierState{}
+		for _, s := range allSoldierStates {
+			soldierStatesByID[s.SoldierObjectID] = append(soldierStatesByID[s.SoldierObjectID], s)
+		}
+
+		allProjectileEvents := []model.ProjectileEvent{}
+		err = db.Model(&model.ProjectileEvent{}).
+			Where("mission_id = ?", missionIDInt).
+			Order("capture_frame ASC").
+			Find(&allProjectileEvents).Error
+		if err != nil {
+			return fmt.Errorf("error getting projectile events: %w", err)
+		}
+		projectilesByFirer := map[uint16][]model.ProjectileEvent{}
+		for _, e := range allProjectileEvents {
+			projectilesByFirer[e.FirerObjectID] = append(projectilesByFirer[e.FirerObjectID], e)
+		}
 
 		entities := []map[string]any{}
 		for _, soldier := range soldiers {
@@ -144,17 +159,8 @@ func getOcapRecording(missionIDs []string) (err error) {
 			entity["type"] = "unit"
 			entity["startFrameNum"] = soldier.JoinFrame
 
-			soldierStates := []model.SoldierState{}
-			err = db.Model(&model.SoldierState{}).
-				Where("mission_id = ? AND soldier_ocap_id = ?", missionIDInt, soldier.ObjectID).
-				Order("capture_frame ASC").
-				Find(&soldierStates).Error
-			if err != nil {
-				return fmt.Errorf("error getting soldier states: %w", err)
-			}
-
 			positions := []any{}
-			for _, state := range soldierStates {
+			for _, state := range soldierStatesByID[soldier.ObjectID] {
 				coord, _ := state.Position.Coordinates()
 				position := []any{
 					[]float64{coord.XY.X, coord.XY.Y},
@@ -169,17 +175,8 @@ func getOcapRecording(missionIDs []string) (err error) {
 			}
 			entity["positions"] = positions
 
-			projectileEvents := []model.ProjectileEvent{}
-			err = db.Model(&model.ProjectileEvent{}).
-				Where("mission_id = ? AND firer_object_id = ?", missionIDInt, soldier.ObjectID).
-				Order("capture_frame ASC").
-				Find(&projectileEvents).Error
-			if err != nil {
-				return fmt.Errorf("error getting projectile events: %w", err)
-			}
-
 			framesFired := []any{}
-			for _, event := range projectileEvents {
+			for _, event := range projectilesByFirer[soldier.ObjectID] {
 				var startX, startY, endX, endY float64
 				if !event.Positions.IsEmpty() {
 					if ls, ok := event.Positions.AsLineString(); ok {
@@ -207,11 +204,26 @@ func getOcapRecording(missionIDs []string) (err error) {
 			entities = append(entities, entity)
 		}
 
+		// Bulk-fetch vehicles and all related data for this mission
 		vehicles := []model.Vehicle{}
 		err = db.Model(&model.Vehicle{}).Where("mission_id = ?", missionIDInt).Find(&vehicles).Error
 		if err != nil {
 			return fmt.Errorf("error getting vehicles: %w", err)
 		}
+
+		allVehicleStates := []model.VehicleState{}
+		err = db.Model(&model.VehicleState{}).
+			Where("mission_id = ?", missionIDInt).
+			Order("capture_frame ASC").
+			Find(&allVehicleStates).Error
+		if err != nil {
+			return fmt.Errorf("error getting vehicle states: %w", err)
+		}
+		vehicleStatesByID := map[uint16][]model.VehicleState{}
+		for _, s := range allVehicleStates {
+			vehicleStatesByID[s.VehicleObjectID] = append(vehicleStatesByID[s.VehicleObjectID], s)
+		}
+
 		for _, vehicle := range vehicles {
 			entity := map[string]any{}
 			entity["id"] = vehicle.ObjectID
@@ -221,16 +233,8 @@ func getOcapRecording(missionIDs []string) (err error) {
 			entity["type"] = vehicle.OcapType
 			entity["startFrameNum"] = vehicle.JoinFrame
 
-			vehicleStates := []model.VehicleState{}
-			err = db.Model(&model.VehicleState{}).
-				Where("mission_id = ? AND vehicle_ocap_id = ?", missionIDInt, vehicle.ObjectID).
-				Order("capture_frame ASC").
-				Find(&vehicleStates).Error
-			if err != nil {
-				return fmt.Errorf("error getting vehicle states: %w", err)
-			}
 			positions := []any{}
-			for _, state := range vehicleStates {
+			for _, state := range vehicleStatesByID[vehicle.ObjectID] {
 				coord, _ := state.Position.Coordinates()
 				var crew any
 				if err := json.Unmarshal([]byte(state.Crew), &crew); err != nil {
@@ -336,7 +340,7 @@ func reduceMission(missionIDs []string) (err error) {
 	}
 
 	for _, table := range tables {
-		err = db.Raw(fmt.Sprintf("VACUUM (FULL) %s", table)).Error
+		err = db.Exec(fmt.Sprintf(`VACUUM (FULL) "%s"`, table)).Error
 		if err != nil {
 			return fmt.Errorf("error running VACUUM on table %s: %w", table, err)
 		}
