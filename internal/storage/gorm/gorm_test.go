@@ -1,16 +1,21 @@
 package gormstorage
 
 import (
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/OCAP2/extension/v5/internal/cache"
 	"github.com/OCAP2/extension/v5/internal/logging"
 	"github.com/OCAP2/extension/v5/internal/mission"
-	"github.com/OCAP2/extension/v5/pkg/core"
+	"github.com/OCAP2/extension/v5/internal/model"
+	"github.com/OCAP2/extension/v5/internal/queue"
 	"github.com/OCAP2/extension/v5/internal/storage"
+	"github.com/OCAP2/extension/v5/pkg/core"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 // newTestBackend creates a Backend with no DB (queue-only mode for unit testing).
@@ -421,4 +426,187 @@ func TestGetLastDBWriteDuration(t *testing.T) {
 
 	b.lastDBWriteDuration = 100 * time.Millisecond
 	assert.Equal(t, 100*time.Millisecond, b.GetLastDBWriteDuration())
+}
+
+// newTestDB creates an in-memory SQLite DB with auto-migrated tables.
+// MaxOpenConns=1 ensures all operations use the same connection (in-memory
+// SQLite databases are per-connection, so multiple connections would each
+// see an empty database).
+func newTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{
+		SkipDefaultTransaction: true,
+	})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	require.NoError(t, db.AutoMigrate(model.DatabaseModelsSQLite...))
+	return db
+}
+
+func noopLog(_, _, _ string) {}
+
+func TestWriteQueue_Success(t *testing.T) {
+	db := newTestDB(t)
+	q := queue.New[model.Soldier]()
+
+	now := time.Now()
+	q.Push(model.Soldier{ObjectID: 1, MissionID: 1, UnitName: "Alpha", JoinTime: now})
+	q.Push(model.Soldier{ObjectID: 2, MissionID: 1, UnitName: "Bravo", JoinTime: now})
+
+	writeQueue(db, q, "soldiers", noopLog, nil, nil)
+
+	assert.True(t, q.Empty(), "queue should be drained after successful write")
+
+	var count int64
+	db.Model(&model.Soldier{}).Count(&count)
+	assert.Equal(t, int64(2), count)
+}
+
+func TestWriteQueue_EmptyQueue(t *testing.T) {
+	db := newTestDB(t)
+	q := queue.New[model.Soldier]()
+
+	// Should be a no-op
+	writeQueue(db, q, "soldiers", noopLog, nil, nil)
+
+	var count int64
+	db.Model(&model.Soldier{}).Count(&count)
+	assert.Equal(t, int64(0), count)
+}
+
+func TestWriteQueue_PrepareCallback(t *testing.T) {
+	db := newTestDB(t)
+	q := queue.New[model.Soldier]()
+
+	q.Push(model.Soldier{ObjectID: 1, UnitName: "Alpha", JoinTime: time.Now()})
+
+	prepareCalled := false
+	writeQueue(db, q, "soldiers", noopLog, func(items []model.Soldier) {
+		prepareCalled = true
+		for i := range items {
+			items[i].MissionID = 99
+		}
+	}, nil)
+
+	assert.True(t, prepareCalled)
+
+	var soldier model.Soldier
+	db.First(&soldier)
+	assert.Equal(t, uint(99), soldier.MissionID)
+}
+
+func TestWriteQueue_OnSuccessCallback(t *testing.T) {
+	db := newTestDB(t)
+	q := queue.New[model.Soldier]()
+
+	q.Push(model.Soldier{ObjectID: 1, MissionID: 1, UnitName: "Alpha", JoinTime: time.Now()})
+
+	successCalled := false
+	writeQueue(db, q, "soldiers", noopLog, nil, func(items []model.Soldier) {
+		successCalled = true
+		assert.Len(t, items, 1)
+	})
+
+	assert.True(t, successCalled)
+}
+
+func TestWriteQueue_FailureRequeues(t *testing.T) {
+	db := newTestDB(t)
+	// Drop the table so the insert fails
+	db.Migrator().DropTable(&model.Soldier{})
+
+	q := queue.New[model.Soldier]()
+	q.Push(model.Soldier{ObjectID: 1, MissionID: 1, UnitName: "Alpha", JoinTime: time.Now()})
+
+	var logged atomic.Bool
+	logFn := func(_, _, _ string) { logged.Store(true) }
+
+	writeQueue(db, q, "soldiers", logFn, nil, nil)
+
+	assert.True(t, logged.Load(), "error should be logged")
+	assert.Equal(t, 1, q.Len(), "failed items should be re-queued")
+}
+
+func TestAddMarker_WithDB(t *testing.T) {
+	db := newTestDB(t)
+
+	// Create a mission first (foreign key)
+	db.Create(&model.Mission{MissionName: "test"})
+
+	mCtx := mission.NewContext()
+	mCtx.SetMission(&model.Mission{Model: gorm.Model{ID: 1}}, &model.World{})
+
+	b := New(Dependencies{
+		DB:              db,
+		EntityCache:     cache.NewEntityCache(),
+		MarkerCache:     cache.NewMarkerCache(),
+		LogManager:      logging.NewSlogManager(),
+		MissionContext:  mCtx,
+		IsDatabaseValid: func() bool { return true },
+		ShouldSaveLocal: func() bool { return false },
+		DBInsertsPaused: func() bool { return false },
+	})
+	b.Init()
+	defer b.Close()
+
+	marker := &core.Marker{
+		MarkerName: "TestMarker",
+		MarkerType: "mil_dot",
+		Text:       "HQ",
+	}
+
+	err := b.AddMarker(marker)
+	require.NoError(t, err)
+	assert.NotZero(t, marker.ID, "marker ID should be assigned by DB")
+
+	var count int64
+	db.Model(&model.Marker{}).Count(&count)
+	assert.Equal(t, int64(1), count)
+}
+
+func TestStartDBWriters_DrainsQueues(t *testing.T) {
+	db := newTestDB(t)
+
+	// Create a mission first (foreign key)
+	db.Create(&model.Mission{MissionName: "test"})
+
+	mCtx := mission.NewContext()
+	mCtx.SetMission(&model.Mission{Model: gorm.Model{ID: 1}}, &model.World{})
+
+	b := New(Dependencies{
+		DB:              db,
+		EntityCache:     cache.NewEntityCache(),
+		MarkerCache:     cache.NewMarkerCache(),
+		LogManager:      logging.NewSlogManager(),
+		MissionContext:  mCtx,
+		IsDatabaseValid: func() bool { return true },
+		ShouldSaveLocal: func() bool { return false },
+		DBInsertsPaused: func() bool { return false },
+	})
+	b.Init()
+	defer b.Close()
+
+	// Push items via the public API (which queues GORM models internally)
+	b.AddSoldier(&core.Soldier{ID: 1, UnitName: "Alpha", Side: "WEST"})
+	b.RecordGeneralEvent(&core.GeneralEvent{Name: "connected", Message: "Player1"})
+	b.RecordServerFpsEvent(&core.ServerFpsEvent{FpsAverage: 50, FpsMin: 30, CaptureFrame: 1})
+
+	// Wait for the background writer to drain (it runs on a 2s loop, so wait up to 5s)
+	require.Eventually(t, func() bool {
+		var count int64
+		db.Model(&model.Soldier{}).Count(&count)
+		return count > 0
+	}, 5*time.Second, 100*time.Millisecond, "soldiers should be written to DB")
+
+	var soldierCount, eventCount, fpsCount int64
+	db.Model(&model.Soldier{}).Count(&soldierCount)
+	db.Model(&model.GeneralEvent{}).Count(&eventCount)
+	db.Model(&model.ServerFpsEvent{}).Count(&fpsCount)
+
+	assert.Equal(t, int64(1), soldierCount)
+	assert.Equal(t, int64(1), eventCount)
+	assert.Equal(t, int64(1), fpsCount)
+	assert.NotZero(t, b.GetLastDBWriteDuration())
 }
