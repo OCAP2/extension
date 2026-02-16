@@ -1,4 +1,4 @@
-// internal/model/core/marker.go
+// pkg/core/marker.go
 package core
 
 import "time"

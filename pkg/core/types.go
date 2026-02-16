@@ -1,4 +1,4 @@
-// internal/model/core/types.go
+// pkg/core/types.go
 package core
 
 // Position3D represents a 3D coordinate without GIS dependencies

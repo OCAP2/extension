@@ -1,4 +1,4 @@
-// internal/model/core/events.go
+// pkg/core/events.go
 package core
 
 import (

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/OCAP2/extension/v5/internal/model/core"
+	"github.com/OCAP2/extension/v5/pkg/core"
 	geom "github.com/peterstace/simplefeatures/geom"
 )
 

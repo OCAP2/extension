@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/OCAP2/extension/v5/internal/config"
-	"github.com/OCAP2/extension/v5/internal/model/core"
+	"github.com/OCAP2/extension/v5/pkg/core"
 	"github.com/OCAP2/extension/v5/internal/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

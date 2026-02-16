@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"strconv"
 
-	"github.com/OCAP2/extension/v5/internal/model/core"
+	"github.com/OCAP2/extension/v5/pkg/core"
 )
 
 // parseUintFromFloat parses a string that may be an integer ("32") or float ("32.00") into uint64.

@@ -1,7 +1,7 @@
 // internal/storage/storage.go
 package storage
 
-import "github.com/OCAP2/extension/v5/internal/model/core"
+import "github.com/OCAP2/extension/v5/pkg/core"
 
 // Backend is the interface all storage implementations must satisfy
 type Backend interface {

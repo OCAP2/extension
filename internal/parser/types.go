@@ -3,7 +3,7 @@ package parser
 import (
 	"time"
 
-	"github.com/OCAP2/extension/v5/internal/model/core"
+	"github.com/OCAP2/extension/v5/pkg/core"
 )
 
 // HitPart represents a single hit from a projectile as parsed from ArmA data.

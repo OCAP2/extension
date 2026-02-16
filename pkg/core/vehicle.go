@@ -1,4 +1,4 @@
-// internal/model/core/vehicle.go
+// pkg/core/vehicle.go
 package core
 
 import "time"

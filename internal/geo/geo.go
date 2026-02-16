@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/OCAP2/extension/v5/internal/model/core"
+	"github.com/OCAP2/extension/v5/pkg/core"
 	geom "github.com/peterstace/simplefeatures/geom"
 	"github.com/wroge/wgs84"
 )
