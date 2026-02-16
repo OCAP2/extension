@@ -8,10 +8,8 @@ import (
 
 	"github.com/OCAP2/extension/v5/internal/model"
 	"github.com/OCAP2/extension/v5/pkg/core"
-	geom "github.com/peterstace/simplefeatures/geom"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/datatypes"
 )
 
 func TestPosition3DToPoint(t *testing.T) {
@@ -46,13 +44,11 @@ func TestPolylineToLineString_Empty(t *testing.T) {
 	assert.True(t, ls.IsEmpty())
 }
 
-// Round-trip: GORM → Core → GORM
-func TestSoldierRoundTrip(t *testing.T) {
+func TestCoreToSoldier(t *testing.T) {
 	now := time.Now().Truncate(time.Millisecond)
-	squadParams, _ := json.Marshal([]any{"test", "params"})
 
-	original := model.Soldier{
-		ObjectID:        42,
+	input := core.Soldier{
+		ID:              42,
 		JoinTime:        now,
 		JoinFrame:       10,
 		OcapType:        "man",
@@ -64,36 +60,34 @@ func TestSoldierRoundTrip(t *testing.T) {
 		ClassName:       "B_Soldier_F",
 		DisplayName:     "John Doe",
 		PlayerUID:       "12345678",
-		SquadParams:     datatypes.JSON(squadParams),
+		SquadParams:     []any{"test", "params"},
 	}
 
-	coreObj := SoldierToCore(original)
-	roundTripped := CoreToSoldier(coreObj)
+	result := CoreToSoldier(input)
 
-	assert.Equal(t, original.ObjectID, roundTripped.ObjectID)
-	assert.Equal(t, original.JoinTime, roundTripped.JoinTime)
-	assert.Equal(t, original.JoinFrame, roundTripped.JoinFrame)
-	assert.Equal(t, original.OcapType, roundTripped.OcapType)
-	assert.Equal(t, original.UnitName, roundTripped.UnitName)
-	assert.Equal(t, original.GroupID, roundTripped.GroupID)
-	assert.Equal(t, original.Side, roundTripped.Side)
-	assert.Equal(t, original.IsPlayer, roundTripped.IsPlayer)
-	assert.Equal(t, original.RoleDescription, roundTripped.RoleDescription)
-	assert.Equal(t, original.ClassName, roundTripped.ClassName)
-	assert.Equal(t, original.DisplayName, roundTripped.DisplayName)
-	assert.Equal(t, original.PlayerUID, roundTripped.PlayerUID)
-	// SquadParams: compare unmarshalled values (JSON serialization may differ in whitespace)
-	var origParams, rtParams []any
-	json.Unmarshal(original.SquadParams, &origParams)
-	json.Unmarshal(roundTripped.SquadParams, &rtParams)
-	assert.Equal(t, origParams, rtParams)
+	assert.Equal(t, uint16(42), result.ObjectID)
+	assert.Equal(t, now, result.JoinTime)
+	assert.Equal(t, uint(10), result.JoinFrame)
+	assert.Equal(t, "man", result.OcapType)
+	assert.Equal(t, "TestUnit", result.UnitName)
+	assert.Equal(t, "Alpha", result.GroupID)
+	assert.Equal(t, "WEST", result.Side)
+	assert.True(t, result.IsPlayer)
+	assert.Equal(t, "Rifleman", result.RoleDescription)
+	assert.Equal(t, "B_Soldier_F", result.ClassName)
+	assert.Equal(t, "John Doe", result.DisplayName)
+	assert.Equal(t, "12345678", result.PlayerUID)
+
+	var params []any
+	json.Unmarshal(result.SquadParams, &params)
+	assert.Equal(t, []any{"test", "params"}, params)
 }
 
-func TestVehicleRoundTrip(t *testing.T) {
+func TestCoreToVehicle(t *testing.T) {
 	now := time.Now().Truncate(time.Millisecond)
 
-	original := model.Vehicle{
-		ObjectID:      10,
+	input := core.Vehicle{
+		ID:            10,
 		JoinTime:      now,
 		JoinFrame:     20,
 		OcapType:      "car",
@@ -102,40 +96,40 @@ func TestVehicleRoundTrip(t *testing.T) {
 		Customization: "default",
 	}
 
-	coreObj := VehicleToCore(original)
-	roundTripped := CoreToVehicle(coreObj)
+	result := CoreToVehicle(input)
 
-	assert.Equal(t, original.ObjectID, roundTripped.ObjectID)
-	assert.Equal(t, original.JoinTime, roundTripped.JoinTime)
-	assert.Equal(t, original.JoinFrame, roundTripped.JoinFrame)
-	assert.Equal(t, original.OcapType, roundTripped.OcapType)
-	assert.Equal(t, original.ClassName, roundTripped.ClassName)
-	assert.Equal(t, original.DisplayName, roundTripped.DisplayName)
-	assert.Equal(t, original.Customization, roundTripped.Customization)
+	assert.Equal(t, uint16(10), result.ObjectID)
+	assert.Equal(t, now, result.JoinTime)
+	assert.Equal(t, uint(20), result.JoinFrame)
+	assert.Equal(t, "car", result.OcapType)
+	assert.Equal(t, "B_MRAP_01_F", result.ClassName)
+	assert.Equal(t, "Hunter", result.DisplayName)
+	assert.Equal(t, "default", result.Customization)
 }
 
-func TestSoldierStateRoundTrip(t *testing.T) {
+func TestCoreToSoldierState(t *testing.T) {
 	now := time.Now().Truncate(time.Millisecond)
+	inVehicleID := uint16(5)
 
-	original := model.SoldierState{
-		SoldierObjectID:  2,
-		Time:             now,
-		CaptureFrame:     100,
-		Position:         makePoint(1000.0, 2000.0, 10.0),
-		Bearing:          90,
-		Lifestate:        1,
-		InVehicle:        true,
-		InVehicleObjectID: sql.NullInt32{Int32: 5, Valid: true},
-		VehicleRole:      "driver",
-		UnitName:         "TestUnit",
-		IsPlayer:         true,
-		CurrentRole:      "Rifleman",
-		HasStableVitals:  true,
-		IsDraggedCarried: false,
-		Stance:           "Up",
-		GroupID:          "Alpha 1-1",
-		Side:             "WEST",
-		Scores: model.SoldierScores{
+	input := core.SoldierState{
+		SoldierID:         2,
+		Time:              now,
+		CaptureFrame:      100,
+		Position:          core.Position3D{X: 1000.0, Y: 2000.0, Z: 10.0},
+		Bearing:           90,
+		Lifestate:         1,
+		InVehicle:         true,
+		InVehicleObjectID: &inVehicleID,
+		VehicleRole:       "driver",
+		UnitName:          "TestUnit",
+		IsPlayer:          true,
+		CurrentRole:       "Rifleman",
+		HasStableVitals:   true,
+		IsDraggedCarried:  false,
+		Stance:            "Up",
+		GroupID:           "Alpha 1-1",
+		Side:              "WEST",
+		Scores: core.SoldierScores{
 			InfantryKills: 5,
 			VehicleKills:  2,
 			ArmorKills:    1,
@@ -145,54 +139,47 @@ func TestSoldierStateRoundTrip(t *testing.T) {
 		},
 	}
 
-	coreObj := SoldierStateToCore(original)
-	roundTripped := CoreToSoldierState(coreObj)
+	result := CoreToSoldierState(input)
 
-	assert.Equal(t, original.SoldierObjectID, roundTripped.SoldierObjectID)
-	assert.Equal(t, original.Time, roundTripped.Time)
-	assert.Equal(t, original.CaptureFrame, roundTripped.CaptureFrame)
-	assert.Equal(t, original.Bearing, roundTripped.Bearing)
-	assert.Equal(t, original.Lifestate, roundTripped.Lifestate)
-	assert.Equal(t, original.InVehicle, roundTripped.InVehicle)
-	assert.Equal(t, original.InVehicleObjectID, roundTripped.InVehicleObjectID)
-	assert.Equal(t, original.VehicleRole, roundTripped.VehicleRole)
-	assert.Equal(t, original.UnitName, roundTripped.UnitName)
-	assert.Equal(t, original.IsPlayer, roundTripped.IsPlayer)
-	assert.Equal(t, original.CurrentRole, roundTripped.CurrentRole)
-	assert.Equal(t, original.HasStableVitals, roundTripped.HasStableVitals)
-	assert.Equal(t, original.IsDraggedCarried, roundTripped.IsDraggedCarried)
-	assert.Equal(t, original.Stance, roundTripped.Stance)
-	assert.Equal(t, original.GroupID, roundTripped.GroupID)
-	assert.Equal(t, original.Side, roundTripped.Side)
-	assert.Equal(t, original.Scores, roundTripped.Scores)
+	assert.Equal(t, uint16(2), result.SoldierObjectID)
+	assert.Equal(t, now, result.Time)
+	assert.Equal(t, uint(100), result.CaptureFrame)
+	assert.Equal(t, float32(10.0), result.ElevationASL)
+	assert.Equal(t, uint16(90), result.Bearing)
+	assert.Equal(t, uint8(1), result.Lifestate)
+	assert.True(t, result.InVehicle)
+	assert.Equal(t, sql.NullInt32{Int32: 5, Valid: true}, result.InVehicleObjectID)
+	assert.Equal(t, "driver", result.VehicleRole)
+	assert.Equal(t, "TestUnit", result.UnitName)
+	assert.True(t, result.IsPlayer)
+	assert.Equal(t, "Rifleman", result.CurrentRole)
+	assert.True(t, result.HasStableVitals)
+	assert.False(t, result.IsDraggedCarried)
+	assert.Equal(t, "Up", result.Stance)
+	assert.Equal(t, "Alpha 1-1", result.GroupID)
+	assert.Equal(t, "WEST", result.Side)
+	assert.Equal(t, model.SoldierScores{InfantryKills: 5, VehicleKills: 2, ArmorKills: 1, Deaths: 1, TotalScore: 25}, result.Scores)
 
-	// Verify position round-trips through Point
-	origCoord, _ := original.Position.Coordinates()
-	rtCoord, _ := roundTripped.Position.Coordinates()
-	assert.Equal(t, origCoord.XY.X, rtCoord.XY.X)
-	assert.Equal(t, origCoord.XY.Y, rtCoord.XY.Y)
-	assert.Equal(t, origCoord.Z, rtCoord.Z)
+	coord, ok := result.Position.Coordinates()
+	require.True(t, ok)
+	assert.Equal(t, 1000.0, coord.XY.X)
+	assert.Equal(t, 2000.0, coord.XY.Y)
+	assert.Equal(t, 10.0, coord.Z)
 }
 
-func TestSoldierStateRoundTrip_NilInVehicleID(t *testing.T) {
-	original := model.SoldierState{
-		InVehicleObjectID: sql.NullInt32{Valid: false},
-	}
-
-	coreObj := SoldierStateToCore(original)
-	roundTripped := CoreToSoldierState(coreObj)
-
-	assert.False(t, roundTripped.InVehicleObjectID.Valid)
+func TestCoreToSoldierState_NilInVehicleID(t *testing.T) {
+	result := CoreToSoldierState(core.SoldierState{})
+	assert.False(t, result.InVehicleObjectID.Valid)
 }
 
-func TestVehicleStateRoundTrip(t *testing.T) {
+func TestCoreToVehicleState(t *testing.T) {
 	now := time.Now().Truncate(time.Millisecond)
 
-	original := model.VehicleState{
-		VehicleObjectID: 5,
+	input := core.VehicleState{
+		VehicleID:       5,
 		Time:            now,
 		CaptureFrame:    50,
-		Position:        makePoint(500.0, 600.0, 0.0),
+		Position:        core.Position3D{X: 500.0, Y: 600.0, Z: 0.0},
 		Bearing:         180,
 		IsAlive:         true,
 		Crew:            "1,2,3",
@@ -207,30 +194,28 @@ func TestVehicleStateRoundTrip(t *testing.T) {
 		TurretElevation: -10.0,
 	}
 
-	coreObj := VehicleStateToCore(original)
-	roundTripped := CoreToVehicleState(coreObj)
+	result := CoreToVehicleState(input)
 
-	assert.Equal(t, original.VehicleObjectID, roundTripped.VehicleObjectID)
-	assert.Equal(t, original.Time, roundTripped.Time)
-	assert.Equal(t, original.CaptureFrame, roundTripped.CaptureFrame)
-	assert.Equal(t, original.Bearing, roundTripped.Bearing)
-	assert.Equal(t, original.IsAlive, roundTripped.IsAlive)
-	assert.Equal(t, original.Crew, roundTripped.Crew)
-	assert.Equal(t, original.Fuel, roundTripped.Fuel)
-	assert.Equal(t, original.Damage, roundTripped.Damage)
-	assert.Equal(t, original.Locked, roundTripped.Locked)
-	assert.Equal(t, original.EngineOn, roundTripped.EngineOn)
-	assert.Equal(t, original.Side, roundTripped.Side)
-	assert.Equal(t, original.VectorDir, roundTripped.VectorDir)
-	assert.Equal(t, original.VectorUp, roundTripped.VectorUp)
-	assert.Equal(t, original.TurretAzimuth, roundTripped.TurretAzimuth)
-	assert.Equal(t, original.TurretElevation, roundTripped.TurretElevation)
+	assert.Equal(t, uint16(5), result.VehicleObjectID)
+	assert.Equal(t, now, result.Time)
+	assert.Equal(t, uint(50), result.CaptureFrame)
+	assert.Equal(t, float32(0.0), result.ElevationASL)
+	assert.Equal(t, uint16(180), result.Bearing)
+	assert.True(t, result.IsAlive)
+	assert.Equal(t, "1,2,3", result.Crew)
+	assert.InDelta(t, 0.8, result.Fuel, 0.001)
+	assert.InDelta(t, 0.1, result.Damage, 0.001)
+	assert.False(t, result.Locked)
+	assert.True(t, result.EngineOn)
+	assert.Equal(t, "WEST", result.Side)
+	assert.Equal(t, float32(45.0), result.TurretAzimuth)
+	assert.Equal(t, float32(-10.0), result.TurretElevation)
 }
 
-func TestMarkerRoundTrip(t *testing.T) {
+func TestCoreToMarker(t *testing.T) {
 	now := time.Now().Truncate(time.Millisecond)
 
-	original := model.Marker{
+	input := core.Marker{
 		ID:           1,
 		Time:         now,
 		CaptureFrame: 50,
@@ -242,238 +227,231 @@ func TestMarkerRoundTrip(t *testing.T) {
 		Color:        "ColorRed",
 		Size:         "[1,1]",
 		Side:         "WEST",
-		Position:     makePoint(100.0, 200.0, 0.0),
+		Position:     core.Position3D{X: 100.0, Y: 200.0, Z: 0.0},
 		Shape:        "ICON",
 		Alpha:        1.0,
 		Brush:        "Solid",
 		IsDeleted:    false,
 	}
 
-	coreObj := MarkerToCore(original)
-	roundTripped := CoreToMarker(coreObj)
+	result := CoreToMarker(input)
 
-	assert.Equal(t, original.ID, roundTripped.ID)
-	assert.Equal(t, original.Time, roundTripped.Time)
-	assert.Equal(t, original.CaptureFrame, roundTripped.CaptureFrame)
-	assert.Equal(t, original.MarkerName, roundTripped.MarkerName)
-	assert.Equal(t, original.Direction, roundTripped.Direction)
-	assert.Equal(t, original.MarkerType, roundTripped.MarkerType)
-	assert.Equal(t, original.Text, roundTripped.Text)
-	assert.Equal(t, original.OwnerID, roundTripped.OwnerID)
-	assert.Equal(t, original.Color, roundTripped.Color)
-	assert.Equal(t, original.Size, roundTripped.Size)
-	assert.Equal(t, original.Side, roundTripped.Side)
-	assert.Equal(t, original.Shape, roundTripped.Shape)
-	assert.Equal(t, original.Alpha, roundTripped.Alpha)
-	assert.Equal(t, original.Brush, roundTripped.Brush)
-	assert.Equal(t, original.IsDeleted, roundTripped.IsDeleted)
+	assert.Equal(t, uint(1), result.ID)
+	assert.Equal(t, now, result.Time)
+	assert.Equal(t, uint(50), result.CaptureFrame)
+	assert.Equal(t, "TestMarker", result.MarkerName)
+	assert.Equal(t, float32(45.0), result.Direction)
+	assert.Equal(t, "mil_dot", result.MarkerType)
+	assert.Equal(t, "Test", result.Text)
+	assert.Equal(t, int(2), result.OwnerID)
+	assert.Equal(t, "ColorRed", result.Color)
+	assert.Equal(t, "WEST", result.Side)
+	assert.Equal(t, "ICON", result.Shape)
+	assert.Equal(t, float32(1.0), result.Alpha)
+	assert.Equal(t, "Solid", result.Brush)
+	assert.False(t, result.IsDeleted)
 }
 
-func TestMarkerStateRoundTrip(t *testing.T) {
+func TestCoreToMarkerState(t *testing.T) {
 	now := time.Now().Truncate(time.Millisecond)
 
-	original := model.MarkerState{
+	input := core.MarkerState{
 		ID:           1,
 		MarkerID:     5,
 		Time:         now,
 		CaptureFrame: 100,
-		Position:     makePoint(150.0, 250.0, 0.0),
+		Position:     core.Position3D{X: 150.0, Y: 250.0, Z: 0.0},
 		Direction:    90.0,
 		Alpha:        0.5,
 	}
 
-	coreObj := MarkerStateToCore(original)
-	roundTripped := CoreToMarkerState(coreObj)
+	result := CoreToMarkerState(input)
 
-	assert.Equal(t, original.ID, roundTripped.ID)
-	assert.Equal(t, original.MarkerID, roundTripped.MarkerID)
-	assert.Equal(t, original.Time, roundTripped.Time)
-	assert.Equal(t, original.CaptureFrame, roundTripped.CaptureFrame)
-	assert.Equal(t, original.Direction, roundTripped.Direction)
-	assert.Equal(t, original.Alpha, roundTripped.Alpha)
+	assert.Equal(t, uint(1), result.ID)
+	assert.Equal(t, uint(5), result.MarkerID)
+	assert.Equal(t, now, result.Time)
+	assert.Equal(t, uint(100), result.CaptureFrame)
+	assert.Equal(t, float32(90.0), result.Direction)
+	assert.Equal(t, float32(0.5), result.Alpha)
 }
 
-func TestGeneralEventRoundTrip(t *testing.T) {
+func TestCoreToGeneralEvent(t *testing.T) {
 	now := time.Now().Truncate(time.Millisecond)
-	extraData, _ := json.Marshal(map[string]any{"key": "value"})
 
-	original := model.GeneralEvent{
+	input := core.GeneralEvent{
 		ID:           1,
 		Time:         now,
 		CaptureFrame: 100,
 		Name:         "TestEvent",
 		Message:      "Test message",
-		ExtraData:    datatypes.JSON(extraData),
+		ExtraData:    map[string]any{"key": "value"},
 	}
 
-	coreObj := GeneralEventToCore(original)
-	roundTripped := CoreToGeneralEvent(coreObj)
+	result := CoreToGeneralEvent(input)
 
-	assert.Equal(t, original.ID, roundTripped.ID)
-	assert.Equal(t, original.Time, roundTripped.Time)
-	assert.Equal(t, original.CaptureFrame, roundTripped.CaptureFrame)
-	assert.Equal(t, original.Name, roundTripped.Name)
-	assert.Equal(t, original.Message, roundTripped.Message)
-	// Compare unmarshalled ExtraData
-	var origExtra, rtExtra map[string]any
-	json.Unmarshal(original.ExtraData, &origExtra)
-	json.Unmarshal(roundTripped.ExtraData, &rtExtra)
-	assert.Equal(t, origExtra, rtExtra)
+	assert.Equal(t, uint(1), result.ID)
+	assert.Equal(t, now, result.Time)
+	assert.Equal(t, uint(100), result.CaptureFrame)
+	assert.Equal(t, "TestEvent", result.Name)
+	assert.Equal(t, "Test message", result.Message)
+
+	var extra map[string]any
+	json.Unmarshal(result.ExtraData, &extra)
+	assert.Equal(t, "value", extra["key"])
 }
 
-func TestKillEventRoundTrip(t *testing.T) {
+func TestCoreToKillEvent(t *testing.T) {
 	now := time.Now().Truncate(time.Millisecond)
+	victimID := uint(5)
+	killerID := uint(30)
 
-	original := model.KillEvent{
-		ID:                    1,
-		Time:                  now,
-		CaptureFrame:          100,
-		VictimSoldierObjectID: sql.NullInt32{Int32: 5, Valid: true},
-		KillerVehicleObjectID: sql.NullInt32{Int32: 30, Valid: true},
-		EventText:             "Kill event",
-		Distance:              100.0,
+	input := core.KillEvent{
+		ID:                1,
+		Time:              now,
+		CaptureFrame:      100,
+		VictimSoldierID:   &victimID,
+		KillerVehicleID:   &killerID,
+		EventText:         "Kill event",
+		Distance:          100.0,
 	}
 
-	coreObj := KillEventToCore(original)
-	roundTripped := CoreToKillEvent(coreObj)
+	result := CoreToKillEvent(input)
 
-	assert.Equal(t, original.ID, roundTripped.ID)
-	assert.Equal(t, original.Time, roundTripped.Time)
-	assert.Equal(t, original.CaptureFrame, roundTripped.CaptureFrame)
-	assert.Equal(t, original.VictimSoldierObjectID, roundTripped.VictimSoldierObjectID)
-	assert.Equal(t, original.KillerVehicleObjectID, roundTripped.KillerVehicleObjectID)
-	assert.False(t, roundTripped.VictimVehicleObjectID.Valid)
-	assert.False(t, roundTripped.KillerSoldierObjectID.Valid)
-	assert.Equal(t, original.EventText, roundTripped.EventText)
-	assert.Equal(t, original.Distance, roundTripped.Distance)
+	assert.Equal(t, uint(1), result.ID)
+	assert.Equal(t, now, result.Time)
+	assert.Equal(t, uint(100), result.CaptureFrame)
+	assert.Equal(t, sql.NullInt32{Int32: 5, Valid: true}, result.VictimSoldierObjectID)
+	assert.Equal(t, sql.NullInt32{Int32: 30, Valid: true}, result.KillerVehicleObjectID)
+	assert.False(t, result.VictimVehicleObjectID.Valid)
+	assert.False(t, result.KillerSoldierObjectID.Valid)
+	assert.Equal(t, "Kill event", result.EventText)
+	assert.Equal(t, float32(100.0), result.Distance)
 }
 
-func TestChatEventRoundTrip(t *testing.T) {
+func TestCoreToChatEvent(t *testing.T) {
 	now := time.Now().Truncate(time.Millisecond)
+	soldierID := uint(5)
 
-	original := model.ChatEvent{
-		ID:              1,
-		SoldierObjectID: sql.NullInt32{Int32: 5, Valid: true},
-		Time:            now,
-		CaptureFrame:    100,
-		Channel:         "Global",
-		FromName:        "Player1",
-		SenderName:      "John",
-		Message:         "Hello world",
-		PlayerUID:       "12345678",
+	input := core.ChatEvent{
+		ID:           1,
+		SoldierID:    &soldierID,
+		Time:         now,
+		CaptureFrame: 100,
+		Channel:      "Global",
+		FromName:     "Player1",
+		SenderName:   "John",
+		Message:      "Hello world",
+		PlayerUID:    "12345678",
 	}
 
-	coreObj := ChatEventToCore(original)
-	roundTripped := CoreToChatEvent(coreObj)
+	result := CoreToChatEvent(input)
 
-	assert.Equal(t, original.ID, roundTripped.ID)
-	assert.Equal(t, original.SoldierObjectID, roundTripped.SoldierObjectID)
-	assert.Equal(t, original.Time, roundTripped.Time)
-	assert.Equal(t, original.CaptureFrame, roundTripped.CaptureFrame)
-	assert.Equal(t, original.Channel, roundTripped.Channel)
-	assert.Equal(t, original.FromName, roundTripped.FromName)
-	assert.Equal(t, original.SenderName, roundTripped.SenderName)
-	assert.Equal(t, original.Message, roundTripped.Message)
-	assert.Equal(t, original.PlayerUID, roundTripped.PlayerUID)
+	assert.Equal(t, uint(1), result.ID)
+	assert.Equal(t, sql.NullInt32{Int32: 5, Valid: true}, result.SoldierObjectID)
+	assert.Equal(t, now, result.Time)
+	assert.Equal(t, uint(100), result.CaptureFrame)
+	assert.Equal(t, "Global", result.Channel)
+	assert.Equal(t, "Player1", result.FromName)
+	assert.Equal(t, "John", result.SenderName)
+	assert.Equal(t, "Hello world", result.Message)
+	assert.Equal(t, "12345678", result.PlayerUID)
 }
 
-func TestRadioEventRoundTrip(t *testing.T) {
+func TestCoreToRadioEvent(t *testing.T) {
 	now := time.Now().Truncate(time.Millisecond)
+	soldierID := uint(5)
 
-	original := model.RadioEvent{
-		ID:              1,
-		SoldierObjectID: sql.NullInt32{Int32: 5, Valid: true},
-		Time:            now,
-		CaptureFrame:    100,
-		Radio:           "AN/PRC-152",
-		RadioType:       "SW",
-		StartEnd:        "start",
-		Channel:         1,
-		IsAdditional:    false,
-		Frequency:       100.0,
-		Code:            "ABC",
+	input := core.RadioEvent{
+		ID:           1,
+		SoldierID:    &soldierID,
+		Time:         now,
+		CaptureFrame: 100,
+		Radio:        "AN/PRC-152",
+		RadioType:    "SW",
+		StartEnd:     "start",
+		Channel:      1,
+		IsAdditional: false,
+		Frequency:    100.0,
+		Code:         "ABC",
 	}
 
-	coreObj := RadioEventToCore(original)
-	roundTripped := CoreToRadioEvent(coreObj)
+	result := CoreToRadioEvent(input)
 
-	assert.Equal(t, original.ID, roundTripped.ID)
-	assert.Equal(t, original.SoldierObjectID, roundTripped.SoldierObjectID)
-	assert.Equal(t, original.Time, roundTripped.Time)
-	assert.Equal(t, original.Radio, roundTripped.Radio)
-	assert.Equal(t, original.RadioType, roundTripped.RadioType)
-	assert.Equal(t, original.Channel, roundTripped.Channel)
-	assert.Equal(t, original.Frequency, roundTripped.Frequency)
-	assert.Equal(t, original.Code, roundTripped.Code)
+	assert.Equal(t, uint(1), result.ID)
+	assert.Equal(t, sql.NullInt32{Int32: 5, Valid: true}, result.SoldierObjectID)
+	assert.Equal(t, now, result.Time)
+	assert.Equal(t, "AN/PRC-152", result.Radio)
+	assert.Equal(t, "SW", result.RadioType)
+	assert.Equal(t, int8(1), result.Channel)
+	assert.Equal(t, float32(100.0), result.Frequency)
+	assert.Equal(t, "ABC", result.Code)
 }
 
-func TestServerFpsEventRoundTrip(t *testing.T) {
+func TestCoreToServerFpsEvent(t *testing.T) {
 	now := time.Now().Truncate(time.Millisecond)
 
-	original := model.ServerFpsEvent{
+	input := core.ServerFpsEvent{
 		Time:         now,
 		CaptureFrame: 100,
 		FpsAverage:   50.5,
 		FpsMin:       30.0,
 	}
 
-	coreObj := ServerFpsEventToCore(original)
-	roundTripped := CoreToServerFpsEvent(coreObj)
+	result := CoreToServerFpsEvent(input)
 
-	assert.Equal(t, original.Time, roundTripped.Time)
-	assert.Equal(t, original.CaptureFrame, roundTripped.CaptureFrame)
-	assert.Equal(t, original.FpsAverage, roundTripped.FpsAverage)
-	assert.Equal(t, original.FpsMin, roundTripped.FpsMin)
+	assert.Equal(t, now, result.Time)
+	assert.Equal(t, uint(100), result.CaptureFrame)
+	assert.Equal(t, float32(50.5), result.FpsAverage)
+	assert.Equal(t, float32(30.0), result.FpsMin)
 }
 
-func TestAce3DeathEventRoundTrip(t *testing.T) {
+func TestCoreToAce3DeathEvent(t *testing.T) {
 	now := time.Now().Truncate(time.Millisecond)
+	sourceID := uint(10)
 
-	original := model.Ace3DeathEvent{
-		ID:                       1,
-		SoldierObjectID:          5,
-		Time:                     now,
-		CaptureFrame:             100,
-		Reason:                   "BLOODLOSS",
-		LastDamageSourceObjectID: sql.NullInt32{Int32: 10, Valid: true},
+	input := core.Ace3DeathEvent{
+		ID:                 1,
+		SoldierID:          5,
+		Time:               now,
+		CaptureFrame:       100,
+		Reason:             "BLOODLOSS",
+		LastDamageSourceID: &sourceID,
 	}
 
-	coreObj := Ace3DeathEventToCore(original)
-	roundTripped := CoreToAce3DeathEvent(coreObj)
+	result := CoreToAce3DeathEvent(input)
 
-	assert.Equal(t, original.ID, roundTripped.ID)
-	assert.Equal(t, original.SoldierObjectID, roundTripped.SoldierObjectID)
-	assert.Equal(t, original.Time, roundTripped.Time)
-	assert.Equal(t, original.CaptureFrame, roundTripped.CaptureFrame)
-	assert.Equal(t, original.Reason, roundTripped.Reason)
-	assert.Equal(t, original.LastDamageSourceObjectID, roundTripped.LastDamageSourceObjectID)
+	assert.Equal(t, uint(1), result.ID)
+	assert.Equal(t, uint16(5), result.SoldierObjectID)
+	assert.Equal(t, now, result.Time)
+	assert.Equal(t, uint(100), result.CaptureFrame)
+	assert.Equal(t, "BLOODLOSS", result.Reason)
+	assert.Equal(t, sql.NullInt32{Int32: 10, Valid: true}, result.LastDamageSourceObjectID)
 }
 
-func TestAce3UnconsciousEventRoundTrip(t *testing.T) {
+func TestCoreToAce3UnconsciousEvent(t *testing.T) {
 	now := time.Now().Truncate(time.Millisecond)
 
-	original := model.Ace3UnconsciousEvent{
-		ID:              1,
-		SoldierObjectID: 5,
-		Time:            now,
-		CaptureFrame:    100,
-		IsUnconscious:   true,
+	input := core.Ace3UnconsciousEvent{
+		ID:            1,
+		SoldierID:     5,
+		Time:          now,
+		CaptureFrame:  100,
+		IsUnconscious: true,
 	}
 
-	coreObj := Ace3UnconsciousEventToCore(original)
-	roundTripped := CoreToAce3UnconsciousEvent(coreObj)
+	result := CoreToAce3UnconsciousEvent(input)
 
-	assert.Equal(t, original.ID, roundTripped.ID)
-	assert.Equal(t, original.SoldierObjectID, roundTripped.SoldierObjectID)
-	assert.Equal(t, original.Time, roundTripped.Time)
-	assert.Equal(t, original.CaptureFrame, roundTripped.CaptureFrame)
-	assert.Equal(t, original.IsUnconscious, roundTripped.IsUnconscious)
+	assert.Equal(t, uint(1), result.ID)
+	assert.Equal(t, uint16(5), result.SoldierObjectID)
+	assert.Equal(t, now, result.Time)
+	assert.Equal(t, uint(100), result.CaptureFrame)
+	assert.True(t, result.IsUnconscious)
 }
 
-func TestTimeStateRoundTrip(t *testing.T) {
+func TestCoreToTimeState(t *testing.T) {
 	now := time.Now().Truncate(time.Millisecond)
 
-	original := model.TimeState{
+	input := core.TimeState{
 		Time:           now,
 		CaptureFrame:   100,
 		SystemTimeUTC:  "2024-01-15T14:30:45.123",
@@ -482,93 +460,179 @@ func TestTimeStateRoundTrip(t *testing.T) {
 		MissionTime:    3600.5,
 	}
 
-	coreObj := TimeStateToCore(original)
-	roundTripped := CoreToTimeState(coreObj)
+	result := CoreToTimeState(input)
 
-	assert.Equal(t, original.Time, roundTripped.Time)
-	assert.Equal(t, original.CaptureFrame, roundTripped.CaptureFrame)
-	assert.Equal(t, original.SystemTimeUTC, roundTripped.SystemTimeUTC)
-	assert.Equal(t, original.MissionDate, roundTripped.MissionDate)
-	assert.Equal(t, original.TimeMultiplier, roundTripped.TimeMultiplier)
-	assert.Equal(t, original.MissionTime, roundTripped.MissionTime)
+	assert.Equal(t, now, result.Time)
+	assert.Equal(t, uint(100), result.CaptureFrame)
+	assert.Equal(t, "2024-01-15T14:30:45.123", result.SystemTimeUTC)
+	assert.Equal(t, "2035-06-15T06:00:00", result.MissionDate)
+	assert.Equal(t, float32(2.0), result.TimeMultiplier)
+	assert.Equal(t, float32(3600.5), result.MissionTime)
 }
 
-func TestProjectileEventRoundTrip(t *testing.T) {
-	// Create a LineStringZM with 3 points
-	coords := []float64{
-		100.0, 200.0, 10.0, 50.0,
-		150.0, 250.0, 15.0, 52.0,
-		200.0, 300.0, 5.0, 55.0,
-	}
-	seq := geom.NewSequence(coords, geom.DimXYZM)
-	ls := geom.NewLineString(seq)
-
-	vehicleID := sql.NullInt32{Int32: 99, Valid: true}
+func TestCoreToProjectileEvent(t *testing.T) {
 	soldierHitID := uint16(10)
 	vehicleHitID := uint16(20)
+	vehicleObjID := uint16(99)
 
-	original := model.ProjectileEvent{
+	input := core.ProjectileEvent{
 		FirerObjectID:   42,
-		VehicleObjectID: vehicleID,
+		VehicleObjectID: &vehicleObjID,
 		CaptureFrame:    100,
 		WeaponDisplay:   "Cannon 120mm",
 		MagazineDisplay: "APFSDS-T",
 		MuzzleDisplay:   "Cannon 120mm",
 		SimulationType:  "shotShell",
 		MagazineIcon:    `\A3\weapons_f\data\ui\icon_shell.paa`,
-		Positions:       ls.AsGeometry(),
-		HitSoldiers: []model.ProjectileHitsSoldier{
-			{SoldierObjectID: soldierHitID, CaptureFrame: 55, Position: makePoint(200.0, 300.0, 5.0)},
+		Trajectory: []core.TrajectoryPoint{
+			{Position: core.Position3D{X: 100.0, Y: 200.0, Z: 10.0}, Frame: 50},
+			{Position: core.Position3D{X: 150.0, Y: 250.0, Z: 15.0}, Frame: 52},
+			{Position: core.Position3D{X: 200.0, Y: 300.0, Z: 5.0}, Frame: 55},
 		},
-		HitVehicles: []model.ProjectileHitsVehicle{
-			{VehicleObjectID: vehicleHitID, CaptureFrame: 55, Position: makePoint(200.0, 300.0, 5.0)},
+		Hits: []core.ProjectileHit{
+			{SoldierID: &soldierHitID, CaptureFrame: 55, Position: core.Position3D{X: 200.0, Y: 300.0, Z: 5.0}, ComponentsHit: []string{"head"}},
+			{VehicleID: &vehicleHitID, CaptureFrame: 55, Position: core.Position3D{X: 200.0, Y: 300.0, Z: 5.0}},
 		},
 	}
 
-	// GORM → Core
-	coreObj := ProjectileEventToCore(original)
+	result := CoreToProjectileEvent(input)
 
-	// Core → GORM
-	roundTripped := CoreToProjectileEvent(coreObj)
+	assert.Equal(t, uint16(42), result.FirerObjectID)
+	assert.Equal(t, uint(100), result.CaptureFrame)
+	assert.Equal(t, sql.NullInt32{Int32: 99, Valid: true}, result.VehicleObjectID)
+	assert.Equal(t, "Cannon 120mm", result.WeaponDisplay)
+	assert.Equal(t, "APFSDS-T", result.MagazineDisplay)
+	assert.Equal(t, "shotShell", result.SimulationType)
 
-	assert.Equal(t, original.FirerObjectID, roundTripped.FirerObjectID)
-	assert.Equal(t, original.CaptureFrame, roundTripped.CaptureFrame)
-	assert.Equal(t, original.VehicleObjectID, roundTripped.VehicleObjectID)
-	assert.Equal(t, original.WeaponDisplay, roundTripped.WeaponDisplay)
-	assert.Equal(t, original.MagazineDisplay, roundTripped.MagazineDisplay)
-	assert.Equal(t, original.MuzzleDisplay, roundTripped.MuzzleDisplay)
-	assert.Equal(t, original.SimulationType, roundTripped.SimulationType)
-	assert.Equal(t, original.MagazineIcon, roundTripped.MagazineIcon)
-
-	// Verify trajectory positions round-trip
-	require.False(t, roundTripped.Positions.IsEmpty())
-	rtLs, ok := roundTripped.Positions.AsLineString()
+	// Verify trajectory
+	require.False(t, result.Positions.IsEmpty())
+	ls, ok := result.Positions.AsLineString()
 	require.True(t, ok)
-	rtSeq := rtLs.Coordinates()
-	require.Equal(t, 3, rtSeq.Length())
-	assert.Equal(t, 100.0, rtSeq.Get(0).X)
-	assert.Equal(t, 200.0, rtSeq.Get(0).Y)
-	assert.Equal(t, 10.0, rtSeq.Get(0).Z)
-	assert.Equal(t, 50.0, rtSeq.Get(0).M)
+	seq := ls.Coordinates()
+	require.Equal(t, 3, seq.Length())
+	assert.Equal(t, 100.0, seq.Get(0).X)
+	assert.Equal(t, 200.0, seq.Get(0).Y)
+	assert.Equal(t, 10.0, seq.Get(0).Z)
+	assert.Equal(t, 50.0, seq.Get(0).M)
 
-	// Verify hits round-trip (merged → split)
-	require.Len(t, roundTripped.HitSoldiers, 1)
-	require.Len(t, roundTripped.HitVehicles, 1)
-	assert.Equal(t, soldierHitID, roundTripped.HitSoldiers[0].SoldierObjectID)
-	assert.Equal(t, vehicleHitID, roundTripped.HitVehicles[0].VehicleObjectID)
+	// Verify hits split into soldiers and vehicles
+	require.Len(t, result.HitSoldiers, 1)
+	require.Len(t, result.HitVehicles, 1)
+	assert.Equal(t, soldierHitID, result.HitSoldiers[0].SoldierObjectID)
+	assert.JSONEq(t, `["head"]`, string(result.HitSoldiers[0].ComponentsHit))
+	assert.Equal(t, vehicleHitID, result.HitVehicles[0].VehicleObjectID)
 }
 
-func TestProjectileEventRoundTrip_NoTrajectory(t *testing.T) {
-	original := model.ProjectileEvent{
+func TestCoreToProjectileEvent_NoTrajectory(t *testing.T) {
+	input := core.ProjectileEvent{
 		FirerObjectID: 42,
 		CaptureFrame:  100,
-		Positions:     geom.Geometry{},
 	}
 
-	coreObj := ProjectileEventToCore(original)
-	roundTripped := CoreToProjectileEvent(coreObj)
+	result := CoreToProjectileEvent(input)
 
-	assert.True(t, roundTripped.Positions.IsEmpty())
+	assert.True(t, result.Positions.IsEmpty())
+}
+
+func TestCoreToKillEvent_AllPointers(t *testing.T) {
+	victimSoldierID := uint(1)
+	victimVehicleID := uint(2)
+	killerSoldierID := uint(3)
+	killerVehicleID := uint(4)
+
+	input := core.KillEvent{
+		VictimSoldierID: &victimSoldierID,
+		VictimVehicleID: &victimVehicleID,
+		KillerSoldierID: &killerSoldierID,
+		KillerVehicleID: &killerVehicleID,
+	}
+
+	result := CoreToKillEvent(input)
+
+	assert.Equal(t, sql.NullInt32{Int32: 1, Valid: true}, result.VictimSoldierObjectID)
+	assert.Equal(t, sql.NullInt32{Int32: 2, Valid: true}, result.VictimVehicleObjectID)
+	assert.Equal(t, sql.NullInt32{Int32: 3, Valid: true}, result.KillerSoldierObjectID)
+	assert.Equal(t, sql.NullInt32{Int32: 4, Valid: true}, result.KillerVehicleObjectID)
+}
+
+func TestCoreToMission(t *testing.T) {
+	now := time.Now().Truncate(time.Millisecond)
+
+	input := core.Mission{
+		MissionName:      "TestMission",
+		BriefingName:     "Briefing",
+		Author:           "TestAuthor",
+		ServerName:       "TestServer",
+		StartTime:        now,
+		WorldID:          1,
+		CaptureDelay:     5,
+		Tag:              "TvT",
+		ExtensionVersion: "5.0.0",
+		PlayableSlots: core.PlayableSlots{
+			West:        10,
+			East:        10,
+			Independent: 5,
+			Civilian:    0,
+			Logic:       2,
+		},
+		SideFriendly: core.SideFriendly{
+			EastWest:        false,
+			EastIndependent: true,
+			WestIndependent: false,
+		},
+		Addons: []core.Addon{
+			{Name: "ace", WorkshopID: "123"},
+			{Name: "tfar", WorkshopID: "456"},
+		},
+	}
+
+	result := CoreToMission(input)
+
+	assert.Equal(t, "TestMission", result.MissionName)
+	assert.Equal(t, "Briefing", result.BriefingName)
+	assert.Equal(t, "TestAuthor", result.Author)
+	assert.Equal(t, "TestServer", result.ServerName)
+	assert.Equal(t, now, result.StartTime)
+	assert.Equal(t, uint(1), result.WorldID)
+	assert.Equal(t, float32(5), result.CaptureDelay)
+	assert.Equal(t, "TvT", result.Tag)
+	assert.Equal(t, uint8(10), result.PlayableSlots.West)
+	assert.Equal(t, uint8(10), result.PlayableSlots.East)
+	assert.Equal(t, uint8(5), result.PlayableSlots.Independent)
+	assert.False(t, result.SideFriendly.EastWest)
+	assert.True(t, result.SideFriendly.EastIndependent)
+	require.Len(t, result.Addons, 2)
+	assert.Equal(t, "ace", result.Addons[0].Name)
+	assert.Equal(t, "456", result.Addons[1].WorkshopID)
+}
+
+func TestCoreToWorld(t *testing.T) {
+	input := core.World{
+		Author:            "BIS",
+		WorkshopID:        "12345",
+		DisplayName:       "Altis",
+		WorldName:         "altis",
+		WorldNameOriginal: "Altis",
+		WorldSize:         30720,
+		Latitude:          -40.0,
+		Longitude:         30.0,
+		Location:          core.Position3D{X: 100.0, Y: 200.0, Z: 0.0},
+	}
+
+	result := CoreToWorld(input)
+
+	assert.Equal(t, "BIS", result.Author)
+	assert.Equal(t, "12345", result.WorkshopID)
+	assert.Equal(t, "Altis", result.DisplayName)
+	assert.Equal(t, "altis", result.WorldName)
+	assert.Equal(t, float32(30720), result.WorldSize)
+	assert.Equal(t, float32(-40.0), result.Latitude)
+	assert.Equal(t, float32(30.0), result.Longitude)
+
+	coord, ok := result.Location.Coordinates()
+	require.True(t, ok)
+	assert.Equal(t, 100.0, coord.XY.X)
+	assert.Equal(t, 200.0, coord.XY.Y)
 }
 
 // Compile-time interface checks for CoreToX functions
