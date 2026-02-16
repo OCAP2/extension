@@ -365,12 +365,12 @@ func (m *Manager) handleMarkerMove(e dispatcher.Event) (any, error) {
 }
 
 func (m *Manager) handleMarkerDelete(e dispatcher.Event) (any, error) {
-	markerName, frameNo, err := m.deps.ParserService.ParseMarkerDelete(e.Args)
+	dm, err := m.deps.ParserService.ParseMarkerDelete(e.Args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete marker: %w", err)
 	}
 
-	if err := m.backend.DeleteMarker(markerName, frameNo); err != nil {
+	if err := m.backend.DeleteMarker(dm); err != nil {
 		return nil, fmt.Errorf("delete marker: %w", err)
 	}
 	return nil, nil

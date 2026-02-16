@@ -129,8 +129,8 @@ func (b *Backend) RecordMarkerState(s *core.MarkerState) error {
 	return b.sendEnvelope(TypeMarkerState, s)
 }
 
-func (b *Backend) DeleteMarker(name string, endFrame uint) error {
-	return b.sendEnvelope(TypeDeleteMarker, DeleteMarkerPayload{Name: name, EndFrame: endFrame})
+func (b *Backend) DeleteMarker(dm *core.DeleteMarker) error {
+	return b.sendEnvelope(TypeDeleteMarker, dm)
 }
 
 func (b *Backend) RecordFiredEvent(e *core.FiredEvent) error {

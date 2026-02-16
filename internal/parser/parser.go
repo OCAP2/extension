@@ -69,7 +69,7 @@ type Service interface {
 	ParseAce3UnconsciousEvent(args []string) (core.Ace3UnconsciousEvent, error)
 	ParseMarkerCreate(args []string) (core.Marker, error)
 	ParseMarkerMove(args []string) (MarkerMove, error)
-	ParseMarkerDelete(args []string) (string, uint, error)
+	ParseMarkerDelete(args []string) (*core.DeleteMarker, error)
 }
 
 var _ Service = (*Parser)(nil)

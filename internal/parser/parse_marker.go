@@ -151,19 +151,20 @@ func (p *Parser) ParseMarkerMove(data []string) (MarkerMove, error) {
 	return result, nil
 }
 
-// ParseMarkerDelete parses marker delete data and returns the marker name and frame number
-func (p *Parser) ParseMarkerDelete(data []string) (string, uint, error) {
+// ParseMarkerDelete parses marker delete data and returns a DeleteMarker
+func (p *Parser) ParseMarkerDelete(data []string) (*core.DeleteMarker, error) {
 	// fix received data
 	for i, v := range data {
 		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
 	}
 
-	markerName := data[0]
-
 	capframe, err := strconv.ParseFloat(data[1], 64)
 	if err != nil {
-		return markerName, 0, fmt.Errorf("error parsing capture frame: %w", err)
+		return nil, fmt.Errorf("error parsing capture frame: %w", err)
 	}
 
-	return markerName, uint(capframe), nil
+	return &core.DeleteMarker{
+		Name:     data[0],
+		EndFrame: uint(capframe),
+	}, nil
 }

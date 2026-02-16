@@ -262,15 +262,15 @@ func (b *Backend) RecordMarkerState(s *core.MarkerState) error {
 }
 
 // DeleteMarker pushes an alpha=0 MarkerState to the queue and marks the marker as deleted in DB.
-func (b *Backend) DeleteMarker(name string, endFrame uint) error {
-	markerID, ok := b.deps.MarkerCache.Get(name)
+func (b *Backend) DeleteMarker(dm *core.DeleteMarker) error {
+	markerID, ok := b.deps.MarkerCache.Get(dm.Name)
 	if !ok {
 		return nil
 	}
 
 	deleteState := model.MarkerState{
 		MarkerID:     markerID,
-		CaptureFrame: endFrame,
+		CaptureFrame: dm.EndFrame,
 		Time:         time.Now(),
 		Alpha:        0,
 	}

@@ -25,6 +25,12 @@ type Marker struct {
 	IsDeleted    bool
 }
 
+// DeleteMarker represents a marker deletion at a specific frame
+type DeleteMarker struct {
+	Name     string
+	EndFrame uint
+}
+
 // MarkerState tracks marker position changes over time
 type MarkerState struct {
 	ID           uint

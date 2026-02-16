@@ -291,14 +291,14 @@ func TestParseMarkerDelete(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			name, frame, err := p.ParseMarkerDelete(tt.input)
+			dm, err := p.ParseMarkerDelete(tt.input)
 			if tt.wantErr {
 				assert.Error(t, err)
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, tt.wantName, name)
-			assert.Equal(t, tt.wantFrame, frame)
+			assert.Equal(t, tt.wantName, dm.Name)
+			assert.Equal(t, tt.wantFrame, dm.EndFrame)
 		})
 	}
 }
