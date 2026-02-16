@@ -88,15 +88,6 @@ type RadioEvent struct {
 	Code         string
 }
 
-// ServerFpsEvent represents server performance data
-type ServerFpsEvent struct {
-	ID           uint
-	Time         time.Time
-	CaptureFrame uint
-	FpsAverage   float32
-	FpsMin       float32
-}
-
 // Ace3DeathEvent represents ACE3 medical death
 type Ace3DeathEvent struct {
 	ID                 uint
@@ -165,7 +156,7 @@ type TelemetryEvent struct {
 	Time         time.Time
 	CaptureFrame uint
 
-	// FPS data (also written to mission recording via ServerFpsEvent)
+	// FPS data (also written to mission recording by DB backends)
 	FpsAverage float32
 	FpsMin     float32
 

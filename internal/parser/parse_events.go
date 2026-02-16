@@ -230,38 +230,6 @@ func (p *Parser) ParseKillEvent(data []string) (KillEvent, error) {
 	return result, nil
 }
 
-// ParseFpsEvent parses FPS event data and returns a core ServerFpsEvent
-func (p *Parser) ParseFpsEvent(data []string) (core.ServerFpsEvent, error) {
-	var fpsEvent core.ServerFpsEvent
-
-	// fix received data
-	for i, v := range data {
-		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
-	}
-
-	capframe, err := strconv.ParseFloat(data[0], 64)
-	if err != nil {
-		return fpsEvent, fmt.Errorf("error converting capture frame to int: %w", err)
-	}
-
-	fpsEvent.CaptureFrame = uint(capframe)
-	fpsEvent.Time = time.Now()
-
-	fps, err := strconv.ParseFloat(data[1], 64)
-	if err != nil {
-		return fpsEvent, fmt.Errorf("error converting fps to float: %w", err)
-	}
-	fpsEvent.FpsAverage = float32(fps)
-
-	fpsMin, err := strconv.ParseFloat(data[2], 64)
-	if err != nil {
-		return fpsEvent, fmt.Errorf("error converting fpsMin to float: %w", err)
-	}
-	fpsEvent.FpsMin = float32(fpsMin)
-
-	return fpsEvent, nil
-}
-
 // ParseTelemetryEvent parses a unified telemetry snapshot sent every ~10 seconds.
 // Replaces the old :FPS: and :METRIC: commands.
 //

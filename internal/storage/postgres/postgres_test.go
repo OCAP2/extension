@@ -233,21 +233,6 @@ func TestRecordRadioEvent_QueuesToInternalQueue(t *testing.T) {
 	assert.Equal(t, 1, b.queues.RadioEvents.Len())
 }
 
-func TestRecordServerFpsEvent_QueuesToInternalQueue(t *testing.T) {
-	b := newTestBackend()
-	b.Init() //nolint:errcheck // Init fails (no postgres) but queues are created for testing
-	defer func() { require.NoError(t, b.Close()) }()
-
-	event := &core.ServerFpsEvent{
-		FpsAverage: 50.0,
-		FpsMin:     30.0,
-	}
-
-	err := b.RecordServerFpsEvent(event)
-	require.NoError(t, err)
-	assert.Equal(t, 1, b.queues.FpsEvents.Len())
-}
-
 func TestRecordAce3DeathEvent_QueuesToInternalQueue(t *testing.T) {
 	b := newTestBackend()
 	b.Init() //nolint:errcheck // Init fails (no postgres) but queues are created for testing
@@ -614,7 +599,7 @@ func TestStartDBWriters_DrainsQueues(t *testing.T) {
 	require.NoError(t, b.RecordKillEvent(&core.KillEvent{CaptureFrame: 1}))
 	require.NoError(t, b.RecordChatEvent(&core.ChatEvent{Message: "hello", CaptureFrame: 1}))
 	require.NoError(t, b.RecordRadioEvent(&core.RadioEvent{CaptureFrame: 1}))
-	require.NoError(t, b.RecordServerFpsEvent(&core.ServerFpsEvent{FpsAverage: 50, FpsMin: 30, CaptureFrame: 1}))
+	require.NoError(t, b.RecordTelemetryEvent(&core.TelemetryEvent{FpsAverage: 50, FpsMin: 30, CaptureFrame: 1}))
 	require.NoError(t, b.RecordAce3DeathEvent(&core.Ace3DeathEvent{SoldierID: 1, CaptureFrame: 1}))
 	require.NoError(t, b.RecordAce3UnconsciousEvent(&core.Ace3UnconsciousEvent{SoldierID: 1, CaptureFrame: 1}))
 

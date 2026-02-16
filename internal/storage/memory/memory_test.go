@@ -362,20 +362,6 @@ func TestRecordRadioEvent(t *testing.T) {
 	assert.Len(t, b.radioEvents, 1)
 }
 
-func TestRecordServerFpsEvent(t *testing.T) {
-	b := New(config.MemoryConfig{})
-
-	evt := &core.ServerFpsEvent{
-		CaptureFrame: 400,
-		FpsAverage:   45.5,
-		FpsMin:       30.0,
-	}
-
-	require.NoError(t, b.RecordServerFpsEvent(evt))
-
-	assert.Len(t, b.serverFpsEvents, 1)
-}
-
 func TestRecordTimeState(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
@@ -520,7 +506,6 @@ func TestStartMissionResetsEverything(t *testing.T) {
 	require.NoError(t, b.RecordKillEvent(&core.KillEvent{}))
 	require.NoError(t, b.RecordChatEvent(&core.ChatEvent{}))
 	require.NoError(t, b.RecordRadioEvent(&core.RadioEvent{}))
-	require.NoError(t, b.RecordServerFpsEvent(&core.ServerFpsEvent{}))
 	require.NoError(t, b.RecordTimeState(&core.TimeState{}))
 	require.NoError(t, b.RecordAce3DeathEvent(&core.Ace3DeathEvent{}))
 	require.NoError(t, b.RecordAce3UnconsciousEvent(&core.Ace3UnconsciousEvent{}))
@@ -539,7 +524,6 @@ func TestStartMissionResetsEverything(t *testing.T) {
 	assert.Len(t, b.killEvents, 0)
 	assert.Len(t, b.chatEvents, 0)
 	assert.Len(t, b.radioEvents, 0)
-	assert.Len(t, b.serverFpsEvents, 0)
 	assert.Len(t, b.timeStates, 0)
 	assert.Len(t, b.ace3DeathEvents, 0)
 	assert.Len(t, b.ace3UnconsciousEvents, 0)

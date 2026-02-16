@@ -55,7 +55,6 @@ type mockBackend struct {
 	killEvents     []*core.KillEvent
 	chatEvents        []*core.ChatEvent
 	radioEvents       []*core.RadioEvent
-	fpsEvents         []*core.ServerFpsEvent
 	telemetryEvents   []*core.TelemetryEvent
 	timeStates        []*core.TimeState
 	ace3Deaths        []*core.Ace3DeathEvent
@@ -188,13 +187,6 @@ func (b *mockBackend) RecordRadioEvent(e *core.RadioEvent) error {
 	return nil
 }
 
-func (b *mockBackend) RecordServerFpsEvent(e *core.ServerFpsEvent) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.fpsEvents = append(b.fpsEvents, e)
-	return nil
-}
-
 func (b *mockBackend) RecordTelemetryEvent(e *core.TelemetryEvent) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -256,7 +248,6 @@ type mockParserService struct {
 	killEvent     parser.KillEvent
 	chatEvent     core.ChatEvent
 	radioEvent    core.RadioEvent
-	fpsEvent       core.ServerFpsEvent
 	telemetryEvent core.TelemetryEvent
 	timeState      core.TimeState
 	ace3Death     core.Ace3DeathEvent
@@ -371,16 +362,6 @@ func (h *mockParserService) ParseRadioEvent(args []string) (core.RadioEvent, err
 		return core.RadioEvent{}, errors.New(h.errorMsg)
 	}
 	return h.radioEvent, nil
-}
-
-func (h *mockParserService) ParseFpsEvent(args []string) (core.ServerFpsEvent, error) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.calls = append(h.calls, "ParseFpsEvent")
-	if h.returnError {
-		return core.ServerFpsEvent{}, errors.New(h.errorMsg)
-	}
-	return h.fpsEvent, nil
 }
 
 func (h *mockParserService) ParseTelemetryEvent(args []string) (core.TelemetryEvent, error) {

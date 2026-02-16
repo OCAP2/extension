@@ -328,23 +328,15 @@ func (b *Backend) RecordRadioEvent(e *core.RadioEvent) error {
 	return nil
 }
 
-// RecordServerFpsEvent converts and queues a server FPS event.
-func (b *Backend) RecordServerFpsEvent(e *core.ServerFpsEvent) error {
-	gormObj := convert.CoreToServerFpsEvent(*e)
-	b.queues.FpsEvents.Push(gormObj)
-	return nil
-}
-
-// RecordTelemetryEvent extracts FPS data and queues it.
+// RecordTelemetryEvent extracts FPS data and queues it for DB storage.
 // Full telemetry data is not stored in the database.
 func (b *Backend) RecordTelemetryEvent(e *core.TelemetryEvent) error {
-	fpsEvent := convert.CoreToServerFpsEvent(core.ServerFpsEvent{
+	b.queues.FpsEvents.Push(model.ServerFpsEvent{
 		Time:         e.Time,
 		CaptureFrame: e.CaptureFrame,
 		FpsAverage:   e.FpsAverage,
 		FpsMin:       e.FpsMin,
 	})
-	b.queues.FpsEvents.Push(fpsEvent)
 	return nil
 }
 

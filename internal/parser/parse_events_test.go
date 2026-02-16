@@ -525,63 +525,6 @@ func TestParseGeneralEvent(t *testing.T) {
 	}
 }
 
-func TestParseFpsEvent(t *testing.T) {
-	p := newTestParser()
-
-	tests := []struct {
-		name    string
-		input   []string
-		check   func(t *testing.T, e core.ServerFpsEvent)
-		wantErr bool
-	}{
-		{
-			name:  "normal FPS",
-			input: []string{"0", "35.4767", "3.55872"},
-			check: func(t *testing.T, e core.ServerFpsEvent) {
-				assert.Equal(t, uint(0), e.CaptureFrame)
-				assert.InDelta(t, float32(35.4767), e.FpsAverage, 0.01)
-				assert.InDelta(t, float32(3.55872), e.FpsMin, 0.01)
-			},
-		},
-		{
-			name:  "low FPS",
-			input: []string{"16", "18.9798", "14.4928"},
-			check: func(t *testing.T, e core.ServerFpsEvent) {
-				assert.Equal(t, uint(16), e.CaptureFrame)
-				assert.InDelta(t, float32(18.9798), e.FpsAverage, 0.01)
-				assert.InDelta(t, float32(14.4928), e.FpsMin, 0.01)
-			},
-		},
-		{
-			name:    "error: bad frame",
-			input:   []string{"abc", "35.0", "3.0"},
-			wantErr: true,
-		},
-		{
-			name:    "error: bad fpsAvg",
-			input:   []string{"0", "abc", "3.0"},
-			wantErr: true,
-		},
-		{
-			name:    "error: bad fpsMin",
-			input:   []string{"0", "35.0", "abc"},
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result, err := p.ParseFpsEvent(tt.input)
-			if tt.wantErr {
-				assert.Error(t, err)
-				return
-			}
-			require.NoError(t, err)
-			tt.check(t, result)
-		})
-	}
-}
-
 func TestParseTimeState(t *testing.T) {
 	p := newTestParser()
 

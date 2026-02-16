@@ -387,24 +387,6 @@ func TestCoreToRadioEvent(t *testing.T) {
 	assert.Equal(t, "ABC", result.Code)
 }
 
-func TestCoreToServerFpsEvent(t *testing.T) {
-	now := time.Now().Truncate(time.Millisecond)
-
-	input := core.ServerFpsEvent{
-		Time:         now,
-		CaptureFrame: 100,
-		FpsAverage:   50.5,
-		FpsMin:       30.0,
-	}
-
-	result := CoreToServerFpsEvent(input)
-
-	assert.Equal(t, now, result.Time)
-	assert.Equal(t, uint(100), result.CaptureFrame)
-	assert.Equal(t, float32(50.5), result.FpsAverage)
-	assert.Equal(t, float32(30.0), result.FpsMin)
-}
-
 func TestCoreToAce3DeathEvent(t *testing.T) {
 	now := time.Now().Truncate(time.Millisecond)
 	sourceID := uint(10)
@@ -647,7 +629,6 @@ var (
 	_ model.KillEvent            = CoreToKillEvent(core.KillEvent{})
 	_ model.ChatEvent            = CoreToChatEvent(core.ChatEvent{})
 	_ model.RadioEvent           = CoreToRadioEvent(core.RadioEvent{})
-	_ model.ServerFpsEvent       = CoreToServerFpsEvent(core.ServerFpsEvent{})
 	_ model.Ace3DeathEvent       = CoreToAce3DeathEvent(core.Ace3DeathEvent{})
 	_ model.Ace3UnconsciousEvent = CoreToAce3UnconsciousEvent(core.Ace3UnconsciousEvent{})
 	_ model.ProjectileEvent      = CoreToProjectileEvent(core.ProjectileEvent{})

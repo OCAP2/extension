@@ -63,7 +63,6 @@ type Service interface {
 	ParseKillEvent(args []string) (KillEvent, error)
 	ParseChatEvent(args []string) (core.ChatEvent, error)
 	ParseRadioEvent(args []string) (core.RadioEvent, error)
-	ParseFpsEvent(args []string) (core.ServerFpsEvent, error)
 	ParseTimeState(args []string) (core.TimeState, error)
 	ParseAce3DeathEvent(args []string) (core.Ace3DeathEvent, error)
 	ParseAce3UnconsciousEvent(args []string) (core.Ace3UnconsciousEvent, error)

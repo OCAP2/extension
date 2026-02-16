@@ -49,7 +49,6 @@ type Backend struct {
 	killEvents            []core.KillEvent
 	chatEvents            []core.ChatEvent
 	radioEvents           []core.RadioEvent
-	serverFpsEvents       []core.ServerFpsEvent
 	telemetryEvents       []core.TelemetryEvent
 	timeStates            []core.TimeState
 	ace3DeathEvents       []core.Ace3DeathEvent
@@ -131,7 +130,6 @@ func (b *Backend) resetCollections() {
 	b.killEvents = nil
 	b.chatEvents = nil
 	b.radioEvents = nil
-	b.serverFpsEvents = nil
 	b.telemetryEvents = nil
 	b.timeStates = nil
 	b.ace3DeathEvents = nil
@@ -295,14 +293,6 @@ func (b *Backend) RecordRadioEvent(e *core.RadioEvent) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.radioEvents = append(b.radioEvents, *e)
-	return nil
-}
-
-// RecordServerFpsEvent records a server FPS event
-func (b *Backend) RecordServerFpsEvent(e *core.ServerFpsEvent) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.serverFpsEvents = append(b.serverFpsEvents, *e)
 	return nil
 }
 

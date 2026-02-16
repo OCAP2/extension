@@ -32,7 +32,6 @@ type Backend interface {
 	RecordKillEvent(e *core.KillEvent) error
 	RecordChatEvent(e *core.ChatEvent) error
 	RecordRadioEvent(e *core.RadioEvent) error
-	RecordServerFpsEvent(e *core.ServerFpsEvent) error
 	RecordTelemetryEvent(e *core.TelemetryEvent) error
 	RecordTimeState(t *core.TimeState) error
 	RecordAce3DeathEvent(e *core.Ace3DeathEvent) error
