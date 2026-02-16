@@ -262,16 +262,43 @@ func (p *Parser) ParseFpsEvent(data []string) (core.ServerFpsEvent, error) {
 	return fpsEvent, nil
 }
 
-// ParseTelemetryEvent parses a unified telemetry snapshot.
-// ArmA's callExtension flattens the top-level SQF array into separate string args:
+// ParseTelemetryEvent parses a unified telemetry snapshot sent every ~10 seconds.
+// Replaces the old :FPS: and :METRIC: commands.
 //
-//	data[0] = captureFrameNo  (plain number string)
-//	data[1] = [fpsAvg, fpsMin]  (JSON array string)
-//	data[2] = sideData           (JSON array string)
-//	data[3] = globalCounts       (JSON array string)
-//	data[4] = scripts            (JSON array string)
-//	data[5] = weather            (JSON array string)
-//	data[6] = players            (JSON array string)
+// ArmA's callExtension flattens the top-level SQF array into 7 separate string args:
+//
+//	data[0] — Frame number (OCAP_recorder_captureFrameNo). Plain integer string.
+//	           Example: "134"
+//
+//	data[1] — Server FPS: [diag_fps, diag_fpsmin].
+//	           Example: "[43.3604,4.36681]"
+//
+//	data[2] — Per-side entity counts. Array[4] in order [east, west, independent, civilian].
+//	           Each side: [[server_local], [remote]].
+//	           Each locality: [units_total, units_alive, units_dead, groups_total,
+//	                           vehicles_total, vehicles_weaponholder].
+//	           Note: units_total ≈ units_alive (allUnits typically only contains living units;
+//	           they may diverge with ACE unconscious units).
+//	           Example: "[[[1,1,0,1,0,0],[0,0,0,0,0,0]],[[10,10,0,8,0,0],[0,0,0,0,0,0]],...]"
+//
+//	data[3] — Global entity counts: [units_alive, units_dead, groups_total, vehicles_total,
+//	           vehicles_weaponholder, players_alive, players_dead, players_connected].
+//	           Example: "[22,12,15,28,0,1,0,1]"
+//
+//	data[4] — Running scripts: [spawn, execVM, exec, execFSM, pfh].
+//	           Indices 0–3 from diag_activeScripts; index 4 is CBA per-frame handler count.
+//	           Example: "[28,4,0,4,2]"
+//
+//	data[5] — Weather snapshot (12 floats): [fog, overcast, rain, humidity, waves,
+//	           windDir (0–360°), windStr, gusts, lightnings, moonIntensity,
+//	           moonPhase (0=new, 0.5=full, 1=new), sunOrMoon (0=night, 1=day)].
+//	           Example: "[0.2,0.25,0,0,0.1,160.864,0.25,0.175,0.003153,0.441581,0.421672,1]"
+//
+//	data[6] — Player network data. Variable-length array, one entry per connected human player
+//	           (excludes headless clients). Each entry: [playerUID, playerName, avgPing,
+//	           avgBandwidth, desync]. Empty when no players: "[]".
+//	           Note: avgBandwidth may use scientific notation (e.g. 1.67772e+07).
+//	           Example: "[["76561198000074241","info",100,28,0]]"
 func (p *Parser) ParseTelemetryEvent(data []string) (core.TelemetryEvent, error) {
 	var result core.TelemetryEvent
 
@@ -286,14 +313,14 @@ func (p *Parser) ParseTelemetryEvent(data []string) (core.TelemetryEvent, error)
 
 	result.Time = time.Now()
 
-	// [0] captureFrameNo (plain number string, like ParseFpsEvent)
+	// [0] captureFrameNo — plain integer string
 	frameNo, err := strconv.ParseFloat(data[0], 64)
 	if err != nil {
 		return result, fmt.Errorf("telemetry: parse frameNo: %w", err)
 	}
 	result.CaptureFrame = uint(frameNo)
 
-	// [1] FPS: [fpsAvg, fpsMin]
+	// [1] Server FPS: [diag_fps, diag_fpsmin]
 	var fps [2]float64
 	if err := json.Unmarshal([]byte(data[1]), &fps); err != nil {
 		return result, fmt.Errorf("telemetry: parse fps: %w", err)
@@ -301,7 +328,9 @@ func (p *Parser) ParseTelemetryEvent(data []string) (core.TelemetryEvent, error)
 	result.FpsAverage = float32(fps[0])
 	result.FpsMin = float32(fps[1])
 
-	// [2] Per-side entity counts: [[local, remote], ...] x4 sides
+	// [2] Per-side entity counts: [east, west, independent, civilian]
+	//     Each side: [[server_local], [remote]]
+	//     Each locality: [units_total, units_alive, units_dead, groups_total, vehicles_total, vehicles_weaponholder]
 	var sides [4][2][6]float64
 	if err := json.Unmarshal([]byte(data[2]), &sides); err != nil {
 		return result, fmt.Errorf("telemetry: parse side data: %w", err)
@@ -321,7 +350,9 @@ func (p *Parser) ParseTelemetryEvent(data []string) (core.TelemetryEvent, error)
 		}
 	}
 
-	// [3] Global counts: [alive, dead, groups, vehicles, weaponholders, players_alive, players_dead, players_connected]
+	// [3] Global entity counts:
+	//     [units_alive, units_dead, groups_total, vehicles_total,
+	//      vehicles_weaponholder, players_alive, players_dead, players_connected]
 	var global [8]float64
 	if err := json.Unmarshal([]byte(data[3]), &global); err != nil {
 		return result, fmt.Errorf("telemetry: parse global counts: %w", err)
@@ -333,7 +364,8 @@ func (p *Parser) ParseTelemetryEvent(data []string) (core.TelemetryEvent, error)
 		PlayersDead: uint(global[6]), PlayersConnected: uint(global[7]),
 	}
 
-	// [4] Scripts: [spawn, execVM, exec, execFSM, pfh]
+	// [4] Running scripts: [spawn, execVM, exec, execFSM, pfh]
+	//     0–3 from diag_activeScripts; 4 is CBA per-frame handler count
 	var scripts [5]float64
 	if err := json.Unmarshal([]byte(data[4]), &scripts); err != nil {
 		return result, fmt.Errorf("telemetry: parse scripts: %w", err)
@@ -344,7 +376,9 @@ func (p *Parser) ParseTelemetryEvent(data []string) (core.TelemetryEvent, error)
 		PFH: uint(scripts[4]),
 	}
 
-	// [5] Weather: 12 float values
+	// [5] Weather (12 floats):
+	//     [fog, overcast, rain, humidity, waves, windDir, windStr, gusts,
+	//      lightnings, moonIntensity, moonPhase, sunOrMoon]
 	var weather [12]float64
 	if err := json.Unmarshal([]byte(data[5]), &weather); err != nil {
 		return result, fmt.Errorf("telemetry: parse weather: %w", err)
@@ -358,7 +392,9 @@ func (p *Parser) ParseTelemetryEvent(data []string) (core.TelemetryEvent, error)
 		MoonPhase: float32(weather[10]), SunOrMoon: float32(weather[11]),
 	}
 
-	// [6] Player network: [[uid, name, ping, bw, desync], ...]
+	// [6] Player network data: [[playerUID, playerName, avgPing, avgBandwidth, desync], ...]
+	//     Variable length; empty "[]" when no players connected.
+	//     Excludes headless clients. Bandwidth may use scientific notation.
 	var players [][]json.RawMessage
 	if err := json.Unmarshal([]byte(data[6]), &players); err != nil {
 		return result, fmt.Errorf("telemetry: parse players: %w", err)
