@@ -52,38 +52,26 @@ func (b *Backend) exportJSON() error {
 	return nil
 }
 
-func writeJSON(path string, data v1.Export) (err error) {
+func writeJSON(path string, data v1.Export) error {
 	f, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("failed to create file: %w", err)
 	}
-	defer func() {
-		if cerr := f.Close(); cerr != nil && err == nil {
-			err = cerr
-		}
-	}()
+	defer func() { _ = f.Close() }()
 
 	encoder := json.NewEncoder(f)
 	return encoder.Encode(data)
 }
 
-func writeGzipJSON(path string, data v1.Export) (err error) {
+func writeGzipJSON(path string, data v1.Export) error {
 	f, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("failed to create file: %w", err)
 	}
-	defer func() {
-		if cerr := f.Close(); cerr != nil && err == nil {
-			err = cerr
-		}
-	}()
+	defer func() { _ = f.Close() }()
 
 	gzWriter := gzip.NewWriter(f)
-	defer func() {
-		if cerr := gzWriter.Close(); cerr != nil && err == nil {
-			err = cerr
-		}
-	}()
+	defer func() { _ = gzWriter.Close() }()
 
 	encoder := json.NewEncoder(gzWriter)
 	return encoder.Encode(data)
