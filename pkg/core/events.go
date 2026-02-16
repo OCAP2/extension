@@ -160,8 +160,8 @@ type TelemetryEvent struct {
 	FpsAverage float32
 	FpsMin     float32
 
-	// Per-side entity counts: [east, west, independent, civilian]
-	SideEntityCounts [4]SideEntityCount
+	// Per-side entity counts
+	SideEntityCounts SideEntityCounts
 
 	// Global entity counts (all sides combined)
 	GlobalCounts GlobalEntityCount
@@ -174,6 +174,14 @@ type TelemetryEvent struct {
 
 	// Per-player network stats (variable length)
 	Players []PlayerNetworkData
+}
+
+// SideEntityCounts holds entity counts for all four sides.
+type SideEntityCounts struct {
+	East        SideEntityCount
+	West        SideEntityCount
+	Independent SideEntityCount
+	Civilian    SideEntityCount
 }
 
 // SideEntityCount holds entity counts for a single side, split by locality.

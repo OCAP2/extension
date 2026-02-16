@@ -303,19 +303,25 @@ func (p *Parser) ParseTelemetryEvent(data []string) (core.TelemetryEvent, error)
 	if err := json.Unmarshal([]byte(data[2]), &sides); err != nil {
 		return result, fmt.Errorf("telemetry: parse side data: %w", err)
 	}
-	for i, side := range sides {
-		result.SideEntityCounts[i] = core.SideEntityCount{
+	parseSide := func(s [2][6]float64) core.SideEntityCount {
+		return core.SideEntityCount{
 			Local: core.EntityLocality{
-				UnitsTotal: uint(side[0][0]), UnitsAlive: uint(side[0][1]),
-				UnitsDead: uint(side[0][2]), Groups: uint(side[0][3]),
-				Vehicles: uint(side[0][4]), WeaponHolders: uint(side[0][5]),
+				UnitsTotal: uint(s[0][0]), UnitsAlive: uint(s[0][1]),
+				UnitsDead: uint(s[0][2]), Groups: uint(s[0][3]),
+				Vehicles: uint(s[0][4]), WeaponHolders: uint(s[0][5]),
 			},
 			Remote: core.EntityLocality{
-				UnitsTotal: uint(side[1][0]), UnitsAlive: uint(side[1][1]),
-				UnitsDead: uint(side[1][2]), Groups: uint(side[1][3]),
-				Vehicles: uint(side[1][4]), WeaponHolders: uint(side[1][5]),
+				UnitsTotal: uint(s[1][0]), UnitsAlive: uint(s[1][1]),
+				UnitsDead: uint(s[1][2]), Groups: uint(s[1][3]),
+				Vehicles: uint(s[1][4]), WeaponHolders: uint(s[1][5]),
 			},
 		}
+	}
+	result.SideEntityCounts = core.SideEntityCounts{
+		East:        parseSide(sides[0]),
+		West:        parseSide(sides[1]),
+		Independent: parseSide(sides[2]),
+		Civilian:    parseSide(sides[3]),
 	}
 
 	// [3] Global entity counts:

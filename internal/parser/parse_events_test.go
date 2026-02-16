@@ -643,7 +643,7 @@ func TestParseTelemetryEvent(t *testing.T) {
 				assert.InDelta(t, 4.36681, float64(e.FpsMin), 0.001)
 
 				// East: 1 local unit alive, 1 group, no vehicles
-				east := e.SideEntityCounts[0]
+				east := e.SideEntityCounts.East
 				assert.Equal(t, uint(1), east.Local.UnitsTotal)
 				assert.Equal(t, uint(1), east.Local.UnitsAlive)
 				assert.Equal(t, uint(0), east.Local.UnitsDead)
@@ -654,15 +654,15 @@ func TestParseTelemetryEvent(t *testing.T) {
 				assert.Equal(t, uint(0), east.Remote.UnitsTotal)
 
 				// West: 10 local units, 8 groups
-				assert.Equal(t, uint(10), e.SideEntityCounts[1].Local.UnitsTotal)
-				assert.Equal(t, uint(8), e.SideEntityCounts[1].Local.Groups)
+				assert.Equal(t, uint(10), e.SideEntityCounts.West.Local.UnitsTotal)
+				assert.Equal(t, uint(8), e.SideEntityCounts.West.Local.Groups)
 
 				// Independent: 6 local units, 6 groups
-				assert.Equal(t, uint(6), e.SideEntityCounts[2].Local.UnitsTotal)
-				assert.Equal(t, uint(6), e.SideEntityCounts[2].Local.Groups)
+				assert.Equal(t, uint(6), e.SideEntityCounts.Independent.Local.UnitsTotal)
+				assert.Equal(t, uint(6), e.SideEntityCounts.Independent.Local.Groups)
 
 				// Civilian: 5 alive, 12 dead, 24 vehicles, no weapon holders
-				civ := e.SideEntityCounts[3].Local
+				civ := e.SideEntityCounts.Civilian.Local
 				assert.Equal(t, uint(5), civ.UnitsTotal)
 				assert.Equal(t, uint(5), civ.UnitsAlive)
 				assert.Equal(t, uint(12), civ.UnitsDead)
@@ -719,13 +719,13 @@ func TestParseTelemetryEvent(t *testing.T) {
 				assert.InDelta(t, 90.9091, float64(e.FpsMin), 0.01)
 
 				// East lost 1 unit (33→32 in later frame, but at 114: 32 local)
-				assert.Equal(t, uint(32), e.SideEntityCounts[0].Local.UnitsTotal)
+				assert.Equal(t, uint(32), e.SideEntityCounts.East.Local.UnitsTotal)
 
 				// West: 1 vehicle now present
-				assert.Equal(t, uint(1), e.SideEntityCounts[1].Local.Vehicles)
+				assert.Equal(t, uint(1), e.SideEntityCounts.West.Local.Vehicles)
 
 				// Civilian: 19 dead (was 12 at start), 23 vehicles, 22 weapon holders on ground
-				civ := e.SideEntityCounts[3].Local
+				civ := e.SideEntityCounts.Civilian.Local
 				assert.Equal(t, uint(4), civ.UnitsTotal)
 				assert.Equal(t, uint(19), civ.UnitsDead)
 				assert.Equal(t, uint(23), civ.Vehicles)
@@ -753,18 +753,18 @@ func TestParseTelemetryEvent(t *testing.T) {
 				assert.InDelta(t, 76.9231, float64(e.FpsMin), 0.01)
 
 				// East: down to 30 local units
-				assert.Equal(t, uint(30), e.SideEntityCounts[0].Local.UnitsTotal)
+				assert.Equal(t, uint(30), e.SideEntityCounts.East.Local.UnitsTotal)
 
 				// West: down to 3 units, still 1 vehicle
-				west := e.SideEntityCounts[1].Local
+				west := e.SideEntityCounts.West.Local
 				assert.Equal(t, uint(3), west.UnitsTotal)
 				assert.Equal(t, uint(1), west.Vehicles)
 
 				// Independent: down to 2 units
-				assert.Equal(t, uint(2), e.SideEntityCounts[2].Local.UnitsTotal)
+				assert.Equal(t, uint(2), e.SideEntityCounts.Independent.Local.UnitsTotal)
 
 				// Civilian: 22 dead, 21 vehicles, 24 weapon holders
-				civ := e.SideEntityCounts[3].Local
+				civ := e.SideEntityCounts.Civilian.Local
 				assert.Equal(t, uint(22), civ.UnitsDead)
 				assert.Equal(t, uint(21), civ.Vehicles)
 				assert.Equal(t, uint(24), civ.WeaponHolders)
