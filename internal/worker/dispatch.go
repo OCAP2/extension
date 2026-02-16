@@ -51,7 +51,10 @@ func (m *Manager) handleNewSoldier(e dispatcher.Event) (any, error) {
 	// Always cache for state handler lookups
 	m.deps.EntityCache.AddSoldier(obj)
 
-	return nil, m.backend.AddSoldier(&obj)
+	if err := m.backend.AddSoldier(&obj); err != nil {
+		return nil, fmt.Errorf("add soldier: %w", err)
+	}
+	return nil, nil
 }
 
 func (m *Manager) handleNewVehicle(e dispatcher.Event) (any, error) {
@@ -63,7 +66,10 @@ func (m *Manager) handleNewVehicle(e dispatcher.Event) (any, error) {
 	// Always cache for state handler lookups
 	m.deps.EntityCache.AddVehicle(obj)
 
-	return nil, m.backend.AddVehicle(&obj)
+	if err := m.backend.AddVehicle(&obj); err != nil {
+		return nil, fmt.Errorf("add vehicle: %w", err)
+	}
+	return nil, nil
 }
 
 func (m *Manager) handleSoldierState(e dispatcher.Event) (any, error) {
@@ -84,7 +90,10 @@ func (m *Manager) handleSoldierState(e dispatcher.Event) (any, error) {
 		obj.Side = soldier.Side
 	}
 
-	return nil, m.backend.RecordSoldierState(&obj)
+	if err := m.backend.RecordSoldierState(&obj); err != nil {
+		return nil, fmt.Errorf("record soldier state: %w", err)
+	}
+	return nil, nil
 }
 
 func (m *Manager) handleVehicleState(e dispatcher.Event) (any, error) {
@@ -98,7 +107,10 @@ func (m *Manager) handleVehicleState(e dispatcher.Event) (any, error) {
 		return nil, ErrTooEarlyForStateAssociation
 	}
 
-	return nil, m.backend.RecordVehicleState(&obj)
+	if err := m.backend.RecordVehicleState(&obj); err != nil {
+		return nil, fmt.Errorf("record vehicle state: %w", err)
+	}
+	return nil, nil
 }
 
 func (m *Manager) handleTimeState(e dispatcher.Event) (any, error) {
@@ -107,7 +119,10 @@ func (m *Manager) handleTimeState(e dispatcher.Event) (any, error) {
 		return nil, fmt.Errorf("failed to log time state: %w", err)
 	}
 
-	return nil, m.backend.RecordTimeState(&obj)
+	if err := m.backend.RecordTimeState(&obj); err != nil {
+		return nil, fmt.Errorf("record time state: %w", err)
+	}
+	return nil, nil
 }
 
 func (m *Manager) handleProjectileEvent(e dispatcher.Event) (any, error) {
@@ -129,7 +144,10 @@ func (m *Manager) handleProjectileEvent(e dispatcher.Event) (any, error) {
 		Hits:            m.classifyHitParts(parsed.HitParts),
 	}
 
-	return nil, m.backend.RecordProjectileEvent(&coreEvent)
+	if err := m.backend.RecordProjectileEvent(&coreEvent); err != nil {
+		return nil, fmt.Errorf("record projectile event: %w", err)
+	}
+	return nil, nil
 }
 
 // classifyHitParts classifies each HitPart as soldier or vehicle hit using EntityCache.
@@ -179,7 +197,10 @@ func (m *Manager) handleGeneralEvent(e dispatcher.Event) (any, error) {
 		return nil, fmt.Errorf("failed to log general event: %w", err)
 	}
 
-	return nil, m.backend.RecordGeneralEvent(&obj)
+	if err := m.backend.RecordGeneralEvent(&obj); err != nil {
+		return nil, fmt.Errorf("record general event: %w", err)
+	}
+	return nil, nil
 }
 
 func (m *Manager) handleKillEvent(e dispatcher.Event) (any, error) {
@@ -201,7 +222,10 @@ func (m *Manager) handleKillEvent(e dispatcher.Event) (any, error) {
 	coreEvent.VictimSoldierID, coreEvent.VictimVehicleID = m.classifyEntity(parsed.VictimID)
 	coreEvent.KillerSoldierID, coreEvent.KillerVehicleID = m.classifyEntity(parsed.KillerID)
 
-	return nil, m.backend.RecordKillEvent(&coreEvent)
+	if err := m.backend.RecordKillEvent(&coreEvent); err != nil {
+		return nil, fmt.Errorf("record kill event: %w", err)
+	}
+	return nil, nil
 }
 
 func (m *Manager) handleChatEvent(e dispatcher.Event) (any, error) {
@@ -217,7 +241,10 @@ func (m *Manager) handleChatEvent(e dispatcher.Event) (any, error) {
 		}
 	}
 
-	return nil, m.backend.RecordChatEvent(&obj)
+	if err := m.backend.RecordChatEvent(&obj); err != nil {
+		return nil, fmt.Errorf("record chat event: %w", err)
+	}
+	return nil, nil
 }
 
 func (m *Manager) handleRadioEvent(e dispatcher.Event) (any, error) {
@@ -233,7 +260,10 @@ func (m *Manager) handleRadioEvent(e dispatcher.Event) (any, error) {
 		}
 	}
 
-	return nil, m.backend.RecordRadioEvent(&obj)
+	if err := m.backend.RecordRadioEvent(&obj); err != nil {
+		return nil, fmt.Errorf("record radio event: %w", err)
+	}
+	return nil, nil
 }
 
 func (m *Manager) handleFpsEvent(e dispatcher.Event) (any, error) {
@@ -242,7 +272,10 @@ func (m *Manager) handleFpsEvent(e dispatcher.Event) (any, error) {
 		return nil, fmt.Errorf("failed to log fps event: %w", err)
 	}
 
-	return nil, m.backend.RecordServerFpsEvent(&obj)
+	if err := m.backend.RecordServerFpsEvent(&obj); err != nil {
+		return nil, fmt.Errorf("record fps event: %w", err)
+	}
+	return nil, nil
 }
 
 func (m *Manager) handleAce3DeathEvent(e dispatcher.Event) (any, error) {
@@ -266,7 +299,10 @@ func (m *Manager) handleAce3DeathEvent(e dispatcher.Event) (any, error) {
 		}
 	}
 
-	return nil, m.backend.RecordAce3DeathEvent(&obj)
+	if err := m.backend.RecordAce3DeathEvent(&obj); err != nil {
+		return nil, fmt.Errorf("record ace3 death event: %w", err)
+	}
+	return nil, nil
 }
 
 func (m *Manager) handleAce3UnconsciousEvent(e dispatcher.Event) (any, error) {
@@ -280,7 +316,10 @@ func (m *Manager) handleAce3UnconsciousEvent(e dispatcher.Event) (any, error) {
 		return nil, fmt.Errorf("could not find soldier with ocap id %d for ace3 unconscious event", obj.SoldierID)
 	}
 
-	return nil, m.backend.RecordAce3UnconsciousEvent(&obj)
+	if err := m.backend.RecordAce3UnconsciousEvent(&obj); err != nil {
+		return nil, fmt.Errorf("record ace3 unconscious event: %w", err)
+	}
+	return nil, nil
 }
 
 func (m *Manager) handleMarkerCreate(e dispatcher.Event) (any, error) {
@@ -319,7 +358,10 @@ func (m *Manager) handleMarkerMove(e dispatcher.Event) (any, error) {
 		Time:         parsed.Time,
 	}
 
-	return nil, m.backend.RecordMarkerState(&coreState)
+	if err := m.backend.RecordMarkerState(&coreState); err != nil {
+		return nil, fmt.Errorf("record marker state: %w", err)
+	}
+	return nil, nil
 }
 
 func (m *Manager) handleMarkerDelete(e dispatcher.Event) (any, error) {
@@ -328,5 +370,8 @@ func (m *Manager) handleMarkerDelete(e dispatcher.Event) (any, error) {
 		return nil, fmt.Errorf("failed to delete marker: %w", err)
 	}
 
-	return nil, m.backend.DeleteMarker(markerName, frameNo)
+	if err := m.backend.DeleteMarker(markerName, frameNo); err != nil {
+		return nil, fmt.Errorf("delete marker: %w", err)
+	}
+	return nil, nil
 }

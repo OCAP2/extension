@@ -166,17 +166,8 @@ func (b *Backend) StartMission(coreMission *core.Mission, coreWorld *core.World)
 	}
 
 	// World get-or-insert
-	var existingWorld model.World
-	if err := db.Where("world_name = ?", gormWorld.WorldName).First(&existingWorld).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			if err = db.Create(&gormWorld).Error; err != nil {
-				return fmt.Errorf("failed to create world: %w", err)
-			}
-		} else {
-			return fmt.Errorf("failed to find world: %w", err)
-		}
-	} else {
-		gormWorld = existingWorld
+	if err := db.Where(model.World{WorldName: gormWorld.WorldName}).FirstOrCreate(&gormWorld).Error; err != nil {
+		return fmt.Errorf("failed to get or insert world: %w", err)
 	}
 
 	// Mission create
