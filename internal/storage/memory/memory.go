@@ -306,17 +306,11 @@ func (b *Backend) RecordServerFpsEvent(e *core.ServerFpsEvent) error {
 	return nil
 }
 
-// RecordTelemetryEvent records a telemetry event and extracts FPS data.
+// RecordTelemetryEvent records a telemetry event.
 func (b *Backend) RecordTelemetryEvent(e *core.TelemetryEvent) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.telemetryEvents = append(b.telemetryEvents, *e)
-	b.serverFpsEvents = append(b.serverFpsEvents, core.ServerFpsEvent{
-		Time:         e.Time,
-		CaptureFrame: e.CaptureFrame,
-		FpsAverage:   e.FpsAverage,
-		FpsMin:       e.FpsMin,
-	})
 	return nil
 }
 
