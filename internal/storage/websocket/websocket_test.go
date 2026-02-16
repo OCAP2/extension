@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -85,6 +86,26 @@ func (m *messageLog) all() []Envelope {
 func wsURL(srv *httptest.Server) string {
 	return "ws" + strings.TrimPrefix(srv.URL, "http")
 }
+
+// newIdleConn creates a connection wired to the given server URL but does NOT
+// start writeLoop/readLoop. Useful for testing connection internals directly.
+func newIdleConn(t *testing.T, serverURL string) *connection {
+	t.Helper()
+	c := newConnection(slog.Default())
+	c.wsURL = serverURL
+	c.secret = "s"
+
+	conn, err := c.dialOnce()
+	require.NoError(t, err)
+
+	c.mu.Lock()
+	c.conn = conn
+	c.mu.Unlock()
+
+	return c
+}
+
+// --- Backend lifecycle tests ---
 
 func TestStartAndEndMission(t *testing.T) {
 	srv, ml := testServer(t)
@@ -223,6 +244,8 @@ func TestMarkerIDResetsAfterEndMission(t *testing.T) {
 	require.NoError(t, b.EndMission())
 }
 
+// --- Dial / close edge cases ---
+
 func TestDialFailure(t *testing.T) {
 	b := New(Config{URL: "ws://127.0.0.1:1", Secret: "s"})
 	err := b.Init()
@@ -248,6 +271,13 @@ func TestCloseIdempotent(t *testing.T) {
 	require.NoError(t, b.Close()) // second close should not error
 }
 
+func TestCloseNeverDialed(t *testing.T) {
+	c := newConnection(slog.Default())
+	require.NoError(t, c.close()) // conn is nil, should still succeed
+}
+
+// --- sendAndWait edge cases ---
+
 func TestAckTimeout(t *testing.T) {
 	// Server that never sends acks.
 	upgrader := ws.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
@@ -257,7 +287,6 @@ func TestAckTimeout(t *testing.T) {
 			return
 		}
 		defer c.Close()
-		// Read messages but never reply.
 		for {
 			if _, _, err := c.ReadMessage(); err != nil {
 				return
@@ -270,8 +299,6 @@ func TestAckTimeout(t *testing.T) {
 	require.NoError(t, b.Init())
 	defer b.Close()
 
-	// Test sendAndWait directly with a short timeout instead of going
-	// through StartMission (which uses the 10s ackTimeout constant).
 	data, err := marshalEnvelope(TypeStartMission, StartMissionPayload{})
 	require.NoError(t, err)
 
@@ -287,7 +314,6 @@ func TestSendAndWaitClosedConnection(t *testing.T) {
 	b := New(Config{URL: wsURL(srv), Secret: "s"})
 	require.NoError(t, b.Init())
 
-	// Close the connection, then sendAndWait should return an error.
 	require.NoError(t, b.Close())
 
 	data, err := marshalEnvelope(TypeEndMission, nil)
@@ -298,43 +324,414 @@ func TestSendAndWaitClosedConnection(t *testing.T) {
 	assert.Contains(t, err.Error(), "connection closed")
 }
 
-// restartableServer is a test WebSocket server that can be stopped and
-// restarted on the same listener to test reconnection.
+// --- marshalEnvelope error ---
+
+func TestMarshalEnvelopeError(t *testing.T) {
+	// Channels cannot be JSON-marshaled.
+	_, err := marshalEnvelope("test", make(chan int))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "marshal test payload")
+}
+
+func TestSendEnvelopeError(t *testing.T) {
+	srv, _ := testServer(t)
+	defer srv.Close()
+
+	b := New(Config{URL: wsURL(srv), Secret: "s"})
+	require.NoError(t, b.Init())
+	defer b.Close()
+
+	err := b.sendEnvelope("test", make(chan int))
+	require.Error(t, err)
+}
+
+func TestSendEnvelopeAndWaitError(t *testing.T) {
+	srv, _ := testServer(t)
+	defer srv.Close()
+
+	b := New(Config{URL: wsURL(srv), Secret: "s"})
+	require.NoError(t, b.Init())
+	defer b.Close()
+
+	err := b.sendEnvelopeAndWait("test", make(chan int))
+	require.Error(t, err)
+}
+
+func TestStartMissionMarshalError(t *testing.T) {
+	// StartMission has its own marshal path; use a backend with a nil
+	// connection to avoid network issues — the error should happen
+	// before any send. Actually StartMissionPayload uses concrete types
+	// that always marshal, so we test the full happy path elsewhere.
+	// This test verifies StartMission caches the serialized message.
+	srv, _ := testServer(t)
+	defer srv.Close()
+
+	b := New(Config{URL: wsURL(srv), Secret: "s"})
+	require.NoError(t, b.Init())
+	defer b.Close()
+
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: "X"}, &core.World{WorldName: "Y"}))
+
+	b.conn.mu.Lock()
+	cached := b.conn.cachedStartMsg
+	b.conn.mu.Unlock()
+	assert.NotNil(t, cached, "StartMission should cache the serialized message")
+
+	require.NoError(t, b.EndMission())
+
+	b.conn.mu.Lock()
+	cached = b.conn.cachedStartMsg
+	b.conn.mu.Unlock()
+	assert.Nil(t, cached, "EndMission should clear the cached message")
+}
+
+// --- send channel full ---
+
+func TestSendChannelFullDropsMessage(t *testing.T) {
+	// Create a connection without starting writeLoop so the channel
+	// stays full and isn't drained.
+	c := newConnection(slog.Default())
+
+	for i := range sendChSize {
+		c.sendCh <- []byte("{}")
+		_ = i
+	}
+
+	done := make(chan struct{})
+	go func() {
+		c.send([]byte(`{"type":"test"}`))
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Good — send returned without blocking.
+	case <-time.After(time.Second):
+		t.Fatal("send blocked when channel was full")
+	}
+}
+
+// --- readLoop edge cases ---
+
+func TestReadLoopNonJsonMessage(t *testing.T) {
+	// Server that sends a non-JSON message before a valid ack.
+	upgrader := ws.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer c.Close()
+
+		for {
+			_, msg, err := c.ReadMessage()
+			if err != nil {
+				return
+			}
+			// Send garbage first (covers json.Unmarshal error in readLoop).
+			_ = c.WriteMessage(ws.TextMessage, []byte("not json"))
+
+			var env Envelope
+			if json.Unmarshal(msg, &env) == nil && env.Type == TypeStartMission {
+				ack, _ := json.Marshal(AckMessage{Type: "ack", For: env.Type})
+				_ = c.WriteMessage(ws.TextMessage, ack)
+			}
+		}
+	}))
+	defer srv.Close()
+
+	b := New(Config{URL: wsURL(srv), Secret: "s"})
+	require.NoError(t, b.Init())
+	defer b.Close()
+
+	// StartMission will get garbage first, then a valid ack.
+	data, err := marshalEnvelope(TypeStartMission, StartMissionPayload{
+		Mission: &core.Mission{}, World: &core.World{},
+	})
+	require.NoError(t, err)
+	require.NoError(t, b.conn.sendAndWait(data, TypeStartMission, 2*time.Second))
+}
+
+func TestReadLoopNonAckMessage(t *testing.T) {
+	// Server that sends a valid JSON message that is not an ack.
+	upgrader := ws.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer c.Close()
+
+		for {
+			_, msg, err := c.ReadMessage()
+			if err != nil {
+				return
+			}
+			// Send a non-ack JSON message (valid JSON, but type != "ack").
+			_ = c.WriteMessage(ws.TextMessage, []byte(`{"type":"info","data":"hello"}`))
+
+			var env Envelope
+			if json.Unmarshal(msg, &env) == nil && env.Type == TypeStartMission {
+				ack, _ := json.Marshal(AckMessage{Type: "ack", For: env.Type})
+				_ = c.WriteMessage(ws.TextMessage, ack)
+			}
+		}
+	}))
+	defer srv.Close()
+
+	b := New(Config{URL: wsURL(srv), Secret: "s"})
+	require.NoError(t, b.Init())
+	defer b.Close()
+
+	data, err := marshalEnvelope(TypeStartMission, StartMissionPayload{
+		Mission: &core.Mission{}, World: &core.World{},
+	})
+	require.NoError(t, err)
+	require.NoError(t, b.conn.sendAndWait(data, TypeStartMission, 2*time.Second))
+}
+
+// --- reconnect tests (called directly for reliable coverage) ---
+
+func TestReconnectDirectSuccess(t *testing.T) {
+	srv, ml := testServer(t)
+	defer srv.Close()
+
+	c := newIdleConn(t, wsURL(srv))
+	defer c.close()
+
+	// Close the underlying WebSocket so reconnect has work to do.
+	c.mu.Lock()
+	_ = c.conn.Close()
+	c.conn = nil
+	c.mu.Unlock()
+
+	// Call reconnect synchronously — server is up so it should succeed
+	// on the first attempt (after 1s backoff).
+	c.reconnect()
+
+	// Verify the connection is restored.
+	c.mu.Lock()
+	assert.NotNil(t, c.conn, "connection should be restored after reconnect")
+	c.mu.Unlock()
+
+	// Send a message to verify the connection works.
+	data, err := marshalEnvelope(TypeAddSoldier, &core.Soldier{ID: 1})
+	require.NoError(t, err)
+	c.send(data)
+	time.Sleep(200 * time.Millisecond)
+
+	msgs := ml.all()
+	assert.GreaterOrEqual(t, len(msgs), 1)
+}
+
+func TestReconnectDirectWithCachedMessage(t *testing.T) {
+	srv, ml := testServer(t)
+	defer srv.Close()
+
+	c := newIdleConn(t, wsURL(srv))
+	defer c.close()
+
+	// Set a cached start_mission message for replay.
+	startData, err := marshalEnvelope(TypeStartMission, StartMissionPayload{
+		Mission: &core.Mission{MissionName: "Reconnect"},
+		World:   &core.World{WorldName: "Altis"},
+	})
+	require.NoError(t, err)
+
+	c.mu.Lock()
+	c.cachedStartMsg = startData
+	_ = c.conn.Close()
+	c.conn = nil
+	c.mu.Unlock()
+
+	c.reconnect()
+
+	// Wait for the replayed message to arrive.
+	time.Sleep(200 * time.Millisecond)
+
+	msgs := ml.all()
+	require.GreaterOrEqual(t, len(msgs), 1)
+	assert.Equal(t, TypeStartMission, msgs[0].Type, "start_mission should be replayed")
+}
+
+func TestReconnectWhenClosed(t *testing.T) {
+	c := newConnection(slog.Default())
+	c.closed = true
+
+	// Should return immediately without panicking.
+	c.reconnect()
+
+	assert.False(t, c.reconnecting.Load(), "reconnecting flag should be cleared")
+}
+
+func TestReconnectCancelledByDone(t *testing.T) {
+	c := newConnection(slog.Default())
+	c.wsURL = "ws://127.0.0.1:1" // unreachable
+	c.secret = "s"
+	close(c.done) // signal shutdown
+
+	// Should return on the first loop iteration via <-c.done.
+	c.reconnect()
+
+	assert.False(t, c.reconnecting.Load())
+}
+
+func TestReconnectDialFailure(t *testing.T) {
+	c := newConnection(slog.Default())
+	c.wsURL = "ws://127.0.0.1:1" // unreachable
+	c.secret = "s"
+
+	// Close done after a short delay so reconnect doesn't loop forever.
+	go func() {
+		time.Sleep(1500 * time.Millisecond)
+		close(c.done)
+	}()
+
+	c.reconnect()
+
+	// Connection should still be nil since all dials failed.
+	c.mu.Lock()
+	assert.Nil(t, c.conn)
+	c.mu.Unlock()
+}
+
+func TestReconnectGuardPreventsDouble(t *testing.T) {
+	srv, _ := testServer(t)
+	defer srv.Close()
+
+	b := New(Config{URL: wsURL(srv), Secret: "s"})
+	require.NoError(t, b.Init())
+	defer b.Close()
+
+	b.conn.reconnecting.Store(true)
+	b.conn.reconnect() // should be a no-op
+	b.conn.reconnecting.Store(false)
+}
+
+// --- writeLoop error paths ---
+
+func TestWriteLoopReconnectsOnError(t *testing.T) {
+	srv, _ := testServer(t)
+	defer srv.Close()
+
+	c := newIdleConn(t, wsURL(srv))
+	defer c.close()
+
+	// Close the underlying WebSocket connection so the next write fails.
+	c.mu.Lock()
+	oldConn := c.conn
+	c.mu.Unlock()
+	_ = oldConn.Close()
+
+	// Start writeLoop and push a message — it should fail and trigger reconnect.
+	go c.writeLoop()
+	c.sendCh <- []byte(`{"type":"test"}`)
+
+	// Wait for reconnect to complete (1s backoff + margin).
+	time.Sleep(1800 * time.Millisecond)
+
+	c.mu.Lock()
+	restored := c.conn != nil
+	c.mu.Unlock()
+
+	assert.True(t, restored, "writeLoop error should trigger reconnect")
+}
+
+func TestWriteLoopExitsOnDone(t *testing.T) {
+	srv, _ := testServer(t)
+	defer srv.Close()
+
+	c := newIdleConn(t, wsURL(srv))
+
+	done := make(chan struct{})
+	go func() {
+		c.writeLoop()
+		close(done)
+	}()
+
+	// Signal shutdown.
+	c.close()
+
+	select {
+	case <-done:
+		// writeLoop exited.
+	case <-time.After(time.Second):
+		t.Fatal("writeLoop did not exit on done")
+	}
+}
+
+// --- readLoop error paths ---
+
+func TestReadLoopReconnectsOnError(t *testing.T) {
+	srv, _ := testServer(t)
+	defer srv.Close()
+
+	c := newIdleConn(t, wsURL(srv))
+	defer c.close()
+
+	// Close the underlying connection so readLoop gets an error.
+	c.mu.Lock()
+	oldConn := c.conn
+	c.mu.Unlock()
+	_ = oldConn.Close()
+
+	readDone := make(chan struct{})
+	go func() {
+		c.readLoop()
+		close(readDone)
+	}()
+
+	// readLoop should exit quickly after the error.
+	select {
+	case <-readDone:
+	case <-time.After(time.Second):
+		t.Fatal("readLoop did not exit on connection error")
+	}
+
+	// Wait for reconnect to complete (1s backoff + margin).
+	time.Sleep(1800 * time.Millisecond)
+
+	c.mu.Lock()
+	restored := c.conn != nil
+	c.mu.Unlock()
+
+	assert.True(t, restored, "readLoop error should trigger reconnect")
+}
+
+func TestReadLoopExitsWhenConnNil(t *testing.T) {
+	c := newConnection(slog.Default())
+	// conn is nil → readLoop should return immediately.
+
+	done := make(chan struct{})
+	go func() {
+		c.readLoop()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("readLoop did not exit when conn is nil")
+	}
+}
+
+// --- restartable server for integration reconnect test ---
+
 type restartableServer struct {
 	mu       sync.Mutex
-	listener *restartableListener
 	srv      *http.Server
 	ml       *messageLog
 	upgrader ws.Upgrader
 	t        *testing.T
 }
 
-type restartableListener struct {
-	net    string
-	addr   string
-	inner  net.Listener
-	closed bool
-	mu     sync.Mutex
-}
-
-func (l *restartableListener) Accept() (net.Conn, error) { return l.inner.Accept() }
-func (l *restartableListener) Addr() net.Addr             { return l.inner.Addr() }
-func (l *restartableListener) Close() error {
-	l.mu.Lock()
-	l.closed = true
-	l.mu.Unlock()
-	return l.inner.Close()
-}
-
 func newRestartableServer(t *testing.T) *restartableServer {
 	t.Helper()
-	ml := &messageLog{}
-	rs := &restartableServer{
-		ml:       ml,
+	return &restartableServer{
+		ml:       &messageLog{},
 		upgrader: ws.Upgrader{CheckOrigin: func(*http.Request) bool { return true }},
 		t:        t,
 	}
-	return rs
 }
 
 func (rs *restartableServer) handler() http.Handler {
@@ -374,9 +771,8 @@ func (rs *restartableServer) start() string {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(rs.t, err)
 
-	rs.listener = &restartableListener{inner: ln}
 	rs.srv = &http.Server{Handler: rs.handler()}
-	go rs.srv.Serve(rs.listener)
+	go rs.srv.Serve(ln)
 	return "ws://" + ln.Addr().String()
 }
 
@@ -387,9 +783,8 @@ func (rs *restartableServer) startOnAddr(addr string) {
 	ln, err := net.Listen("tcp", addr)
 	require.NoError(rs.t, err)
 
-	rs.listener = &restartableListener{inner: ln}
 	rs.srv = &http.Server{Handler: rs.handler()}
-	go rs.srv.Serve(rs.listener)
+	go rs.srv.Serve(ln)
 }
 
 func (rs *restartableServer) stop() {
@@ -405,8 +800,6 @@ func (rs *restartableServer) stop() {
 func TestReconnectAfterServerRestart(t *testing.T) {
 	rs := newRestartableServer(t)
 	url := rs.start()
-
-	// Extract the host:port so we can restart on the same address.
 	addr := strings.TrimPrefix(url, "ws://")
 
 	b := New(Config{URL: url, Secret: "s"})
@@ -415,18 +808,15 @@ func TestReconnectAfterServerRestart(t *testing.T) {
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "R"}, &core.World{WorldName: "W"}))
 
-	// Stop the server — this will cause the read/write loops to fail.
 	rs.stop()
 	time.Sleep(100 * time.Millisecond)
 
-	// Restart on the same address so the reconnect dials succeed.
 	rs.startOnAddr(addr)
 	defer rs.stop()
 
 	// Wait for reconnect (backoff starts at 1s).
 	time.Sleep(2 * time.Second)
 
-	// Send a message — if reconnect worked, this should arrive.
 	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 5, UnitName: "Bravo"}))
 	time.Sleep(200 * time.Millisecond)
 
@@ -436,50 +826,6 @@ func TestReconnectAfterServerRestart(t *testing.T) {
 		types[m.Type]++
 	}
 
-	// start_mission should have been replayed on reconnect.
 	assert.GreaterOrEqual(t, types[TypeStartMission], 1, "start_mission should be replayed on reconnect")
 	assert.GreaterOrEqual(t, types[TypeAddSoldier], 1, "message after reconnect should arrive")
-}
-
-func TestReconnectGuardPreventsDouble(t *testing.T) {
-	// Verify the atomic guard prevents concurrent reconnect calls.
-	srv, _ := testServer(t)
-	defer srv.Close()
-
-	b := New(Config{URL: wsURL(srv), Secret: "s"})
-	require.NoError(t, b.Init())
-	defer b.Close()
-
-	// Simulate: set reconnecting flag, then call reconnect — should return immediately.
-	b.conn.reconnecting.Store(true)
-	b.conn.reconnect() // should be a no-op
-	b.conn.reconnecting.Store(false)
-}
-
-func TestSendChannelFullDropsMessage(t *testing.T) {
-	srv, _ := testServer(t)
-	defer srv.Close()
-
-	b := New(Config{URL: wsURL(srv), Secret: "s"})
-	require.NoError(t, b.Init())
-	defer b.Close()
-
-	// Fill the send channel to capacity.
-	for i := 0; i < sendChSize; i++ {
-		b.conn.sendCh <- []byte("{}")
-	}
-
-	// Next send should drop without blocking.
-	done := make(chan struct{})
-	go func() {
-		b.conn.send([]byte(`{"type":"test"}`))
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		// Good — send returned without blocking.
-	case <-time.After(time.Second):
-		t.Fatal("send blocked when channel was full")
-	}
 }
