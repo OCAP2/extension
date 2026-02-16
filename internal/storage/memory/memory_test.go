@@ -146,63 +146,6 @@ func TestAddMarker(t *testing.T) {
 	assert.Equal(t, "Base", b.markers["marker_1"].Marker.Text)
 }
 
-func TestGetSoldierByObjectID(t *testing.T) {
-	b := New(config.MemoryConfig{})
-
-	s := &core.Soldier{
-		ID:       42,
-		UnitName: "Test Soldier",
-	}
-	_ = b.AddSoldier(s)
-
-	// Found case
-	found, ok := b.GetSoldierByObjectID(42)
-	require.True(t, ok, "soldier not found")
-	assert.Equal(t, "Test Soldier", found.UnitName)
-
-	// Not found case
-	_, ok = b.GetSoldierByObjectID(999)
-	assert.False(t, ok, "expected not found for non-existent ObjectID")
-}
-
-func TestGetVehicleByObjectID(t *testing.T) {
-	b := New(config.MemoryConfig{})
-
-	v := &core.Vehicle{
-		ID:        100,
-		ClassName: "B_Truck_01_transport_F",
-	}
-	_ = b.AddVehicle(v)
-
-	// Found case
-	found, ok := b.GetVehicleByObjectID(100)
-	require.True(t, ok, "vehicle not found")
-	assert.Equal(t, "B_Truck_01_transport_F", found.ClassName)
-
-	// Not found case
-	_, ok = b.GetVehicleByObjectID(999)
-	assert.False(t, ok, "expected not found for non-existent ObjectID")
-}
-
-func TestGetMarkerByName(t *testing.T) {
-	b := New(config.MemoryConfig{})
-
-	m := &core.Marker{
-		MarkerName: "respawn_west",
-		Text:       "Respawn West",
-	}
-	_ = b.AddMarker(m)
-
-	// Found case
-	found, ok := b.GetMarkerByName("respawn_west")
-	require.True(t, ok, "marker not found")
-	assert.Equal(t, "Respawn West", found.Text)
-
-	// Not found case
-	_, ok = b.GetMarkerByName("nonexistent")
-	assert.False(t, ok, "expected not found for non-existent marker name")
-}
-
 func TestRecordSoldierState(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
@@ -520,14 +463,14 @@ func TestConcurrentAccess(t *testing.T) {
 		}(i)
 	}
 
-	// Concurrent reads
+	// Concurrent state recordings (read-like access to internal maps)
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
 			for j := 0; j < numOperationsPerGoroutine; j++ {
 				ocapID := uint16(id*1000 + j)
-				_, _ = b.GetSoldierByObjectID(ocapID)
+				_ = b.RecordSoldierState(&core.SoldierState{SoldierID: ocapID, CaptureFrame: 0})
 			}
 		}(i)
 	}
@@ -779,5 +722,16 @@ func TestGetExportMetadataWithoutStartMission(t *testing.T) {
 	assert.Empty(t, meta.WorldName)
 	assert.Empty(t, meta.MissionName)
 	assert.Empty(t, meta.Tag)
+	assert.Equal(t, 0.0, meta.MissionDuration)
+}
+
+func TestComputeExportMetadata_NilMission(t *testing.T) {
+	b := New(config.MemoryConfig{})
+
+	// Directly call computeExportMetadata with nil mission/world
+	meta := b.computeExportMetadata()
+
+	assert.Empty(t, meta.WorldName)
+	assert.Empty(t, meta.MissionName)
 	assert.Equal(t, 0.0, meta.MissionDuration)
 }

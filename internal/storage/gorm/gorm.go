@@ -166,7 +166,7 @@ func (b *Backend) StartMission(coreMission *core.Mission, coreWorld *core.World)
 	}
 
 	// World get-or-insert
-	if _, err := gormWorld.GetOrInsert(db); err != nil {
+	if err := db.Where(model.World{WorldName: gormWorld.WorldName}).FirstOrCreate(&gormWorld).Error; err != nil {
 		return fmt.Errorf("failed to get or insert world: %w", err)
 	}
 
@@ -246,10 +246,10 @@ func (b *Backend) RecordMarkerState(s *core.MarkerState) error {
 }
 
 // DeleteMarker pushes an alpha=0 MarkerState to the queue and marks the marker as deleted in DB.
-func (b *Backend) DeleteMarker(name string, endFrame uint) {
+func (b *Backend) DeleteMarker(name string, endFrame uint) error {
 	markerID, ok := b.deps.MarkerCache.Get(name)
 	if !ok {
-		return
+		return nil
 	}
 
 	deleteState := model.MarkerState{
@@ -263,6 +263,7 @@ func (b *Backend) DeleteMarker(name string, endFrame uint) {
 	if b.deps.DB != nil {
 		b.deps.DB.Model(&model.Marker{}).Where("id = ?", markerID).Update("is_deleted", true)
 	}
+	return nil
 }
 
 // RecordFiredEvent is a no-op — replaced by ProjectileEvent.
@@ -334,34 +335,6 @@ func (b *Backend) RecordAce3UnconsciousEvent(e *core.Ace3UnconsciousEvent) error
 	gormObj := convert.CoreToAce3UnconsciousEvent(*e)
 	b.queues.Ace3UnconsciousEvents.Push(gormObj)
 	return nil
-}
-
-// GetSoldierByObjectID looks up a soldier in the EntityCache (which stores core types).
-func (b *Backend) GetSoldierByObjectID(ocapID uint16) (*core.Soldier, bool) {
-	s, ok := b.deps.EntityCache.GetSoldier(ocapID)
-	if !ok {
-		return nil, false
-	}
-	return &s, true
-}
-
-// GetVehicleByObjectID looks up a vehicle in the EntityCache (which stores core types).
-func (b *Backend) GetVehicleByObjectID(ocapID uint16) (*core.Vehicle, bool) {
-	v, ok := b.deps.EntityCache.GetVehicle(ocapID)
-	if !ok {
-		return nil, false
-	}
-	return &v, true
-}
-
-// GetMarkerByName looks up a marker by name via the MarkerCache.
-func (b *Backend) GetMarkerByName(name string) (*core.Marker, bool) {
-	_, ok := b.deps.MarkerCache.Get(name)
-	if !ok {
-		return nil, false
-	}
-	// MarkerCache only stores name → ID mapping. Return a minimal core.Marker.
-	return &core.Marker{MarkerName: name}, true
 }
 
 // writeQueue writes all items from a queue to the database in a transaction.

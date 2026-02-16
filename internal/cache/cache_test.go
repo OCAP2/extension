@@ -14,10 +14,8 @@ func TestEntityCache_NewEntityCache(t *testing.T) {
 	cache := NewEntityCache()
 
 	require.NotNil(t, cache)
-	assert.NotNil(t, cache.Soldiers)
-	assert.NotNil(t, cache.Vehicles)
-	assert.Len(t, cache.Soldiers, 0)
-	assert.Len(t, cache.Vehicles, 0)
+	assert.Equal(t, 0, cache.SoldierCount())
+	assert.Equal(t, 0, cache.VehicleCount())
 }
 
 func TestEntityCache_AddAndGetSoldier(t *testing.T) {
@@ -75,35 +73,20 @@ func TestEntityCache_Reset(t *testing.T) {
 	cache.AddVehicle(core.Vehicle{ID: 10, ClassName: "Vehicle 1"})
 
 	// Verify data exists
-	assert.Len(t, cache.Soldiers, 2)
-	assert.Len(t, cache.Vehicles, 1)
+	assert.Equal(t, 2, cache.SoldierCount())
+	assert.Equal(t, 1, cache.VehicleCount())
 
 	// Reset
 	cache.Reset()
 
 	// Verify data is cleared
-	assert.Len(t, cache.Soldiers, 0)
-	assert.Len(t, cache.Vehicles, 0)
+	assert.Equal(t, 0, cache.SoldierCount())
+	assert.Equal(t, 0, cache.VehicleCount())
 
 	// Verify we can still add data after reset
 	cache.AddSoldier(core.Soldier{ID: 3, UnitName: "Soldier 3"})
 	_, ok := cache.GetSoldier(3)
 	assert.True(t, ok, "expected to find soldier added after reset")
-}
-
-func TestEntityCache_LockUnlock(t *testing.T) {
-	cache := NewEntityCache()
-
-	// Test Lock/Unlock don't cause deadlock
-	cache.Lock()
-	// Directly modify the map while holding the lock
-	cache.Soldiers[1] = core.Soldier{ID: 1, UnitName: "Direct Add"}
-	cache.Unlock()
-
-	// Verify the data was added
-	got, ok := cache.GetSoldier(1)
-	require.True(t, ok, "expected to find soldier added while holding lock")
-	assert.Equal(t, "Direct Add", got.UnitName)
 }
 
 func TestEntityCache_Concurrent(t *testing.T) {
@@ -125,8 +108,8 @@ func TestEntityCache_Concurrent(t *testing.T) {
 	wg.Wait()
 
 	// Verify counts
-	assert.Len(t, cache.Soldiers, 100)
-	assert.Len(t, cache.Vehicles, 100)
+	assert.Equal(t, 100, cache.SoldierCount())
+	assert.Equal(t, 100, cache.VehicleCount())
 
 	// Concurrent reads
 	for i := uint16(0); i < 100; i++ {
@@ -141,52 +124,4 @@ func TestEntityCache_Concurrent(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
-}
-
-// SafeCounter tests
-
-func TestSafeCounter_InitialValue(t *testing.T) {
-	c := &SafeCounter{}
-	assert.Equal(t, int(0), c.Value())
-}
-
-func TestSafeCounter_Set(t *testing.T) {
-	c := &SafeCounter{}
-
-	c.Set(42)
-	assert.Equal(t, int(42), c.Value())
-
-	c.Set(100)
-	assert.Equal(t, int(100), c.Value())
-
-	c.Set(0)
-	assert.Equal(t, int(0), c.Value())
-}
-
-func TestSafeCounter_Inc(t *testing.T) {
-	c := &SafeCounter{}
-
-	c.Inc()
-	assert.Equal(t, int(1), c.Value())
-
-	c.Inc()
-	c.Inc()
-	assert.Equal(t, int(3), c.Value())
-}
-
-func TestSafeCounter_Concurrent(t *testing.T) {
-	c := &SafeCounter{}
-	var wg sync.WaitGroup
-
-	// Concurrent increments
-	for i := 0; i < 1000; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			c.Inc()
-		}()
-	}
-	wg.Wait()
-
-	assert.Equal(t, int(1000), c.Value())
 }

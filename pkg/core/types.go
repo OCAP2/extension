@@ -42,3 +42,11 @@ type SideFriendly struct {
 	EastIndependent bool `json:"eastIndependent"`
 	WestIndependent bool `json:"westIndependent"`
 }
+
+// UploadMetadata contains mission information needed for upload.
+type UploadMetadata struct {
+	WorldName       string
+	MissionName     string
+	MissionDuration float64
+	Tag             string
+}

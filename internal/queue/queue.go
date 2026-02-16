@@ -1,7 +1,6 @@
 package queue
 
 import (
-	"fmt"
 	"sync"
 )
 
@@ -68,47 +67,3 @@ func (q *Queue[T]) GetAndEmpty() []T {
 	return result
 }
 
-// SoldierStatesMap processes soldier states for write out to JSON.
-// This is a separate data structure, not a queue.
-type SoldierStatesMap struct {
-	frameData map[uint][]any
-	lastState []any
-}
-
-// NewSoldierStatesMap creates a new SoldierStatesMap.
-func NewSoldierStatesMap() *SoldierStatesMap {
-	return &SoldierStatesMap{
-		frameData: make(map[uint][]any),
-	}
-}
-
-// Set stores state data for a frame.
-func (m *SoldierStatesMap) Set(frame uint, state []any) {
-	m.frameData[frame] = state
-}
-
-// Len returns the number of frames stored.
-func (m *SoldierStatesMap) Len() int {
-	return len(m.frameData)
-}
-
-// GetStateAtFrame returns the state at a given frame, searching forward if not found.
-func (m *SoldierStatesMap) GetStateAtFrame(frame uint, endFrame uint) ([]any, error) {
-	state, ok := m.frameData[frame]
-	if !ok {
-		for i := frame; i <= endFrame; i++ {
-			state, ok := m.frameData[i]
-			if ok {
-				m.lastState = state
-				return state, nil
-			}
-		}
-		return []any{}, fmt.Errorf("no soldier state found for frame %d", frame)
-	}
-	return state, nil
-}
-
-// GetLastState returns the last state that was retrieved.
-func (m *SoldierStatesMap) GetLastState() []any {
-	return m.lastState
-}

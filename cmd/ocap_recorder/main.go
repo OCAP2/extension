@@ -788,9 +788,7 @@ func populateDemoData() {
 			idCounter++
 		}
 
-		EntityCache.Lock()
-		Logger.Debug("Soldiers cached", "numSoldiersCached", len(EntityCache.Soldiers))
-		EntityCache.Unlock()
+		Logger.Debug("Soldiers cached", "numSoldiersCached", EntityCache.SoldierCount())
 
 		// write vehicles
 		for i := 0; i <= numVehicles; i++ {

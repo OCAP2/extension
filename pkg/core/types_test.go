@@ -1,15 +1,14 @@
-// internal/storage/storage_test.go
-package storage_test
+package core_test
 
 import (
 	"testing"
 
-	"github.com/OCAP2/extension/v5/internal/storage"
+	"github.com/OCAP2/extension/v5/pkg/core"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestUploadMetadataFields(t *testing.T) {
-	meta := storage.UploadMetadata{
+	meta := core.UploadMetadata{
 		WorldName:       "Altis",
 		MissionName:     "Test Mission",
 		MissionDuration: 3600.5,

@@ -443,51 +443,6 @@ func TestDeleteMarker_UnknownMarker_NoOp(t *testing.T) {
 	assert.Equal(t, 0, b.queues.MarkerStates.Len())
 }
 
-func TestGetSoldierByObjectID(t *testing.T) {
-	b := newTestBackend()
-	b.Init()
-	defer b.Close()
-
-	_, found := b.GetSoldierByObjectID(42)
-	assert.False(t, found, "should not find soldier not in cache")
-
-	// Add to entity cache (cache stores core types)
-	b.deps.EntityCache.AddSoldier(core.Soldier{ID: 42, UnitName: "Test"})
-	soldier, found := b.GetSoldierByObjectID(42)
-	assert.True(t, found)
-	assert.Equal(t, uint16(42), soldier.ID)
-	assert.Equal(t, "Test", soldier.UnitName)
-}
-
-func TestGetVehicleByObjectID(t *testing.T) {
-	b := newTestBackend()
-	b.Init()
-	defer b.Close()
-
-	_, found := b.GetVehicleByObjectID(10)
-	assert.False(t, found, "should not find vehicle not in cache")
-
-	b.deps.EntityCache.AddVehicle(core.Vehicle{ID: 10, OcapType: "car"})
-	vehicle, found := b.GetVehicleByObjectID(10)
-	assert.True(t, found)
-	assert.Equal(t, uint16(10), vehicle.ID)
-	assert.Equal(t, "car", vehicle.OcapType)
-}
-
-func TestGetMarkerByName(t *testing.T) {
-	b := newTestBackend()
-	b.Init()
-	defer b.Close()
-
-	_, found := b.GetMarkerByName("TestMarker")
-	assert.False(t, found, "should not find marker not in cache")
-
-	b.deps.MarkerCache.Set("TestMarker", 42)
-	marker, found := b.GetMarkerByName("TestMarker")
-	assert.True(t, found)
-	assert.Equal(t, "TestMarker", marker.MarkerName)
-}
-
 // newTestDB creates an in-memory SQLite DB with auto-migrated tables.
 // MaxOpenConns=1 ensures all operations use the same connection (in-memory
 // SQLite databases are per-connection, so multiple connections would each
