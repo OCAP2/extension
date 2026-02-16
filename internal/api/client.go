@@ -36,7 +36,7 @@ func (c *Client) Healthcheck() error {
 	if err != nil {
 		return fmt.Errorf("healthcheck request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("healthcheck returned status %d", resp.StatusCode)
@@ -50,7 +50,7 @@ func (c *Client) Upload(filePath string, meta core.UploadMetadata) error {
 	if err != nil {
 		return fmt.Errorf("failed to open file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	// Create multipart form
 	pr, pw := io.Pipe()
@@ -59,8 +59,8 @@ func (c *Client) Upload(filePath string, meta core.UploadMetadata) error {
 	// Write form fields and file in goroutine
 	errCh := make(chan error, 1)
 	go func() {
-		defer pw.Close()
-		defer writer.Close()
+		defer func() { _ = pw.Close() }()
+		defer func() { _ = writer.Close() }()
 
 		// Form fields
 		_ = writer.WriteField("secret", c.apiKey)
@@ -93,7 +93,7 @@ func (c *Client) Upload(filePath string, meta core.UploadMetadata) error {
 	if err != nil {
 		return fmt.Errorf("upload request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Check goroutine error
 	if writeErr := <-errCh; writeErr != nil {

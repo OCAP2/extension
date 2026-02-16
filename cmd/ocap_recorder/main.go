@@ -122,7 +122,9 @@ func init() {
 	// check if parent folder exists
 	// if it doesn't, create it
 	if _, err := os.Stat(AddonFolder); os.IsNotExist(err) {
-		os.Mkdir(AddonFolder, 0755)
+		if err := os.Mkdir(AddonFolder, 0755); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to create addon folder: %v\n", err)
+		}
 	}
 
 	InitLogFilePath = filepath.Join(AddonFolder, "init.log")
@@ -149,7 +151,9 @@ func init() {
 	// resolve path set in config
 	// create logs dir if it doesn't exist
 	if _, err := os.Stat(viper.GetString("logsDir")); os.IsNotExist(err) {
-		os.Mkdir(viper.GetString("logsDir"), 0755)
+		if err := os.Mkdir(viper.GetString("logsDir"), 0755); err != nil {
+			Logger.Warn("Failed to create logs directory", "error", err)
+		}
 	}
 
 	OcapLogFilePath = logging.LogFilePath(viper.GetString("logsDir"), ExtensionName, SessionStartTime)
@@ -158,7 +162,9 @@ func init() {
 	// if it does, move it to OcapLogFilePath.old
 	// if it doesn't, create it
 	if _, err := os.Stat(OcapLogFilePath); err == nil {
-		os.Rename(OcapLogFilePath, OcapLogFilePath+".old")
+		if err := os.Rename(OcapLogFilePath, OcapLogFilePath+".old"); err != nil {
+			Logger.Warn("Failed to rotate old log file", "error", err)
+		}
 	}
 
 	OcapLogFile, err = os.OpenFile(OcapLogFilePath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
@@ -228,9 +234,13 @@ func init() {
 
 func initExtension() {
 	// send ready callback to Arma
-	a3interface.WriteArmaCallback(ExtensionName, ":EXT:READY:")
+	if err := a3interface.WriteArmaCallback(ExtensionName, ":EXT:READY:"); err != nil {
+		Logger.Warn("Failed to send EXT:READY callback", "error", err)
+	}
 	// send extension version
-	a3interface.WriteArmaCallback(ExtensionName, ":VERSION:", BuildVersion)
+	if err := a3interface.WriteArmaCallback(ExtensionName, ":VERSION:", BuildVersion); err != nil {
+		Logger.Warn("Failed to send VERSION callback", "error", err)
+	}
 }
 
 func setupA3Interface() (err error) {
@@ -304,7 +314,9 @@ func handleNewMission(e dispatcher.Event) (any, error) {
 	Logger.Info("New mission logged", "missionName", coreMission.MissionName)
 
 	// 4. ArmA callback
-	a3interface.WriteArmaCallback(ExtensionName, ":MISSION:OK:", "OK")
+	if err := a3interface.WriteArmaCallback(ExtensionName, ":MISSION:OK:", "OK"); err != nil {
+		Logger.Warn("Failed to send MISSION:OK callback", "error", err)
+	}
 	return nil, nil
 }
 

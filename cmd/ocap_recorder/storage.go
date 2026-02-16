@@ -24,7 +24,10 @@ func initStorage() error {
 		return err
 	}
 	storageBackend = backend
-	storageBackend.Init()
+	if err := storageBackend.Init(); err != nil {
+		Logger.Error("Failed to initialize storage backend", "error", err)
+		return err
+	}
 
 	// Initialize worker manager
 	workerManager = worker.NewManager(worker.Dependencies{
@@ -40,7 +43,9 @@ func initStorage() error {
 	Logger.Info("Worker handlers registered with dispatcher")
 
 	// Signal storage ready
-	a3interface.WriteArmaCallback(ExtensionName, ":STORAGE:OK:", storageCfg.Type)
+	if err := a3interface.WriteArmaCallback(ExtensionName, ":STORAGE:OK:", storageCfg.Type); err != nil {
+		Logger.Warn("Failed to send STORAGE:OK callback", "error", err)
+	}
 	storageReadyOnce.Do(func() { close(storageReady) })
 	return nil
 }

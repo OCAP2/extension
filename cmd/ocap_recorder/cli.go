@@ -69,7 +69,7 @@ func main() {
 	} else {
 		fmt.Println("No arguments provided.")
 	}
-	fmt.Scanln()
+	_, _ = fmt.Scanln()
 }
 
 func getOcapRecording(missionIDs []string) (err error) {
@@ -275,10 +275,10 @@ func getOcapRecording(missionIDs []string) (err error) {
 		if err != nil {
 			return fmt.Errorf("error creating file: %w", err)
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 
 		gzWriter := gzip.NewWriter(f)
-		defer gzWriter.Close()
+		defer func() { _ = gzWriter.Close() }()
 		_, err = gzWriter.Write(ocapMissionJSON)
 		if err != nil {
 			return fmt.Errorf("error writing to gzip: %w", err)
