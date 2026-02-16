@@ -17,18 +17,20 @@ RVExtensionArgs() [CGo boundary]
     ↓
 Dispatcher.Dispatch(Event)
     ↓
-    ├─ [Buffered] → Channel → Goroutine → Handler
-    └─ [Sync]     → Handler directly
-           ↓
-Handler (parse args, validate, create model)
-    ↓
-    ├─ Storage Backend (if configured)
-    └─ Queue (traditional) → batch insert every 2s
-           ↓
-DB Writer Loop
-    ↓
-PostgreSQL / SQLite
+    ├─ [Sync]     → Handler directly
+    └─ [Buffered] → Channel → Goroutine → Handler
+                                              ↓
+                                   Parser (args → core types)
+                                              ↓
+                                   EntityCache (validate/enrich)
+                                              ↓
+                                   Storage Backend
+                                     ├─ Memory → in-memory append → JSON export on save
+                                     ├─ Postgres → Queue → DB writer (batch insert every 2s) → PostgreSQL
+                                     └─ SQLite → Queue → DB writer (batch insert every 2s) → SQLite
 ```
+
+Buffered handlers are gated on `:INIT:STORAGE:` — events queue in channels until the storage backend is ready.
 
 ### DLL Entry Points
 
@@ -59,8 +61,8 @@ internal/
 ├── worker/                  Handler registration and DB writer loop
 ├── queue/                   Thread-safe queues for batch writes
 ├── cache/                   Entity lookup caching (ObjectID → model)
-├── model/                   GORM database models + converters
-├── storage/                 Storage backends (memory, gorm/postgres, sqlite)
+├── model/                   Database models + converters
+├── storage/                 Storage backends (memory, postgres, sqlite)
 └── geo/                     Coordinate/geometry utilities
 ```
 
@@ -69,7 +71,7 @@ internal/
 1. **Low latency**: Async buffered handlers don't block ArmA's game loop
 2. **High throughput**: Batch writes every 2 seconds instead of per-event
 3. **Entity caching**: Sync entity creation → cache → async state updates use cached FK
-4. **Pluggable storage**: Memory (JSON export), PostgreSQL (GORM), or SQLite (in-memory with periodic disk dump)
+4. **Pluggable storage**: Memory (JSON export), PostgreSQL, or SQLite (in-memory with periodic disk dump)
 5. **Observability**: OpenTelemetry metrics and structured logging (slog)
 
 ## Building
@@ -113,9 +115,7 @@ Copy `ocap_recorder.cfg.json.example` to `ocap_recorder.cfg.json` alongside the 
 
 | Command | Buffer | Purpose |
 |---------|--------|---------|
-| `:FIRED:` | 10,000 | Weapon fire event |
-| `:PROJECTILE:` | 5,000 | Projectile tracking |
-| `:HIT:` | 2,000 | Damage event |
+| `:PROJECTILE:` | 5,000 | Projectile tracking (positions + hits) |
 | `:KILL:` | 2,000 | Kill event |
 
 ### General Commands
@@ -126,14 +126,15 @@ Copy `ocap_recorder.cfg.json.example` to `ocap_recorder.cfg.json` alongside the 
 | `:CHAT:` | 1,000 | Chat message |
 | `:RADIO:` | 1,000 | Radio transmission |
 | `:FPS:` | 1,000 | Server FPS sample |
+| `:NEW:TIME:STATE:` | 100 | Mission time/date tracking |
 
 ### Marker Commands
 
 | Command | Buffer | Purpose |
 |---------|--------|---------|
-| `:MARKER:CREATE:` | 500 | Create map marker |
-| `:MARKER:MOVE:` | 1,000 | Update marker position |
-| `:MARKER:DELETE:` | 500 | Delete marker |
+| `:NEW:MARKER:` | Sync | Create map marker (needs immediate DB ID) |
+| `:NEW:MARKER:STATE:` | 1,000 | Update marker position/appearance |
+| `:DELETE:MARKER:` | 500 | Delete marker |
 
 ### ACE3 Integration
 
@@ -146,8 +147,8 @@ Copy `ocap_recorder.cfg.json.example` to `ocap_recorder.cfg.json` alongside the 
 
 | Command | Purpose |
 |---------|---------|
-| `:INIT:` | Initialize extension |
-| `:INIT:STORAGE:` | Initialize storage backend |
+| `:INIT:` | Initialize extension, send `:EXT:READY:` callback |
+| `:INIT:STORAGE:` | Initialize storage backend, ungate buffered handlers |
 | `:NEW:MISSION:` | Start recording mission |
-| `:SAVE:` | End recording, flush data |
+| `:SAVE:MISSION:` | End recording, flush data, upload if configured |
 | `:VERSION:` | Get extension version |

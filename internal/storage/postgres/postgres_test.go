@@ -1,4 +1,4 @@
-package gormstorage
+package postgres
 
 import (
 	"sync/atomic"
@@ -36,9 +36,22 @@ func TestNew(t *testing.T) {
 }
 
 func TestInitClose(t *testing.T) {
-	b := newTestBackend()
+	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{
+		SkipDefaultTransaction: true,
+	})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
 
-	err := b.Init()
+	b := New(Dependencies{
+		DB:          db,
+		EntityCache: cache.NewEntityCache(),
+		MarkerCache: cache.NewMarkerCache(),
+		LogManager:  logging.NewSlogManager(),
+	})
+
+	err = b.Init()
 	require.NoError(t, err)
 	require.NotNil(t, b.queues)
 	require.NotNil(t, b.stopChan)
