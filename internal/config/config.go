@@ -26,7 +26,7 @@ func Load(configDir string) error {
 	viper.SetDefault("defaultTag", "Op")
 	viper.SetDefault("logsDir", "./ocaplogs")
 
-	viper.SetDefault("api.serverUrl", "http://localhost:5000")
+	viper.SetDefault("api.serverUrl", "http://localhost:5000/api")
 	viper.SetDefault("api.apiKey", "")
 
 	viper.SetDefault("db.host", "localhost")

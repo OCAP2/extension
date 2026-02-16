@@ -83,7 +83,7 @@ func (c *Client) Upload(filePath string, meta core.UploadMetadata) error {
 		errCh <- nil
 	}()
 
-	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/api/v1/operations/add", pr)
+	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/v1/operations/add", pr)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}

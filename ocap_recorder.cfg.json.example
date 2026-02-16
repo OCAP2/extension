@@ -3,7 +3,7 @@
   "logsDir": "./ocaplogs",
   "defaultTag": "TvT",
   "api": {
-    "serverUrl": "http://127.0.0.1:5000",
+    "serverUrl": "http://127.0.0.1:5000/api",
     "apiKey": "same-secret"
   },
   "db": {
