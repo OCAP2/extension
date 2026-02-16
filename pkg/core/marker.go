@@ -27,8 +27,8 @@ type Marker struct {
 
 // DeleteMarker represents a marker deletion at a specific frame
 type DeleteMarker struct {
-	Name     string
-	EndFrame uint
+	Name     string `json:"name"`
+	EndFrame uint   `json:"endFrame"`
 }
 
 // MarkerState tracks marker position changes over time
