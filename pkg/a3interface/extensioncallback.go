@@ -45,12 +45,12 @@ func WriteArmaCallback(
 	// preprocess data with escape characters
 	for i, v := range data {
 		// replace double quotes with 2 double quotes
-		escapedData := strings.Replace(v, `"`, `""`, -1)
+		escapedData := strings.ReplaceAll(v, `"`, `""`)
 		// do the same for single quotes
-		escapedData = strings.Replace(escapedData, `'`, `''`, -1)
+		escapedData = strings.ReplaceAll(escapedData, `'`, `''`)
 		// replace brackets w parentheses
-		escapedData = strings.Replace(escapedData, `[`, `(`, -1)
-		escapedData = strings.Replace(escapedData, `]`, `)`, -1)
+		escapedData = strings.ReplaceAll(escapedData, `[`, `(`)
+		escapedData = strings.ReplaceAll(escapedData, `]`, `)`)
 
 		data[i] = fmt.Sprintf(`"%s"`, escapedData)
 	}

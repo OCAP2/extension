@@ -18,8 +18,8 @@ func TestPosition3DToPoint(t *testing.T) {
 
 	coord, ok := pt.Coordinates()
 	require.True(t, ok)
-	assert.Equal(t, 100.5, coord.XY.X)
-	assert.Equal(t, 200.5, coord.XY.Y)
+	assert.Equal(t, 100.5, coord.X)
+	assert.Equal(t, 200.5, coord.Y)
 	assert.Equal(t, 50.0, coord.Z)
 }
 
@@ -79,7 +79,7 @@ func TestCoreToSoldier(t *testing.T) {
 	assert.Equal(t, "12345678", result.PlayerUID)
 
 	var params []any
-	json.Unmarshal(result.SquadParams, &params)
+	require.NoError(t, json.Unmarshal(result.SquadParams, &params))
 	assert.Equal(t, []any{"test", "params"}, params)
 }
 
@@ -162,8 +162,8 @@ func TestCoreToSoldierState(t *testing.T) {
 
 	coord, ok := result.Position.Coordinates()
 	require.True(t, ok)
-	assert.Equal(t, 1000.0, coord.XY.X)
-	assert.Equal(t, 2000.0, coord.XY.Y)
+	assert.Equal(t, 1000.0, coord.X)
+	assert.Equal(t, 2000.0, coord.Y)
 	assert.Equal(t, 10.0, coord.Z)
 }
 
@@ -296,7 +296,7 @@ func TestCoreToGeneralEvent(t *testing.T) {
 	assert.Equal(t, "Test message", result.Message)
 
 	var extra map[string]any
-	json.Unmarshal(result.ExtraData, &extra)
+	require.NoError(t, json.Unmarshal(result.ExtraData, &extra))
 	assert.Equal(t, "value", extra["key"])
 }
 
@@ -631,8 +631,8 @@ func TestCoreToWorld(t *testing.T) {
 
 	coord, ok := result.Location.Coordinates()
 	require.True(t, ok)
-	assert.Equal(t, 100.0, coord.XY.X)
-	assert.Equal(t, 200.0, coord.XY.Y)
+	assert.Equal(t, 100.0, coord.X)
+	assert.Equal(t, 200.0, coord.Y)
 }
 
 // Compile-time interface checks for CoreToX functions

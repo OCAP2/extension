@@ -77,7 +77,7 @@ func TestUpload_Success(t *testing.T) {
 
 		file, _, err := r.FormFile("file")
 		require.NoError(t, err)
-		defer file.Close()
+		defer func() { assert.NoError(t, file.Close()) }()
 
 		receivedFileContent = make([]byte, 1024)
 		n, _ := file.Read(receivedFileContent)
@@ -126,7 +126,7 @@ func TestUpload_ServerError(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	testFile := tmpDir + "/test.json.gz"
-	_ = writeTestFile(testFile, []byte("content"))
+	require.NoError(t, writeTestFile(testFile, []byte("content")))
 
 	c := New(server.URL, "wrong-secret")
 	err := c.Upload(testFile, core.UploadMetadata{})
@@ -136,7 +136,7 @@ func TestUpload_ServerError(t *testing.T) {
 func TestUpload_ServerDown(t *testing.T) {
 	tmpDir := t.TempDir()
 	testFile := tmpDir + "/test.json.gz"
-	_ = writeTestFile(testFile, []byte("content"))
+	require.NoError(t, writeTestFile(testFile, []byte("content")))
 
 	// Server URL that is unreachable
 	c := New("http://localhost:59999", "secret")

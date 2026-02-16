@@ -130,7 +130,7 @@ func (b *Backend) setupDB() error {
 		}
 	}
 
-	if db.Dialector.Name() == "postgres" {
+	if db.Name() == "postgres" {
 		if err := db.Exec(`CREATE Extension IF NOT EXISTS postgis;`).Error; err != nil {
 			return fmt.Errorf("failed to create PostGIS Extension: %w", err)
 		}

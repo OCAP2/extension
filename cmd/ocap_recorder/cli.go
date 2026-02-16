@@ -163,7 +163,7 @@ func getOcapRecording(missionIDs []string) (err error) {
 			for _, state := range soldierStatesByID[soldier.ObjectID] {
 				coord, _ := state.Position.Coordinates()
 				position := []any{
-					[]float64{coord.XY.X, coord.XY.Y},
+					[]float64{coord.X, coord.Y},
 					state.Bearing,
 					state.Lifestate,
 					state.InVehicleObjectID,
@@ -241,7 +241,7 @@ func getOcapRecording(missionIDs []string) (err error) {
 					crew = []any{}
 				}
 				position := []any{
-					[]float64{coord.XY.X, coord.XY.Y},
+					[]float64{coord.X, coord.Y},
 					state.Bearing,
 					state.IsAlive,
 					crew,
