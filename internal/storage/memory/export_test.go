@@ -211,11 +211,11 @@ func TestExportGzipJSON(t *testing.T) {
 
 	f, err := os.Open(matches[0])
 	require.NoError(t, err)
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	gzReader, err := gzip.NewReader(f)
 	require.NoError(t, err)
-	defer gzReader.Close()
+	defer func() { _ = gzReader.Close() }()
 
 	var export v1.Export
 	require.NoError(t, json.NewDecoder(gzReader).Decode(&export))
@@ -843,10 +843,10 @@ func TestMarkerColorHashPrefixIsStripped(t *testing.T) {
 	// Find markers and verify color format
 	var hexMarker, namedMarker []any
 	for _, m := range export.Markers {
-		text := m[1].(string)
-		if text == "Hex Color" {
+		switch m[1].(string) {
+		case "Hex Color":
 			hexMarker = m
-		} else if text == "Named Color" {
+		case "Named Color":
 			namedMarker = m
 		}
 	}
@@ -887,10 +887,10 @@ func TestMarkerOwnerIDExport(t *testing.T) {
 	// Find and verify each marker's playerId (index 4 in the array)
 	var systemMarker, playerMarker []any
 	for _, m := range export.Markers {
-		text := m[1].(string)
-		if text == "System" {
+		switch m[1].(string) {
+		case "System":
 			systemMarker = m
-		} else if text == "Player Drawn" {
+		case "Player Drawn":
 			playerMarker = m
 		}
 	}
@@ -930,10 +930,10 @@ func TestMarkerSizeAndBrushExport(t *testing.T) {
 
 	var customMarker, defaultMarker []any
 	for _, m := range export.Markers {
-		text := m[1].(string)
-		if text == "Custom" {
+		switch m[1].(string) {
+		case "Custom":
 			customMarker = m
-		} else if text == "Default" {
+		case "Default":
 			defaultMarker = m
 		}
 	}

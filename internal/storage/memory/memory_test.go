@@ -234,13 +234,13 @@ func TestDeleteMarker(t *testing.T) {
 	_ = b.AddMarker(m)
 
 	// Delete marker at frame 100
-	b.DeleteMarker("grenade_1", 100)
+	require.NoError(t, b.DeleteMarker("grenade_1", 100))
 
 	record := b.markers["grenade_1"]
 	assert.Equal(t, 100, record.Marker.EndFrame)
 
 	// Deleting non-existent marker should not panic
-	b.DeleteMarker("nonexistent", 50)
+	require.NoError(t, b.DeleteMarker("nonexistent", 50))
 }
 
 func TestRecordFiredEvent(t *testing.T) {

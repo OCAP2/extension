@@ -106,9 +106,9 @@ func TestDispatcher_BufferedDropsWhenFull(t *testing.T) {
 	}, Buffered(2))
 
 	// Fill the queue (2 items) + 1 being processed
-	d.Dispatch(Event{Command: ":FULL:"}) // being processed
-	d.Dispatch(Event{Command: ":FULL:"}) // queued
-	d.Dispatch(Event{Command: ":FULL:"}) // queued
+	_, _ = d.Dispatch(Event{Command: ":FULL:"}) // being processed
+	_, _ = d.Dispatch(Event{Command: ":FULL:"}) // queued
+	_, _ = d.Dispatch(Event{Command: ":FULL:"}) // queued
 
 	// This should be dropped
 	_, err := d.Dispatch(Event{Command: ":FULL:"})
@@ -128,14 +128,14 @@ func TestDispatcher_BufferedBlocking(t *testing.T) {
 	}, Buffered(1), Blocking())
 
 	// First event starts processing
-	d.Dispatch(Event{Command: ":BLOCKING:"})
+	_, _ = d.Dispatch(Event{Command: ":BLOCKING:"})
 	// Second event fills the queue
-	d.Dispatch(Event{Command: ":BLOCKING:"})
+	_, _ = d.Dispatch(Event{Command: ":BLOCKING:"})
 
 	// Third event should block (test with timeout)
 	done := make(chan struct{})
 	go func() {
-		d.Dispatch(Event{Command: ":BLOCKING:"})
+		_, _ = d.Dispatch(Event{Command: ":BLOCKING:"})
 		close(done)
 	}()
 
@@ -156,7 +156,7 @@ func TestDispatcher_LoggedHandler(t *testing.T) {
 		return nil, nil
 	}, Logged())
 
-	d.Dispatch(Event{Command: ":LOGGED:", Args: []string{"a", "b"}})
+	_, _ = d.Dispatch(Event{Command: ":LOGGED:", Args: []string{"a", "b"}})
 
 	// Give time for logging
 	time.Sleep(10 * time.Millisecond)
@@ -174,7 +174,7 @@ func TestDispatcher_LoggedHandlerError(t *testing.T) {
 		return nil, fmt.Errorf("test error")
 	}, Logged())
 
-	d.Dispatch(Event{Command: ":ERROR:"})
+	_, _ = d.Dispatch(Event{Command: ":ERROR:"})
 
 	logger.mu.Lock()
 	defer logger.mu.Unlock()
@@ -284,7 +284,7 @@ func TestDispatcher_LoggedArgPreview(t *testing.T) {
 		return nil, nil
 	}, Logged())
 
-	d.Dispatch(Event{Command: ":ARGS:", Args: []string{"620", "350.811", "1", "extra1", "extra2"}})
+	_, _ = d.Dispatch(Event{Command: ":ARGS:", Args: []string{"620", "350.811", "1", "extra1", "extra2"}})
 
 	logger.mu.Lock()
 	defer logger.mu.Unlock()
@@ -353,9 +353,9 @@ func TestDispatcher_GatedHandlerProcessesInOrder(t *testing.T) {
 	}, Buffered(10), Gated(ready))
 
 	// Dispatch in order
-	d.Dispatch(Event{Command: ":ORDERED:", Args: []string{"first"}})
-	d.Dispatch(Event{Command: ":ORDERED:", Args: []string{"second"}})
-	d.Dispatch(Event{Command: ":ORDERED:", Args: []string{"third"}})
+	_, _ = d.Dispatch(Event{Command: ":ORDERED:", Args: []string{"first"}})
+	_, _ = d.Dispatch(Event{Command: ":ORDERED:", Args: []string{"second"}})
+	_, _ = d.Dispatch(Event{Command: ":ORDERED:", Args: []string{"third"}})
 
 	// Open gate
 	close(ready)
@@ -383,12 +383,12 @@ func TestDispatcher_GatedWithBlocking(t *testing.T) {
 	}, Buffered(1), Blocking(), Gated(ready))
 
 	// First event fills buffer
-	d.Dispatch(Event{Command: ":GATED_BLOCKING:"})
+	_, _ = d.Dispatch(Event{Command: ":GATED_BLOCKING:"})
 
 	// Second event should block since buffer is full and gate closed
 	dispatched := make(chan struct{})
 	go func() {
-		d.Dispatch(Event{Command: ":GATED_BLOCKING:"})
+		_, _ = d.Dispatch(Event{Command: ":GATED_BLOCKING:"})
 		close(dispatched)
 	}()
 
@@ -478,7 +478,7 @@ func TestDispatcher_ConcurrentRegisterAndDispatch(t *testing.T) {
 		defer wg.Done()
 		for i := 0; i < 200; i++ {
 			d.HasHandler(":EXISTING:")
-			d.Dispatch(Event{Command: ":EXISTING:"})
+			_, _ = d.Dispatch(Event{Command: ":EXISTING:"})
 		}
 	}()
 
@@ -535,7 +535,7 @@ func TestDispatcher_GatedLogsWhenOpened(t *testing.T) {
 		return nil, nil
 	}, Buffered(10), Gated(ready))
 
-	d.Dispatch(Event{Command: ":GATED_LOG:"})
+	_, _ = d.Dispatch(Event{Command: ":GATED_LOG:"})
 	close(ready)
 	wg.Wait()
 

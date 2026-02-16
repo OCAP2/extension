@@ -77,7 +77,7 @@ func TestUpload_Success(t *testing.T) {
 
 		file, _, err := r.FormFile("file")
 		require.NoError(t, err)
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		receivedFileContent = make([]byte, 1024)
 		n, _ := file.Read(receivedFileContent)
