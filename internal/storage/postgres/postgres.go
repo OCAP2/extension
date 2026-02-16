@@ -228,16 +228,17 @@ func (b *Backend) AddVehicle(v *core.Vehicle) error {
 
 // AddMarker inserts a marker synchronously (not queued) because markers are low-volume
 // and need immediate ID assignment for the MarkerCache.
-func (b *Backend) AddMarker(m *core.Marker) error {
+// Returns the DB-assigned ID (0 if no DB is configured).
+func (b *Backend) AddMarker(m *core.Marker) (uint, error) {
 	gormObj := convert.CoreToMarker(*m)
 	if b.deps.DB != nil {
 		gormObj.MissionID = uint(b.missionID.Load())
 		if err := b.deps.DB.Create(&gormObj).Error; err != nil {
-			return fmt.Errorf("failed to insert marker: %w", err)
+			return 0, fmt.Errorf("failed to insert marker: %w", err)
 		}
-		m.ID = gormObj.ID
+		return gormObj.ID, nil
 	}
-	return nil
+	return 0, nil
 }
 
 // RecordSoldierState converts and queues a soldier state.

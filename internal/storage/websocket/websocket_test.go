@@ -141,7 +141,8 @@ func TestAllMessageTypes(t *testing.T) {
 	// Entity registration
 	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 1, UnitName: "Alpha 1-1"}))
 	require.NoError(t, b.AddVehicle(&core.Vehicle{ID: 100, ClassName: "B_MRAP_01_F"}))
-	require.NoError(t, b.AddMarker(&core.Marker{MarkerName: "m1"}))
+	_, err := b.AddMarker(&core.Marker{MarkerName: "m1"})
+	require.NoError(t, err)
 
 	// State updates
 	require.NoError(t, b.RecordSoldierState(&core.SoldierState{SoldierID: 1, CaptureFrame: 1}))
@@ -190,11 +191,13 @@ func TestAddMarkerAssignsID(t *testing.T) {
 	m1 := &core.Marker{MarkerName: "marker1"}
 	m2 := &core.Marker{MarkerName: "marker2"}
 
-	require.NoError(t, b.AddMarker(m1))
-	require.NoError(t, b.AddMarker(m2))
+	id1, err := b.AddMarker(m1)
+	require.NoError(t, err)
+	id2, err := b.AddMarker(m2)
+	require.NoError(t, err)
 
-	assert.Equal(t, uint(1), m1.ID)
-	assert.Equal(t, uint(2), m2.ID)
+	assert.Equal(t, uint(1), id1)
+	assert.Equal(t, uint(2), id2)
 }
 
 func TestEnvelopeSerialization(t *testing.T) {
@@ -226,15 +229,17 @@ func TestMarkerIDResetsAfterEndMission(t *testing.T) {
 
 	require.NoError(t, b.StartMission(&core.Mission{}, &core.World{}))
 	m1 := &core.Marker{MarkerName: "a"}
-	require.NoError(t, b.AddMarker(m1))
-	assert.Equal(t, uint(1), m1.ID)
+	id1, err := b.AddMarker(m1)
+	require.NoError(t, err)
+	assert.Equal(t, uint(1), id1)
 	require.NoError(t, b.EndMission())
 
 	// After EndMission, marker IDs should reset.
 	require.NoError(t, b.StartMission(&core.Mission{}, &core.World{}))
 	m2 := &core.Marker{MarkerName: "b"}
-	require.NoError(t, b.AddMarker(m2))
-	assert.Equal(t, uint(1), m2.ID)
+	id2, err := b.AddMarker(m2)
+	require.NoError(t, err)
+	assert.Equal(t, uint(1), id2)
 	require.NoError(t, b.EndMission())
 }
 
