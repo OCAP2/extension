@@ -9,20 +9,32 @@ import (
 	"strings"
 	"time"
 
+	"github.com/OCAP2/extension/v5/internal/database"
 	"github.com/OCAP2/extension/v5/internal/model"
+
+	"gorm.io/gorm"
 )
+
+var db *gorm.DB
 
 func main() {
 	var err error
 	Logger.Info("Starting up...")
 
-	Logger.Info("Initializing storage...")
-	err = initStorage()
+	Logger.Info("Connecting to database...")
+	db, err = database.GetPostgresDBStandalone()
 	if err != nil {
-		panic(err)
+		panic(fmt.Errorf("failed to connect to postgres: %w", err))
 	}
-	Logger.Info("Storage initialization complete.")
-	initExtension()
+	sqlDB, err := db.DB()
+	if err != nil {
+		panic(fmt.Errorf("failed to access sql interface: %w", err))
+	}
+	if err = sqlDB.Ping(); err != nil {
+		panic(fmt.Errorf("failed to validate connection: %w", err))
+	}
+	sqlDB.SetMaxOpenConns(10)
+	Logger.Info("Database connection established.")
 
 	args := os.Args[1:]
 	if len(args) > 0 {
@@ -72,7 +84,7 @@ func getOcapRecording(missionIDs []string) (err error) {
 		txStart := time.Now()
 		var mission model.Mission
 		ocapMission := make(map[string]any)
-		err = DB.Model(&model.Mission{}).Where("id = ?", missionIDInt).First(&mission).Error
+		err = db.Model(&model.Mission{}).Where("id = ?", missionIDInt).First(&mission).Error
 		if err != nil {
 			return err
 		}
@@ -89,20 +101,20 @@ func getOcapRecording(missionIDs []string) (err error) {
 		}
 
 		world := model.World{}
-		err = DB.Model(&model.World{}).Where("id = ?", mission.WorldID).First(&world).Error
+		err = db.Model(&model.World{}).Where("id = ?", mission.WorldID).First(&world).Error
 		if err != nil {
 			return fmt.Errorf("error getting world: %w", err)
 		}
 		ocapMission["worldName"] = world.WorldName
 
 		totalSoldiers := int64(0)
-		err = DB.Model(&model.Soldier{}).Where("mission_id = ?", missionIDInt).Count(&totalSoldiers).Error
+		err = db.Model(&model.Soldier{}).Where("mission_id = ?", missionIDInt).Count(&totalSoldiers).Error
 		if err != nil {
 			return fmt.Errorf("error getting soldier count: %w", err)
 		}
 
 		totalVehicles := int64(0)
-		err = DB.Model(&model.Vehicle{}).Where("mission_id = ?", missionIDInt).Count(&totalVehicles).Error
+		err = db.Model(&model.Vehicle{}).Where("mission_id = ?", missionIDInt).Count(&totalVehicles).Error
 		if err != nil {
 			return fmt.Errorf("error getting vehicle count: %w", err)
 		}
@@ -112,7 +124,7 @@ func getOcapRecording(missionIDs []string) (err error) {
 
 		soldiers := []model.Soldier{}
 		soldierTxStart := time.Now()
-		err = DB.Model(&model.Soldier{}).Where("mission_id = ?", missionIDInt).Find(&soldiers).Error
+		err = db.Model(&model.Soldier{}).Where("mission_id = ?", missionIDInt).Find(&soldiers).Error
 		if err != nil {
 			return fmt.Errorf("error getting soldiers: %w", err)
 		}
@@ -133,7 +145,7 @@ func getOcapRecording(missionIDs []string) (err error) {
 			entity["startFrameNum"] = soldier.JoinFrame
 
 			soldierStates := []model.SoldierState{}
-			err = DB.Model(&model.SoldierState{}).
+			err = db.Model(&model.SoldierState{}).
 				Where("mission_id = ? AND soldier_ocap_id = ?", missionIDInt, soldier.ObjectID).
 				Order("capture_frame ASC").
 				Find(&soldierStates).Error
@@ -158,7 +170,7 @@ func getOcapRecording(missionIDs []string) (err error) {
 			entity["positions"] = positions
 
 			projectileEvents := []model.ProjectileEvent{}
-			err = DB.Model(&model.ProjectileEvent{}).
+			err = db.Model(&model.ProjectileEvent{}).
 				Where("mission_id = ? AND firer_object_id = ?", missionIDInt, soldier.ObjectID).
 				Order("capture_frame ASC").
 				Find(&projectileEvents).Error
@@ -196,7 +208,7 @@ func getOcapRecording(missionIDs []string) (err error) {
 		}
 
 		vehicles := []model.Vehicle{}
-		err = DB.Model(&model.Vehicle{}).Where("mission_id = ?", missionIDInt).Find(&vehicles).Error
+		err = db.Model(&model.Vehicle{}).Where("mission_id = ?", missionIDInt).Find(&vehicles).Error
 		if err != nil {
 			return fmt.Errorf("error getting vehicles: %w", err)
 		}
@@ -210,7 +222,7 @@ func getOcapRecording(missionIDs []string) (err error) {
 			entity["startFrameNum"] = vehicle.JoinFrame
 
 			vehicleStates := []model.VehicleState{}
-			err = DB.Model(&model.VehicleState{}).
+			err = db.Model(&model.VehicleState{}).
 				Where("mission_id = ? AND vehicle_ocap_id = ?", missionIDInt, vehicle.ObjectID).
 				Order("capture_frame ASC").
 				Find(&vehicleStates).Error
@@ -242,7 +254,7 @@ func getOcapRecording(missionIDs []string) (err error) {
 
 		// Compute endFrame from the maximum capture_frame across all states
 		var endFrame uint
-		DB.Model(&model.SoldierState{}).Where("mission_id = ?", missionIDInt).Select("COALESCE(MAX(capture_frame), 0)").Scan(&endFrame)
+		db.Model(&model.SoldierState{}).Where("mission_id = ?", missionIDInt).Select("COALESCE(MAX(capture_frame), 0)").Scan(&endFrame)
 		ocapMission["endFrame"] = endFrame
 
 		fmt.Println("Got mission data in ", time.Since(txStart))
@@ -283,13 +295,13 @@ func reduceMission(missionIDs []string) (err error) {
 
 		txStart := time.Now()
 		var mission model.Mission
-		err = DB.Model(&model.Mission{}).Where("id = ?", missionIDInt).First(&mission).Error
+		err = db.Model(&model.Mission{}).Where("id = ?", missionIDInt).First(&mission).Error
 		if err != nil {
 			return fmt.Errorf("error getting mission: %w", err)
 		}
 
 		soldierStatesToDelete := []model.SoldierState{}
-		err = DB.Model(&model.SoldierState{}).Where(
+		err = db.Model(&model.SoldierState{}).Where(
 			"mission_id = ? AND capture_frame % 5 != 0",
 			mission.ID,
 		).Order("capture_frame ASC").Find(&soldierStatesToDelete).Error
@@ -302,7 +314,7 @@ func reduceMission(missionIDs []string) (err error) {
 			continue
 		}
 
-		err = DB.Delete(&soldierStatesToDelete).Error
+		err = db.Delete(&soldierStatesToDelete).Error
 		if err != nil {
 			return fmt.Errorf("error deleting soldier states: %w", err)
 		}
@@ -316,7 +328,7 @@ func reduceMission(missionIDs []string) (err error) {
 	fmt.Println("Finished reducing soldier states, running VACUUM to recover space...")
 	txStart := time.Now()
 	tables := []string{}
-	err = DB.Raw(
+	err = db.Raw(
 		`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'`,
 	).Scan(&tables).Error
 	if err != nil {
@@ -324,7 +336,7 @@ func reduceMission(missionIDs []string) (err error) {
 	}
 
 	for _, table := range tables {
-		err = DB.Raw(fmt.Sprintf("VACUUM (FULL) %s", table)).Error
+		err = db.Raw(fmt.Sprintf("VACUUM (FULL) %s", table)).Error
 		if err != nil {
 			return fmt.Errorf("error running VACUUM on table %s: %w", table, err)
 		}
@@ -377,7 +389,7 @@ order by s.ocap_id,
 `
 
 	frameData := []model.FrameData{}
-	err = DB.Raw(query, 4, 0, 100).Scan(&frameData).Error
+	err = db.Raw(query, 4, 0, 100).Scan(&frameData).Error
 	if err != nil {
 		fmt.Println(err)
 		return

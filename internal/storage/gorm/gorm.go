@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/OCAP2/extension/v5/internal/cache"
+	"github.com/OCAP2/extension/v5/internal/database"
 	"github.com/OCAP2/extension/v5/internal/logging"
 	"github.com/OCAP2/extension/v5/internal/model"
 	"github.com/OCAP2/extension/v5/internal/model/convert"
@@ -79,16 +80,31 @@ func New(deps Dependencies) *Backend {
 }
 
 // Init creates internal queues, runs schema migration, and starts the DB writer goroutine.
+// If no DB was injected via Dependencies, it creates its own postgres connection.
 func (b *Backend) Init() error {
 	b.queues = newQueues()
 	b.stopChan = make(chan struct{})
 
-	if b.deps.DB != nil {
-		if err := b.setupDB(); err != nil {
-			return fmt.Errorf("failed to setup DB: %w", err)
+	if b.deps.DB == nil {
+		db, err := database.GetPostgresDBStandalone()
+		if err != nil {
+			return fmt.Errorf("failed to connect to postgres: %w", err)
 		}
-		b.dbReady = true
+		sqlDB, err := db.DB()
+		if err != nil {
+			return fmt.Errorf("failed to access sql interface: %w", err)
+		}
+		if err = sqlDB.Ping(); err != nil {
+			return fmt.Errorf("failed to validate connection: %w", err)
+		}
+		sqlDB.SetMaxOpenConns(10)
+		b.deps.DB = db
 	}
+
+	if err := b.setupDB(); err != nil {
+		return fmt.Errorf("failed to setup DB: %w", err)
+	}
+	b.dbReady = true
 
 	b.startDBWriters()
 	return nil

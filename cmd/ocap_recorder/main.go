@@ -31,7 +31,6 @@ import (
 
 	"github.com/spf13/viper"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
-	"gorm.io/gorm"
 )
 
 // module defs - can be set at build time via ldflags
@@ -66,9 +65,6 @@ var (
 
 // global variables
 var (
-	// DB is the GORM DB interface (set for postgres mode, used by CLI commands)
-	DB *gorm.DB
-
 	// SlogManager handles all slog-based logging
 	SlogManager *logging.SlogManager
 
