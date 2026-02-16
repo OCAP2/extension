@@ -299,6 +299,7 @@ func writeQueue[T any](db *gorm.DB, q *queue.Queue[T], name string, log func(str
 	if err := tx.Create(&items).Error; err != nil {
 		log(":DB:WRITER:", fmt.Sprintf("Error creating %s: %v", name, err), "ERROR")
 		tx.Rollback()
+		q.Push(items...)
 		return
 	}
 
