@@ -136,11 +136,13 @@ func TestAddMarker(t *testing.T) {
 		Color:      "ColorRed",
 	}
 
-	require.NoError(t, b.AddMarker(m1))
-	require.NoError(t, b.AddMarker(m2))
+	id1, err := b.AddMarker(m1)
+	require.NoError(t, err)
+	id2, err := b.AddMarker(m2)
+	require.NoError(t, err)
 
-	// Markers don't have ObjectIDs; ID is not auto-assigned
-	// Just verify storage works
+	assert.Equal(t, uint(1), id1)
+	assert.Equal(t, uint(2), id2)
 
 	assert.Len(t, b.markers, 2)
 	assert.Equal(t, "Base", b.markers["marker_1"].Marker.Text)
@@ -207,10 +209,11 @@ func TestRecordMarkerState(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
 	m := &core.Marker{MarkerName: "test_marker"}
-	require.NoError(t, b.AddMarker(m))
+	id, err := b.AddMarker(m)
+	require.NoError(t, err)
 
 	state := &core.MarkerState{
-		MarkerID:     m.ID,
+		MarkerID:     id,
 		CaptureFrame: 10,
 		Position:     core.Position3D{X: 1000, Y: 2000, Z: 0},
 		Direction:    45.0,
@@ -231,7 +234,8 @@ func TestDeleteMarker(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
 	m := &core.Marker{MarkerName: "grenade_1", EndFrame: -1}
-	require.NoError(t, b.AddMarker(m))
+	_, err := b.AddMarker(m)
+	require.NoError(t, err)
 
 	// Delete marker at frame 100
 	require.NoError(t, b.DeleteMarker(&core.DeleteMarker{Name: "grenade_1", EndFrame: 100}))
@@ -492,12 +496,14 @@ func TestIDsPreserved(t *testing.T) {
 
 	require.NoError(t, b.AddSoldier(s))
 	require.NoError(t, b.AddVehicle(v))
-	require.NoError(t, b.AddMarker(m))
+	id, err := b.AddMarker(m)
+	require.NoError(t, err)
 
 	// IDs should be preserved as set
 	assert.Equal(t, uint16(1), s.ID)
 	assert.Equal(t, uint16(10), v.ID)
-	// Markers are keyed by name, not ID
+	// Marker ID is returned, not mutated onto the input
+	assert.Equal(t, uint(1), id)
 	assert.NotNil(t, b.markers["test"])
 }
 
@@ -507,7 +513,8 @@ func TestStartMissionResetsEverything(t *testing.T) {
 	// Populate with data
 	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 1}))
 	require.NoError(t, b.AddVehicle(&core.Vehicle{ID: 10}))
-	require.NoError(t, b.AddMarker(&core.Marker{MarkerName: "m1"}))
+	_, err := b.AddMarker(&core.Marker{MarkerName: "m1"})
+	require.NoError(t, err)
 	require.NoError(t, b.RecordGeneralEvent(&core.GeneralEvent{Name: "test"}))
 	require.NoError(t, b.RecordHitEvent(&core.HitEvent{}))
 	require.NoError(t, b.RecordKillEvent(&core.KillEvent{}))

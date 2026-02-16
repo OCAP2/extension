@@ -109,12 +109,12 @@ func (b *mockBackend) AddVehicle(v *core.Vehicle) error {
 	return nil
 }
 
-func (b *mockBackend) AddMarker(m *core.Marker) error {
+func (b *mockBackend) AddMarker(m *core.Marker) (uint, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	m.ID = uint(len(b.markers) + 1)
+	id := uint(len(b.markers) + 1)
 	b.markers = append(b.markers, m)
-	return nil
+	return id, nil
 }
 
 func (b *mockBackend) RecordSoldierState(s *core.SoldierState) error {
@@ -228,8 +228,8 @@ type errorBackend struct {
 	err error
 }
 
-func (b *errorBackend) AddMarker(_ *core.Marker) error {
-	return b.err
+func (b *errorBackend) AddMarker(_ *core.Marker) (uint, error) {
+	return 0, b.err
 }
 
 // mockParserService provides a minimal implementation for testing

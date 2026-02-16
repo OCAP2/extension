@@ -167,20 +167,24 @@ func (b *Backend) AddVehicle(v *core.Vehicle) error {
 
 // AddMarker registers a new marker.
 // Assigns an auto-increment ID so marker state updates can reference it.
-func (b *Backend) AddMarker(m *core.Marker) error {
+// Returns the assigned ID.
+func (b *Backend) AddMarker(m *core.Marker) (uint, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	b.nextMarkerID++
-	m.ID = b.nextMarkerID
+	id := b.nextMarkerID
+
+	markerCopy := *m
+	markerCopy.ID = id
 
 	record := &MarkerRecord{
-		Marker: *m,
+		Marker: markerCopy,
 		States: make([]core.MarkerState, 0),
 	}
 	b.markers[m.MarkerName] = record
-	b.markersByID[m.ID] = record
-	return nil
+	b.markersByID[id] = record
+	return id, nil
 }
 
 // RecordSoldierState records a soldier state update.

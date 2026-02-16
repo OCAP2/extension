@@ -113,9 +113,12 @@ func (b *Backend) AddVehicle(v *core.Vehicle) error {
 }
 
 // AddMarker assigns an auto-increment ID and sends the marker.
-func (b *Backend) AddMarker(m *core.Marker) error {
-	m.ID = uint(b.nextMarkerID.Add(1))
-	return b.sendEnvelope(streaming.TypeAddMarker, m)
+// Returns the assigned ID.
+func (b *Backend) AddMarker(m *core.Marker) (uint, error) {
+	id := uint(b.nextMarkerID.Add(1))
+	markerCopy := *m
+	markerCopy.ID = id
+	return id, b.sendEnvelope(streaming.TypeAddMarker, &markerCopy)
 }
 
 func (b *Backend) RecordSoldierState(s *core.SoldierState) error {

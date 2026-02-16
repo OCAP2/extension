@@ -68,9 +68,10 @@ func TestIntegrationFullExport(t *testing.T) {
 		Color: "ColorBLUFOR", Side: "WEST", Shape: "ICON", CaptureFrame: 0,
 		Position: core.Position3D{X: 5000, Y: 6000, Z: 0}, Direction: 0, Alpha: 1.0,
 	}
-	require.NoError(t, b.AddMarker(marker1))
+	marker1ID, err := b.AddMarker(marker1)
+	require.NoError(t, err)
 	require.NoError(t, b.RecordMarkerState(&core.MarkerState{
-		MarkerID: marker1.ID, CaptureFrame: 20, Position: core.Position3D{X: 5100, Y: 6100, Z: 0}, Direction: 45, Alpha: 0.8,
+		MarkerID: marker1ID, CaptureFrame: 20, Position: core.Position3D{X: 5100, Y: 6100, Z: 0}, Direction: 45, Alpha: 0.8,
 	}))
 	require.NoError(t, b.RecordGeneralEvent(&core.GeneralEvent{
 		CaptureFrame: 15, Name: "connected", Message: "Player1 connected", ExtraData: map[string]any{"uid": "12345"},
@@ -383,9 +384,10 @@ func TestMarkerPositionFormat(t *testing.T) {
 		MarkerName: "test_marker", Text: "Test Marker", MarkerType: "mil_dot", Color: "ColorRed",
 		Side: "EAST", Shape: "ICON", CaptureFrame: 0, Position: core.Position3D{X: 1000, Y: 2000, Z: 0}, Direction: 90, Alpha: 1.0,
 	}
-	require.NoError(t, b.AddMarker(testMarker))
+	testMarkerID, err := b.AddMarker(testMarker)
+	require.NoError(t, err)
 	require.NoError(t, b.RecordMarkerState(&core.MarkerState{
-		MarkerID: testMarker.ID, CaptureFrame: 50, Position: core.Position3D{X: 1100, Y: 2100, Z: 0}, Direction: 180, Alpha: 0.5,
+		MarkerID: testMarkerID, CaptureFrame: 50, Position: core.Position3D{X: 1100, Y: 2100, Z: 0}, Direction: 180, Alpha: 0.5,
 	}))
 
 	export := b.BuildExport()
@@ -594,14 +596,16 @@ func TestMultipleMarkersExport(t *testing.T) {
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
 	// Each marker needs a unique ID so RecordMarkerState can find the correct one
-	require.NoError(t, b.AddMarker(&core.Marker{
+	_, err := b.AddMarker(&core.Marker{
 		ID: 1, MarkerName: "obj_alpha", Text: "Alpha", MarkerType: "mil_objective", Color: "ColorBLUFOR", Side: "WEST", Shape: "ICON",
 		CaptureFrame: 0, Position: core.Position3D{X: 1000, Y: 1000}, Direction: 0, Alpha: 1.0,
-	}))
-	require.NoError(t, b.AddMarker(&core.Marker{
+	})
+	require.NoError(t, err)
+	_, err = b.AddMarker(&core.Marker{
 		ID: 2, MarkerName: "obj_bravo", Text: "Bravo", MarkerType: "mil_objective", Color: "ColorOPFOR", Side: "EAST", Shape: "ICON",
 		CaptureFrame: 0, Position: core.Position3D{X: 2000, Y: 2000}, Direction: 45, Alpha: 1.0,
-	}))
+	})
+	require.NoError(t, err)
 	// States for marker 1 (Alpha)
 	require.NoError(t, b.RecordMarkerState(&core.MarkerState{MarkerID: 1, CaptureFrame: 10, Position: core.Position3D{X: 1100, Y: 1100}, Direction: 90, Alpha: 0.8}))
 	require.NoError(t, b.RecordMarkerState(&core.MarkerState{MarkerID: 1, CaptureFrame: 20, Position: core.Position3D{X: 1200, Y: 1200}, Direction: 180, Alpha: 0.6}))
@@ -724,11 +728,12 @@ func TestJSONFormatValidation(t *testing.T) {
 	}))
 
 	// Add marker (OwnerID: -1 indicates system/mission marker, not player-drawn)
-	require.NoError(t, b.AddMarker(&core.Marker{
+	_, err := b.AddMarker(&core.Marker{
 		MarkerName: "obj1", Text: "Objective", MarkerType: "mil_objective",
 		Color: "ColorRed", Side: "WEST", Shape: "ICON", OwnerID: -1,
 		CaptureFrame: 0, Position: core.Position3D{X: 5000, Y: 6000}, Direction: 45, Alpha: 1.0,
-	}))
+	})
+	require.NoError(t, err)
 
 	require.NoError(t, b.EndMission())
 
@@ -825,16 +830,18 @@ func TestMarkerColorHashPrefixIsStripped(t *testing.T) {
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
 
 	// Add marker with hex color including # prefix (should be stripped in export)
-	require.NoError(t, b.AddMarker(&core.Marker{
+	_, err := b.AddMarker(&core.Marker{
 		MarkerName: "hex_marker", Text: "Hex Color", MarkerType: "respawn_inf", Color: "#800000",
 		Side: "WEST", Shape: "ICON", CaptureFrame: 0, Position: core.Position3D{X: 1000, Y: 2000}, Direction: 0, Alpha: 1.0,
-	}))
+	})
+	require.NoError(t, err)
 
 	// Add marker with named color (no prefix, should remain unchanged)
-	require.NoError(t, b.AddMarker(&core.Marker{
+	_, err = b.AddMarker(&core.Marker{
 		MarkerName: "named_marker", Text: "Named Color", MarkerType: "mil_dot", Color: "ColorRed",
 		Side: "WEST", Shape: "ICON", CaptureFrame: 0, Position: core.Position3D{X: 2000, Y: 3000}, Direction: 0, Alpha: 1.0,
-	}))
+	})
+	require.NoError(t, err)
 
 	export := b.BuildExport()
 
@@ -867,18 +874,20 @@ func TestMarkerOwnerIDExport(t *testing.T) {
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
 
 	// Add a system marker (OwnerID: -1)
-	require.NoError(t, b.AddMarker(&core.Marker{
+	_, err := b.AddMarker(&core.Marker{
 		MarkerName: "system_marker", Text: "System", MarkerType: "mil_objective", Color: "ColorRed",
 		Side: "WEST", Shape: "ICON", OwnerID: -1,
 		CaptureFrame: 0, Position: core.Position3D{X: 1000, Y: 2000}, Direction: 0, Alpha: 1.0,
-	}))
+	})
+	require.NoError(t, err)
 
 	// Add a player-drawn marker (OwnerID: 42, which would be the player's entity ID)
-	require.NoError(t, b.AddMarker(&core.Marker{
+	_, err = b.AddMarker(&core.Marker{
 		MarkerName: "player_marker", Text: "Player Drawn", MarkerType: "mil_dot", Color: "ColorBlue",
 		Side: "BLUFOR", Shape: "ICON", OwnerID: 42,
 		CaptureFrame: 10, Position: core.Position3D{X: 3000, Y: 4000}, Direction: 45, Alpha: 1.0,
-	}))
+	})
+	require.NoError(t, err)
 
 	export := b.BuildExport()
 
@@ -911,18 +920,20 @@ func TestMarkerSizeAndBrushExport(t *testing.T) {
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
 
 	// Add marker with custom size and brush
-	require.NoError(t, b.AddMarker(&core.Marker{
+	_, err := b.AddMarker(&core.Marker{
 		MarkerName: "custom_marker", Text: "Custom", MarkerType: "mil_objective", Color: "ColorRed",
 		Side: "WEST", Shape: "RECTANGLE", OwnerID: -1, Size: "[2.5,3.0]", Brush: "SolidBorder",
 		CaptureFrame: 0, Position: core.Position3D{X: 1000, Y: 2000}, Direction: 0, Alpha: 1.0,
-	}))
+	})
+	require.NoError(t, err)
 
 	// Add marker without size (should default to [1.0, 1.0])
-	require.NoError(t, b.AddMarker(&core.Marker{
+	_, err = b.AddMarker(&core.Marker{
 		MarkerName: "default_marker", Text: "Default", MarkerType: "mil_dot", Color: "ColorBlue",
 		Side: "WEST", Shape: "ICON", OwnerID: -1, Size: "", Brush: "Solid",
 		CaptureFrame: 0, Position: core.Position3D{X: 3000, Y: 4000}, Direction: 0, Alpha: 1.0,
-	}))
+	})
+	require.NoError(t, err)
 
 	export := b.BuildExport()
 
@@ -1095,7 +1106,7 @@ func TestPolylineMarkerExport(t *testing.T) {
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
 
 	// Add a polyline marker
-	require.NoError(t, b.AddMarker(&core.Marker{
+	_, err := b.AddMarker(&core.Marker{
 		MarkerName: "polyline_1", Text: "", MarkerType: "mil_dot", Color: "000000",
 		Side: "GLOBAL", Shape: "POLYLINE", OwnerID: 0, CaptureFrame: 71,
 		Polyline: core.Polyline{
@@ -1104,7 +1115,8 @@ func TestPolylineMarkerExport(t *testing.T) {
 			{X: 8051.69, Y: 18497.4},
 		},
 		Direction: 0, Alpha: 1.0, Brush: "Solid",
-	}))
+	})
+	require.NoError(t, err)
 
 	export := b.BuildExport()
 
@@ -1215,26 +1227,31 @@ func TestMarkerSideValues(t *testing.T) {
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
 
 	// Add markers with string side values
-	require.NoError(t, b.AddMarker(&core.Marker{
+	_, err := b.AddMarker(&core.Marker{
 		MarkerName: "east_marker", Text: "East", MarkerType: "mil_dot", Color: "800000",
 		Side: "EAST", Shape: "ICON", CaptureFrame: 0, Position: core.Position3D{X: 1000, Y: 1000}, Alpha: 1.0,
-	}))
-	require.NoError(t, b.AddMarker(&core.Marker{
+	})
+	require.NoError(t, err)
+	_, err = b.AddMarker(&core.Marker{
 		MarkerName: "west_marker", Text: "West", MarkerType: "mil_dot", Color: "004C99",
 		Side: "WEST", Shape: "ICON", CaptureFrame: 0, Position: core.Position3D{X: 2000, Y: 2000}, Alpha: 1.0,
-	}))
-	require.NoError(t, b.AddMarker(&core.Marker{
+	})
+	require.NoError(t, err)
+	_, err = b.AddMarker(&core.Marker{
 		MarkerName: "guer_marker", Text: "Guer", MarkerType: "mil_dot", Color: "008000",
 		Side: "GUER", Shape: "ICON", CaptureFrame: 0, Position: core.Position3D{X: 3000, Y: 3000}, Alpha: 1.0,
-	}))
-	require.NoError(t, b.AddMarker(&core.Marker{
+	})
+	require.NoError(t, err)
+	_, err = b.AddMarker(&core.Marker{
 		MarkerName: "civ_marker", Text: "Civ", MarkerType: "mil_dot", Color: "660080",
 		Side: "CIV", Shape: "ICON", CaptureFrame: 0, Position: core.Position3D{X: 4000, Y: 4000}, Alpha: 1.0,
-	}))
-	require.NoError(t, b.AddMarker(&core.Marker{
+	})
+	require.NoError(t, err)
+	_, err = b.AddMarker(&core.Marker{
 		MarkerName: "global_marker", Text: "Global", MarkerType: "mil_dot", Color: "000000",
 		Side: "UNKNOWN", Shape: "ICON", CaptureFrame: 0, Position: core.Position3D{X: 5000, Y: 5000}, Alpha: 1.0,
-	}))
+	})
+	require.NoError(t, err)
 
 	export := b.BuildExport()
 

@@ -102,9 +102,9 @@ func TestAddMarker_NoDB_NoError(t *testing.T) {
 		MarkerType: "mil_dot",
 	}
 
-	err := b.AddMarker(marker)
+	id, err := b.AddMarker(marker)
 	require.NoError(t, err)
-	// No DB → marker not inserted, but no error
+	assert.Equal(t, uint(0), id, "no DB → ID should be 0")
 }
 
 func TestRecordSoldierState_QueuesToInternalQueue(t *testing.T) {
@@ -579,9 +579,9 @@ func TestAddMarker_WithDB(t *testing.T) {
 		Text:       "HQ",
 	}
 
-	err := b.AddMarker(marker)
+	id, err := b.AddMarker(marker)
 	require.NoError(t, err)
-	assert.NotZero(t, marker.ID, "marker ID should be assigned by DB")
+	assert.NotZero(t, id, "returned ID should be assigned by DB")
 
 	var count int64
 	db.Model(&model.Marker{}).Count(&count)

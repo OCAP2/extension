@@ -328,11 +328,12 @@ func (m *Manager) handleMarkerCreate(e dispatcher.Event) (any, error) {
 		return nil, fmt.Errorf("failed to create marker: %w", err)
 	}
 
-	if err := m.backend.AddMarker(&marker); err != nil {
+	id, err := m.backend.AddMarker(&marker)
+	if err != nil {
 		return nil, fmt.Errorf("add marker: %w", err)
 	}
 	// Cache the assigned ID so state updates can find this marker
-	m.deps.MarkerCache.Set(marker.MarkerName, marker.ID)
+	m.deps.MarkerCache.Set(marker.MarkerName, id)
 
 	return nil, nil
 }

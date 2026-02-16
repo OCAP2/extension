@@ -16,7 +16,7 @@ type Backend interface {
 	// Entity registration (assigns ID to the passed pointer)
 	AddSoldier(s *core.Soldier) error
 	AddVehicle(v *core.Vehicle) error
-	AddMarker(m *core.Marker) error
+	AddMarker(m *core.Marker) (uint, error)
 
 	// State recording
 	RecordSoldierState(s *core.SoldierState) error
