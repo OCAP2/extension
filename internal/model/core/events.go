@@ -2,7 +2,6 @@
 package core
 
 import (
-	"encoding/json"
 	"time"
 )
 
@@ -127,9 +126,9 @@ type TrajectoryPoint struct {
 type ProjectileHit struct {
 	CaptureFrame  uint
 	Position      Position3D
-	SoldierID     *uint16         // set if soldier was hit
-	VehicleID     *uint16         // set if vehicle was hit
-	ComponentsHit json.RawMessage // body/vehicle parts hit
+	SoldierID     *uint16  // set if soldier was hit
+	VehicleID     *uint16  // set if vehicle was hit
+	ComponentsHit []string // body/vehicle parts hit
 }
 
 // ProjectileEvent represents a raw projectile event from the game.

@@ -1,7 +1,6 @@
 package worker
 
 import (
-	"encoding/json"
 	"fmt"
 
 	"github.com/OCAP2/extension/v5/internal/dispatcher"
@@ -154,7 +153,7 @@ func (m *Manager) classifyHitParts(hitParts []parser.HitPart) []core.ProjectileH
 				SoldierID:     &soldierID,
 				CaptureFrame:  hp.CaptureFrame,
 				Position:      hp.Position,
-				ComponentsHit: json.RawMessage(hp.ComponentsHit),
+				ComponentsHit: hp.ComponentsHit,
 			})
 		} else if _, ok := m.deps.EntityCache.GetVehicle(hp.EntityID); ok {
 			vehicleID := hp.EntityID
@@ -162,7 +161,7 @@ func (m *Manager) classifyHitParts(hitParts []parser.HitPart) []core.ProjectileH
 				VehicleID:     &vehicleID,
 				CaptureFrame:  hp.CaptureFrame,
 				Position:      hp.Position,
-				ComponentsHit: json.RawMessage(hp.ComponentsHit),
+				ComponentsHit: hp.ComponentsHit,
 			})
 		} else {
 			m.deps.LogManager.Logger().Warn("Hit entity not found in cache", "hitEntityID", hp.EntityID)

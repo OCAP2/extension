@@ -19,12 +19,16 @@ func pointToPosition3D(p geom.Point) core.Position3D {
 	return core.Position3D{X: coord.XY.X, Y: coord.XY.Y, Z: coord.Z}
 }
 
-// componentsFromDatatypes converts a datatypes.JSON to json.RawMessage (no-copy type cast).
-func componentsFromDatatypes(d datatypes.JSON) json.RawMessage {
+// componentsFromDatatypes converts a datatypes.JSON to []string.
+func componentsFromDatatypes(d datatypes.JSON) []string {
 	if len(d) == 0 {
 		return nil
 	}
-	return json.RawMessage(d)
+	var result []string
+	if err := json.Unmarshal(d, &result); err != nil {
+		return nil
+	}
+	return result
 }
 
 // lineStringToPolyline converts a geom.LineString to a core.Polyline

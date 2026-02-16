@@ -30,6 +30,15 @@ func polylineToLineString(p core.Polyline) geom.LineString {
 	return geom.NewLineString(seq)
 }
 
+// componentsToJSON converts a []string to datatypes.JSON for DB storage.
+func componentsToJSON(components []string) datatypes.JSON {
+	if len(components) == 0 {
+		return datatypes.JSON("[]")
+	}
+	data, _ := json.Marshal(components)
+	return datatypes.JSON(data)
+}
+
 // CoreToSoldier converts a core.Soldier to a GORM model.Soldier.
 // core.Soldier.ID maps to GORM Soldier.ObjectID.
 func CoreToSoldier(s core.Soldier) model.Soldier {
@@ -332,7 +341,7 @@ func CoreToProjectileEvent(e core.ProjectileEvent) model.ProjectileEvent {
 				SoldierObjectID: *hit.SoldierID,
 				CaptureFrame:    hit.CaptureFrame,
 				Position:        position3DToPoint(hit.Position),
-				ComponentsHit:   datatypes.JSON(hit.ComponentsHit),
+				ComponentsHit:   componentsToJSON(hit.ComponentsHit),
 			})
 		}
 		if hit.VehicleID != nil {
@@ -340,7 +349,7 @@ func CoreToProjectileEvent(e core.ProjectileEvent) model.ProjectileEvent {
 				VehicleObjectID: *hit.VehicleID,
 				CaptureFrame:    hit.CaptureFrame,
 				Position:        position3DToPoint(hit.Position),
-				ComponentsHit:   datatypes.JSON(hit.ComponentsHit),
+				ComponentsHit:   componentsToJSON(hit.ComponentsHit),
 			})
 		}
 	}

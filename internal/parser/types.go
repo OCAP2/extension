@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"encoding/json"
 	"time"
 
 	"github.com/OCAP2/extension/v5/internal/model/core"
@@ -11,7 +10,7 @@ import (
 // EntityID is a raw ArmA object ID that the worker classifies as soldier or vehicle.
 type HitPart struct {
 	EntityID      uint16
-	ComponentsHit json.RawMessage
+	ComponentsHit []string
 	CaptureFrame  uint
 	Position      core.Position3D
 }

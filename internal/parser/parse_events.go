@@ -131,11 +131,9 @@ func (p *Parser) ParseProjectileEvent(data []string) (ProjectileEvent, error) {
 				continue
 			}
 
-			hitComponentsJSON, _ := json.Marshal(hitComponents)
-
 			result.HitParts = append(result.HitParts, HitPart{
 				EntityID:      uint16(hitEntityID),
-				ComponentsHit: hitComponentsJSON,
+				ComponentsHit: hitComponents,
 				CaptureFrame:  uint(hitFrame),
 				Position:      hitPos3d,
 			})

@@ -1,7 +1,6 @@
 package worker
 
 import (
-	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -736,9 +735,6 @@ func TestHandleProjectile_ClassifiesHitParts(t *testing.T) {
 	entityCache.AddSoldier(core.Soldier{ID: 7})
 	entityCache.AddVehicle(core.Vehicle{ID: 30})
 
-	componentsJSON, _ := json.Marshal([]string{"head"})
-	vehicleComponentsJSON, _ := json.Marshal([]string{"hull"})
-
 	parserService := &mockParserService{
 		projectile: parser.ProjectileEvent{
 			FirerObjectID: 1,
@@ -748,8 +744,8 @@ func TestHandleProjectile_ClassifiesHitParts(t *testing.T) {
 				{Position: core.Position3D{X: 6448.0, Y: 5337.0, Z: 15.0}, Frame: 625},
 			},
 			HitParts: []parser.HitPart{
-				{EntityID: 7, ComponentsHit: componentsJSON, CaptureFrame: 625},
-				{EntityID: 30, ComponentsHit: vehicleComponentsJSON, CaptureFrame: 626},
+				{EntityID: 7, ComponentsHit: []string{"head"}, CaptureFrame: 625},
+				{EntityID: 30, ComponentsHit: []string{"hull"}, CaptureFrame: 626},
 			},
 		},
 	}
