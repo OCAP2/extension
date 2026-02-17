@@ -307,12 +307,13 @@ func TestDispatcher_LoggedArgPreview(t *testing.T) {
 	for _, msg := range logger.messages {
 		if strings.Contains(msg, "handling event") && strings.Contains(msg, "620") && strings.Contains(msg, "350.811") {
 			found = true
-			// Should NOT contain the 4th+ args (truncated to 3)
-			assert.NotContains(t, msg, "extra1", "args should be truncated to 3")
+			// All args should be present (no truncation)
+			assert.Contains(t, msg, "extra1", "all args should be logged")
+			assert.Contains(t, msg, "extra2", "all args should be logged")
 			break
 		}
 	}
-	assert.True(t, found, "expected arg preview in handling event log")
+	assert.True(t, found, "expected all args in handling event log")
 }
 
 func TestDispatcher_GatedHandler(t *testing.T) {

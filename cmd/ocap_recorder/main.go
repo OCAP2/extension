@@ -367,7 +367,7 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 	d.Register(":LOG:", func(e dispatcher.Event) (any, error) {
 		if len(e.Args) > 0 {
 			msg := util.FixEscapeQuotes(util.TrimQuotes(e.Args[0]))
-			Logger.Info("Addon log", "message", msg)
+			Logger.Info("Addon log", "message", msg, "args", e.Args[1:])
 		}
 		return nil, nil
 	})
