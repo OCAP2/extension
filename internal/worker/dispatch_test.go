@@ -1316,6 +1316,48 @@ func TestHandleMarkerCreate_BackendError(t *testing.T) {
 	assert.False(t, found, "marker should not be cached when backend fails")
 }
 
+func TestHandleSoldierState_UpdatesCacheWhenPlayerTakesOver(t *testing.T) {
+	d, _ := newTestDispatcher(t)
+	entityCache := cache.NewEntityCache()
+
+	// Pre-cache an AI soldier (IsPlayer=false)
+	entityCache.AddSoldier(core.Soldier{ID: 10, UnitName: "Habibzai", GroupID: "Alpha 1", Side: "EAST", IsPlayer: false})
+
+	parserService := &mockParserService{
+		soldierState: core.SoldierState{
+			SoldierID: 10,
+			UnitName:  "zigster",
+			IsPlayer:  true,
+			GroupID:   "Alpha 1",
+			Side:      "EAST",
+		},
+	}
+
+	backend := &mockBackend{}
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   entityCache,
+	}, backend)
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:SOLDIER:STATE:", Args: []string{}})
+	require.NoError(t, err)
+
+	// Wait for buffered handler
+	waitFor(t, func() bool {
+		backend.mu.Lock()
+		n := len(backend.soldierStates)
+		backend.mu.Unlock()
+		return n > 0
+	}, "timed out waiting for soldier state")
+
+	// Verify cache was updated: once a player, always a player
+	cachedSoldier, found := entityCache.GetSoldier(10)
+	require.True(t, found)
+	assert.True(t, cachedSoldier.IsPlayer, "cached soldier should be marked as player after takeover")
+	assert.Equal(t, "zigster", cachedSoldier.UnitName, "cached soldier name should be updated to player name")
+}
+
 func TestClassifyEntity_Vehicle(t *testing.T) {
 	entityCache := cache.NewEntityCache()
 	entityCache.AddVehicle(core.Vehicle{ID: 25})
