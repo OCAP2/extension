@@ -2,6 +2,7 @@ package worker
 
 import (
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -443,14 +444,14 @@ func waitFor(t *testing.T, check func() bool, msg string) {
 	}
 }
 
-// waitForLogMsg waits until a message matching substr appears in the mock logger.
+// waitForLogMsg waits until a message containing substr appears in the mock logger.
 func waitForLogMsg(t *testing.T, logger *mockLogger, substr string) {
 	t.Helper()
 	waitFor(t, func() bool {
 		logger.mu.Lock()
 		defer logger.mu.Unlock()
 		for _, msg := range logger.messages {
-			if msg == substr {
+			if strings.Contains(msg, substr) {
 				return true
 			}
 		}
