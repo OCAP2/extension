@@ -102,10 +102,9 @@ func Build(data *MissionData) Export {
 		isPlayer := record.Soldier.IsPlayer
 		name := record.Soldier.UnitName
 		for _, state := range record.States {
-			if state.IsPlayer && !isPlayer {
+			if state.IsPlayer {
 				isPlayer = true
 				name = state.UnitName
-				break
 			}
 		}
 
