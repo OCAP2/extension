@@ -223,34 +223,6 @@ func (b *mockBackend) DeleteMarker(dm *core.DeleteMarker) error {
 }
 
 // errorBackend is a mockBackend that returns an error from AddMarker.
-type errorBackend struct {
-	mockBackend
-	err error
-}
-
-func (b *errorBackend) AddMarker(_ *core.Marker) (uint, error) {
-	return 0, b.err
-}
-
-// addSoldierErrorBackend returns an error from AddSoldier.
-type addSoldierErrorBackend struct {
-	mockBackend
-	err error
-}
-
-func (b *addSoldierErrorBackend) AddSoldier(_ *core.Soldier) error {
-	return b.err
-}
-
-// addVehicleErrorBackend returns an error from AddVehicle.
-type addVehicleErrorBackend struct {
-	mockBackend
-	err error
-}
-
-func (b *addVehicleErrorBackend) AddVehicle(_ *core.Vehicle) error {
-	return b.err
-}
 
 // mockParserService provides a minimal implementation for testing
 type mockParserService struct {
@@ -471,7 +443,7 @@ func waitFor(t *testing.T, check func() bool, msg string) {
 	}
 }
 
-// waitForLogMsg waits until a message containing substr appears in the mock logger.
+// waitForLogMsg waits until a message matching substr appears in the mock logger.
 func waitForLogMsg(t *testing.T, logger *mockLogger, substr string) {
 	t.Helper()
 	waitFor(t, func() bool {
@@ -1333,7 +1305,7 @@ func TestHandleMarkerCreate_BackendError(t *testing.T) {
 		marker: core.Marker{MarkerName: "test_marker"},
 	}
 
-	backend := &errorBackend{err: errors.New("db failure")}
+	backend := &configurableErrorBackend{failOn: map[string]error{"AddMarker": errors.New("db failure")}}
 	manager := NewManager(Dependencies{
 		ParserService: parserService,
 		EntityCache:   cache.NewEntityCache(),
@@ -1512,7 +1484,7 @@ func TestHandleNewSoldier_BackendError(t *testing.T) {
 	parserService := &mockParserService{
 		soldier: core.Soldier{ID: 42, UnitName: "Test"},
 	}
-	backend := &addSoldierErrorBackend{err: errors.New("db write failed")}
+	backend := &configurableErrorBackend{failOn: map[string]error{"AddSoldier": errors.New("db write failed")}}
 	manager := NewManager(Dependencies{
 		ParserService: parserService,
 		EntityCache:   entityCache,
@@ -1535,7 +1507,7 @@ func TestHandleNewVehicle_BackendError(t *testing.T) {
 	parserService := &mockParserService{
 		vehicle: core.Vehicle{ID: 99, OcapType: "tank"},
 	}
-	backend := &addVehicleErrorBackend{err: errors.New("db write failed")}
+	backend := &configurableErrorBackend{failOn: map[string]error{"AddVehicle": errors.New("db write failed")}}
 	manager := NewManager(Dependencies{
 		ParserService: parserService,
 		EntityCache:   entityCache,
@@ -2016,110 +1988,134 @@ func TestHandleAce3UnconsciousEvent_SoldierNotCached(t *testing.T) {
 	assert.Empty(t, backend.ace3Uncon, "ace3 unconscious should not be recorded when soldier not cached")
 }
 
-// --- Backend Record* error backends ---
+// --- Configurable error backend ---
 
-type recordSoldierStateErrorBackend struct {
+var errInjected = errors.New("injected error")
+
+// configurableErrorBackend embeds mockBackend and returns an error for any
+// method whose name is a key in the failOn map.
+type configurableErrorBackend struct {
 	mockBackend
+	failOn map[string]error
 }
 
-func (b *recordSoldierStateErrorBackend) RecordSoldierState(_ *core.SoldierState) error {
-	return errors.New("record soldier state failed")
+func (b *configurableErrorBackend) fail(method string) error {
+	if e, ok := b.failOn[method]; ok {
+		return e
+	}
+	return nil
 }
 
-type recordVehicleStateErrorBackend struct {
-	mockBackend
+func (b *configurableErrorBackend) AddSoldier(s *core.Soldier) error {
+	if e := b.fail("AddSoldier"); e != nil {
+		return e
+	}
+	return b.mockBackend.AddSoldier(s)
 }
 
-func (b *recordVehicleStateErrorBackend) RecordVehicleState(_ *core.VehicleState) error {
-	return errors.New("record vehicle state failed")
+func (b *configurableErrorBackend) AddVehicle(v *core.Vehicle) error {
+	if e := b.fail("AddVehicle"); e != nil {
+		return e
+	}
+	return b.mockBackend.AddVehicle(v)
 }
 
-type recordTimeStateErrorBackend struct {
-	mockBackend
+func (b *configurableErrorBackend) AddMarker(m *core.Marker) (uint, error) {
+	if e := b.fail("AddMarker"); e != nil {
+		return 0, e
+	}
+	return b.mockBackend.AddMarker(m)
 }
 
-func (b *recordTimeStateErrorBackend) RecordTimeState(_ *core.TimeState) error {
-	return errors.New("record time state failed")
+func (b *configurableErrorBackend) RecordSoldierState(s *core.SoldierState) error {
+	if e := b.fail("RecordSoldierState"); e != nil {
+		return e
+	}
+	return b.mockBackend.RecordSoldierState(s)
 }
 
-type recordProjectileEventErrorBackend struct {
-	mockBackend
+func (b *configurableErrorBackend) RecordVehicleState(v *core.VehicleState) error {
+	if e := b.fail("RecordVehicleState"); e != nil {
+		return e
+	}
+	return b.mockBackend.RecordVehicleState(v)
 }
 
-func (b *recordProjectileEventErrorBackend) RecordProjectileEvent(_ *core.ProjectileEvent) error {
-	return errors.New("record projectile event failed")
+func (b *configurableErrorBackend) RecordTimeState(t *core.TimeState) error {
+	if e := b.fail("RecordTimeState"); e != nil {
+		return e
+	}
+	return b.mockBackend.RecordTimeState(t)
 }
 
-type recordGeneralEventErrorBackend struct {
-	mockBackend
+func (b *configurableErrorBackend) RecordProjectileEvent(e *core.ProjectileEvent) error {
+	if err := b.fail("RecordProjectileEvent"); err != nil {
+		return err
+	}
+	return b.mockBackend.RecordProjectileEvent(e)
 }
 
-func (b *recordGeneralEventErrorBackend) RecordGeneralEvent(_ *core.GeneralEvent) error {
-	return errors.New("record general event failed")
+func (b *configurableErrorBackend) RecordGeneralEvent(e *core.GeneralEvent) error {
+	if err := b.fail("RecordGeneralEvent"); err != nil {
+		return err
+	}
+	return b.mockBackend.RecordGeneralEvent(e)
 }
 
-type recordKillEventErrorBackend struct {
-	mockBackend
+func (b *configurableErrorBackend) RecordKillEvent(e *core.KillEvent) error {
+	if err := b.fail("RecordKillEvent"); err != nil {
+		return err
+	}
+	return b.mockBackend.RecordKillEvent(e)
 }
 
-func (b *recordKillEventErrorBackend) RecordKillEvent(_ *core.KillEvent) error {
-	return errors.New("record kill event failed")
+func (b *configurableErrorBackend) RecordChatEvent(e *core.ChatEvent) error {
+	if err := b.fail("RecordChatEvent"); err != nil {
+		return err
+	}
+	return b.mockBackend.RecordChatEvent(e)
 }
 
-type recordChatEventErrorBackend struct {
-	mockBackend
+func (b *configurableErrorBackend) RecordRadioEvent(e *core.RadioEvent) error {
+	if err := b.fail("RecordRadioEvent"); err != nil {
+		return err
+	}
+	return b.mockBackend.RecordRadioEvent(e)
 }
 
-func (b *recordChatEventErrorBackend) RecordChatEvent(_ *core.ChatEvent) error {
-	return errors.New("record chat event failed")
+func (b *configurableErrorBackend) RecordTelemetryEvent(e *core.TelemetryEvent) error {
+	if err := b.fail("RecordTelemetryEvent"); err != nil {
+		return err
+	}
+	return b.mockBackend.RecordTelemetryEvent(e)
 }
 
-type recordRadioEventErrorBackend struct {
-	mockBackend
+func (b *configurableErrorBackend) RecordAce3DeathEvent(e *core.Ace3DeathEvent) error {
+	if err := b.fail("RecordAce3DeathEvent"); err != nil {
+		return err
+	}
+	return b.mockBackend.RecordAce3DeathEvent(e)
 }
 
-func (b *recordRadioEventErrorBackend) RecordRadioEvent(_ *core.RadioEvent) error {
-	return errors.New("record radio event failed")
+func (b *configurableErrorBackend) RecordAce3UnconsciousEvent(e *core.Ace3UnconsciousEvent) error {
+	if err := b.fail("RecordAce3UnconsciousEvent"); err != nil {
+		return err
+	}
+	return b.mockBackend.RecordAce3UnconsciousEvent(e)
 }
 
-type recordTelemetryEventErrorBackend struct {
-	mockBackend
+func (b *configurableErrorBackend) RecordMarkerState(s *core.MarkerState) error {
+	if e := b.fail("RecordMarkerState"); e != nil {
+		return e
+	}
+	return b.mockBackend.RecordMarkerState(s)
 }
 
-func (b *recordTelemetryEventErrorBackend) RecordTelemetryEvent(_ *core.TelemetryEvent) error {
-	return errors.New("record telemetry event failed")
-}
-
-type recordAce3DeathEventErrorBackend struct {
-	mockBackend
-}
-
-func (b *recordAce3DeathEventErrorBackend) RecordAce3DeathEvent(_ *core.Ace3DeathEvent) error {
-	return errors.New("record ace3 death event failed")
-}
-
-type recordAce3UnconsciousEventErrorBackend struct {
-	mockBackend
-}
-
-func (b *recordAce3UnconsciousEventErrorBackend) RecordAce3UnconsciousEvent(_ *core.Ace3UnconsciousEvent) error {
-	return errors.New("record ace3 unconscious event failed")
-}
-
-type recordMarkerStateErrorBackend struct {
-	mockBackend
-}
-
-func (b *recordMarkerStateErrorBackend) RecordMarkerState(_ *core.MarkerState) error {
-	return errors.New("record marker state failed")
-}
-
-type deleteMarkerErrorBackend struct {
-	mockBackend
-}
-
-func (b *deleteMarkerErrorBackend) DeleteMarker(_ *core.DeleteMarker) error {
-	return errors.New("delete marker failed")
+func (b *configurableErrorBackend) DeleteMarker(dm *core.DeleteMarker) error {
+	if e := b.fail("DeleteMarker"); e != nil {
+		return e
+	}
+	return b.mockBackend.DeleteMarker(dm)
 }
 
 // --- Backend Record* error tests ---
@@ -2136,7 +2132,7 @@ func TestHandleSoldierState_BackendError(t *testing.T) {
 	manager := NewManager(Dependencies{
 		ParserService: parserService,
 		EntityCache:   entityCache,
-	}, &recordSoldierStateErrorBackend{})
+	}, &configurableErrorBackend{failOn: map[string]error{"RecordSoldierState": errInjected}})
 	manager.RegisterHandlers(d)
 
 	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:SOLDIER:STATE:", Args: []string{}})
@@ -2156,7 +2152,7 @@ func TestHandleVehicleState_BackendError(t *testing.T) {
 	manager := NewManager(Dependencies{
 		ParserService: parserService,
 		EntityCache:   entityCache,
-	}, &recordVehicleStateErrorBackend{})
+	}, &configurableErrorBackend{failOn: map[string]error{"RecordVehicleState": errInjected}})
 	manager.RegisterHandlers(d)
 
 	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:VEHICLE:STATE:", Args: []string{}})
@@ -2174,7 +2170,7 @@ func TestHandleTimeState_BackendError(t *testing.T) {
 	manager := NewManager(Dependencies{
 		ParserService: parserService,
 		EntityCache:   cache.NewEntityCache(),
-	}, &recordTimeStateErrorBackend{})
+	}, &configurableErrorBackend{failOn: map[string]error{"RecordTimeState": errInjected}})
 	manager.RegisterHandlers(d)
 
 	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:TIME:STATE:", Args: []string{}})
@@ -2192,7 +2188,7 @@ func TestHandleProjectileEvent_BackendError(t *testing.T) {
 	manager := NewManager(Dependencies{
 		ParserService: parserService,
 		EntityCache:   cache.NewEntityCache(),
-	}, &recordProjectileEventErrorBackend{})
+	}, &configurableErrorBackend{failOn: map[string]error{"RecordProjectileEvent": errInjected}})
 	manager.RegisterHandlers(d)
 
 	_, err := d.Dispatch(dispatcher.Event{Command: ":PROJECTILE:", Args: []string{}})
@@ -2210,7 +2206,7 @@ func TestHandleGeneralEvent_BackendError(t *testing.T) {
 	manager := NewManager(Dependencies{
 		ParserService: parserService,
 		EntityCache:   cache.NewEntityCache(),
-	}, &recordGeneralEventErrorBackend{})
+	}, &configurableErrorBackend{failOn: map[string]error{"RecordGeneralEvent": errInjected}})
 	manager.RegisterHandlers(d)
 
 	_, err := d.Dispatch(dispatcher.Event{Command: ":EVENT:", Args: []string{}})
@@ -2228,7 +2224,7 @@ func TestHandleKillEvent_BackendError(t *testing.T) {
 	manager := NewManager(Dependencies{
 		ParserService: parserService,
 		EntityCache:   cache.NewEntityCache(),
-	}, &recordKillEventErrorBackend{})
+	}, &configurableErrorBackend{failOn: map[string]error{"RecordKillEvent": errInjected}})
 	manager.RegisterHandlers(d)
 
 	_, err := d.Dispatch(dispatcher.Event{Command: ":KILL:", Args: []string{}})
@@ -2249,7 +2245,7 @@ func TestHandleChatEvent_BackendError(t *testing.T) {
 	manager := NewManager(Dependencies{
 		ParserService: parserService,
 		EntityCache:   entityCache,
-	}, &recordChatEventErrorBackend{})
+	}, &configurableErrorBackend{failOn: map[string]error{"RecordChatEvent": errInjected}})
 	manager.RegisterHandlers(d)
 
 	_, err := d.Dispatch(dispatcher.Event{Command: ":CHAT:", Args: []string{}})
@@ -2270,7 +2266,7 @@ func TestHandleRadioEvent_BackendError(t *testing.T) {
 	manager := NewManager(Dependencies{
 		ParserService: parserService,
 		EntityCache:   entityCache,
-	}, &recordRadioEventErrorBackend{})
+	}, &configurableErrorBackend{failOn: map[string]error{"RecordRadioEvent": errInjected}})
 	manager.RegisterHandlers(d)
 
 	_, err := d.Dispatch(dispatcher.Event{Command: ":RADIO:", Args: []string{}})
@@ -2288,7 +2284,7 @@ func TestHandleTelemetryEvent_BackendError(t *testing.T) {
 	manager := NewManager(Dependencies{
 		ParserService: parserService,
 		EntityCache:   cache.NewEntityCache(),
-	}, &recordTelemetryEventErrorBackend{})
+	}, &configurableErrorBackend{failOn: map[string]error{"RecordTelemetryEvent": errInjected}})
 	manager.RegisterHandlers(d)
 
 	_, err := d.Dispatch(dispatcher.Event{Command: ":TELEMETRY:", Args: []string{}})
@@ -2309,7 +2305,7 @@ func TestHandleAce3DeathEvent_BackendError(t *testing.T) {
 		ParserService: parserService,
 		EntityCache:   entityCache,
 		LogManager:    logging.NewSlogManager(),
-	}, &recordAce3DeathEventErrorBackend{})
+	}, &configurableErrorBackend{failOn: map[string]error{"RecordAce3DeathEvent": errInjected}})
 	manager.RegisterHandlers(d)
 
 	_, err := d.Dispatch(dispatcher.Event{Command: ":ACE3:DEATH:", Args: []string{}})
@@ -2329,7 +2325,7 @@ func TestHandleAce3UnconsciousEvent_BackendError(t *testing.T) {
 	manager := NewManager(Dependencies{
 		ParserService: parserService,
 		EntityCache:   entityCache,
-	}, &recordAce3UnconsciousEventErrorBackend{})
+	}, &configurableErrorBackend{failOn: map[string]error{"RecordAce3UnconsciousEvent": errInjected}})
 	manager.RegisterHandlers(d)
 
 	_, err := d.Dispatch(dispatcher.Event{Command: ":ACE3:UNCONSCIOUS:", Args: []string{}})
@@ -2350,7 +2346,7 @@ func TestHandleMarkerMove_BackendError(t *testing.T) {
 		ParserService: parserService,
 		EntityCache:   cache.NewEntityCache(),
 		MarkerCache:   markerCache,
-	}, &recordMarkerStateErrorBackend{})
+	}, &configurableErrorBackend{failOn: map[string]error{"RecordMarkerState": errInjected}})
 	manager.RegisterHandlers(d)
 
 	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:MARKER:STATE:", Args: []string{}})
@@ -2369,7 +2365,7 @@ func TestHandleMarkerDelete_BackendError(t *testing.T) {
 		ParserService: parserService,
 		EntityCache:   cache.NewEntityCache(),
 		MarkerCache:   cache.NewMarkerCache(),
-	}, &deleteMarkerErrorBackend{})
+	}, &configurableErrorBackend{failOn: map[string]error{"DeleteMarker": errInjected}})
 	manager.RegisterHandlers(d)
 
 	_, err := d.Dispatch(dispatcher.Event{Command: ":DELETE:MARKER:", Args: []string{}})
