@@ -644,7 +644,7 @@ func TestHandleSoldierState_ValidatesAndFillsGroupSide(t *testing.T) {
 }
 
 func TestHandleSoldierState_ReturnsErrorWhenNotCached(t *testing.T) {
-	d, _ := newTestDispatcher(t)
+	d, logger := newTestDispatcher(t)
 	entityCache := cache.NewEntityCache()
 	// No soldier cached
 
@@ -662,8 +662,7 @@ func TestHandleSoldierState_ReturnsErrorWhenNotCached(t *testing.T) {
 	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:SOLDIER:STATE:", Args: []string{}})
 	require.NoError(t, err) // dispatch itself doesn't error for buffered handlers
 
-	// Give buffer time to process
-	time.Sleep(200 * time.Millisecond)
+	waitForLogMsg(t, logger, "buffered handler failed")
 
 	// Backend should have no states since the soldier wasn't cached
 	backend.mu.Lock()
@@ -672,7 +671,7 @@ func TestHandleSoldierState_ReturnsErrorWhenNotCached(t *testing.T) {
 }
 
 func TestHandleVehicleState_ReturnsErrorWhenNotCached(t *testing.T) {
-	d, _ := newTestDispatcher(t)
+	d, logger := newTestDispatcher(t)
 	entityCache := cache.NewEntityCache()
 
 	parserService := &mockParserService{
@@ -689,7 +688,7 @@ func TestHandleVehicleState_ReturnsErrorWhenNotCached(t *testing.T) {
 	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:VEHICLE:STATE:", Args: []string{}})
 	require.NoError(t, err)
 
-	time.Sleep(200 * time.Millisecond)
+	waitForLogMsg(t, logger, "buffered handler failed")
 
 	backend.mu.Lock()
 	defer backend.mu.Unlock()
@@ -949,7 +948,7 @@ func TestHandleMarkerMove_ResolvesMarkerName(t *testing.T) {
 }
 
 func TestHandleChatEvent_ValidatesSender(t *testing.T) {
-	d, _ := newTestDispatcher(t)
+	d, logger := newTestDispatcher(t)
 	entityCache := cache.NewEntityCache()
 	// No soldier cached — sender validation should fail
 
@@ -970,7 +969,7 @@ func TestHandleChatEvent_ValidatesSender(t *testing.T) {
 	_, err := d.Dispatch(dispatcher.Event{Command: ":CHAT:", Args: []string{}})
 	require.NoError(t, err) // buffered dispatch doesn't return handler errors
 
-	time.Sleep(200 * time.Millisecond)
+	waitForLogMsg(t, logger, "event failed")
 
 	// Chat event should not be recorded since sender doesn't exist
 	backend.mu.Lock()
