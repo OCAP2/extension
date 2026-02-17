@@ -12,6 +12,12 @@ import (
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 )
 
+// osStdout is the default console writer, overridable in tests.
+var osStdout io.Writer = os.Stdout
+
+// osPipe wraps os.Pipe for test overriding.
+var osPipe = os.Pipe
+
 // SlogManager manages slog-based logging with optional OTel integration.
 type SlogManager struct {
 	logger *slog.Logger
@@ -63,13 +69,15 @@ func (m *SlogManager) Setup(file io.Writer, level string, provider *sdklog.Logge
 	// Build list of handlers
 	var handlers []slog.Handler
 
-	// Console handler
-	handlers = append(handlers, slog.NewTextHandler(os.Stdout, handlerOpts))
-
-	// File handler
+	var logWriter io.Writer
 	if file != nil {
-		handlers = append(handlers, slog.NewTextHandler(file, handlerOpts))
+		// File handler only — avoid writing to stdout which ArmA 3 captures into the RPT file
+		logWriter = file
+	} else {
+		// Console handler as fallback when no file is available
+		logWriter = osStdout
 	}
+	handlers = append(handlers, slog.NewTextHandler(logWriter, handlerOpts))
 
 	// OTel handler (if provider is available)
 	if provider != nil {
