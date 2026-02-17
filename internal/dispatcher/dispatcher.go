@@ -247,7 +247,7 @@ func (d *Dispatcher) withGate(ready <-chan struct{}, h HandlerFunc) HandlerFunc 
 func (d *Dispatcher) withLogging(command string, h HandlerFunc) HandlerFunc {
 	return func(e Event) (any, error) {
 		start := time.Now()
-		d.logger.Debug("handling event", "command", command, "numArgs", len(e.Args), "args", truncateArgs(e.Args, 3))
+		d.logger.Debug("handling event", "command", command, "numArgs", len(e.Args), "args", e.Args)
 
 		result, err := h(e)
 
@@ -261,9 +261,3 @@ func (d *Dispatcher) withLogging(command string, h HandlerFunc) HandlerFunc {
 	}
 }
 
-func truncateArgs(args []string, n int) []string {
-	if len(args) <= n {
-		return args
-	}
-	return append(args[:n:n], fmt.Sprintf("...(+%d more)", len(args)-n))
-}
