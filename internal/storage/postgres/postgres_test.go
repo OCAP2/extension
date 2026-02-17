@@ -603,21 +603,13 @@ func TestStartDBWriters_DrainsQueues(t *testing.T) {
 	require.NoError(t, b.RecordAce3DeathEvent(&core.Ace3DeathEvent{SoldierID: 1, CaptureFrame: 1}))
 	require.NoError(t, b.RecordAce3UnconsciousEvent(&core.Ace3UnconsciousEvent{SoldierID: 1, CaptureFrame: 1}))
 
-	// Wait for the background writer to drain (it runs on a 2s loop, so wait up to 5s)
+	// Wait for all background writers to drain (they run on a 2s loop, so wait up to 5s)
 	require.Eventually(t, func() bool {
-		var count int64
-		db.Model(&model.Soldier{}).Count(&count)
-		return count > 0
-	}, 5*time.Second, 100*time.Millisecond, "soldiers should be written to DB")
-
-	var soldierCount, vehicleCount, generalCount, fpsCount int64
-	db.Model(&model.Soldier{}).Count(&soldierCount)
-	db.Model(&model.Vehicle{}).Count(&vehicleCount)
-	db.Model(&model.GeneralEvent{}).Count(&generalCount)
-	db.Model(&model.ServerFpsEvent{}).Count(&fpsCount)
-
-	assert.Equal(t, int64(1), soldierCount)
-	assert.Equal(t, int64(1), vehicleCount)
-	assert.Equal(t, int64(1), generalCount)
-	assert.Equal(t, int64(1), fpsCount)
+		var soldierCount, vehicleCount, generalCount, fpsCount int64
+		db.Model(&model.Soldier{}).Count(&soldierCount)
+		db.Model(&model.Vehicle{}).Count(&vehicleCount)
+		db.Model(&model.GeneralEvent{}).Count(&generalCount)
+		db.Model(&model.ServerFpsEvent{}).Count(&fpsCount)
+		return soldierCount > 0 && vehicleCount > 0 && generalCount > 0 && fpsCount > 0
+	}, 5*time.Second, 100*time.Millisecond, "all queued records should be written to DB")
 }
