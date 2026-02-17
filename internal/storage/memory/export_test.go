@@ -1274,6 +1274,53 @@ func TestPlayerTakeoverUpdatesEntityMetadata(t *testing.T) {
 	assert.Equal(t, 1, entity.Positions[2][5])
 }
 
+func TestExportJSON_MkdirAllError(t *testing.T) {
+	// /dev/null is a file, not a directory — MkdirAll for a subdir will fail
+	b := New(config.MemoryConfig{
+		OutputDir:      "/dev/null/subdir",
+		CompressOutput: false,
+	})
+
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
+
+	err := b.EndMission()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "create output directory")
+}
+
+func TestWriteJSON_CreateError(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.Chmod(dir, 0555))
+	t.Cleanup(func() { os.Chmod(dir, 0755) })
+
+	err := writeJSON(filepath.Join(dir, "test.json"), v1.Export{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to create file")
+}
+
+func TestWriteGzipJSON_CreateError(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.Chmod(dir, 0555))
+	t.Cleanup(func() { os.Chmod(dir, 0755) })
+
+	err := writeGzipJSON(filepath.Join(dir, "test.json.gz"), v1.Export{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to create file")
+}
+
+func TestEndMission_ExportError(t *testing.T) {
+	b := New(config.MemoryConfig{
+		OutputDir:      "/dev/null/subdir",
+		CompressOutput: true,
+	})
+
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
+
+	err := b.EndMission()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "create output directory")
+}
+
 func TestMarkerSideValues(t *testing.T) {
 	// Test that sideToIndex correctly handles side string values
 	b := New(config.MemoryConfig{})

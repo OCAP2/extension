@@ -89,6 +89,21 @@ func TestEntityCache_Reset(t *testing.T) {
 	assert.True(t, ok, "expected to find soldier added after reset")
 }
 
+func TestEntityCache_UpdateSoldier(t *testing.T) {
+	cache := NewEntityCache()
+
+	// Add an AI soldier
+	cache.AddSoldier(core.Soldier{ID: 10, UnitName: "Habibzai", IsPlayer: false})
+
+	// Update: player takes over
+	cache.UpdateSoldier(core.Soldier{ID: 10, UnitName: "zigster", IsPlayer: true})
+
+	got, ok := cache.GetSoldier(10)
+	require.True(t, ok)
+	assert.Equal(t, "zigster", got.UnitName)
+	assert.True(t, got.IsPlayer)
+}
+
 func TestEntityCache_Concurrent(t *testing.T) {
 	cache := NewEntityCache()
 	var wg sync.WaitGroup

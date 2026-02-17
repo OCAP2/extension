@@ -10,6 +10,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/metric/embedded"
+	"go.opentelemetry.io/otel/metric/noop"
 )
 
 // testLogger implements Logger for testing
@@ -572,3 +576,79 @@ func TestDispatcher_GatedLogsWhenOpened(t *testing.T) {
 
 	assert.True(t, found, "expected INFO log when gate opens")
 }
+
+// --- OTel meter error path tests ---
+
+// failingMeter embeds noop.Meter and selectively returns errors.
+type failingMeter struct {
+	noop.Meter
+	failOn       string // "gauge", "callback", "processed", "dropped"
+	counterCalls int
+}
+
+func (m *failingMeter) Int64ObservableGauge(name string, opts ...metric.Int64ObservableGaugeOption) (metric.Int64ObservableGauge, error) {
+	if m.failOn == "gauge" {
+		return nil, fmt.Errorf("gauge creation failed")
+	}
+	return m.Meter.Int64ObservableGauge(name, opts...)
+}
+
+func (m *failingMeter) RegisterCallback(cb metric.Callback, instruments ...metric.Observable) (metric.Registration, error) {
+	if m.failOn == "callback" {
+		return nil, fmt.Errorf("callback registration failed")
+	}
+	return m.Meter.RegisterCallback(cb, instruments...)
+}
+
+func (m *failingMeter) Int64Counter(name string, opts ...metric.Int64CounterOption) (metric.Int64Counter, error) {
+	m.counterCalls++
+	if m.failOn == "processed" && m.counterCalls == 1 {
+		return nil, fmt.Errorf("processed counter failed")
+	}
+	if m.failOn == "dropped" && m.counterCalls == 2 {
+		return nil, fmt.Errorf("dropped counter failed")
+	}
+	return m.Meter.Int64Counter(name, opts...)
+}
+
+// failingMeterProvider returns a failingMeter.
+type failingMeterProvider struct {
+	embedded.MeterProvider
+	meter *failingMeter
+}
+
+func (p *failingMeterProvider) Meter(name string, opts ...metric.MeterOption) metric.Meter {
+	return p.meter
+}
+
+func TestNew_MeterErrors(t *testing.T) {
+	tests := []struct {
+		name      string
+		failOn    string
+		wantError string
+	}{
+		{"gauge error", "gauge", "creating queue size gauge"},
+		{"callback error", "callback", "registering queue callback"},
+		{"processed counter error", "processed", "creating processed counter"},
+		{"dropped counter error", "dropped", "creating dropped counter"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fm := &failingMeter{failOn: tt.failOn}
+			provider := &failingMeterProvider{meter: fm}
+
+			orig := otel.GetMeterProvider()
+			otel.SetMeterProvider(provider)
+			t.Cleanup(func() { otel.SetMeterProvider(orig) })
+
+			d, err := New(&testLogger{})
+			assert.Nil(t, d, "dispatcher should be nil on error")
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantError)
+		})
+	}
+}
+
+// Ensure failingMeterProvider satisfies metric.MeterProvider.
+var _ metric.MeterProvider = (*failingMeterProvider)(nil)

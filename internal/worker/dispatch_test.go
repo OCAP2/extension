@@ -2015,3 +2015,364 @@ func TestHandleAce3UnconsciousEvent_SoldierNotCached(t *testing.T) {
 	defer backend.mu.Unlock()
 	assert.Empty(t, backend.ace3Uncon, "ace3 unconscious should not be recorded when soldier not cached")
 }
+
+// --- Backend Record* error backends ---
+
+type recordSoldierStateErrorBackend struct {
+	mockBackend
+}
+
+func (b *recordSoldierStateErrorBackend) RecordSoldierState(_ *core.SoldierState) error {
+	return errors.New("record soldier state failed")
+}
+
+type recordVehicleStateErrorBackend struct {
+	mockBackend
+}
+
+func (b *recordVehicleStateErrorBackend) RecordVehicleState(_ *core.VehicleState) error {
+	return errors.New("record vehicle state failed")
+}
+
+type recordTimeStateErrorBackend struct {
+	mockBackend
+}
+
+func (b *recordTimeStateErrorBackend) RecordTimeState(_ *core.TimeState) error {
+	return errors.New("record time state failed")
+}
+
+type recordProjectileEventErrorBackend struct {
+	mockBackend
+}
+
+func (b *recordProjectileEventErrorBackend) RecordProjectileEvent(_ *core.ProjectileEvent) error {
+	return errors.New("record projectile event failed")
+}
+
+type recordGeneralEventErrorBackend struct {
+	mockBackend
+}
+
+func (b *recordGeneralEventErrorBackend) RecordGeneralEvent(_ *core.GeneralEvent) error {
+	return errors.New("record general event failed")
+}
+
+type recordKillEventErrorBackend struct {
+	mockBackend
+}
+
+func (b *recordKillEventErrorBackend) RecordKillEvent(_ *core.KillEvent) error {
+	return errors.New("record kill event failed")
+}
+
+type recordChatEventErrorBackend struct {
+	mockBackend
+}
+
+func (b *recordChatEventErrorBackend) RecordChatEvent(_ *core.ChatEvent) error {
+	return errors.New("record chat event failed")
+}
+
+type recordRadioEventErrorBackend struct {
+	mockBackend
+}
+
+func (b *recordRadioEventErrorBackend) RecordRadioEvent(_ *core.RadioEvent) error {
+	return errors.New("record radio event failed")
+}
+
+type recordTelemetryEventErrorBackend struct {
+	mockBackend
+}
+
+func (b *recordTelemetryEventErrorBackend) RecordTelemetryEvent(_ *core.TelemetryEvent) error {
+	return errors.New("record telemetry event failed")
+}
+
+type recordAce3DeathEventErrorBackend struct {
+	mockBackend
+}
+
+func (b *recordAce3DeathEventErrorBackend) RecordAce3DeathEvent(_ *core.Ace3DeathEvent) error {
+	return errors.New("record ace3 death event failed")
+}
+
+type recordAce3UnconsciousEventErrorBackend struct {
+	mockBackend
+}
+
+func (b *recordAce3UnconsciousEventErrorBackend) RecordAce3UnconsciousEvent(_ *core.Ace3UnconsciousEvent) error {
+	return errors.New("record ace3 unconscious event failed")
+}
+
+type recordMarkerStateErrorBackend struct {
+	mockBackend
+}
+
+func (b *recordMarkerStateErrorBackend) RecordMarkerState(_ *core.MarkerState) error {
+	return errors.New("record marker state failed")
+}
+
+type deleteMarkerErrorBackend struct {
+	mockBackend
+}
+
+func (b *deleteMarkerErrorBackend) DeleteMarker(_ *core.DeleteMarker) error {
+	return errors.New("delete marker failed")
+}
+
+// --- Backend Record* error tests ---
+
+func TestHandleSoldierState_BackendError(t *testing.T) {
+	d, logger := newTestDispatcher(t)
+	entityCache := cache.NewEntityCache()
+	entityCache.AddSoldier(core.Soldier{ID: 10, GroupID: "Alpha", Side: "WEST"})
+
+	parserService := &mockParserService{
+		soldierState: core.SoldierState{SoldierID: 10},
+	}
+
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   entityCache,
+	}, &recordSoldierStateErrorBackend{})
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:SOLDIER:STATE:", Args: []string{}})
+	require.NoError(t, err)
+	waitForLogMsg(t, logger, "event failed")
+}
+
+func TestHandleVehicleState_BackendError(t *testing.T) {
+	d, logger := newTestDispatcher(t)
+	entityCache := cache.NewEntityCache()
+	entityCache.AddVehicle(core.Vehicle{ID: 50})
+
+	parserService := &mockParserService{
+		vehicleState: core.VehicleState{VehicleID: 50},
+	}
+
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   entityCache,
+	}, &recordVehicleStateErrorBackend{})
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:VEHICLE:STATE:", Args: []string{}})
+	require.NoError(t, err)
+	waitForLogMsg(t, logger, "event failed")
+}
+
+func TestHandleTimeState_BackendError(t *testing.T) {
+	d, logger := newTestDispatcher(t)
+
+	parserService := &mockParserService{
+		timeState: core.TimeState{CaptureFrame: 100},
+	}
+
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   cache.NewEntityCache(),
+	}, &recordTimeStateErrorBackend{})
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:TIME:STATE:", Args: []string{}})
+	require.NoError(t, err)
+	waitForLogMsg(t, logger, "event failed")
+}
+
+func TestHandleProjectileEvent_BackendError(t *testing.T) {
+	d, logger := newTestDispatcher(t)
+
+	parserService := &mockParserService{
+		projectile: parser.ProjectileEvent{CaptureFrame: 100},
+	}
+
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   cache.NewEntityCache(),
+	}, &recordProjectileEventErrorBackend{})
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":PROJECTILE:", Args: []string{}})
+	require.NoError(t, err)
+	waitForLogMsg(t, logger, "event failed")
+}
+
+func TestHandleGeneralEvent_BackendError(t *testing.T) {
+	d, logger := newTestDispatcher(t)
+
+	parserService := &mockParserService{
+		generalEvent: core.GeneralEvent{CaptureFrame: 100, Name: "test"},
+	}
+
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   cache.NewEntityCache(),
+	}, &recordGeneralEventErrorBackend{})
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":EVENT:", Args: []string{}})
+	require.NoError(t, err)
+	waitForLogMsg(t, logger, "event failed")
+}
+
+func TestHandleKillEvent_BackendError(t *testing.T) {
+	d, logger := newTestDispatcher(t)
+
+	parserService := &mockParserService{
+		killEvent: parser.KillEvent{CaptureFrame: 100},
+	}
+
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   cache.NewEntityCache(),
+	}, &recordKillEventErrorBackend{})
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":KILL:", Args: []string{}})
+	require.NoError(t, err)
+	waitForLogMsg(t, logger, "event failed")
+}
+
+func TestHandleChatEvent_BackendError(t *testing.T) {
+	d, logger := newTestDispatcher(t)
+	entityCache := cache.NewEntityCache()
+	entityCache.AddSoldier(core.Soldier{ID: 5})
+
+	senderID := uint(5)
+	parserService := &mockParserService{
+		chatEvent: core.ChatEvent{SoldierID: &senderID, CaptureFrame: 100},
+	}
+
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   entityCache,
+	}, &recordChatEventErrorBackend{})
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":CHAT:", Args: []string{}})
+	require.NoError(t, err)
+	waitForLogMsg(t, logger, "event failed")
+}
+
+func TestHandleRadioEvent_BackendError(t *testing.T) {
+	d, logger := newTestDispatcher(t)
+	entityCache := cache.NewEntityCache()
+	entityCache.AddSoldier(core.Soldier{ID: 3})
+
+	senderID := uint(3)
+	parserService := &mockParserService{
+		radioEvent: core.RadioEvent{SoldierID: &senderID, CaptureFrame: 100},
+	}
+
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   entityCache,
+	}, &recordRadioEventErrorBackend{})
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":RADIO:", Args: []string{}})
+	require.NoError(t, err)
+	waitForLogMsg(t, logger, "event failed")
+}
+
+func TestHandleTelemetryEvent_BackendError(t *testing.T) {
+	d, logger := newTestDispatcher(t)
+
+	parserService := &mockParserService{
+		telemetryEvent: core.TelemetryEvent{CaptureFrame: 100},
+	}
+
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   cache.NewEntityCache(),
+	}, &recordTelemetryEventErrorBackend{})
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":TELEMETRY:", Args: []string{}})
+	require.NoError(t, err)
+	waitForLogMsg(t, logger, "event failed")
+}
+
+func TestHandleAce3DeathEvent_BackendError(t *testing.T) {
+	d, logger := newTestDispatcher(t)
+	entityCache := cache.NewEntityCache()
+	entityCache.AddSoldier(core.Soldier{ID: 8})
+
+	parserService := &mockParserService{
+		ace3Death: core.Ace3DeathEvent{SoldierID: 8, CaptureFrame: 100, Reason: "bleedout"},
+	}
+
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   entityCache,
+		LogManager:    logging.NewSlogManager(),
+	}, &recordAce3DeathEventErrorBackend{})
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":ACE3:DEATH:", Args: []string{}})
+	require.NoError(t, err)
+	waitForLogMsg(t, logger, "event failed")
+}
+
+func TestHandleAce3UnconsciousEvent_BackendError(t *testing.T) {
+	d, logger := newTestDispatcher(t)
+	entityCache := cache.NewEntityCache()
+	entityCache.AddSoldier(core.Soldier{ID: 12})
+
+	parserService := &mockParserService{
+		ace3Uncon: core.Ace3UnconsciousEvent{SoldierID: 12, CaptureFrame: 100, IsUnconscious: true},
+	}
+
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   entityCache,
+	}, &recordAce3UnconsciousEventErrorBackend{})
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":ACE3:UNCONSCIOUS:", Args: []string{}})
+	require.NoError(t, err)
+	waitForLogMsg(t, logger, "event failed")
+}
+
+func TestHandleMarkerMove_BackendError(t *testing.T) {
+	d, logger := newTestDispatcher(t)
+	markerCache := cache.NewMarkerCache()
+	markerCache.Set("marker_alpha", 42)
+
+	parserService := &mockParserService{
+		markerMove: parser.MarkerMove{CaptureFrame: 100, MarkerName: "marker_alpha"},
+	}
+
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   cache.NewEntityCache(),
+		MarkerCache:   markerCache,
+	}, &recordMarkerStateErrorBackend{})
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:MARKER:STATE:", Args: []string{}})
+	require.NoError(t, err)
+	waitForLogMsg(t, logger, "event failed")
+}
+
+func TestHandleMarkerDelete_BackendError(t *testing.T) {
+	d, logger := newTestDispatcher(t)
+
+	parserService := &mockParserService{
+		deleteMarker: &core.DeleteMarker{Name: "marker_1", EndFrame: 100},
+	}
+
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   cache.NewEntityCache(),
+		MarkerCache:   cache.NewMarkerCache(),
+	}, &deleteMarkerErrorBackend{})
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":DELETE:MARKER:", Args: []string{}})
+	require.NoError(t, err)
+	waitForLogMsg(t, logger, "event failed")
+}

@@ -145,6 +145,18 @@ func TestUpload_ServerDown(t *testing.T) {
 	assert.Contains(t, err.Error(), "upload request failed")
 }
 
+func TestUpload_InvalidURL(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := tmpDir + "/test.json.gz"
+	require.NoError(t, writeTestFile(testFile, []byte("content")))
+
+	// Control character in URL causes http.NewRequest to fail
+	c := New("http://host\x7f", "secret")
+	err := c.Upload(testFile, core.UploadMetadata{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to create request")
+}
+
 func writeTestFile(path string, content []byte) error {
 	return os.WriteFile(path, content, 0644)
 }

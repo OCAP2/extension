@@ -3,11 +3,13 @@ package logging
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
 )
 
 func TestSetup_FileOnly_NoStdout(t *testing.T) {
@@ -222,6 +224,53 @@ func TestMultiHandler_WithGroupEmpty(t *testing.T) {
 
 	same := multi.WithGroup("")
 	assert.Equal(t, multi, same, "empty group name should return same handler")
+}
+
+func TestFlush_WithProvider(t *testing.T) {
+	provider := sdklog.NewLoggerProvider() // no exporter, just validates non-nil path
+	m := NewSlogManager()
+
+	var buf bytes.Buffer
+	m.Setup(&buf, "info", provider)
+
+	err := m.Flush(context.Background())
+	assert.NoError(t, err)
+}
+
+// errorHandler is a slog.Handler that always returns an error from Handle.
+type errorHandler struct {
+	slog.Handler
+}
+
+func (h *errorHandler) Handle(_ context.Context, _ slog.Record) error {
+	return errors.New("handler error")
+}
+
+func (h *errorHandler) Enabled(_ context.Context, _ slog.Level) bool {
+	return true
+}
+
+func TestMultiHandler_HandleError(t *testing.T) {
+	var buf bytes.Buffer
+	spy := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})
+
+	// First handler errors, second (spy) should still receive the record.
+	multi := NewMultiHandler(&errorHandler{}, spy)
+	logger := slog.New(multi)
+	logger.Info("should reach spy")
+
+	assert.Contains(t, buf.String(), "should reach spy")
+}
+
+func TestSetup_WithOTelProvider(t *testing.T) {
+	provider := sdklog.NewLoggerProvider()
+
+	var buf bytes.Buffer
+	m := NewSlogManager()
+	m.Setup(&buf, "info", provider)
+
+	m.Logger().Info("otel integrated")
+	assert.Contains(t, buf.String(), "otel integrated")
 }
 
 // captureStdout redirects os.Stdout to a pipe and returns a function
