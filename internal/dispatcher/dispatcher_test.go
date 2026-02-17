@@ -308,8 +308,7 @@ func TestDispatcher_LoggedArgPreview(t *testing.T) {
 		if strings.Contains(msg, "handling event") && strings.Contains(msg, "620") && strings.Contains(msg, "350.811") {
 			found = true
 			// All args should be present (no truncation)
-			assert.Contains(t, msg, "extra1", "all args should be logged")
-			assert.Contains(t, msg, "extra2", "all args should be logged")
+			assert.Contains(t, msg, "args [620 350.811 1 extra1 extra2]", "all args should be logged")
 			break
 		}
 	}
