@@ -63,13 +63,15 @@ func (m *SlogManager) Setup(file io.Writer, level string, provider *sdklog.Logge
 	// Build list of handlers
 	var handlers []slog.Handler
 
+	var logWriter io.Writer
 	if file != nil {
 		// File handler only — avoid writing to stdout which ArmA 3 captures into the RPT file
-		handlers = append(handlers, slog.NewTextHandler(file, handlerOpts))
+		logWriter = file
 	} else {
 		// Console handler as fallback when no file is available
-		handlers = append(handlers, slog.NewTextHandler(os.Stdout, handlerOpts))
+		logWriter = os.Stdout
 	}
+	handlers = append(handlers, slog.NewTextHandler(logWriter, handlerOpts))
 
 	// OTel handler (if provider is available)
 	if provider != nil {
