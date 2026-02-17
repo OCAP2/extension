@@ -471,6 +471,21 @@ func waitFor(t *testing.T, check func() bool, msg string) {
 	}
 }
 
+// waitForLogMsg waits until a message containing substr appears in the mock logger.
+func waitForLogMsg(t *testing.T, logger *mockLogger, substr string) {
+	t.Helper()
+	waitFor(t, func() bool {
+		logger.mu.Lock()
+		defer logger.mu.Unlock()
+		for _, msg := range logger.messages {
+			if msg == substr {
+				return true
+			}
+		}
+		return false
+	}, "timed out waiting for log message: "+substr)
+}
+
 func newTestDispatcher(t *testing.T) (*dispatcher.Dispatcher, *mockLogger) {
 	logger := &mockLogger{}
 
@@ -1540,7 +1555,7 @@ func TestHandleNewVehicle_BackendError(t *testing.T) {
 // --- Parser error tests for buffered handlers ---
 
 func TestHandleSoldierState_ParserError(t *testing.T) {
-	d, _ := newTestDispatcher(t)
+	d, logger := newTestDispatcher(t)
 
 	parserService := &mockParserService{returnError: true, errorMsg: "bad state"}
 	backend := &mockBackend{}
@@ -1553,14 +1568,14 @@ func TestHandleSoldierState_ParserError(t *testing.T) {
 	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:SOLDIER:STATE:", Args: []string{}})
 	require.NoError(t, err) // buffered dispatch doesn't return handler errors
 
-	time.Sleep(200 * time.Millisecond)
+	waitForLogMsg(t, logger, "event failed")
 	backend.mu.Lock()
 	defer backend.mu.Unlock()
 	assert.Empty(t, backend.soldierStates)
 }
 
 func TestHandleVehicleState_ParserError(t *testing.T) {
-	d, _ := newTestDispatcher(t)
+	d, logger := newTestDispatcher(t)
 
 	parserService := &mockParserService{returnError: true, errorMsg: "bad state"}
 	backend := &mockBackend{}
@@ -1573,14 +1588,14 @@ func TestHandleVehicleState_ParserError(t *testing.T) {
 	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:VEHICLE:STATE:", Args: []string{}})
 	require.NoError(t, err)
 
-	time.Sleep(200 * time.Millisecond)
+	waitForLogMsg(t, logger, "event failed")
 	backend.mu.Lock()
 	defer backend.mu.Unlock()
 	assert.Empty(t, backend.vehicleStates)
 }
 
 func TestHandleTimeState_ParserError(t *testing.T) {
-	d, _ := newTestDispatcher(t)
+	d, logger := newTestDispatcher(t)
 
 	parserService := &mockParserService{returnError: true, errorMsg: "bad time"}
 	backend := &mockBackend{}
@@ -1593,14 +1608,14 @@ func TestHandleTimeState_ParserError(t *testing.T) {
 	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:TIME:STATE:", Args: []string{}})
 	require.NoError(t, err)
 
-	time.Sleep(200 * time.Millisecond)
+	waitForLogMsg(t, logger, "event failed")
 	backend.mu.Lock()
 	defer backend.mu.Unlock()
 	assert.Empty(t, backend.timeStates)
 }
 
 func TestHandleProjectileEvent_ParserError(t *testing.T) {
-	d, _ := newTestDispatcher(t)
+	d, logger := newTestDispatcher(t)
 
 	parserService := &mockParserService{returnError: true, errorMsg: "bad projectile"}
 	backend := &mockBackend{}
@@ -1613,14 +1628,14 @@ func TestHandleProjectileEvent_ParserError(t *testing.T) {
 	_, err := d.Dispatch(dispatcher.Event{Command: ":PROJECTILE:", Args: []string{}})
 	require.NoError(t, err)
 
-	time.Sleep(200 * time.Millisecond)
+	waitForLogMsg(t, logger, "event failed")
 	backend.mu.Lock()
 	defer backend.mu.Unlock()
 	assert.Empty(t, backend.projectileEvents)
 }
 
 func TestHandleGeneralEvent_ParserError(t *testing.T) {
-	d, _ := newTestDispatcher(t)
+	d, logger := newTestDispatcher(t)
 
 	parserService := &mockParserService{returnError: true, errorMsg: "bad event"}
 	backend := &mockBackend{}
@@ -1633,14 +1648,14 @@ func TestHandleGeneralEvent_ParserError(t *testing.T) {
 	_, err := d.Dispatch(dispatcher.Event{Command: ":EVENT:", Args: []string{}})
 	require.NoError(t, err)
 
-	time.Sleep(200 * time.Millisecond)
+	waitForLogMsg(t, logger, "event failed")
 	backend.mu.Lock()
 	defer backend.mu.Unlock()
 	assert.Empty(t, backend.generalEvents)
 }
 
 func TestHandleKillEvent_ParserError(t *testing.T) {
-	d, _ := newTestDispatcher(t)
+	d, logger := newTestDispatcher(t)
 
 	parserService := &mockParserService{returnError: true, errorMsg: "bad kill"}
 	backend := &mockBackend{}
@@ -1653,14 +1668,14 @@ func TestHandleKillEvent_ParserError(t *testing.T) {
 	_, err := d.Dispatch(dispatcher.Event{Command: ":KILL:", Args: []string{}})
 	require.NoError(t, err)
 
-	time.Sleep(200 * time.Millisecond)
+	waitForLogMsg(t, logger, "event failed")
 	backend.mu.Lock()
 	defer backend.mu.Unlock()
 	assert.Empty(t, backend.killEvents)
 }
 
 func TestHandleChatEvent_ParserError(t *testing.T) {
-	d, _ := newTestDispatcher(t)
+	d, logger := newTestDispatcher(t)
 
 	parserService := &mockParserService{returnError: true, errorMsg: "bad chat"}
 	backend := &mockBackend{}
@@ -1673,14 +1688,14 @@ func TestHandleChatEvent_ParserError(t *testing.T) {
 	_, err := d.Dispatch(dispatcher.Event{Command: ":CHAT:", Args: []string{}})
 	require.NoError(t, err)
 
-	time.Sleep(200 * time.Millisecond)
+	waitForLogMsg(t, logger, "event failed")
 	backend.mu.Lock()
 	defer backend.mu.Unlock()
 	assert.Empty(t, backend.chatEvents)
 }
 
 func TestHandleRadioEvent_ParserError(t *testing.T) {
-	d, _ := newTestDispatcher(t)
+	d, logger := newTestDispatcher(t)
 
 	parserService := &mockParserService{returnError: true, errorMsg: "bad radio"}
 	backend := &mockBackend{}
@@ -1693,14 +1708,14 @@ func TestHandleRadioEvent_ParserError(t *testing.T) {
 	_, err := d.Dispatch(dispatcher.Event{Command: ":RADIO:", Args: []string{}})
 	require.NoError(t, err)
 
-	time.Sleep(200 * time.Millisecond)
+	waitForLogMsg(t, logger, "event failed")
 	backend.mu.Lock()
 	defer backend.mu.Unlock()
 	assert.Empty(t, backend.radioEvents)
 }
 
 func TestHandleTelemetryEvent_ParserError(t *testing.T) {
-	d, _ := newTestDispatcher(t)
+	d, logger := newTestDispatcher(t)
 
 	parserService := &mockParserService{returnError: true, errorMsg: "bad telemetry"}
 	backend := &mockBackend{}
@@ -1713,14 +1728,14 @@ func TestHandleTelemetryEvent_ParserError(t *testing.T) {
 	_, err := d.Dispatch(dispatcher.Event{Command: ":TELEMETRY:", Args: []string{}})
 	require.NoError(t, err)
 
-	time.Sleep(200 * time.Millisecond)
+	waitForLogMsg(t, logger, "event failed")
 	backend.mu.Lock()
 	defer backend.mu.Unlock()
 	assert.Empty(t, backend.telemetryEvents)
 }
 
 func TestHandleAce3DeathEvent_ParserError(t *testing.T) {
-	d, _ := newTestDispatcher(t)
+	d, logger := newTestDispatcher(t)
 
 	parserService := &mockParserService{returnError: true, errorMsg: "bad death"}
 	backend := &mockBackend{}
@@ -1733,14 +1748,14 @@ func TestHandleAce3DeathEvent_ParserError(t *testing.T) {
 	_, err := d.Dispatch(dispatcher.Event{Command: ":ACE3:DEATH:", Args: []string{}})
 	require.NoError(t, err)
 
-	time.Sleep(200 * time.Millisecond)
+	waitForLogMsg(t, logger, "event failed")
 	backend.mu.Lock()
 	defer backend.mu.Unlock()
 	assert.Empty(t, backend.ace3Deaths)
 }
 
 func TestHandleAce3UnconsciousEvent_ParserError(t *testing.T) {
-	d, _ := newTestDispatcher(t)
+	d, logger := newTestDispatcher(t)
 
 	parserService := &mockParserService{returnError: true, errorMsg: "bad uncon"}
 	backend := &mockBackend{}
@@ -1753,14 +1768,14 @@ func TestHandleAce3UnconsciousEvent_ParserError(t *testing.T) {
 	_, err := d.Dispatch(dispatcher.Event{Command: ":ACE3:UNCONSCIOUS:", Args: []string{}})
 	require.NoError(t, err)
 
-	time.Sleep(200 * time.Millisecond)
+	waitForLogMsg(t, logger, "event failed")
 	backend.mu.Lock()
 	defer backend.mu.Unlock()
 	assert.Empty(t, backend.ace3Uncon)
 }
 
 func TestHandleMarkerMove_ParserError(t *testing.T) {
-	d, _ := newTestDispatcher(t)
+	d, logger := newTestDispatcher(t)
 
 	parserService := &mockParserService{returnError: true, errorMsg: "bad marker move"}
 	backend := &mockBackend{}
@@ -1774,14 +1789,14 @@ func TestHandleMarkerMove_ParserError(t *testing.T) {
 	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:MARKER:STATE:", Args: []string{}})
 	require.NoError(t, err)
 
-	time.Sleep(200 * time.Millisecond)
+	waitForLogMsg(t, logger, "event failed")
 	backend.mu.Lock()
 	defer backend.mu.Unlock()
 	assert.Empty(t, backend.markerStates)
 }
 
 func TestHandleMarkerDelete_ParserError(t *testing.T) {
-	d, _ := newTestDispatcher(t)
+	d, logger := newTestDispatcher(t)
 
 	parserService := &mockParserService{returnError: true, errorMsg: "bad marker delete"}
 	backend := &mockBackend{}
@@ -1795,7 +1810,7 @@ func TestHandleMarkerDelete_ParserError(t *testing.T) {
 	_, err := d.Dispatch(dispatcher.Event{Command: ":DELETE:MARKER:", Args: []string{}})
 	require.NoError(t, err)
 
-	time.Sleep(200 * time.Millisecond)
+	waitForLogMsg(t, logger, "event failed")
 	backend.mu.Lock()
 	defer backend.mu.Unlock()
 	assert.Empty(t, backend.deletedMarkers)
@@ -1865,7 +1880,7 @@ func TestHandleRadioEvent_NilSoldierID(t *testing.T) {
 }
 
 func TestHandleRadioEvent_SenderNotCached(t *testing.T) {
-	d, _ := newTestDispatcher(t)
+	d, logger := newTestDispatcher(t)
 	entityCache := cache.NewEntityCache()
 
 	senderID := uint(77)
@@ -1883,14 +1898,14 @@ func TestHandleRadioEvent_SenderNotCached(t *testing.T) {
 	_, err := d.Dispatch(dispatcher.Event{Command: ":RADIO:", Args: []string{}})
 	require.NoError(t, err)
 
-	time.Sleep(200 * time.Millisecond)
+	waitForLogMsg(t, logger, "event failed")
 	backend.mu.Lock()
 	defer backend.mu.Unlock()
 	assert.Empty(t, backend.radioEvents, "radio event should not be recorded when sender not cached")
 }
 
 func TestHandleMarkerMove_MarkerNotInCache(t *testing.T) {
-	d, _ := newTestDispatcher(t)
+	d, logger := newTestDispatcher(t)
 	markerCache := cache.NewMarkerCache()
 	// marker_beta is NOT in cache
 
@@ -1912,14 +1927,14 @@ func TestHandleMarkerMove_MarkerNotInCache(t *testing.T) {
 	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:MARKER:STATE:", Args: []string{}})
 	require.NoError(t, err)
 
-	time.Sleep(200 * time.Millisecond)
+	waitForLogMsg(t, logger, "event failed")
 	backend.mu.Lock()
 	defer backend.mu.Unlock()
 	assert.Empty(t, backend.markerStates, "marker state should not be recorded when marker not in cache")
 }
 
 func TestHandleAce3DeathEvent_SoldierNotCached(t *testing.T) {
-	d, _ := newTestDispatcher(t)
+	d, logger := newTestDispatcher(t)
 	entityCache := cache.NewEntityCache()
 	// Soldier 50 is NOT in cache
 
@@ -1938,14 +1953,14 @@ func TestHandleAce3DeathEvent_SoldierNotCached(t *testing.T) {
 	_, err := d.Dispatch(dispatcher.Event{Command: ":ACE3:DEATH:", Args: []string{}})
 	require.NoError(t, err)
 
-	time.Sleep(200 * time.Millisecond)
+	waitForLogMsg(t, logger, "event failed")
 	backend.mu.Lock()
 	defer backend.mu.Unlock()
 	assert.Empty(t, backend.ace3Deaths, "ace3 death should not be recorded when soldier not cached")
 }
 
 func TestHandleAce3DeathEvent_DamageSourceNotFound(t *testing.T) {
-	d, _ := newTestDispatcher(t)
+	d, logger := newTestDispatcher(t)
 	entityCache := cache.NewEntityCache()
 	entityCache.AddSoldier(core.Soldier{ID: 8}) // victim exists
 	// But damage source 99 is NOT in either cache
@@ -1971,14 +1986,14 @@ func TestHandleAce3DeathEvent_DamageSourceNotFound(t *testing.T) {
 	_, err := d.Dispatch(dispatcher.Event{Command: ":ACE3:DEATH:", Args: []string{}})
 	require.NoError(t, err)
 
-	time.Sleep(200 * time.Millisecond)
+	waitForLogMsg(t, logger, "event failed")
 	backend.mu.Lock()
 	defer backend.mu.Unlock()
 	assert.Empty(t, backend.ace3Deaths, "ace3 death should not be recorded when damage source not found")
 }
 
 func TestHandleAce3UnconsciousEvent_SoldierNotCached(t *testing.T) {
-	d, _ := newTestDispatcher(t)
+	d, logger := newTestDispatcher(t)
 	entityCache := cache.NewEntityCache()
 	// Soldier 60 is NOT in cache
 
@@ -1996,7 +2011,7 @@ func TestHandleAce3UnconsciousEvent_SoldierNotCached(t *testing.T) {
 	_, err := d.Dispatch(dispatcher.Event{Command: ":ACE3:UNCONSCIOUS:", Args: []string{}})
 	require.NoError(t, err)
 
-	time.Sleep(200 * time.Millisecond)
+	waitForLogMsg(t, logger, "event failed")
 	backend.mu.Lock()
 	defer backend.mu.Unlock()
 	assert.Empty(t, backend.ace3Uncon, "ace3 unconscious should not be recorded when soldier not cached")
