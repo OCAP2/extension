@@ -90,6 +90,13 @@ func (m *Manager) handleSoldierState(e dispatcher.Event) (any, error) {
 		obj.Side = soldier.Side
 	}
 
+	// Player takeover: once IsPlayer becomes true, update cached entity
+	if obj.IsPlayer && !soldier.IsPlayer {
+		soldier.IsPlayer = true
+		soldier.UnitName = obj.UnitName
+		m.deps.EntityCache.UpdateSoldier(soldier)
+	}
+
 	if err := m.backend.RecordSoldierState(&obj); err != nil {
 		return nil, fmt.Errorf("record soldier state: %w", err)
 	}

@@ -97,12 +97,24 @@ func Build(data *MissionData) Export {
 
 	// Convert soldiers - place at index matching their ID
 	for _, record := range data.Soldiers {
+		// Derive IsPlayer and Name from states (source of truth for time-varying fields).
+		// "Ever-a-player": once a player takes over an AI unit, the entity stays a player.
+		isPlayer := record.Soldier.IsPlayer
+		name := record.Soldier.UnitName
+		for _, state := range record.States {
+			if state.IsPlayer && !isPlayer {
+				isPlayer = true
+				name = state.UnitName
+				break
+			}
+		}
+
 		entity := Entity{
 			ID:            record.Soldier.ID,
-			Name:          record.Soldier.UnitName,
+			Name:          name,
 			Group:         record.Soldier.GroupID,
 			Side:          record.Soldier.Side,
-			IsPlayer:      boolToInt(record.Soldier.IsPlayer),
+			IsPlayer:      boolToInt(isPlayer),
 			Type:          "unit",
 			Role:          record.Soldier.RoleDescription,
 			StartFrameNum: record.Soldier.JoinFrame,

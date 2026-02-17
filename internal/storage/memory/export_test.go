@@ -1221,6 +1221,59 @@ func TestVehicleCrewExportIntegration(t *testing.T) {
 	assert.Empty(t, crew2)
 }
 
+func TestPlayerTakeoverUpdatesEntityMetadata(t *testing.T) {
+	b := New(config.MemoryConfig{})
+
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
+
+	// Register as AI unit initially
+	require.NoError(t, b.AddSoldier(&core.Soldier{
+		ID: 5, UnitName: "Habibzai", GroupID: "Alpha", Side: "EAST", IsPlayer: false, JoinFrame: 0,
+	}))
+
+	// First few frames: AI walking around
+	require.NoError(t, b.RecordSoldierState(&core.SoldierState{
+		SoldierID: 5, CaptureFrame: 0, Position: core.Position3D{X: 100, Y: 200, Z: 10},
+		Bearing: 45, Lifestate: 1, UnitName: "Habibzai", IsPlayer: false, CurrentRole: "Rifleman",
+		GroupID: "Alpha", Side: "EAST",
+	}))
+	require.NoError(t, b.RecordSoldierState(&core.SoldierState{
+		SoldierID: 5, CaptureFrame: 10, Position: core.Position3D{X: 110, Y: 210, Z: 10},
+		Bearing: 50, Lifestate: 1, UnitName: "Habibzai", IsPlayer: false, CurrentRole: "Rifleman",
+		GroupID: "Alpha", Side: "EAST",
+	}))
+
+	// Player takes over the AI unit mid-game
+	require.NoError(t, b.RecordSoldierState(&core.SoldierState{
+		SoldierID: 5, CaptureFrame: 20, Position: core.Position3D{X: 120, Y: 220, Z: 10},
+		Bearing: 55, Lifestate: 1, UnitName: "zigster", IsPlayer: true, CurrentRole: "Rifleman",
+		GroupID: "Alpha", Side: "EAST",
+	}))
+	require.NoError(t, b.RecordSoldierState(&core.SoldierState{
+		SoldierID: 5, CaptureFrame: 30, Position: core.Position3D{X: 130, Y: 230, Z: 10},
+		Bearing: 60, Lifestate: 1, UnitName: "zigster", IsPlayer: true, CurrentRole: "Rifleman",
+		GroupID: "Alpha", Side: "EAST",
+	}))
+
+	export := b.BuildExport()
+
+	// Entity metadata should reflect the player takeover
+	require.Len(t, export.Entities, 6) // indices 0-5
+	entity := export.Entities[5]
+
+	assert.Equal(t, 1, entity.IsPlayer, "entity should be marked as player after takeover")
+	assert.Equal(t, "zigster", entity.Name, "entity name should be the player's name")
+
+	// Per-frame data should still be correct
+	require.Len(t, entity.Positions, 4)
+	// Frame 0: AI
+	assert.Equal(t, "Habibzai", entity.Positions[0][4])
+	assert.Equal(t, 0, entity.Positions[0][5])
+	// Frame 20: player took over
+	assert.Equal(t, "zigster", entity.Positions[2][4])
+	assert.Equal(t, 1, entity.Positions[2][5])
+}
+
 func TestMarkerSideValues(t *testing.T) {
 	// Test that sideToIndex correctly handles side string values
 	b := New(config.MemoryConfig{})

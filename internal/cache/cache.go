@@ -65,6 +65,13 @@ func (c *EntityCache) AddSoldier(s core.Soldier) {
 	c.soldiers[s.ID] = s
 }
 
+// UpdateSoldier replaces the cached soldier entry for the given ID.
+func (c *EntityCache) UpdateSoldier(s core.Soldier) {
+	c.m.Lock()
+	defer c.m.Unlock()
+	c.soldiers[s.ID] = s
+}
+
 func (c *EntityCache) AddVehicle(v core.Vehicle) {
 	c.m.Lock()
 	defer c.m.Unlock()
