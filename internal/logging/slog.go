@@ -12,6 +12,12 @@ import (
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 )
 
+// osStdout is the default console writer, overridable in tests.
+var osStdout io.Writer = os.Stdout
+
+// osPipe wraps os.Pipe for test overriding.
+var osPipe = os.Pipe
+
 // SlogManager manages slog-based logging with optional OTel integration.
 type SlogManager struct {
 	logger *slog.Logger
@@ -69,7 +75,7 @@ func (m *SlogManager) Setup(file io.Writer, level string, provider *sdklog.Logge
 		logWriter = file
 	} else {
 		// Console handler as fallback when no file is available
-		logWriter = os.Stdout
+		logWriter = osStdout
 	}
 	handlers = append(handlers, slog.NewTextHandler(logWriter, handlerOpts))
 
