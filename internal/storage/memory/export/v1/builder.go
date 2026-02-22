@@ -44,6 +44,12 @@ type MarkerRecord struct {
 	States []core.MarkerState
 }
 
+// frameToV1 converts an internal 1-based Frame to a 0-based v1 JSON frame number.
+// The v1 format uses 0-based frames; internal frames start at 1.
+func frameToV1(f core.Frame) uint {
+	return uint(f) - 1
+}
+
 // Build creates an Export from the mission data
 func Build(data *MissionData) Export {
 	export := Export{
@@ -65,7 +71,7 @@ func Build(data *MissionData) Export {
 	for _, ts := range data.TimeStates {
 		export.Times = append(export.Times, Time{
 			Date:           ts.MissionDate,
-			FrameNum:       uint(ts.CaptureFrame),
+			FrameNum:       frameToV1(ts.CaptureFrame),
 			SystemTimeUTC:  ts.SystemTimeUTC,
 			Time:           ts.MissionTime,
 			TimeMultiplier: ts.TimeMultiplier,
@@ -116,7 +122,7 @@ func Build(data *MissionData) Export {
 			IsPlayer:      boolToInt(isPlayer),
 			Type:          "unit",
 			Role:          record.Soldier.RoleDescription,
-			StartFrameNum: uint(record.Soldier.JoinFrame),
+			StartFrameNum: frameToV1(record.Soldier.JoinFrame),
 			Positions:     make([][]any, 0, len(record.States)),
 			FramesFired:   make([][]any, 0, len(record.FiredEvents)),
 		}
@@ -148,7 +154,7 @@ func Build(data *MissionData) Export {
 		for _, fired := range record.FiredEvents {
 			// v1 format: [frameNum, [x, y, z]] - matches old C++ extension
 			ff := []any{
-				uint(fired.CaptureFrame),
+				frameToV1(fired.CaptureFrame),
 				[]float64{fired.EndPos.X, fired.EndPos.Y, fired.EndPos.Z},
 			}
 			entity.FramesFired = append(entity.FramesFired, ff)
@@ -166,7 +172,7 @@ func Build(data *MissionData) Export {
 			IsPlayer:      0,
 			Type:          "vehicle",
 			Class:         record.Vehicle.OcapType,
-			StartFrameNum: uint(record.Vehicle.JoinFrame),
+			StartFrameNum: frameToV1(record.Vehicle.JoinFrame),
 			Positions:     make([][]any, 0, len(record.States)),
 			FramesFired:   [][]any{},
 		}
@@ -187,7 +193,7 @@ func Build(data *MissionData) Export {
 				state.Bearing,
 				boolToInt(state.IsAlive),
 				crew,
-				[]uint{uint(state.CaptureFrame), uint(state.CaptureFrame)},
+				[]uint{frameToV1(state.CaptureFrame), frameToV1(state.CaptureFrame)},
 			}
 			entity.Positions = append(entity.Positions, pos)
 			if state.CaptureFrame > maxFrame {
@@ -198,7 +204,9 @@ func Build(data *MissionData) Export {
 		export.Entities[record.Vehicle.ID] = entity
 	}
 
-	export.EndFrame = uint(maxFrame)
+	if maxFrame > 0 {
+		export.EndFrame = frameToV1(maxFrame)
+	}
 
 	// Convert general events
 	// Format: [frameNum, "type", message]
@@ -213,7 +221,7 @@ func Build(data *MissionData) Export {
 			}
 		}
 		export.Events = append(export.Events, []any{
-			uint(evt.CaptureFrame),
+			frameToV1(evt.CaptureFrame),
 			evt.Name,
 			message,
 		})
@@ -237,7 +245,7 @@ func Build(data *MissionData) Export {
 		}
 
 		export.Events = append(export.Events, []any{
-			uint(evt.CaptureFrame),
+			frameToV1(evt.CaptureFrame),
 			"hit",
 			victimID,
 			[]any{sourceID, evt.EventText}, // [causedById, weapon]
@@ -263,7 +271,7 @@ func Build(data *MissionData) Export {
 		}
 
 		export.Events = append(export.Events, []any{
-			uint(evt.CaptureFrame),
+			frameToV1(evt.CaptureFrame),
 			"killed",
 			victimID,
 			[]any{killerID, evt.EventText}, // [causedById, weapon]
@@ -286,7 +294,7 @@ func Build(data *MissionData) Export {
 				coords[i] = []float64{pt.X, pt.Y}
 			}
 			posArray = append(posArray, []any{
-				uint(record.Marker.CaptureFrame),
+				frameToV1(record.Marker.CaptureFrame),
 				coords, // [[x1,y1], [x2,y2], ...]
 				record.Marker.Direction,
 				record.Marker.Alpha,
@@ -294,7 +302,7 @@ func Build(data *MissionData) Export {
 		} else {
 			// For other shapes: pos is a single coordinate
 			posArray = append(posArray, []any{
-				uint(record.Marker.CaptureFrame),
+				frameToV1(record.Marker.CaptureFrame),
 				[]float64{record.Marker.Position.X, record.Marker.Position.Y, record.Marker.Position.Z},
 				record.Marker.Direction,
 				record.Marker.Alpha,
@@ -303,7 +311,7 @@ func Build(data *MissionData) Export {
 			// State changes
 			for _, state := range record.States {
 				posArray = append(posArray, []any{
-					uint(state.CaptureFrame),
+					frameToV1(state.CaptureFrame),
 					[]float64{state.Position.X, state.Position.Y, state.Position.Z},
 					state.Direction,
 					state.Alpha,
@@ -321,13 +329,13 @@ func Build(data *MissionData) Export {
 		if record.Marker.EndFrame == core.FrameForever {
 			endFrame = -1
 		} else {
-			endFrame = int(record.Marker.EndFrame)
+			endFrame = int(frameToV1(record.Marker.EndFrame))
 		}
 
 		marker := []any{
 			record.Marker.MarkerType,            // [0] type
 			record.Marker.Text,                  // [1] text
-			uint(record.Marker.CaptureFrame),    // [2] startFrame
+			frameToV1(record.Marker.CaptureFrame), // [2] startFrame
 			endFrame,                            // [3] endFrame (-1 = persists until end, otherwise frame when marker disappears)
 			record.Marker.OwnerID,               // [4] playerId (entity ID of creating player, -1 for system markers)
 			markerColor,                         // [5] color (# prefix stripped for URL compatibility)
@@ -348,7 +356,7 @@ func Build(data *MissionData) Export {
 			if len(pe.Trajectory) >= 2 && int(pe.FirerObjectID) < len(export.Entities) {
 				endPt := pe.Trajectory[len(pe.Trajectory)-1]
 				ff := []any{
-					uint(pe.CaptureFrame),
+					frameToV1(pe.CaptureFrame),
 					[]float64{endPt.Position.X, endPt.Position.Y, endPt.Position.Z},
 				}
 				export.Entities[pe.FirerObjectID].FramesFired = append(
@@ -387,7 +395,7 @@ func Build(data *MissionData) Export {
 			posArray := make([][]any, 0, len(pe.Trajectory))
 			for _, tp := range pe.Trajectory {
 				posArray = append(posArray, []any{
-					uint(tp.FrameNum),
+					frameToV1(tp.FrameNum),
 					[]float64{tp.Position.X, tp.Position.Y, tp.Position.Z},
 					0,
 					1.0,
@@ -397,13 +405,13 @@ func Build(data *MissionData) Export {
 			// EndFrame is the last trajectory point's frame
 			endFrame := -1
 			if len(pe.Trajectory) > 0 {
-				endFrame = int(pe.Trajectory[len(pe.Trajectory)-1].FrameNum)
+				endFrame = int(frameToV1(pe.Trajectory[len(pe.Trajectory)-1].FrameNum))
 			}
 
 			marker := []any{
 				markerType,                   // [0] type
 				text,                         // [1] text
-				uint(pe.CaptureFrame),        // [2] startFrame
+				frameToV1(pe.CaptureFrame),   // [2] startFrame
 				endFrame,                     // [3] endFrame
 				int(pe.FirerObjectID),        // [4] playerId
 				color,                        // [5] color
@@ -445,7 +453,7 @@ func Build(data *MissionData) Export {
 				dist := float32(math.Sqrt(dx*dx + dy*dy))
 
 				export.Events = append(export.Events, []any{
-					uint(hit.CaptureFrame),
+					frameToV1(hit.CaptureFrame),
 					"hit",
 					victimID,
 					[]any{uint(pe.FirerObjectID), eventText},

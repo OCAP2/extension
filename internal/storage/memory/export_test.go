@@ -42,10 +42,10 @@ func TestIntegrationFullExport(t *testing.T) {
 
 	require.NoError(t, b.StartMission(mission, world))
 	require.NoError(t, b.AddSoldier(&core.Soldier{
-		ID: 1, UnitName: "Player1", GroupID: "Alpha", Side: "WEST", IsPlayer: true, JoinFrame: 0,
+		ID: 1, UnitName: "Player1", GroupID: "Alpha", Side: "WEST", IsPlayer: true, JoinFrame: 1,
 	}))
 	require.NoError(t, b.RecordSoldierState(&core.SoldierState{
-		SoldierID: 1, CaptureFrame: 0, Position: core.Position3D{X: 1000, Y: 2000, Z: 100},
+		SoldierID: 1, CaptureFrame: 1, Position: core.Position3D{X: 1000, Y: 2000, Z: 100},
 		Bearing: 90, Lifestate: 1, UnitName: "Player1", IsPlayer: true, CurrentRole: "Rifleman",
 	}))
 	require.NoError(t, b.RecordSoldierState(&core.SoldierState{
@@ -65,7 +65,7 @@ func TestIntegrationFullExport(t *testing.T) {
 	}))
 	marker1 := &core.Marker{
 		MarkerName: "objective_1", Text: "Objective Alpha", MarkerType: "mil_objective",
-		Color: "ColorBLUFOR", Side: "WEST", Shape: "ICON", CaptureFrame: 0,
+		Color: "ColorBLUFOR", Side: "WEST", Shape: "ICON", CaptureFrame: 1,
 		Position: core.Position3D{X: 5000, Y: 6000, Z: 0}, Direction: 0, Alpha: 1.0,
 	}
 	marker1ID, err := b.AddMarker(marker1)
@@ -77,7 +77,7 @@ func TestIntegrationFullExport(t *testing.T) {
 		CaptureFrame: 15, Name: "connected", Message: "Player1 connected", ExtraData: map[string]any{"uid": "12345"},
 	}))
 	require.NoError(t, b.RecordTimeState(&core.TimeState{
-		CaptureFrame: 0, SystemTimeUTC: "2024-01-15T10:30:00.000", MissionDate: "2035-06-24T06:00:00", TimeMultiplier: 1.0, MissionTime: 0,
+		CaptureFrame: 1, SystemTimeUTC: "2024-01-15T10:30:00.000", MissionDate: "2035-06-24T06:00:00", TimeMultiplier: 1.0, MissionTime: 0,
 	}))
 	require.NoError(t, b.EndMission())
 
@@ -102,7 +102,7 @@ func TestIntegrationFullExport(t *testing.T) {
 	assert.Equal(t, "2.0.0", export.ExtensionVersion)
 	assert.Equal(t, "Mon Jan 15 10:00:00 2024", export.ExtensionBuild)
 	assert.Equal(t, "PvP", export.Tags)
-	assert.Equal(t, uint(10), export.EndFrame, "EndFrame should be max state frame")
+	assert.Equal(t, uint(9), export.EndFrame, "EndFrame should be max state frame")
 
 	// Verify times
 	require.Len(t, export.Times, 1)
@@ -138,7 +138,7 @@ func TestIntegrationFullExport(t *testing.T) {
 	// Verify fired event - v1 format: [frameNum, [x, y, z]]
 	ff := soldierEntity.FramesFired[0]
 	require.Len(t, ff, 2)
-	assert.Equal(t, 5.0, ff[0]) // JSON unmarshals numbers as float64
+	assert.Equal(t, 4.0, ff[0]) // JSON unmarshals numbers as float64 (input frame 5 → v1 output 4)
 	endPos, ok := ff[1].([]any)
 	require.True(t, ok, "endPos should be []any after JSON unmarshal")
 	require.Len(t, endPos, 3)
@@ -154,7 +154,7 @@ func TestIntegrationFullExport(t *testing.T) {
 	// Verify events (array format: [frameNum, type, message])
 	require.Len(t, export.Events, 1)
 	assert.Equal(t, "connected", export.Events[0][1])         // type
-	assert.EqualValues(t, 15, export.Events[0][0])            // frameNum
+	assert.EqualValues(t, 14, export.Events[0][0])            // frameNum (input 15 → v1 output 14)
 	assert.Equal(t, "Player1 connected", export.Events[0][2]) // message
 
 	// Verify markers (array format: [type, text, startFrame, endFrame, playerId, color, sideIndex, positions, size, shape, brush])
@@ -180,7 +180,7 @@ func TestExportJSON(t *testing.T) {
 	require.NoError(t, b.StartMission(&core.Mission{
 		MissionName: "Export Test", Author: "Author", StartTime: time.Date(2024, 3, 15, 14, 30, 0, 0, time.UTC),
 	}, &core.World{WorldName: "Tanoa"}))
-	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 1, UnitName: "Test"}))
+	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 1, UnitName: "Test", JoinFrame: 1}))
 	require.NoError(t, b.EndMission())
 
 	matches, err := filepath.Glob(filepath.Join(tempDir, "Export_Test_*.json"))
@@ -203,7 +203,7 @@ func TestExportGzipJSON(t *testing.T) {
 	require.NoError(t, b.StartMission(&core.Mission{
 		MissionName: "Gzip Test", Author: "Author", StartTime: time.Date(2024, 3, 15, 14, 30, 0, 0, time.UTC),
 	}, &core.World{WorldName: "Livonia"}))
-	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 1, UnitName: "Test"}))
+	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 1, UnitName: "Test", JoinFrame: 1}))
 	require.NoError(t, b.EndMission())
 
 	matches, err := filepath.Glob(filepath.Join(tempDir, "Gzip_Test_*.json.gz"))
@@ -284,7 +284,7 @@ func TestSoldierPositionFormat(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
-	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 1, UnitName: "Player1", IsPlayer: true}))
+	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 1, UnitName: "Player1", IsPlayer: true, JoinFrame: 1}))
 
 	inVehicleID := uint16(100)
 	require.NoError(t, b.RecordSoldierState(&core.SoldierState{
@@ -318,7 +318,7 @@ func TestVehiclePositionFormat(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
-	require.NoError(t, b.AddVehicle(&core.Vehicle{ID: 10, DisplayName: "Hunter", OcapType: "car"}))
+	require.NoError(t, b.AddVehicle(&core.Vehicle{ID: 10, DisplayName: "Hunter", OcapType: "car", JoinFrame: 1}))
 	require.NoError(t, b.RecordVehicleState(&core.VehicleState{
 		VehicleID: 10, CaptureFrame: 3, Position: core.Position3D{X: 5000, Y: 6000, Z: 25},
 		Bearing: 45, IsAlive: true, Crew: "[[1,\"driver\"],[2,\"gunner\"]]",
@@ -344,14 +344,14 @@ func TestVehiclePositionFormat(t *testing.T) {
 
 	// Frame range
 	frameRange := pos[4].([]uint)
-	assert.Equal(t, []uint{3, 3}, frameRange)
+	assert.Equal(t, []uint{2, 2}, frameRange)
 }
 
 func TestFiredEventFormat(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
-	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 1}))
+	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 1, JoinFrame: 1}))
 	require.NoError(t, b.RecordFiredEvent(&core.FiredEvent{
 		SoldierID: 1, CaptureFrame: 100, Weapon: "arifle_MX_F", Magazine: "30Rnd_65x39_caseless_mag",
 		FiringMode: "FullAuto", StartPos: core.Position3D{X: 100, Y: 200, Z: 1.5}, EndPos: core.Position3D{X: 300, Y: 400, Z: 1.8},
@@ -366,7 +366,7 @@ func TestFiredEventFormat(t *testing.T) {
 	ff := export.Entities[1].FramesFired[0]
 	// v1 format: [frameNum, [x, y, z]] - matches old C++ extension
 	require.Len(t, ff, 2)
-	assert.Equal(t, uint(100), ff[0])
+	assert.Equal(t, uint(99), ff[0])
 
 	endPos, ok := ff[1].([]float64)
 	require.True(t, ok, "endPos should be []float64")
@@ -382,7 +382,7 @@ func TestMarkerPositionFormat(t *testing.T) {
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
 	testMarker := &core.Marker{
 		MarkerName: "test_marker", Text: "Test Marker", MarkerType: "mil_dot", Color: "ColorRed",
-		Side: "EAST", Shape: "ICON", CaptureFrame: 0, Position: core.Position3D{X: 1000, Y: 2000, Z: 0}, Direction: 90, Alpha: 1.0,
+		Side: "EAST", Shape: "ICON", CaptureFrame: 1, Position: core.Position3D{X: 1000, Y: 2000, Z: 0}, Direction: 90, Alpha: 1.0,
 	}
 	testMarkerID, err := b.AddMarker(testMarker)
 	require.NoError(t, err)
@@ -405,7 +405,7 @@ func TestMarkerPositionFormat(t *testing.T) {
 	assert.Equal(t, 2000.0, coords[1])           // posY
 	assert.Equal(t, 0.0, coords[2])              // posZ
 
-	assert.Equal(t, uint(50), positions[1][0])   // second position frameNum
+	assert.Equal(t, uint(49), positions[1][0])   // second position frameNum (input 50 → v1 output 49)
 }
 
 func TestEmptyExport(t *testing.T) {
@@ -434,24 +434,24 @@ func TestMaxFrameCalculation(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
-	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 1}))
+	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 1, JoinFrame: 1}))
 	require.NoError(t, b.RecordSoldierState(&core.SoldierState{SoldierID: 1, CaptureFrame: 10}))
 	require.NoError(t, b.RecordSoldierState(&core.SoldierState{SoldierID: 1, CaptureFrame: 50}))
 	require.NoError(t, b.RecordSoldierState(&core.SoldierState{SoldierID: 1, CaptureFrame: 30}))
-	require.NoError(t, b.AddVehicle(&core.Vehicle{ID: 10}))
+	require.NoError(t, b.AddVehicle(&core.Vehicle{ID: 10, JoinFrame: 1}))
 	require.NoError(t, b.RecordVehicleState(&core.VehicleState{VehicleID: 10, CaptureFrame: 100}))
 	require.NoError(t, b.RecordVehicleState(&core.VehicleState{VehicleID: 10, CaptureFrame: 75}))
 
-	assert.Equal(t, uint(100), b.BuildExport().EndFrame)
+	assert.Equal(t, uint(99), b.BuildExport().EndFrame)
 }
 
 func TestSoldierWithoutVehicle(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
-	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 1, UnitName: "Infantry", IsPlayer: false}))
+	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 1, UnitName: "Infantry", IsPlayer: false, JoinFrame: 1}))
 	require.NoError(t, b.RecordSoldierState(&core.SoldierState{
-		SoldierID: 1, CaptureFrame: 0, Position: core.Position3D{X: 100, Y: 200, Z: 10},
+		SoldierID: 1, CaptureFrame: 1, Position: core.Position3D{X: 100, Y: 200, Z: 10},
 		Bearing: 45, Lifestate: 1, InVehicleObjectID: nil, UnitName: "Infantry", IsPlayer: false, CurrentRole: "Rifleman",
 	}))
 
@@ -471,7 +471,7 @@ func TestDeadVehicle(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
-	require.NoError(t, b.AddVehicle(&core.Vehicle{ID: 5, DisplayName: "Destroyed Tank", OcapType: "tank", ClassName: "B_MBT_01_cannon_F"}))
+	require.NoError(t, b.AddVehicle(&core.Vehicle{ID: 5, DisplayName: "Destroyed Tank", OcapType: "tank", ClassName: "B_MBT_01_cannon_F", JoinFrame: 1}))
 	require.NoError(t, b.RecordVehicleState(&core.VehicleState{
 		VehicleID: 5, CaptureFrame: 50, Position: core.Position3D{X: 2000, Y: 3000, Z: 0},
 		Bearing: 90, IsAlive: false, Crew: "[]",
@@ -491,15 +491,15 @@ func TestMultipleEntitiesExport(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
-	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 1, UnitName: "Alpha1", GroupID: "Alpha", Side: "WEST", IsPlayer: true, JoinFrame: 0}))
+	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 1, UnitName: "Alpha1", GroupID: "Alpha", Side: "WEST", IsPlayer: true, JoinFrame: 1}))
 	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 2, UnitName: "Alpha2", GroupID: "Alpha", Side: "WEST", IsPlayer: false, JoinFrame: 5}))
 	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 3, UnitName: "Bravo1", GroupID: "Bravo", Side: "EAST", IsPlayer: false, JoinFrame: 10}))
-	require.NoError(t, b.RecordSoldierState(&core.SoldierState{SoldierID: 1, CaptureFrame: 0, Position: core.Position3D{X: 100, Y: 100}, Lifestate: 1}))
+	require.NoError(t, b.RecordSoldierState(&core.SoldierState{SoldierID: 1, CaptureFrame: 1, Position: core.Position3D{X: 100, Y: 100}, Lifestate: 1}))
 	require.NoError(t, b.RecordSoldierState(&core.SoldierState{SoldierID: 2, CaptureFrame: 5, Position: core.Position3D{X: 110, Y: 100}, Lifestate: 1}))
 	require.NoError(t, b.RecordSoldierState(&core.SoldierState{SoldierID: 3, CaptureFrame: 10, Position: core.Position3D{X: 500, Y: 500}, Lifestate: 1}))
-	require.NoError(t, b.AddVehicle(&core.Vehicle{ID: 10, DisplayName: "Hunter", OcapType: "car", JoinFrame: 0}))
+	require.NoError(t, b.AddVehicle(&core.Vehicle{ID: 10, DisplayName: "Hunter", OcapType: "car", JoinFrame: 1}))
 	require.NoError(t, b.AddVehicle(&core.Vehicle{ID: 11, DisplayName: "Heli", OcapType: "heli", JoinFrame: 20}))
-	require.NoError(t, b.RecordVehicleState(&core.VehicleState{VehicleID: 10, CaptureFrame: 0, Position: core.Position3D{X: 200, Y: 200}, IsAlive: true}))
+	require.NoError(t, b.RecordVehicleState(&core.VehicleState{VehicleID: 10, CaptureFrame: 1, Position: core.Position3D{X: 200, Y: 200}, IsAlive: true}))
 	require.NoError(t, b.RecordVehicleState(&core.VehicleState{VehicleID: 11, CaptureFrame: 20, Position: core.Position3D{X: 300, Y: 300}, IsAlive: true}))
 
 	export := b.BuildExport()
@@ -531,7 +531,7 @@ func TestEventWithoutExtraData(t *testing.T) {
 
 	require.Len(t, export.Events, 1)
 	assert.Equal(t, "endMission", export.Events[0][1])       // type at index 1
-	assert.Equal(t, uint(100), export.Events[0][0])          // frameNum at index 0
+	assert.Equal(t, uint(99), export.Events[0][0])           // frameNum at index 0 (input 100 → v1 output 99)
 	assert.Equal(t, "Mission ended", export.Events[0][2])    // message at index 2
 }
 
@@ -598,12 +598,12 @@ func TestMultipleMarkersExport(t *testing.T) {
 	// Each marker needs a unique ID so RecordMarkerState can find the correct one
 	alphaID, err := b.AddMarker(&core.Marker{
 		MarkerName: "obj_alpha", Text: "Alpha", MarkerType: "mil_objective", Color: "ColorBLUFOR", Side: "WEST", Shape: "ICON",
-		CaptureFrame: 0, Position: core.Position3D{X: 1000, Y: 1000}, Direction: 0, Alpha: 1.0,
+		CaptureFrame: 1, Position: core.Position3D{X: 1000, Y: 1000}, Direction: 0, Alpha: 1.0,
 	})
 	require.NoError(t, err)
 	_, err = b.AddMarker(&core.Marker{
 		MarkerName: "obj_bravo", Text: "Bravo", MarkerType: "mil_objective", Color: "ColorOPFOR", Side: "EAST", Shape: "ICON",
-		CaptureFrame: 0, Position: core.Position3D{X: 2000, Y: 2000}, Direction: 45, Alpha: 1.0,
+		CaptureFrame: 1, Position: core.Position3D{X: 2000, Y: 2000}, Direction: 45, Alpha: 1.0,
 	})
 	require.NoError(t, err)
 	// States for marker Alpha
@@ -640,7 +640,7 @@ func TestMultipleFiredEvents(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
-	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 1, UnitName: "Shooter"}))
+	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 1, UnitName: "Shooter", JoinFrame: 1}))
 	require.NoError(t, b.RecordFiredEvent(&core.FiredEvent{
 		SoldierID: 1, CaptureFrame: 10, Weapon: "arifle_MX_F", Magazine: "30Rnd_65x39", FiringMode: "Single",
 		StartPos: core.Position3D{X: 100, Y: 100}, EndPos: core.Position3D{X: 200, Y: 200},
@@ -667,9 +667,9 @@ func TestMultipleFiredEvents(t *testing.T) {
 		require.Len(t, ff, 2)
 		frames[ff[0].(uint)] = true
 	}
-	assert.True(t, frames[10], "frame 10 should be recorded")
-	assert.True(t, frames[15], "frame 15 should be recorded")
-	assert.True(t, frames[50], "frame 50 should be recorded")
+	assert.True(t, frames[9], "frame 9 should be recorded (input 10 → v1 output 9)")
+	assert.True(t, frames[14], "frame 14 should be recorded (input 15 → v1 output 14)")
+	assert.True(t, frames[49], "frame 49 should be recorded (input 50 → v1 output 49)")
 }
 
 func TestVehicleWithJoinFrame(t *testing.T) {
@@ -689,7 +689,7 @@ func TestVehicleWithJoinFrame(t *testing.T) {
 	// Sparse array: entity at index 20 (its ID)
 	require.Len(t, export.Entities, 21) // indices 0-20
 	entity := export.Entities[20]
-	assert.Equal(t, uint(500), entity.StartFrameNum)
+	assert.Equal(t, uint(499), entity.StartFrameNum)
 	assert.Equal(t, "vehicle", entity.Type)
 	assert.Equal(t, "plane", entity.Class)
 }
@@ -705,16 +705,16 @@ func TestJSONFormatValidation(t *testing.T) {
 	}, &core.World{WorldName: "Altis"}))
 
 	// Add entities with specific IDs to test sparse array
-	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 5, UnitName: "Player", Side: "WEST", IsPlayer: true}))
-	require.NoError(t, b.AddVehicle(&core.Vehicle{ID: 10, DisplayName: "Tank", OcapType: "tank", ClassName: "B_MBT_01"}))
+	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 5, UnitName: "Player", Side: "WEST", IsPlayer: true, JoinFrame: 1}))
+	require.NoError(t, b.AddVehicle(&core.Vehicle{ID: 10, DisplayName: "Tank", OcapType: "tank", ClassName: "B_MBT_01", JoinFrame: 1}))
 
 	// Record states
 	require.NoError(t, b.RecordSoldierState(&core.SoldierState{
-		SoldierID: 5, CaptureFrame: 0, Position: core.Position3D{X: 1000, Y: 2000},
+		SoldierID: 5, CaptureFrame: 1, Position: core.Position3D{X: 1000, Y: 2000},
 		Bearing: 90, Lifestate: 1, UnitName: "Player", IsPlayer: true, CurrentRole: "Rifleman",
 	}))
 	require.NoError(t, b.RecordVehicleState(&core.VehicleState{
-		VehicleID: 10, CaptureFrame: 0, Position: core.Position3D{X: 3000, Y: 4000},
+		VehicleID: 10, CaptureFrame: 1, Position: core.Position3D{X: 3000, Y: 4000},
 		Bearing: 180, IsAlive: true, Crew: "[[5,\"driver\"]]",
 	}))
 
@@ -731,7 +731,7 @@ func TestJSONFormatValidation(t *testing.T) {
 	_, err := b.AddMarker(&core.Marker{
 		MarkerName: "obj1", Text: "Objective", MarkerType: "mil_objective",
 		Color: "ColorRed", Side: "WEST", Shape: "ICON", OwnerID: -1,
-		CaptureFrame: 0, Position: core.Position3D{X: 5000, Y: 6000}, Direction: 45, Alpha: 1.0,
+		CaptureFrame: 1, Position: core.Position3D{X: 5000, Y: 6000}, Direction: 45, Alpha: 1.0,
 	})
 	require.NoError(t, err)
 
@@ -789,7 +789,7 @@ func TestJSONFormatValidation(t *testing.T) {
 	events := raw["events"].([]any)
 	require.Len(t, events, 1)
 	killEvent := events[0].([]any)
-	assert.Equal(t, float64(100), killEvent[0])   // frameNum
+	assert.Equal(t, float64(99), killEvent[0])    // frameNum (input 100 → v1 output 99)
 	assert.Equal(t, "killed", killEvent[1])        // type
 	assert.Equal(t, float64(5), killEvent[2])      // victimId
 	causedBy := killEvent[3].([]any)
@@ -832,14 +832,14 @@ func TestMarkerColorHashPrefixIsStripped(t *testing.T) {
 	// Add marker with hex color including # prefix (should be stripped in export)
 	_, err := b.AddMarker(&core.Marker{
 		MarkerName: "hex_marker", Text: "Hex Color", MarkerType: "respawn_inf", Color: "#800000",
-		Side: "WEST", Shape: "ICON", CaptureFrame: 0, Position: core.Position3D{X: 1000, Y: 2000}, Direction: 0, Alpha: 1.0,
+		Side: "WEST", Shape: "ICON", CaptureFrame: 1, Position: core.Position3D{X: 1000, Y: 2000}, Direction: 0, Alpha: 1.0,
 	})
 	require.NoError(t, err)
 
 	// Add marker with named color (no prefix, should remain unchanged)
 	_, err = b.AddMarker(&core.Marker{
 		MarkerName: "named_marker", Text: "Named Color", MarkerType: "mil_dot", Color: "ColorRed",
-		Side: "WEST", Shape: "ICON", CaptureFrame: 0, Position: core.Position3D{X: 2000, Y: 3000}, Direction: 0, Alpha: 1.0,
+		Side: "WEST", Shape: "ICON", CaptureFrame: 1, Position: core.Position3D{X: 2000, Y: 3000}, Direction: 0, Alpha: 1.0,
 	})
 	require.NoError(t, err)
 
@@ -877,7 +877,7 @@ func TestMarkerOwnerIDExport(t *testing.T) {
 	_, err := b.AddMarker(&core.Marker{
 		MarkerName: "system_marker", Text: "System", MarkerType: "mil_objective", Color: "ColorRed",
 		Side: "WEST", Shape: "ICON", OwnerID: -1,
-		CaptureFrame: 0, Position: core.Position3D{X: 1000, Y: 2000}, Direction: 0, Alpha: 1.0,
+		CaptureFrame: 1, Position: core.Position3D{X: 1000, Y: 2000}, Direction: 0, Alpha: 1.0,
 	})
 	require.NoError(t, err)
 
@@ -923,7 +923,7 @@ func TestMarkerSizeAndBrushExport(t *testing.T) {
 	_, err := b.AddMarker(&core.Marker{
 		MarkerName: "custom_marker", Text: "Custom", MarkerType: "mil_objective", Color: "ColorRed",
 		Side: "WEST", Shape: "RECTANGLE", OwnerID: -1, Size: "[2.5,3.0]", Brush: "SolidBorder",
-		CaptureFrame: 0, Position: core.Position3D{X: 1000, Y: 2000}, Direction: 0, Alpha: 1.0,
+		CaptureFrame: 1, Position: core.Position3D{X: 1000, Y: 2000}, Direction: 0, Alpha: 1.0,
 	})
 	require.NoError(t, err)
 
@@ -931,7 +931,7 @@ func TestMarkerSizeAndBrushExport(t *testing.T) {
 	_, err = b.AddMarker(&core.Marker{
 		MarkerName: "default_marker", Text: "Default", MarkerType: "mil_dot", Color: "ColorBlue",
 		Side: "WEST", Shape: "ICON", OwnerID: -1, Size: "", Brush: "Solid",
-		CaptureFrame: 0, Position: core.Position3D{X: 3000, Y: 4000}, Direction: 0, Alpha: 1.0,
+		CaptureFrame: 1, Position: core.Position3D{X: 3000, Y: 4000}, Direction: 0, Alpha: 1.0,
 	})
 	require.NoError(t, err)
 
@@ -1001,7 +1001,7 @@ func TestTimesExport(t *testing.T) {
 
 	// Record time states
 	require.NoError(t, b.RecordTimeState(&core.TimeState{
-		CaptureFrame:   0,
+		CaptureFrame:   1,
 		SystemTimeUTC:  "2026-01-25T18:46:48.850",
 		MissionDate:    "2035-06-24T12:26:00",
 		TimeMultiplier: 1.0,
@@ -1027,7 +1027,7 @@ func TestTimesExport(t *testing.T) {
 	assert.Equal(t, float32(1597.56), export.Times[0].Time)
 
 	// Verify second time state
-	assert.Equal(t, uint(10), export.Times[1].FrameNum)
+	assert.Equal(t, uint(9), export.Times[1].FrameNum)
 	assert.Equal(t, "2026-01-25T18:47:18.854", export.Times[1].SystemTimeUTC)
 	assert.Equal(t, "2035-06-24T12:27:00", export.Times[1].Date)
 	assert.Equal(t, float32(2.0), export.Times[1].TimeMultiplier)
@@ -1061,7 +1061,7 @@ func TestTimesExportJSON(t *testing.T) {
 	}, &core.World{WorldName: "Altis"}))
 
 	require.NoError(t, b.RecordTimeState(&core.TimeState{
-		CaptureFrame:   0,
+		CaptureFrame:   1,
 		SystemTimeUTC:  "2024-03-15T14:30:00.000",
 		MissionDate:    "2035-06-24T06:00:00",
 		TimeMultiplier: 1.0,
@@ -1132,7 +1132,7 @@ func TestPolylineMarkerExport(t *testing.T) {
 	require.Len(t, positions, 1) // Single frame entry for polylines
 
 	frameEntry := positions[0]
-	assert.EqualValues(t, 71, frameEntry[0])   // frameNum
+	assert.EqualValues(t, 70, frameEntry[0])   // frameNum (input 71 → v1 output 70)
 	assert.EqualValues(t, 0, frameEntry[2])    // direction
 	assert.EqualValues(t, 1.0, frameEntry[3])  // alpha
 
@@ -1164,23 +1164,23 @@ func TestVehicleCrewExportIntegration(t *testing.T) {
 	}, &core.World{WorldName: "Altis"}))
 
 	// Add soldiers that will be crew members
-	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 0, UnitName: "Driver", Side: "EAST", IsPlayer: true}))
-	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 1, UnitName: "Gunner", Side: "EAST", IsPlayer: false}))
-	require.NoError(t, b.RecordSoldierState(&core.SoldierState{SoldierID: 0, CaptureFrame: 0, Lifestate: 1}))
-	require.NoError(t, b.RecordSoldierState(&core.SoldierState{SoldierID: 1, CaptureFrame: 0, Lifestate: 1}))
+	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 0, UnitName: "Driver", Side: "EAST", IsPlayer: true, JoinFrame: 1}))
+	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 1, UnitName: "Gunner", Side: "EAST", IsPlayer: false, JoinFrame: 1}))
+	require.NoError(t, b.RecordSoldierState(&core.SoldierState{SoldierID: 0, CaptureFrame: 1, Lifestate: 1}))
+	require.NoError(t, b.RecordSoldierState(&core.SoldierState{SoldierID: 1, CaptureFrame: 1, Lifestate: 1}))
 
 	// Add vehicle with multi-crew, then single-crew, then empty crew
-	require.NoError(t, b.AddVehicle(&core.Vehicle{ID: 10, DisplayName: "BTR-60PB", OcapType: "apc", JoinFrame: 0}))
+	require.NoError(t, b.AddVehicle(&core.Vehicle{ID: 10, DisplayName: "BTR-60PB", OcapType: "apc", JoinFrame: 1}))
 	require.NoError(t, b.RecordVehicleState(&core.VehicleState{
-		VehicleID: 10, CaptureFrame: 0, IsAlive: true, Crew: "[0,1]",
+		VehicleID: 10, CaptureFrame: 1, IsAlive: true, Crew: "[0,1]",
 		Position: core.Position3D{X: 1000, Y: 2000},
 	}))
 	require.NoError(t, b.RecordVehicleState(&core.VehicleState{
-		VehicleID: 10, CaptureFrame: 1, IsAlive: true, Crew: "[0]",
+		VehicleID: 10, CaptureFrame: 2, IsAlive: true, Crew: "[0]",
 		Position: core.Position3D{X: 1010, Y: 2010},
 	}))
 	require.NoError(t, b.RecordVehicleState(&core.VehicleState{
-		VehicleID: 10, CaptureFrame: 2, IsAlive: true, Crew: "[]",
+		VehicleID: 10, CaptureFrame: 3, IsAlive: true, Crew: "[]",
 		Position: core.Position3D{X: 1020, Y: 2020},
 	}))
 
@@ -1228,12 +1228,12 @@ func TestPlayerTakeoverUpdatesEntityMetadata(t *testing.T) {
 
 	// Register as AI unit initially
 	require.NoError(t, b.AddSoldier(&core.Soldier{
-		ID: 5, UnitName: "Habibzai", GroupID: "Alpha", Side: "EAST", IsPlayer: false, JoinFrame: 0,
+		ID: 5, UnitName: "Habibzai", GroupID: "Alpha", Side: "EAST", IsPlayer: false, JoinFrame: 1,
 	}))
 
 	// First few frames: AI walking around
 	require.NoError(t, b.RecordSoldierState(&core.SoldierState{
-		SoldierID: 5, CaptureFrame: 0, Position: core.Position3D{X: 100, Y: 200, Z: 10},
+		SoldierID: 5, CaptureFrame: 1, Position: core.Position3D{X: 100, Y: 200, Z: 10},
 		Bearing: 45, Lifestate: 1, UnitName: "Habibzai", IsPlayer: false, CurrentRole: "Rifleman",
 		GroupID: "Alpha", Side: "EAST",
 	}))
@@ -1329,27 +1329,27 @@ func TestMarkerSideValues(t *testing.T) {
 	// Add markers with string side values
 	_, err := b.AddMarker(&core.Marker{
 		MarkerName: "east_marker", Text: "East", MarkerType: "mil_dot", Color: "800000",
-		Side: "EAST", Shape: "ICON", CaptureFrame: 0, Position: core.Position3D{X: 1000, Y: 1000}, Alpha: 1.0,
+		Side: "EAST", Shape: "ICON", CaptureFrame: 1, Position: core.Position3D{X: 1000, Y: 1000}, Alpha: 1.0,
 	})
 	require.NoError(t, err)
 	_, err = b.AddMarker(&core.Marker{
 		MarkerName: "west_marker", Text: "West", MarkerType: "mil_dot", Color: "004C99",
-		Side: "WEST", Shape: "ICON", CaptureFrame: 0, Position: core.Position3D{X: 2000, Y: 2000}, Alpha: 1.0,
+		Side: "WEST", Shape: "ICON", CaptureFrame: 1, Position: core.Position3D{X: 2000, Y: 2000}, Alpha: 1.0,
 	})
 	require.NoError(t, err)
 	_, err = b.AddMarker(&core.Marker{
 		MarkerName: "guer_marker", Text: "Guer", MarkerType: "mil_dot", Color: "008000",
-		Side: "GUER", Shape: "ICON", CaptureFrame: 0, Position: core.Position3D{X: 3000, Y: 3000}, Alpha: 1.0,
+		Side: "GUER", Shape: "ICON", CaptureFrame: 1, Position: core.Position3D{X: 3000, Y: 3000}, Alpha: 1.0,
 	})
 	require.NoError(t, err)
 	_, err = b.AddMarker(&core.Marker{
 		MarkerName: "civ_marker", Text: "Civ", MarkerType: "mil_dot", Color: "660080",
-		Side: "CIV", Shape: "ICON", CaptureFrame: 0, Position: core.Position3D{X: 4000, Y: 4000}, Alpha: 1.0,
+		Side: "CIV", Shape: "ICON", CaptureFrame: 1, Position: core.Position3D{X: 4000, Y: 4000}, Alpha: 1.0,
 	})
 	require.NoError(t, err)
 	_, err = b.AddMarker(&core.Marker{
 		MarkerName: "global_marker", Text: "Global", MarkerType: "mil_dot", Color: "000000",
-		Side: "UNKNOWN", Shape: "ICON", CaptureFrame: 0, Position: core.Position3D{X: 5000, Y: 5000}, Alpha: 1.0,
+		Side: "UNKNOWN", Shape: "ICON", CaptureFrame: 1, Position: core.Position3D{X: 5000, Y: 5000}, Alpha: 1.0,
 	})
 	require.NoError(t, err)
 
