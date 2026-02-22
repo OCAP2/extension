@@ -398,7 +398,7 @@ func Build(data *MissionData) Export {
 			// EndFrame is the last trajectory point's frame
 			endFrame := -1
 			if len(pe.Trajectory) > 0 {
-				endFrame = int(frameToV1(pe.Trajectory[len(pe.Trajectory)-1].FrameNum))
+				endFrame = frameToV1(pe.Trajectory[len(pe.Trajectory)-1].FrameNum)
 			}
 
 			marker := []any{
