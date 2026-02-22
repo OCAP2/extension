@@ -72,7 +72,7 @@ func Build(data *MissionData) Export {
 	for _, ts := range data.TimeStates {
 		export.Times = append(export.Times, Time{
 			Date:           ts.MissionDate,
-			FrameNum:       uint(frameToV1(ts.CaptureFrame)),
+			FrameNum:       frameToV1(ts.CaptureFrame),
 			SystemTimeUTC:  ts.SystemTimeUTC,
 			Time:           ts.MissionTime,
 			TimeMultiplier: ts.TimeMultiplier,
@@ -123,7 +123,7 @@ func Build(data *MissionData) Export {
 			IsPlayer:      boolToInt(isPlayer),
 			Type:          "unit",
 			Role:          record.Soldier.RoleDescription,
-			StartFrameNum: uint(frameToV1(record.Soldier.JoinFrame)),
+			StartFrameNum: frameToV1(record.Soldier.JoinFrame),
 			Positions:     make([][]any, 0, len(record.States)),
 			FramesFired:   make([][]any, 0, len(record.FiredEvents)),
 		}
@@ -173,7 +173,7 @@ func Build(data *MissionData) Export {
 			IsPlayer:      0,
 			Type:          "vehicle",
 			Class:         record.Vehicle.OcapType,
-			StartFrameNum: uint(frameToV1(record.Vehicle.JoinFrame)),
+			StartFrameNum: frameToV1(record.Vehicle.JoinFrame),
 			Positions:     make([][]any, 0, len(record.States)),
 			FramesFired:   [][]any{},
 		}
@@ -206,7 +206,7 @@ func Build(data *MissionData) Export {
 	}
 
 	if maxFrame > 0 {
-		export.EndFrame = uint(frameToV1(maxFrame))
+		export.EndFrame = frameToV1(maxFrame)
 	}
 
 	// Convert general events

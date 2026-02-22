@@ -102,11 +102,11 @@ func TestIntegrationFullExport(t *testing.T) {
 	assert.Equal(t, "2.0.0", export.ExtensionVersion)
 	assert.Equal(t, "Mon Jan 15 10:00:00 2024", export.ExtensionBuild)
 	assert.Equal(t, "PvP", export.Tags)
-	assert.Equal(t, uint(9), export.EndFrame, "EndFrame should be max state frame")
+	assert.Equal(t, 9, export.EndFrame, "EndFrame should be max state frame")
 
 	// Verify times
 	require.Len(t, export.Times, 1)
-	assert.Equal(t, uint(0), export.Times[0].FrameNum)
+	assert.Equal(t, 0, export.Times[0].FrameNum)
 	assert.Equal(t, "2024-01-15T10:30:00.000", export.Times[0].SystemTimeUTC)
 
 	// Verify entities (array is sparse: index = entity ID)
@@ -442,7 +442,7 @@ func TestMaxFrameCalculation(t *testing.T) {
 	require.NoError(t, b.RecordVehicleState(&core.VehicleState{VehicleID: 10, CaptureFrame: 100}))
 	require.NoError(t, b.RecordVehicleState(&core.VehicleState{VehicleID: 10, CaptureFrame: 75}))
 
-	assert.Equal(t, uint(99), b.BuildExport().EndFrame)
+	assert.Equal(t, 99, b.BuildExport().EndFrame)
 }
 
 func TestSoldierWithoutVehicle(t *testing.T) {
@@ -689,7 +689,7 @@ func TestVehicleWithJoinFrame(t *testing.T) {
 	// Sparse array: entity at index 20 (its ID)
 	require.Len(t, export.Entities, 21) // indices 0-20
 	entity := export.Entities[20]
-	assert.Equal(t, uint(499), entity.StartFrameNum)
+	assert.Equal(t, 499, entity.StartFrameNum)
 	assert.Equal(t, "vehicle", entity.Type)
 	assert.Equal(t, "plane", entity.Class)
 }
@@ -1020,14 +1020,14 @@ func TestTimesExport(t *testing.T) {
 	require.Len(t, export.Times, 2)
 
 	// Verify first time state
-	assert.Equal(t, uint(0), export.Times[0].FrameNum)
+	assert.Equal(t, 0, export.Times[0].FrameNum)
 	assert.Equal(t, "2026-01-25T18:46:48.850", export.Times[0].SystemTimeUTC)
 	assert.Equal(t, "2035-06-24T12:26:00", export.Times[0].Date)
 	assert.Equal(t, float32(1.0), export.Times[0].TimeMultiplier)
 	assert.Equal(t, float32(1597.56), export.Times[0].Time)
 
 	// Verify second time state
-	assert.Equal(t, uint(9), export.Times[1].FrameNum)
+	assert.Equal(t, 9, export.Times[1].FrameNum)
 	assert.Equal(t, "2026-01-25T18:47:18.854", export.Times[1].SystemTimeUTC)
 	assert.Equal(t, "2035-06-24T12:27:00", export.Times[1].Date)
 	assert.Equal(t, float32(2.0), export.Times[1].TimeMultiplier)

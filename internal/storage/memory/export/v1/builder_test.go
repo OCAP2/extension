@@ -88,7 +88,7 @@ func TestBuildEmptyMission(t *testing.T) {
 	assert.Empty(t, export.Events)
 	assert.Empty(t, export.Markers)
 	assert.Empty(t, export.Times)
-	assert.Equal(t, uint(0), export.EndFrame)
+	assert.Equal(t, 0, export.EndFrame)
 }
 
 func TestBuildWithMissionMetadata(t *testing.T) {
@@ -136,13 +136,13 @@ func TestBuildWithTimeStates(t *testing.T) {
 	export := Build(data)
 
 	require.Len(t, export.Times, 2)
-	assert.Equal(t, uint(0), export.Times[0].FrameNum) // internal 1 → v1 0
+	assert.Equal(t, 0, export.Times[0].FrameNum) // internal 1 → v1 0
 	assert.Equal(t, "2035-06-24", export.Times[0].Date)
 	assert.Equal(t, "2024-01-01T10:00:00", export.Times[0].SystemTimeUTC)
 	assert.Equal(t, float32(0), export.Times[0].Time)
 	assert.Equal(t, float32(1.0), export.Times[0].TimeMultiplier)
 
-	assert.Equal(t, uint(99), export.Times[1].FrameNum) // internal 100 → v1 99
+	assert.Equal(t, 99, export.Times[1].FrameNum) // internal 100 → v1 99
 	assert.Equal(t, float32(60), export.Times[1].Time)
 	assert.Equal(t, float32(2.0), export.Times[1].TimeMultiplier)
 }
@@ -182,7 +182,7 @@ func TestBuildWithSoldier(t *testing.T) {
 	assert.Equal(t, 1, entity.IsPlayer)
 	assert.Equal(t, "unit", entity.Type)
 	assert.Equal(t, "Rifleman", entity.Role)
-	assert.Equal(t, uint(9), entity.StartFrameNum) // internal 10 → v1 9
+	assert.Equal(t, 9, entity.StartFrameNum) // internal 10 → v1 9
 
 	// Check positions
 	require.Len(t, entity.Positions, 2)
@@ -217,7 +217,7 @@ func TestBuildWithSoldier(t *testing.T) {
 	assert.Equal(t, 0.0, endPos[2])    // Z
 
 	// EndFrame should be max state frame (internal 20 → v1 19)
-	assert.Equal(t, uint(19), export.EndFrame)
+	assert.Equal(t, 19, export.EndFrame)
 }
 
 func TestBuildWithSoldierInVehicle(t *testing.T) {
@@ -274,7 +274,7 @@ func TestBuildWithVehicle(t *testing.T) {
 	assert.Equal(t, "vehicle", entity.Type)
 	assert.Equal(t, "UNKNOWN", entity.Side)
 	assert.Equal(t, 0, entity.IsPlayer)
-	assert.Equal(t, uint(4), entity.StartFrameNum) // internal 5 → v1 4
+	assert.Equal(t, 4, entity.StartFrameNum) // internal 5 → v1 4
 	assert.Empty(t, entity.FramesFired)
 
 	// Check positions
@@ -298,7 +298,7 @@ func TestBuildWithVehicle(t *testing.T) {
 	frameRange := pos[4].([]int)
 	assert.Equal(t, []int{4, 4}, frameRange)
 
-	assert.Equal(t, uint(14), export.EndFrame) // internal 15 → v1 14
+	assert.Equal(t, 14, export.EndFrame) // internal 15 → v1 14
 }
 
 func TestBuildWithVehicleCrewIDArray(t *testing.T) {
@@ -707,7 +707,7 @@ func TestBuildMaxFrameFromMultipleSources(t *testing.T) {
 
 	export := Build(data)
 
-	assert.Equal(t, uint(149), export.EndFrame) // internal 150 → v1 149
+	assert.Equal(t, 149, export.EndFrame) // internal 150 → v1 149
 }
 
 func TestBuildWithNoEntitiesButEvents(t *testing.T) {
