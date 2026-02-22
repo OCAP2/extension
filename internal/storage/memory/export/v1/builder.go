@@ -382,8 +382,8 @@ func Build(data *MissionData) Export {
 			frameToV1(record.PlacedObject.JoinFrame),    // [2] startFrame
 			placedEndFrame,                         // [3] endFrame
 			int(record.PlacedObject.OwnerID),       // [4] playerId
-			"ColorOrange",                          // [5] color
-			sideToIndex(record.PlacedObject.Side),  // [6] sideIndex
+			"D96600",                               // [5] color (orange hex)
+			-1,                                     // [6] sideIndex (GLOBAL — visible to all sides)
 			posArray,                               // [7] positions
 			[]float64{1, 1},                        // [8] size
 			"ICON",                                 // [9] shape

@@ -1160,8 +1160,8 @@ func TestBuildWithPlacedObjectMarker(t *testing.T) {
 	assert.Equal(t, 199, marker[2])                              // startFrame (internal 200 → v1 199)
 	assert.Equal(t, 499, marker[3])                              // endFrame (internal 500 → v1 499)
 	assert.Equal(t, int(5), marker[4])                          // playerId (ownerID)
-	assert.Equal(t, "ColorOrange", marker[5])                   // color
-	assert.Equal(t, 1, marker[6])                               // sideIndex (WEST = 1)
+	assert.Equal(t, "D96600", marker[5])                        // color (orange hex)
+	assert.Equal(t, -1, marker[6])                              // sideIndex (GLOBAL)
 	assert.Equal(t, "ICON", marker[9])                          // shape
 	assert.Equal(t, "Solid", marker[10])                        // brush
 
@@ -1202,7 +1202,7 @@ func TestBuildWithPlacedObjectNoIcon(t *testing.T) {
 
 	assert.Equal(t, "Minefield", marker[0]) // fallback type
 	assert.Equal(t, -1, marker[3])          // endFrame -1 (no detonation/deletion event)
-	assert.Equal(t, 0, marker[6])           // sideIndex (EAST = 0)
+	assert.Equal(t, -1, marker[6])          // sideIndex (GLOBAL)
 }
 
 func TestBuildWithPlacedObjectDeletedEvent(t *testing.T) {
@@ -1234,7 +1234,7 @@ func TestBuildWithPlacedObjectDeletedEvent(t *testing.T) {
 
 	assert.Equal(t, "magIcons/gear_satchel_ca.paa", marker[0])
 	assert.Equal(t, 349, marker[3]) // endFrame from "deleted" event (internal 350 → v1 349)
-	assert.Equal(t, 2, marker[6])   // sideIndex (GUER = 2)
+	assert.Equal(t, -1, marker[6])  // sideIndex (GLOBAL)
 }
 
 func TestIsProjectileMarker(t *testing.T) {

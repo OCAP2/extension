@@ -1365,12 +1365,12 @@ func TestPlacedObjectExport(t *testing.T) {
 	// Mine with icon: magIcons type, detonated endFrame
 	assert.Equal(t, "magIcons/gear_mine_AP_ca.paa", mineMarker[0])
 	assert.Equal(t, 499, mineMarker[3])    // endFrame from detonation (internal 500 → v1 499)
-	assert.Equal(t, 1, mineMarker[6])      // WEST = 1
+	assert.Equal(t, -1, mineMarker[6])     // GLOBAL (placed objects always visible)
 
 	// Unknown without icon: Minefield fallback, persists
 	assert.Equal(t, "Minefield", unknownMarker[0])
 	assert.Equal(t, -1, unknownMarker[3]) // no events → persists
-	assert.Equal(t, 0, unknownMarker[6])  // EAST = 0
+	assert.Equal(t, -1, unknownMarker[6]) // GLOBAL (placed objects always visible)
 }
 
 func TestMarkerSideValues(t *testing.T) {
