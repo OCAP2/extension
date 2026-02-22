@@ -343,8 +343,8 @@ func TestVehiclePositionFormat(t *testing.T) {
 	assert.Equal(t, 1, pos[2])
 
 	// Frame range
-	frameRange := pos[4].([]uint)
-	assert.Equal(t, []uint{2, 2}, frameRange)
+	frameRange := pos[4].([]int)
+	assert.Equal(t, []int{2, 2}, frameRange)
 }
 
 func TestFiredEventFormat(t *testing.T) {
@@ -366,7 +366,7 @@ func TestFiredEventFormat(t *testing.T) {
 	ff := export.Entities[1].FramesFired[0]
 	// v1 format: [frameNum, [x, y, z]] - matches old C++ extension
 	require.Len(t, ff, 2)
-	assert.Equal(t, uint(99), ff[0])
+	assert.Equal(t, 99, ff[0])
 
 	endPos, ok := ff[1].([]float64)
 	require.True(t, ok, "endPos should be []float64")
@@ -398,14 +398,14 @@ func TestMarkerPositionFormat(t *testing.T) {
 
 	// Position format: [frameNum, [x, y, z], direction, alpha]
 	initialPos := positions[0]
-	assert.Equal(t, uint(0), initialPos[0])      // frameNum
+	assert.Equal(t, 0, initialPos[0])             // frameNum
 	coords := initialPos[1].([]float64)
 	require.Len(t, coords, 3)
 	assert.Equal(t, 1000.0, coords[0])           // posX
 	assert.Equal(t, 2000.0, coords[1])           // posY
 	assert.Equal(t, 0.0, coords[2])              // posZ
 
-	assert.Equal(t, uint(49), positions[1][0])   // second position frameNum (input 50 → v1 output 49)
+	assert.Equal(t, 49, positions[1][0])         // second position frameNum (input 50 → v1 output 49)
 }
 
 func TestEmptyExport(t *testing.T) {
@@ -531,7 +531,7 @@ func TestEventWithoutExtraData(t *testing.T) {
 
 	require.Len(t, export.Events, 1)
 	assert.Equal(t, "endMission", export.Events[0][1])       // type at index 1
-	assert.Equal(t, uint(99), export.Events[0][0])           // frameNum at index 0 (input 100 → v1 output 99)
+	assert.Equal(t, 99, export.Events[0][0])                 // frameNum at index 0 (input 100 → v1 output 99)
 	assert.Equal(t, "Mission ended", export.Events[0][2])    // message at index 2
 }
 
@@ -662,10 +662,10 @@ func TestMultipleFiredEvents(t *testing.T) {
 	require.Len(t, entity.FramesFired, 3)
 
 	// v1 format: [frameNum, [x, y, z]] - verify frames and positions
-	frames := make(map[uint]bool)
+	frames := make(map[int]bool)
 	for _, ff := range entity.FramesFired {
 		require.Len(t, ff, 2)
-		frames[ff[0].(uint)] = true
+		frames[ff[0].(int)] = true
 	}
 	assert.True(t, frames[9], "frame 9 should be recorded (input 10 → v1 output 9)")
 	assert.True(t, frames[14], "frame 14 should be recorded (input 15 → v1 output 14)")

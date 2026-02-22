@@ -209,7 +209,7 @@ func TestBuildWithSoldier(t *testing.T) {
 	require.Len(t, entity.FramesFired, 1)
 	ff := entity.FramesFired[0]
 	require.Len(t, ff, 2)
-	assert.Equal(t, uint(14), ff[0]) // internal 15 → v1 14
+	assert.Equal(t, 14, ff[0]) // internal 15 → v1 14
 	endPos := ff[1].([]float64)
 	require.Len(t, endPos, 3)
 	assert.Equal(t, 1200.0, endPos[0]) // X
@@ -295,8 +295,8 @@ func TestBuildWithVehicle(t *testing.T) {
 	assert.Equal(t, float64(1), crewEntry[0])
 
 	// Frame range (internal 5 → v1 4)
-	frameRange := pos[4].([]uint)
-	assert.Equal(t, []uint{4, 4}, frameRange)
+	frameRange := pos[4].([]int)
+	assert.Equal(t, []int{4, 4}, frameRange)
 
 	assert.Equal(t, uint(14), export.EndFrame) // internal 15 → v1 14
 }
@@ -428,12 +428,12 @@ func TestBuildWithGeneralEvents(t *testing.T) {
 	require.Len(t, export.Events, 4)
 
 	// Plain string message (internal 10 → v1 9)
-	assert.Equal(t, uint(9), export.Events[0][0])
+	assert.Equal(t, 9, export.Events[0][0])
 	assert.Equal(t, "connected", export.Events[0][1])
 	assert.Equal(t, "Player joined", export.Events[0][2])
 
 	// JSON array should be parsed (internal 20 → v1 19)
-	assert.Equal(t, uint(19), export.Events[1][0])
+	assert.Equal(t, 19, export.Events[1][0])
 	parsedArray := export.Events[1][2].([]any)
 	assert.Len(t, parsedArray, 4)
 
@@ -471,7 +471,7 @@ func TestBuildWithHitEvents(t *testing.T) {
 
 	// Soldier hit (internal 10 → v1 9)
 	evt1 := export.Events[0]
-	assert.Equal(t, uint(9), evt1[0])
+	assert.Equal(t, 9, evt1[0])
 	assert.Equal(t, "hit", evt1[1])
 	assert.Equal(t, uint(5), evt1[2])  // victimID
 	causedBy1 := evt1[3].([]any)
@@ -505,7 +505,7 @@ func TestBuildWithKillEvents(t *testing.T) {
 
 	require.Len(t, export.Events, 1)
 	evt := export.Events[0]
-	assert.Equal(t, uint(99), evt[0]) // internal 100 → v1 99
+	assert.Equal(t, 99, evt[0]) // internal 100 → v1 99
 	assert.Equal(t, "killed", evt[1])
 	assert.Equal(t, uint(5), evt[2])
 	causedBy := evt[3].([]any)
@@ -541,7 +541,7 @@ func TestBuildWithMarker(t *testing.T) {
 
 	assert.Equal(t, "mil_objective", marker[0])  // type
 	assert.Equal(t, "Objective", marker[1])      // text
-	assert.Equal(t, uint(0), marker[2])          // startFrame (internal 1 → v1 0)
+	assert.Equal(t, 0, marker[2])                // startFrame (internal 1 → v1 0)
 	assert.Equal(t, -1, marker[3])               // endFrame (FrameForever → -1)
 	assert.Equal(t, 42, marker[4])               // playerId
 	assert.Equal(t, "800000", marker[5])         // color (# stripped)
@@ -550,8 +550,8 @@ func TestBuildWithMarker(t *testing.T) {
 	// Positions
 	positions := marker[7].([][]any)
 	require.Len(t, positions, 2)
-	assert.Equal(t, uint(0), positions[0][0])    // initial frame (internal 1 → v1 0)
-	assert.Equal(t, uint(49), positions[1][0])   // state change frame (internal 50 → v1 49)
+	assert.Equal(t, 0, positions[0][0])          // initial frame (internal 1 → v1 0)
+	assert.Equal(t, 49, positions[1][0])         // state change frame (internal 50 → v1 49)
 
 	assert.Equal(t, []float64{2.0, 3.0}, marker[8]) // size
 	assert.Equal(t, "ICON", marker[9])              // shape
@@ -583,7 +583,7 @@ func TestBuildWithDeletedMarker(t *testing.T) {
 	require.Len(t, export.Markers, 1)
 	marker := export.Markers[0]
 
-	assert.Equal(t, uint(99), marker[2]) // startFrame (internal 100 → v1 99)
+	assert.Equal(t, 99, marker[2]) // startFrame (internal 100 → v1 99)
 	assert.Equal(t, 105, marker[3])      // endFrame (internal 106 → v1 105, should NOT be -1)
 }
 
@@ -619,7 +619,7 @@ func TestBuildWithPolylineMarker(t *testing.T) {
 	require.Len(t, positions, 1) // Polylines have single frame entry
 
 	frameEntry := positions[0]
-	assert.Equal(t, uint(9), frameEntry[0]) // frameNum (internal 10 → v1 9)
+	assert.Equal(t, 9, frameEntry[0]) // frameNum (internal 10 → v1 9)
 
 	// Coordinates array
 	coords := frameEntry[1].([][]float64)
@@ -809,7 +809,7 @@ func TestBuildWithBulletProjectile(t *testing.T) {
 	entity := export.Entities[5]
 	require.Len(t, entity.FramesFired, 1)
 	ff := entity.FramesFired[0]
-	assert.Equal(t, uint(14), ff[0]) // captureFrame (internal 15 → v1 14)
+	assert.Equal(t, 14, ff[0]) // captureFrame (internal 15 → v1 14)
 	endPos := ff[1].([]float64)
 	assert.Equal(t, 1200.0, endPos[0])
 	assert.Equal(t, 2200.0, endPos[1])
@@ -850,7 +850,7 @@ func TestBuildWithThrownGrenade(t *testing.T) {
 	marker := export.Markers[0]
 	assert.Equal(t, "magIcons/gear_smokegrenade_white_ca.paa", marker[0]) // type
 	assert.Equal(t, "Smoke Grenade (White)", marker[1])                   // text (thrown = magDisp only)
-	assert.Equal(t, uint(99), marker[2])                                  // startFrame (internal 100 → v1 99)
+	assert.Equal(t, 99, marker[2])                                        // startFrame (internal 100 → v1 99)
 	assert.Equal(t, 104, marker[3])                                       // endFrame (internal 105 → v1 104)
 	assert.Equal(t, 3, marker[4])                                         // ownerID
 	assert.Equal(t, "ColorWhite", marker[5])                              // color
@@ -861,7 +861,7 @@ func TestBuildWithThrownGrenade(t *testing.T) {
 	// Check positions array
 	posArray := marker[7].([][]any)
 	require.Len(t, posArray, 2)
-	assert.Equal(t, uint(99), posArray[0][0]) // internal 100 → v1 99
+	assert.Equal(t, 99, posArray[0][0]) // internal 100 → v1 99
 	pos0 := posArray[0][1].([]float64)
 	assert.Equal(t, 100.0, pos0[0])
 	assert.Equal(t, 200.0, pos0[1])
@@ -1005,7 +1005,7 @@ func TestBuildWithProjectileHitEvents(t *testing.T) {
 	// Should generate a hit event
 	require.Len(t, export.Events, 1)
 	evt := export.Events[0]
-	assert.Equal(t, uint(51), evt[0]) // internal 52 → v1 51
+	assert.Equal(t, 51, evt[0]) // internal 52 → v1 51
 	assert.Equal(t, "hit", evt[1])
 	assert.Equal(t, uint(10), evt[2]) // victimID
 	causedBy := evt[3].([]any)
@@ -1080,7 +1080,7 @@ func TestBuildWithProjectileHitOnVehicle(t *testing.T) {
 
 	require.Len(t, export.Events, 1)
 	evt := export.Events[0]
-	assert.Equal(t, uint(64), evt[0]) // internal 65 → v1 64
+	assert.Equal(t, 64, evt[0]) // internal 65 → v1 64
 	assert.Equal(t, "hit", evt[1])
 	assert.Equal(t, uint(20), evt[2]) // victimID from VehicleID
 	causedBy := evt[3].([]any)

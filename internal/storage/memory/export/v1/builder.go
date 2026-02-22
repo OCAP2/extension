@@ -46,8 +46,9 @@ type MarkerRecord struct {
 
 // frameToV1 converts an internal 1-based Frame to a 0-based v1 JSON frame number.
 // The v1 format uses 0-based frames; internal frames start at 1.
-func frameToV1(f core.Frame) uint {
-	return uint(f) - 1
+// FrameForever (0) naturally maps to -1, the v1 sentinel for "forever".
+func frameToV1(f core.Frame) int {
+	return int(f) - 1
 }
 
 // Build creates an Export from the mission data
@@ -71,7 +72,7 @@ func Build(data *MissionData) Export {
 	for _, ts := range data.TimeStates {
 		export.Times = append(export.Times, Time{
 			Date:           ts.MissionDate,
-			FrameNum:       frameToV1(ts.CaptureFrame),
+			FrameNum:       uint(frameToV1(ts.CaptureFrame)),
 			SystemTimeUTC:  ts.SystemTimeUTC,
 			Time:           ts.MissionTime,
 			TimeMultiplier: ts.TimeMultiplier,
@@ -122,7 +123,7 @@ func Build(data *MissionData) Export {
 			IsPlayer:      boolToInt(isPlayer),
 			Type:          "unit",
 			Role:          record.Soldier.RoleDescription,
-			StartFrameNum: frameToV1(record.Soldier.JoinFrame),
+			StartFrameNum: uint(frameToV1(record.Soldier.JoinFrame)),
 			Positions:     make([][]any, 0, len(record.States)),
 			FramesFired:   make([][]any, 0, len(record.FiredEvents)),
 		}
@@ -172,7 +173,7 @@ func Build(data *MissionData) Export {
 			IsPlayer:      0,
 			Type:          "vehicle",
 			Class:         record.Vehicle.OcapType,
-			StartFrameNum: frameToV1(record.Vehicle.JoinFrame),
+			StartFrameNum: uint(frameToV1(record.Vehicle.JoinFrame)),
 			Positions:     make([][]any, 0, len(record.States)),
 			FramesFired:   [][]any{},
 		}
@@ -193,7 +194,7 @@ func Build(data *MissionData) Export {
 				state.Bearing,
 				boolToInt(state.IsAlive),
 				crew,
-				[]uint{frameToV1(state.CaptureFrame), frameToV1(state.CaptureFrame)},
+				[]int{frameToV1(state.CaptureFrame), frameToV1(state.CaptureFrame)},
 			}
 			entity.Positions = append(entity.Positions, pos)
 			if state.CaptureFrame > maxFrame {
@@ -205,7 +206,7 @@ func Build(data *MissionData) Export {
 	}
 
 	if maxFrame > 0 {
-		export.EndFrame = frameToV1(maxFrame)
+		export.EndFrame = uint(frameToV1(maxFrame))
 	}
 
 	// Convert general events
@@ -324,19 +325,11 @@ func Build(data *MissionData) Export {
 		// With "#" prefix, browsers interpret the fragment as an anchor, causing 404s
 		markerColor := strings.TrimPrefix(record.Marker.Color, "#")
 
-		// EndFrame: FrameForever (0) means persist until end → v1 uses -1
-		var endFrame int
-		if record.Marker.EndFrame == core.FrameForever {
-			endFrame = -1
-		} else {
-			endFrame = int(frameToV1(record.Marker.EndFrame))
-		}
-
 		marker := []any{
-			record.Marker.MarkerType,            // [0] type
-			record.Marker.Text,                  // [1] text
-			frameToV1(record.Marker.CaptureFrame), // [2] startFrame
-			endFrame,                            // [3] endFrame (-1 = persists until end, otherwise frame when marker disappears)
+			record.Marker.MarkerType,               // [0] type
+			record.Marker.Text,                     // [1] text
+			frameToV1(record.Marker.CaptureFrame),  // [2] startFrame
+			frameToV1(record.Marker.EndFrame),      // [3] endFrame (FrameForever(0) → -1, otherwise 0-based frame)
 			record.Marker.OwnerID,               // [4] playerId (entity ID of creating player, -1 for system markers)
 			markerColor,                         // [5] color (# prefix stripped for URL compatibility)
 			sideToIndex(record.Marker.Side),     // [6] sideIndex
