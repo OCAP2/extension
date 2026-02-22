@@ -29,6 +29,12 @@ type MarkerRecord struct {
 	States []core.MarkerState
 }
 
+// PlacedObjectRecord groups a placed object with all its lifecycle events
+type PlacedObjectRecord struct {
+	PlacedObject core.PlacedObject
+	Events       []core.PlacedObjectEvent
+}
+
 // Backend stores mission data in memory and exports to JSON
 type Backend struct {
 	cfg     config.MemoryConfig
@@ -38,11 +44,12 @@ type Backend struct {
 	lastExportPath     string           // path to the last exported file
 	lastExportMetadata core.UploadMetadata // cached metadata from last export
 
-	soldiers      map[uint16]*SoldierRecord // keyed by ObjectID
-	vehicles      map[uint16]*VehicleRecord // keyed by ObjectID
-	markers       map[string]*MarkerRecord  // keyed by MarkerName
-	markersByID   map[uint]*MarkerRecord   // keyed by Marker.ID
-	nextMarkerID  uint                      // auto-increment ID for markers
+	soldiers      map[uint16]*SoldierRecord       // keyed by ObjectID
+	vehicles      map[uint16]*VehicleRecord       // keyed by ObjectID
+	markers       map[string]*MarkerRecord        // keyed by MarkerName
+	markersByID   map[uint]*MarkerRecord          // keyed by Marker.ID
+	nextMarkerID  uint                            // auto-increment ID for markers
+	placed        map[uint16]*PlacedObjectRecord  // keyed by ObjectID
 
 	generalEvents         []core.GeneralEvent
 	hitEvents             []core.HitEvent
@@ -61,11 +68,12 @@ type Backend struct {
 // New creates a new memory backend
 func New(cfg config.MemoryConfig) *Backend {
 	return &Backend{
-		cfg:      cfg,
+		cfg:         cfg,
 		soldiers:    make(map[uint16]*SoldierRecord),
 		vehicles:    make(map[uint16]*VehicleRecord),
 		markers:     make(map[string]*MarkerRecord),
 		markersByID: make(map[uint]*MarkerRecord),
+		placed:      make(map[uint16]*PlacedObjectRecord),
 	}
 }
 
@@ -125,6 +133,7 @@ func (b *Backend) resetCollections() {
 	b.markers = make(map[string]*MarkerRecord)
 	b.markersByID = make(map[uint]*MarkerRecord)
 	b.nextMarkerID = 0
+	b.placed = make(map[uint16]*PlacedObjectRecord)
 	b.generalEvents = nil
 	b.hitEvents = nil
 	b.killEvents = nil
@@ -328,6 +337,31 @@ func (b *Backend) RecordAce3UnconsciousEvent(e *core.Ace3UnconsciousEvent) error
 	return nil
 }
 
+// AddPlacedObject registers a new placed object (mine, explosive, etc.).
+// The object's ID is their ObjectID (game identifier).
+func (b *Backend) AddPlacedObject(p *core.PlacedObject) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.placed[p.ID] = &PlacedObjectRecord{
+		PlacedObject: *p,
+		Events:       make([]core.PlacedObjectEvent, 0),
+	}
+	return nil
+}
+
+// RecordPlacedObjectEvent records a lifecycle event for a placed object.
+// PlacedID must be set to the placed object's ObjectID.
+func (b *Backend) RecordPlacedObjectEvent(e *core.PlacedObjectEvent) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if record, ok := b.placed[e.PlacedID]; ok {
+		record.Events = append(record.Events, *e)
+	}
+	return nil
+}
+
 // GetExportedFilePath returns the path to the last exported file.
 func (b *Backend) GetExportedFilePath() string {
 	b.mu.RLock()
@@ -370,6 +404,13 @@ func (b *Backend) computeExportMetadata() core.UploadMetadata {
 			}
 		}
 	}
+	for _, record := range b.placed {
+		for _, evt := range record.Events {
+			if evt.CaptureFrame > endFrame {
+				endFrame = evt.CaptureFrame
+			}
+		}
+	}
 
 	duration := float64(endFrame) * float64(b.mission.CaptureDelay) / 1000.0
 
@@ -398,6 +439,7 @@ func (b *Backend) buildExportUnlocked() v1.Export {
 		Soldiers:         make(map[uint16]*v1.SoldierRecord),
 		Vehicles:         make(map[uint16]*v1.VehicleRecord),
 		Markers:          make(map[string]*v1.MarkerRecord),
+		PlacedObjects:    make(map[uint16]*v1.PlacedObjectRecord),
 		GeneralEvents:    b.generalEvents,
 		HitEvents:        b.hitEvents,
 		KillEvents:       b.killEvents,
@@ -424,6 +466,13 @@ func (b *Backend) buildExportUnlocked() v1.Export {
 		data.Markers[name] = &v1.MarkerRecord{
 			Marker: record.Marker,
 			States: record.States,
+		}
+	}
+
+	for id, record := range b.placed {
+		data.PlacedObjects[id] = &v1.PlacedObjectRecord{
+			PlacedObject: record.PlacedObject,
+			Events:       record.Events,
 		}
 	}
 

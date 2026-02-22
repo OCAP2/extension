@@ -448,6 +448,62 @@ func TestRecordProjectileEvent(t *testing.T) {
 	assert.Len(t, b.projectileEvents[0].Trajectory, 2)
 }
 
+func TestAddPlacedObject(t *testing.T) {
+	b := New(config.MemoryConfig{})
+
+	p1 := &core.PlacedObject{
+		ID:          100,
+		ClassName:   "APERSMine_Range_Ammo",
+		DisplayName: "APERS Mine",
+		Position:    core.Position3D{X: 500, Y: 600, Z: 0},
+		OwnerID:     1,
+		Side:        "WEST",
+		Weapon:      "put",
+		JoinFrame:   50,
+	}
+	p2 := &core.PlacedObject{
+		ID:          101,
+		ClassName:   "SLAMDirectionalMine_Wire_Ammo",
+		DisplayName: "M6 SLAM Mine",
+		Position:    core.Position3D{X: 700, Y: 800, Z: 0},
+		OwnerID:     2,
+		Side:        "EAST",
+		Weapon:      "put",
+		JoinFrame:   60,
+	}
+
+	require.NoError(t, b.AddPlacedObject(p1))
+	require.NoError(t, b.AddPlacedObject(p2))
+
+	assert.Len(t, b.placed, 2)
+	assert.Equal(t, "APERS Mine", b.placed[100].PlacedObject.DisplayName)
+	assert.Equal(t, "M6 SLAM Mine", b.placed[101].PlacedObject.DisplayName)
+}
+
+func TestRecordPlacedObjectEvent(t *testing.T) {
+	b := New(config.MemoryConfig{})
+
+	p := &core.PlacedObject{ID: 100, DisplayName: "Mine"}
+	require.NoError(t, b.AddPlacedObject(p))
+
+	evt := &core.PlacedObjectEvent{
+		PlacedID:     100,
+		CaptureFrame: 200,
+		EventType:    "detonated",
+		Position:     core.Position3D{X: 500, Y: 600, Z: 0},
+	}
+	require.NoError(t, b.RecordPlacedObjectEvent(evt))
+
+	record := b.placed[100]
+	require.Len(t, record.Events, 1)
+	assert.Equal(t, "detonated", record.Events[0].EventType)
+	assert.Equal(t, core.Frame(200), record.Events[0].CaptureFrame)
+
+	// Recording event for non-existent placed object should not error
+	orphanEvt := &core.PlacedObjectEvent{PlacedID: 999, CaptureFrame: 0}
+	assert.NoError(t, b.RecordPlacedObjectEvent(orphanEvt))
+}
+
 func TestConcurrentAccess(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
@@ -526,6 +582,8 @@ func TestStartMissionResetsEverything(t *testing.T) {
 	require.NoError(t, b.RecordAce3DeathEvent(&core.Ace3DeathEvent{}))
 	require.NoError(t, b.RecordAce3UnconsciousEvent(&core.Ace3UnconsciousEvent{}))
 	require.NoError(t, b.RecordProjectileEvent(&core.ProjectileEvent{}))
+	require.NoError(t, b.AddPlacedObject(&core.PlacedObject{ID: 100}))
+	require.NoError(t, b.RecordPlacedObjectEvent(&core.PlacedObjectEvent{PlacedID: 100}))
 
 	// Start new mission
 	mission := &core.Mission{MissionName: "New"}
@@ -545,6 +603,7 @@ func TestStartMissionResetsEverything(t *testing.T) {
 	assert.Len(t, b.ace3DeathEvents, 0)
 	assert.Len(t, b.ace3UnconsciousEvents, 0)
 	assert.Len(t, b.projectileEvents, 0)
+	assert.Len(t, b.placed, 0)
 }
 
 func TestGetExportedFilePath(t *testing.T) {
@@ -731,6 +790,40 @@ func TestGetExportMetadataWithoutStartMission(t *testing.T) {
 	assert.Empty(t, meta.MissionName)
 	assert.Empty(t, meta.Tag)
 	assert.Equal(t, 0.0, meta.MissionDuration)
+}
+
+func TestGetExportMetadata_PlacedEventEndFrame(t *testing.T) {
+	b := New(config.MemoryConfig{})
+
+	mission := &core.Mission{
+		MissionName:  "Placed Test",
+		CaptureDelay: 1.0,
+	}
+	world := &core.World{WorldName: "Altis"}
+
+	require.NoError(t, b.StartMission(mission, world))
+
+	// Add soldier with lower frame
+	s := &core.Soldier{ID: 1}
+	require.NoError(t, b.AddSoldier(s))
+	require.NoError(t, b.RecordSoldierState(&core.SoldierState{
+		SoldierID:    s.ID,
+		CaptureFrame: 50,
+	}))
+
+	// Add placed object with event at higher frame - this should determine endFrame
+	p := &core.PlacedObject{ID: 100, DisplayName: "Mine"}
+	require.NoError(t, b.AddPlacedObject(p))
+	require.NoError(t, b.RecordPlacedObjectEvent(&core.PlacedObjectEvent{
+		PlacedID:     100,
+		CaptureFrame: 300,
+		EventType:    "detonated",
+	}))
+
+	meta := b.GetExportMetadata()
+
+	// Duration should be based on placed event's higher frame: 300 * 1.0 / 1000 = 0.3
+	assert.Equal(t, 0.3, meta.MissionDuration)
 }
 
 func TestComputeExportMetadata_NilMission(t *testing.T) {

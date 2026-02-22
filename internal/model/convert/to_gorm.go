@@ -294,6 +294,36 @@ func CoreToAce3UnconsciousEvent(e core.Ace3UnconsciousEvent) model.Ace3Unconscio
 	}
 }
 
+// CoreToPlacedObject converts a core.PlacedObject to a GORM model.PlacedObject.
+func CoreToPlacedObject(p core.PlacedObject) model.PlacedObject {
+	return model.PlacedObject{
+		ObjectID:     p.ID,
+		JoinTime:     p.JoinTime,
+		JoinFrame:    uint(p.JoinFrame),
+		ClassName:    p.ClassName,
+		DisplayName:  p.DisplayName,
+		PositionX:    p.Position.X,
+		PositionY:    p.Position.Y,
+		PositionZ:    p.Position.Z,
+		OwnerID:      p.OwnerID,
+		Side:         p.Side,
+		Weapon:       p.Weapon,
+		MagazineIcon: p.MagazineIcon,
+	}
+}
+
+// CoreToPlacedObjectEvent converts a core.PlacedObjectEvent to a GORM model.PlacedObjectEvent.
+func CoreToPlacedObjectEvent(e core.PlacedObjectEvent) model.PlacedObjectEvent {
+	return model.PlacedObjectEvent{
+		PlacedObjectID: e.PlacedID,
+		EventType:      e.EventType,
+		PositionX:      e.Position.X,
+		PositionY:      e.Position.Y,
+		PositionZ:      e.Position.Z,
+		CaptureFrame:   uint(e.CaptureFrame),
+	}
+}
+
 // CoreToProjectileEvent converts a core.ProjectileEvent to a GORM model.ProjectileEvent.
 // Converts trajectory points to a LineStringZM geometry and splits unified Hits
 // into separate HitSoldiers and HitVehicles slices.

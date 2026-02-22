@@ -1321,6 +1321,58 @@ func TestEndMission_ExportError(t *testing.T) {
 	assert.Contains(t, err.Error(), "create output directory")
 }
 
+func TestPlacedObjectExport(t *testing.T) {
+	b := New(config.MemoryConfig{})
+
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
+
+	// Add placed object with magazine icon
+	require.NoError(t, b.AddPlacedObject(&core.PlacedObject{
+		ID: 50, JoinFrame: 200, DisplayName: "APERS Mine",
+		Position: core.Position3D{X: 1000, Y: 2000, Z: 0}, OwnerID: 5, Side: "WEST",
+		MagazineIcon: `\A3\Weapons_F\Data\UI\gear_mine_AP_ca.paa`,
+	}))
+	require.NoError(t, b.RecordPlacedObjectEvent(&core.PlacedObjectEvent{
+		CaptureFrame: 500, PlacedID: 50, EventType: "detonated",
+		Position: core.Position3D{X: 1000, Y: 2000, Z: 0},
+	}))
+
+	// Add placed object without icon, no events (persists)
+	require.NoError(t, b.AddPlacedObject(&core.PlacedObject{
+		ID: 60, JoinFrame: 100, DisplayName: "Unknown Explosive",
+		Position: core.Position3D{X: 500, Y: 600, Z: 0}, OwnerID: 3, Side: "EAST",
+		MagazineIcon: "",
+	}))
+
+	export := b.BuildExport()
+
+	require.Len(t, export.Markers, 2)
+
+	// Find markers by text
+	var mineMarker, unknownMarker []any
+	for _, m := range export.Markers {
+		switch m[1].(string) {
+		case "APERS Mine":
+			mineMarker = m
+		case "Unknown Explosive":
+			unknownMarker = m
+		}
+	}
+
+	require.NotNil(t, mineMarker, "mine marker not found")
+	require.NotNil(t, unknownMarker, "unknown explosive marker not found")
+
+	// Mine with icon: magIcons type, detonated endFrame
+	assert.Equal(t, "magIcons/gear_mine_AP_ca.paa", mineMarker[0])
+	assert.Equal(t, 499, mineMarker[3])    // endFrame from detonation (internal 500 → v1 499)
+	assert.Equal(t, 1, mineMarker[6])      // WEST = 1
+
+	// Unknown without icon: Minefield fallback, persists
+	assert.Equal(t, "Minefield", unknownMarker[0])
+	assert.Equal(t, -1, unknownMarker[3]) // no events → persists
+	assert.Equal(t, 0, unknownMarker[6])  // EAST = 0
+}
+
 func TestMarkerSideValues(t *testing.T) {
 	// Test that sideToIndex correctly handles side string values
 	b := New(config.MemoryConfig{})

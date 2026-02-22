@@ -136,6 +136,13 @@ Copy `ocap_recorder.cfg.json.example` to `ocap_recorder.cfg.json` alongside the 
 | `:NEW:MARKER:STATE:` | 1,000 | Update marker position/appearance |
 | `:DELETE:MARKER:` | 500 | Delete marker |
 
+### Placed Object Commands
+
+| Command | Buffer | Purpose |
+|---------|--------|---------|
+| `:NEW:PLACED:` | Sync | Register placed object (mine, explosive) |
+| `:PLACED:EVENT:` | 1,000 | Placed object lifecycle event (detonated/deleted) |
+
 ### ACE3 Integration
 
 | Command | Buffer | Purpose |

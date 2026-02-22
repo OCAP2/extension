@@ -12,11 +12,12 @@ import (
 
 // MissionData contains all the data needed to build an export
 type MissionData struct {
-	Mission   *core.Mission
-	World     *core.World
-	Soldiers  map[uint16]*SoldierRecord
-	Vehicles  map[uint16]*VehicleRecord
-	Markers   map[string]*MarkerRecord
+	Mission       *core.Mission
+	World         *core.World
+	Soldiers      map[uint16]*SoldierRecord
+	Vehicles      map[uint16]*VehicleRecord
+	Markers       map[string]*MarkerRecord
+	PlacedObjects map[uint16]*PlacedObjectRecord
 
 	GeneralEvents    []core.GeneralEvent
 	HitEvents        []core.HitEvent
@@ -42,6 +43,12 @@ type VehicleRecord struct {
 type MarkerRecord struct {
 	Marker core.Marker
 	States []core.MarkerState
+}
+
+// PlacedObjectRecord groups a placed object with all its lifecycle events
+type PlacedObjectRecord struct {
+	PlacedObject core.PlacedObject
+	Events       []core.PlacedObjectEvent
 }
 
 // frameToV1 converts an internal 1-based Frame to a 0-based v1 JSON frame number.
@@ -340,6 +347,53 @@ func Build(data *MissionData) Export {
 		export.Markers = append(export.Markers, marker)
 	}
 
+	// Convert placed objects into markers
+	for id, record := range data.PlacedObjects {
+		// Determine marker icon
+		iconFilename := extractFilename(record.PlacedObject.MagazineIcon)
+		var markerType string
+		if iconFilename != "" {
+			markerType = "magIcons/" + iconFilename
+		} else {
+			markerType = "Minefield"
+		}
+
+		// Determine end frame from lifecycle events
+		placedEndFrame := -1
+		for _, evt := range record.Events {
+			if evt.EventType == "detonated" || evt.EventType == "deleted" {
+				placedEndFrame = frameToV1(evt.CaptureFrame)
+				break
+			}
+		}
+
+		posArray := [][]any{
+			{
+				frameToV1(record.PlacedObject.JoinFrame),
+				[]float64{record.PlacedObject.Position.X, record.PlacedObject.Position.Y, record.PlacedObject.Position.Z},
+				0,
+				1.0,
+			},
+		}
+
+		marker := []any{
+			markerType,                                  // [0] type
+			record.PlacedObject.DisplayName,             // [1] text
+			frameToV1(record.PlacedObject.JoinFrame),    // [2] startFrame
+			placedEndFrame,                         // [3] endFrame
+			int(record.PlacedObject.OwnerID),       // [4] playerId
+			"ColorOrange",                          // [5] color
+			sideToIndex(record.PlacedObject.Side),  // [6] sideIndex
+			posArray,                               // [7] positions
+			[]float64{1, 1},                        // [8] size
+			"ICON",                                 // [9] shape
+			"Solid",                                // [10] brush
+		}
+
+		_ = id // keyed by ID in the map, used for uniqueness
+		export.Markers = append(export.Markers, marker)
+	}
+
 	// Convert projectile events into firelines, markers, and hit events
 	for _, pe := range data.ProjectileEvents {
 		if !isProjectileMarker(pe.SimulationType) {
@@ -394,16 +448,16 @@ func Build(data *MissionData) Export {
 			}
 
 			// EndFrame is the last trajectory point's frame
-			endFrame := -1
+			projEndFrame := -1
 			if len(pe.Trajectory) > 0 {
-				endFrame = frameToV1(pe.Trajectory[len(pe.Trajectory)-1].FrameNum)
+				projEndFrame = frameToV1(pe.Trajectory[len(pe.Trajectory)-1].FrameNum)
 			}
 
 			marker := []any{
 				markerType,                   // [0] type
 				text,                         // [1] text
 				frameToV1(pe.CaptureFrame),   // [2] startFrame
-				endFrame,                     // [3] endFrame
+				projEndFrame,                 // [3] endFrame
 				int(pe.FirerObjectID),        // [4] playerId
 				color,                        // [5] color
 				-1,                           // [6] sideIndex (GLOBAL)

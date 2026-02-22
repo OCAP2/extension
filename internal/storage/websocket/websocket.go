@@ -180,3 +180,11 @@ func (b *Backend) RecordAce3DeathEvent(e *core.Ace3DeathEvent) error {
 func (b *Backend) RecordAce3UnconsciousEvent(e *core.Ace3UnconsciousEvent) error {
 	return b.sendEnvelope(streaming.TypeAce3Unconscious, e)
 }
+
+func (b *Backend) AddPlacedObject(p *core.PlacedObject) error {
+	return b.sendEnvelope(streaming.TypeAddPlaced, p)
+}
+
+func (b *Backend) RecordPlacedObjectEvent(e *core.PlacedObjectEvent) error {
+	return b.sendEnvelope(streaming.TypePlacedEvent, e)
+}

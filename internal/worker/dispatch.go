@@ -35,6 +35,10 @@ func (m *Manager) RegisterHandlers(d *dispatcher.Dispatcher) {
 	d.Register(":ACE3:DEATH:", m.handleAce3DeathEvent, dispatcher.Buffered(1000), dispatcher.Logged())
 	d.Register(":ACE3:UNCONSCIOUS:", m.handleAce3UnconsciousEvent, dispatcher.Buffered(1000), dispatcher.Logged())
 
+	// Placed objects - sync creation (need to cache), buffered events
+	d.Register(":NEW:PLACED:", m.handleNewPlaced, dispatcher.Logged())
+	d.Register(":PLACED:EVENT:", m.handlePlacedEvent, dispatcher.Buffered(1000), dispatcher.Logged())
+
 	// Marker creation - sync (need to cache before states arrive)
 	d.Register(":NEW:MARKER:", m.handleMarkerCreate, dispatcher.Logged())
 	// Marker updates - buffered
@@ -68,6 +72,38 @@ func (m *Manager) handleNewVehicle(e dispatcher.Event) (any, error) {
 
 	if err := m.backend.AddVehicle(&obj); err != nil {
 		return nil, fmt.Errorf("add vehicle: %w", err)
+	}
+	return nil, nil
+}
+
+func (m *Manager) handleNewPlaced(e dispatcher.Event) (any, error) {
+	obj, err := m.deps.ParserService.ParsePlacedObject(e.Args)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse new placed object: %w", err)
+	}
+
+	// Cache for event handler lookups
+	m.deps.EntityCache.AddPlacedObject(obj)
+
+	if err := m.backend.AddPlacedObject(&obj); err != nil {
+		return nil, fmt.Errorf("add placed object: %w", err)
+	}
+	return nil, nil
+}
+
+func (m *Manager) handlePlacedEvent(e dispatcher.Event) (any, error) {
+	obj, err := m.deps.ParserService.ParsePlacedObjectEvent(e.Args)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse placed event: %w", err)
+	}
+
+	// Validate placed object exists in cache
+	if _, ok := m.deps.EntityCache.GetPlacedObject(obj.PlacedID); !ok {
+		return nil, fmt.Errorf("placed object %d not found in cache", obj.PlacedID)
+	}
+
+	if err := m.backend.RecordPlacedObjectEvent(&obj); err != nil {
+		return nil, fmt.Errorf("record placed event: %w", err)
 	}
 	return nil, nil
 }

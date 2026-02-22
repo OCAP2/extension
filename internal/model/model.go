@@ -35,6 +35,8 @@ var DatabaseModels = []interface{}{
 	&Ace3UnconsciousEvent{},
 	&Marker{},
 	&MarkerState{},
+	&PlacedObject{},
+	&PlacedObjectEvent{},
 }
 
 ////////////////////////
@@ -598,6 +600,48 @@ type Marker struct {
 
 func (*Marker) TableName() string {
 	return "markers"
+}
+
+// PlacedObject represents a placed object (mine, explosive, etc.)
+// Uses composite primary key (MissionID, ObjectID)
+type PlacedObject struct {
+	MissionID    uint      `json:"missionId" gorm:"primaryKey;autoIncrement:false"`
+	ObjectID     uint16    `json:"ocapId" gorm:"primaryKey;autoIncrement:false"`
+	Mission      Mission   `gorm:"foreignkey:MissionID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+	CreatedAt    time.Time `json:"createdAt"`
+	JoinTime     time.Time `json:"joinTime" gorm:"type:timestamptz;NOT NULL"`
+	JoinFrame    uint      `json:"joinFrame"`
+	ClassName    string    `json:"className" gorm:"size:64"`
+	DisplayName  string    `json:"displayName" gorm:"size:64"`
+	PositionX    float64   `json:"positionX"`
+	PositionY    float64   `json:"positionY"`
+	PositionZ    float64   `json:"positionZ"`
+	OwnerID      uint16    `json:"ownerOcapId"`
+	Side         string    `json:"side" gorm:"size:16"`
+	Weapon       string    `json:"weapon" gorm:"size:64"`
+	MagazineIcon string    `json:"magazineIcon" gorm:"size:128"`
+}
+
+func (*PlacedObject) TableName() string {
+	return "placed_objects"
+}
+
+// PlacedObjectEvent represents a lifecycle event for a placed object
+type PlacedObjectEvent struct {
+	ID             uint      `json:"id" gorm:"primarykey;autoIncrement;"`
+	MissionID      uint      `json:"missionId" gorm:"index:idx_placedobjectevent_mission_id"`
+	Mission        Mission   `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:MissionID;"`
+	PlacedObjectID uint16    `json:"placedOcapId" gorm:"index:idx_placedobjectevent_placed_ocap_id"`
+	EventType      string    `json:"eventType" gorm:"size:32"`
+	PositionX      float64   `json:"positionX"`
+	PositionY      float64   `json:"positionY"`
+	PositionZ      float64   `json:"positionZ"`
+	CaptureFrame   uint      `json:"captureFrame" gorm:"index:idx_placedobjectevent_capture_frame"`
+	CreatedAt      time.Time `json:"createdAt"`
+}
+
+func (*PlacedObjectEvent) TableName() string {
+	return "placed_object_events"
 }
 
 // MarkerState tracks marker position/property changes over time

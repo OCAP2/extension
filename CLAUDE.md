@@ -62,18 +62,21 @@ GORM models for PostgreSQL/SQLite:
 - `Vehicle`, `VehicleState` - Vehicle tracking
 - `ProjectileEvent`, `ProjectileHitsSoldier`, `ProjectileHitsVehicle` - Combat events
 - `Marker`, `MarkerState` - Map marker tracking
+- `PlacedObject`, `PlacedObjectEvent` - Placed object (mine/explosive) tracking
 
 ### Commands
 
 | Command | Purpose |
 |---------|---------|
-| `:NEW:UNIT:`, `:NEW:VEH:` | Register new units/vehicles |
-| `:UPDATE:UNIT:`, `:UPDATE:VEH:` | Update position/state data |
-| `:EVENT:`, `:FIRED:` | Log gameplay events |
-| `:MARKER:CREATE/DELETE/MOVE:` | Marker operations |
-| `:START:` | Begin recording mission |
-| `:SAVE:` | End recording and finalize |
-| `:LOG:` | Custom log events |
+| `:NEW:SOLDIER:`, `:NEW:VEHICLE:` | Register new units/vehicles |
+| `:NEW:SOLDIER:STATE:`, `:NEW:VEHICLE:STATE:` | Update position/state data |
+| `:PROJECTILE:`, `:KILL:` | Combat events |
+| `:EVENT:`, `:CHAT:`, `:RADIO:`, `:TELEMETRY:` | General gameplay events |
+| `:NEW:MARKER:`, `:NEW:MARKER:STATE:`, `:DELETE:MARKER:` | Marker operations |
+| `:NEW:PLACED:`, `:PLACED:EVENT:` | Placed object (mine/explosive) lifecycle |
+| `:ACE3:DEATH:`, `:ACE3:UNCONSCIOUS:` | ACE3 integration events |
+| `:INIT:`, `:INIT:STORAGE:` | Initialize extension and storage |
+| `:NEW:MISSION:`, `:SAVE:MISSION:` | Begin/end recording |
 
 ### Data Flow
 

@@ -33,6 +33,8 @@ func TestTableNames(t *testing.T) {
 		{"TimeState", &TimeState{}, "time_states"},
 		{"Marker", &Marker{}, "markers"},
 		{"MarkerState", &MarkerState{}, "marker_states"},
+		{"PlacedObject", &PlacedObject{}, "placed_objects"},
+		{"PlacedObjectEvent", &PlacedObjectEvent{}, "placed_object_events"},
 	}
 
 	for _, tt := range tests {

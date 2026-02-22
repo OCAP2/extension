@@ -42,6 +42,8 @@ type queues struct {
 	Ace3UnconsciousEvents *queue.Queue[model.Ace3UnconsciousEvent]
 	Markers               *queue.Queue[model.Marker]
 	MarkerStates          *queue.Queue[model.MarkerState]
+	PlacedObjects         *queue.Queue[model.PlacedObject]
+	PlacedObjectEvents    *queue.Queue[model.PlacedObjectEvent]
 }
 
 func newQueues() *queues {
@@ -60,6 +62,8 @@ func newQueues() *queues {
 		Ace3UnconsciousEvents: queue.New[model.Ace3UnconsciousEvent](),
 		Markers:               queue.New[model.Marker](),
 		MarkerStates:          queue.New[model.MarkerState](),
+		PlacedObjects:         queue.New[model.PlacedObject](),
+		PlacedObjectEvents:    queue.New[model.PlacedObjectEvent](),
 	}
 }
 
@@ -359,6 +363,20 @@ func (b *Backend) RecordAce3UnconsciousEvent(e *core.Ace3UnconsciousEvent) error
 	return nil
 }
 
+// AddPlacedObject converts a core placed object to GORM and pushes to the write queue.
+func (b *Backend) AddPlacedObject(p *core.PlacedObject) error {
+	gormObj := convert.CoreToPlacedObject(*p)
+	b.queues.PlacedObjects.Push(gormObj)
+	return nil
+}
+
+// RecordPlacedObjectEvent converts and queues a placed object event.
+func (b *Backend) RecordPlacedObjectEvent(e *core.PlacedObjectEvent) error {
+	gormObj := convert.CoreToPlacedObjectEvent(*e)
+	b.queues.PlacedObjectEvents.Push(gormObj)
+	return nil
+}
+
 // writeQueue writes all items from a queue to the database in a transaction.
 func writeQueue[T any](db *gorm.DB, q *queue.Queue[T], name string, log func(string, string, string), prepare func([]T), onSuccess func([]T)) {
 	if q.Empty() {
@@ -480,6 +498,16 @@ func (b *Backend) startDBWriters() {
 					items[i].MissionID = missionID
 				}
 			}
+			stampPlacedObjects := func(items []model.PlacedObject) {
+				for i := range items {
+					items[i].MissionID = missionID
+				}
+			}
+			stampPlacedObjectEvents := func(items []model.PlacedObjectEvent) {
+				for i := range items {
+					items[i].MissionID = missionID
+				}
+			}
 
 			// Entities (cache already populated by worker at parse time with core types)
 			writeQueue(b.deps.DB, b.queues.Soldiers, "soldiers", log, stampSoldiers, nil)
@@ -506,6 +534,10 @@ func (b *Backend) startDBWriters() {
 			writeQueue(b.deps.DB, b.queues.FpsEvents, "serverfps events", log, stampFpsEvents, nil)
 			writeQueue(b.deps.DB, b.queues.Ace3DeathEvents, "ace3 death events", log, stampAce3DeathEvents, nil)
 			writeQueue(b.deps.DB, b.queues.Ace3UnconsciousEvents, "ace3 unconscious events", log, stampAce3UnconsciousEvents, nil)
+
+			// Placed objects
+			writeQueue(b.deps.DB, b.queues.PlacedObjects, "placed objects", log, stampPlacedObjects, nil)
+			writeQueue(b.deps.DB, b.queues.PlacedObjectEvents, "placed object events", log, stampPlacedObjectEvents, nil)
 
 			time.Sleep(2 * time.Second)
 		}

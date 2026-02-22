@@ -36,6 +36,10 @@ type Backend interface {
 	RecordTimeState(t *core.TimeState) error
 	RecordAce3DeathEvent(e *core.Ace3DeathEvent) error
 	RecordAce3UnconsciousEvent(e *core.Ace3UnconsciousEvent) error
+
+	// Placed objects
+	AddPlacedObject(p *core.PlacedObject) error
+	RecordPlacedObjectEvent(e *core.PlacedObjectEvent) error
 }
 
 // Uploadable is an optional interface for storage backends that produce

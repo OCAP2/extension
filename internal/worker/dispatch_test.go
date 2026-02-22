@@ -61,6 +61,8 @@ type mockBackend struct {
 	ace3Uncon         []*core.Ace3UnconsciousEvent
 	projectileEvents  []*core.ProjectileEvent
 	deletedMarkers    []*core.DeleteMarker
+	placedObjects     []*core.PlacedObject
+	placedEvents      []*core.PlacedObjectEvent
 	initCalled     bool
 	closeCalled    bool
 	missionStarted bool
@@ -222,6 +224,20 @@ func (b *mockBackend) DeleteMarker(dm *core.DeleteMarker) error {
 	return nil
 }
 
+func (b *mockBackend) AddPlacedObject(p *core.PlacedObject) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.placedObjects = append(b.placedObjects, p)
+	return nil
+}
+
+func (b *mockBackend) RecordPlacedObjectEvent(e *core.PlacedObjectEvent) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.placedEvents = append(b.placedEvents, e)
+	return nil
+}
+
 // errorBackend is a mockBackend that returns an error from AddMarker.
 
 // mockParserService provides a minimal implementation for testing
@@ -247,6 +263,8 @@ type mockParserService struct {
 	marker        core.Marker
 	markerMove    parser.MarkerMove
 	deleteMarker *core.DeleteMarker
+	placedObject  core.PlacedObject
+	placedEvent   core.PlacedObjectEvent
 
 	// Error simulation
 	returnError bool
@@ -426,6 +444,26 @@ func (h *mockParserService) ParseMarkerDelete(args []string) (*core.DeleteMarker
 	return h.deleteMarker, nil
 }
 
+func (h *mockParserService) ParsePlacedObject(args []string) (core.PlacedObject, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.calls = append(h.calls, "ParsePlacedObject")
+	if h.returnError {
+		return core.PlacedObject{}, errors.New(h.errorMsg)
+	}
+	return h.placedObject, nil
+}
+
+func (h *mockParserService) ParsePlacedObjectEvent(args []string) (core.PlacedObjectEvent, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.calls = append(h.calls, "ParsePlacedObjectEvent")
+	if h.returnError {
+		return core.PlacedObjectEvent{}, errors.New(h.errorMsg)
+	}
+	return h.placedEvent, nil
+}
+
 // waitFor polls until check returns true or times out after 2s.
 func waitFor(t *testing.T, check func() bool, msg string) {
 	t.Helper()
@@ -489,6 +527,8 @@ func TestRegisterHandlers_RegistersAllCommands(t *testing.T) {
 		":TELEMETRY:",
 		":ACE3:DEATH:",
 		":ACE3:UNCONSCIOUS:",
+		":NEW:PLACED:",
+		":PLACED:EVENT:",
 		":NEW:MARKER:",
 		":NEW:MARKER:STATE:",
 		":DELETE:MARKER:",
@@ -2118,6 +2158,20 @@ func (b *configurableErrorBackend) DeleteMarker(dm *core.DeleteMarker) error {
 	return b.mockBackend.DeleteMarker(dm)
 }
 
+func (b *configurableErrorBackend) AddPlacedObject(p *core.PlacedObject) error {
+	if e := b.fail("AddPlacedObject"); e != nil {
+		return e
+	}
+	return b.mockBackend.AddPlacedObject(p)
+}
+
+func (b *configurableErrorBackend) RecordPlacedObjectEvent(e *core.PlacedObjectEvent) error {
+	if err := b.fail("RecordPlacedObjectEvent"); err != nil {
+		return err
+	}
+	return b.mockBackend.RecordPlacedObjectEvent(e)
+}
+
 // --- Backend Record* error tests ---
 
 func TestHandleSoldierState_BackendError(t *testing.T) {
@@ -2350,6 +2404,186 @@ func TestHandleMarkerMove_BackendError(t *testing.T) {
 	manager.RegisterHandlers(d)
 
 	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:MARKER:STATE:", Args: []string{}})
+	require.NoError(t, err)
+	waitForLogMsg(t, logger, "event failed")
+}
+
+// --- Placed object handler tests ---
+
+func TestHandleNewPlaced_CachesEntityWithBackend(t *testing.T) {
+	d, _ := newTestDispatcher(t)
+	entityCache := cache.NewEntityCache()
+
+	parserService := &mockParserService{
+		placedObject: core.PlacedObject{
+			ID:          100,
+			ClassName:   "APERSMine_Range_Ammo",
+			DisplayName: "APERS Mine",
+			Side:        "WEST",
+			OwnerID:     1,
+		},
+	}
+
+	backend := &mockBackend{}
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   entityCache,
+	}, backend)
+	manager.RegisterHandlers(d)
+
+	result, err := d.Dispatch(dispatcher.Event{Command: ":NEW:PLACED:", Args: []string{}})
+
+	require.NoError(t, err)
+	assert.Nil(t, result, "expected nil result")
+
+	// Verify placed object is in backend
+	assert.Equal(t, 1, len(backend.placedObjects), "expected 1 placed object in backend")
+
+	// Verify placed object is also in EntityCache
+	cachedPlaced, found := entityCache.GetPlacedObject(100)
+	assert.True(t, found, "expected placed object to be cached in EntityCache")
+	assert.Equal(t, "APERS Mine", cachedPlaced.DisplayName)
+}
+
+func TestHandleNewPlaced_ParserError(t *testing.T) {
+	d, _ := newTestDispatcher(t)
+
+	parserService := &mockParserService{returnError: true, errorMsg: "bad placed data"}
+	backend := &mockBackend{}
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   cache.NewEntityCache(),
+	}, backend)
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:PLACED:", Args: []string{}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to parse new placed object")
+}
+
+func TestHandleNewPlaced_BackendError(t *testing.T) {
+	d, _ := newTestDispatcher(t)
+	entityCache := cache.NewEntityCache()
+
+	parserService := &mockParserService{
+		placedObject: core.PlacedObject{ID: 100, DisplayName: "Mine"},
+	}
+	backend := &configurableErrorBackend{failOn: map[string]error{"AddPlacedObject": errors.New("db write failed")}}
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   entityCache,
+	}, backend)
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:PLACED:", Args: []string{}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "add placed object")
+
+	// Placed object should still be in cache (cached before backend call)
+	_, found := entityCache.GetPlacedObject(100)
+	assert.True(t, found, "placed object should be in cache even when backend fails")
+}
+
+func TestHandlePlacedEvent_HappyPath(t *testing.T) {
+	d, _ := newTestDispatcher(t)
+	entityCache := cache.NewEntityCache()
+	entityCache.AddPlacedObject(core.PlacedObject{ID: 100, DisplayName: "APERS Mine"})
+
+	parserService := &mockParserService{
+		placedEvent: core.PlacedObjectEvent{
+			PlacedID:     100,
+			CaptureFrame: 500,
+			EventType:    "detonated",
+			Position:     core.Position3D{X: 100, Y: 200, Z: 0},
+		},
+	}
+
+	backend := &mockBackend{}
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   entityCache,
+	}, backend)
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":PLACED:EVENT:", Args: []string{}})
+	require.NoError(t, err)
+
+	waitFor(t, func() bool {
+		backend.mu.Lock()
+		n := len(backend.placedEvents)
+		backend.mu.Unlock()
+		return n > 0
+	}, "timed out waiting for placed event")
+
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	require.Equal(t, 1, len(backend.placedEvents))
+	assert.Equal(t, "detonated", backend.placedEvents[0].EventType)
+	assert.Equal(t, core.Frame(500), backend.placedEvents[0].CaptureFrame)
+}
+
+func TestHandlePlacedEvent_PlacedObjectNotCached(t *testing.T) {
+	d, logger := newTestDispatcher(t)
+	entityCache := cache.NewEntityCache()
+	// Placed object 100 is NOT in cache
+
+	parserService := &mockParserService{
+		placedEvent: core.PlacedObjectEvent{PlacedID: 100, CaptureFrame: 500, EventType: "detonated"},
+	}
+
+	backend := &mockBackend{}
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   entityCache,
+	}, backend)
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":PLACED:EVENT:", Args: []string{}})
+	require.NoError(t, err) // buffered dispatch doesn't return handler errors
+
+	waitForLogMsg(t, logger, "buffered handler failed")
+
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	assert.Equal(t, 0, len(backend.placedEvents), "placed event should not be recorded when object not cached")
+}
+
+func TestHandlePlacedEvent_ParserError(t *testing.T) {
+	d, logger := newTestDispatcher(t)
+
+	parserService := &mockParserService{returnError: true, errorMsg: "bad placed event"}
+	backend := &mockBackend{}
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   cache.NewEntityCache(),
+	}, backend)
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":PLACED:EVENT:", Args: []string{}})
+	require.NoError(t, err)
+
+	waitForLogMsg(t, logger, "event failed")
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	assert.Empty(t, backend.placedEvents)
+}
+
+func TestHandlePlacedEvent_BackendError(t *testing.T) {
+	d, logger := newTestDispatcher(t)
+	entityCache := cache.NewEntityCache()
+	entityCache.AddPlacedObject(core.PlacedObject{ID: 100})
+
+	parserService := &mockParserService{
+		placedEvent: core.PlacedObjectEvent{PlacedID: 100, CaptureFrame: 500, EventType: "detonated"},
+	}
+
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   entityCache,
+	}, &configurableErrorBackend{failOn: map[string]error{"RecordPlacedObjectEvent": errInjected}})
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":PLACED:EVENT:", Args: []string{}})
 	require.NoError(t, err)
 	waitForLogMsg(t, logger, "event failed")
 }
