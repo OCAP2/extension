@@ -636,8 +636,9 @@ type PlacedObjectEvent struct {
 	PositionX      float64   `json:"positionX"`
 	PositionY      float64   `json:"positionY"`
 	PositionZ      float64   `json:"positionZ"`
-	HitEntityID    *uint     `json:"hitEntityOcapId,omitempty" gorm:"index:idx_placedobjectevent_hit_entity_ocap_id;default:NULL"`
-	CaptureFrame   uint      `json:"captureFrame" gorm:"index:idx_placedobjectevent_capture_frame"`
+	HitEntityID    *uint           `json:"hitEntityOcapId,omitempty" gorm:"index:idx_placedobjectevent_hit_entity_ocap_id;default:NULL"`
+	HitComponents  datatypes.JSON `json:"componentsHit,omitempty"`
+	CaptureFrame   uint           `json:"captureFrame" gorm:"index:idx_placedobjectevent_capture_frame"`
 	CreatedAt      time.Time `json:"createdAt"`
 }
 
