@@ -88,7 +88,7 @@ func TestBuildEmptyMission(t *testing.T) {
 	assert.Empty(t, export.Events)
 	assert.Empty(t, export.Markers)
 	assert.Empty(t, export.Times)
-	assert.Equal(t, 0, export.EndFrame)
+	assert.Equal(t, -1, export.EndFrame) // no frames → FrameForever(0) → v1 -1
 }
 
 func TestBuildWithMissionMetadata(t *testing.T) {

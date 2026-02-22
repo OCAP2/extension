@@ -205,9 +205,7 @@ func Build(data *MissionData) Export {
 		export.Entities[record.Vehicle.ID] = entity
 	}
 
-	if maxFrame > 0 {
-		export.EndFrame = frameToV1(maxFrame)
-	}
+	export.EndFrame = frameToV1(maxFrame)
 
 	// Convert general events
 	// Format: [frameNum, "type", message]
