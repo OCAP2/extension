@@ -3,7 +3,6 @@ package parser
 import (
 	"fmt"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/OCAP2/extension/v5/internal/geo"
@@ -73,7 +72,7 @@ func (p *Parser) ParsePlacedObject(data []string) (core.PlacedObject, error) {
 }
 
 // ParsePlacedObjectEvent parses placed object event data into a core PlacedObjectEvent.
-// Args: [frame, id, eventType, "x,y,z", hitEntityOcapId?, "comp1|comp2|..."?]
+// Args: [frame, id, eventType, "x,y,z", hitEntityOcapId?]
 func (p *Parser) ParsePlacedObjectEvent(data []string) (core.PlacedObjectEvent, error) {
 	var result core.PlacedObjectEvent
 
@@ -118,11 +117,6 @@ func (p *Parser) ParsePlacedObjectEvent(data []string) (core.PlacedObjectEvent, 
 		}
 		hitID16 := uint16(hitID)
 		result.HitEntityID = &hitID16
-	}
-
-	// [5] componentsHit (optional, pipe-separated, only for "hit" events)
-	if len(data) >= 6 && data[5] != "" {
-		result.HitComponents = strings.Split(data[5], "|")
 	}
 
 	return result, nil

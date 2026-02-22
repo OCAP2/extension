@@ -154,14 +154,13 @@ func TestParsePlacedObjectEvent(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "hit event with target and components",
+			name: "hit event with target",
 			input: []string{
 				"450",              // 0: frame
 				"50",               // 1: placedId
 				"hit",              // 2: eventType
 				"5100.5,3100.2,10", // 3: position (victim pos)
 				"12",               // 4: hitEntityOcapId
-				"body|legs|head",   // 5: componentsHit
 			},
 			check: func(t *testing.T, evt core.PlacedObjectEvent) {
 				assert.Equal(t, core.Frame(450), evt.CaptureFrame)
@@ -172,22 +171,6 @@ func TestParsePlacedObjectEvent(t *testing.T) {
 				assert.InDelta(t, 10.0, evt.Position.Z, 0.01)
 				require.NotNil(t, evt.HitEntityID)
 				assert.Equal(t, uint16(12), *evt.HitEntityID)
-				assert.Equal(t, []string{"body", "legs", "head"}, evt.HitComponents)
-			},
-		},
-		{
-			name: "hit event without components",
-			input: []string{
-				"450",              // 0: frame
-				"50",               // 1: placedId
-				"hit",              // 2: eventType
-				"5100.5,3100.2,10", // 3: position (victim pos)
-				"12",               // 4: hitEntityOcapId
-			},
-			check: func(t *testing.T, evt core.PlacedObjectEvent) {
-				require.NotNil(t, evt.HitEntityID)
-				assert.Equal(t, uint16(12), *evt.HitEntityID)
-				assert.Nil(t, evt.HitComponents)
 			},
 		},
 		{

@@ -23,6 +23,5 @@ type PlacedObjectEvent struct {
 	PlacedID     uint16
 	EventType    string // "detonated", "deleted", or "hit"
 	Position     Position3D
-	HitEntityID   *uint16  // OCAP ID of hit entity (only for "hit" events)
-	HitComponents []string // body/vehicle components hit (only for "hit" events)
+	HitEntityID *uint16 // OCAP ID of hit entity (only for "hit" events)
 }

@@ -326,7 +326,6 @@ func CoreToPlacedObjectEvent(e core.PlacedObjectEvent) model.PlacedObjectEvent {
 		id := uint(*e.HitEntityID)
 		result.HitEntityID = &id
 	}
-	result.HitComponents = componentsToJSON(e.HitComponents)
 	return result
 }
 
