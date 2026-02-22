@@ -824,6 +824,10 @@ func ptrUint(v uint) *uint {
 	return &v
 }
 
+func ptrUint16(v uint16) *uint16 {
+	return &v
+}
+
 func TestMarkerColorHashPrefixIsStripped(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
@@ -1420,4 +1424,48 @@ func TestMarkerSideValues(t *testing.T) {
 	assert.Equal(t, 2, markerSides["Guer"], "Side 'GUER' should map to 2")
 	assert.Equal(t, 3, markerSides["Civ"], "Side 'CIV' should map to 3")
 	assert.Equal(t, -1, markerSides["Global"], "Unknown side should map to GLOBAL (-1)")
+}
+
+func TestPlacedObjectHitEventExport(t *testing.T) {
+	b := New(config.MemoryConfig{})
+
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
+
+	// Add a soldier (the victim)
+	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 7, UnitName: "Victim", Side: "EAST", JoinFrame: 1}))
+	require.NoError(t, b.RecordSoldierState(&core.SoldierState{SoldierID: 7, CaptureFrame: 1, Lifestate: 1}))
+
+	// Add placed object
+	require.NoError(t, b.AddPlacedObject(&core.PlacedObject{
+		ID: 50, JoinFrame: 100, DisplayName: "APERS Mine",
+		Position: core.Position3D{X: 1000, Y: 2000, Z: 0}, OwnerID: 5, Side: "WEST",
+		MagazineIcon: `\A3\Weapons_F\Data\UI\gear_mine_AP_ca.paa`,
+	}))
+
+	// Record hit event then detonation
+	require.NoError(t, b.RecordPlacedObjectEvent(&core.PlacedObjectEvent{
+		CaptureFrame: 499, PlacedID: 50, EventType: "hit",
+		Position: core.Position3D{X: 1003, Y: 2004, Z: 0},
+		HitEntityID: ptrUint16(7),
+	}))
+	require.NoError(t, b.RecordPlacedObjectEvent(&core.PlacedObjectEvent{
+		CaptureFrame: 500, PlacedID: 50, EventType: "detonated",
+		Position: core.Position3D{X: 1000, Y: 2000, Z: 0},
+	}))
+
+	export := b.BuildExport()
+
+	// Should have placed object marker
+	require.Len(t, export.Markers, 1)
+
+	// Should have hit event from placed object
+	require.Len(t, export.Events, 1)
+	evt := export.Events[0]
+	assert.Equal(t, 498, evt[0])    // frame (internal 499 → v1 498)
+	assert.Equal(t, "hit", evt[1])
+	assert.Equal(t, uint(7), evt[2]) // victim
+	causedBy := evt[3].([]any)
+	assert.Equal(t, uint(5), causedBy[0])       // owner
+	assert.Equal(t, "APERS Mine", causedBy[1])  // weapon text
+	assert.InDelta(t, 5.0, float64(evt[4].(float32)), 0.01)
 }

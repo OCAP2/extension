@@ -21,6 +21,7 @@ type PlacedObject struct {
 type PlacedObjectEvent struct {
 	CaptureFrame Frame
 	PlacedID     uint16
-	EventType    string // "detonated" or "deleted"
+	EventType    string // "detonated", "deleted", or "hit"
 	Position     Position3D
+	HitEntityID  *uint16 // OCAP ID of hit entity (only for "hit" events)
 }

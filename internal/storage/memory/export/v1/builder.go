@@ -392,6 +392,23 @@ func Build(data *MissionData) Export {
 
 		_ = id // keyed by ID in the map, used for uniqueness
 		export.Markers = append(export.Markers, marker)
+
+		// Emit hit events from placed object HitExplosion data
+		for _, evt := range record.Events {
+			if evt.EventType == "hit" && evt.HitEntityID != nil {
+				dx := record.PlacedObject.Position.X - evt.Position.X
+				dy := record.PlacedObject.Position.Y - evt.Position.Y
+				dist := float32(math.Sqrt(dx*dx + dy*dy))
+
+				export.Events = append(export.Events, []any{
+					frameToV1(evt.CaptureFrame),
+					"hit",
+					uint(*evt.HitEntityID),
+					[]any{uint(record.PlacedObject.OwnerID), record.PlacedObject.DisplayName},
+					dist,
+				})
+			}
+		}
 	}
 
 	// Convert projectile events into firelines, markers, and hit events

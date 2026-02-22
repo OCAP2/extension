@@ -314,7 +314,7 @@ func CoreToPlacedObject(p core.PlacedObject) model.PlacedObject {
 
 // CoreToPlacedObjectEvent converts a core.PlacedObjectEvent to a GORM model.PlacedObjectEvent.
 func CoreToPlacedObjectEvent(e core.PlacedObjectEvent) model.PlacedObjectEvent {
-	return model.PlacedObjectEvent{
+	result := model.PlacedObjectEvent{
 		PlacedObjectID: e.PlacedID,
 		EventType:      e.EventType,
 		PositionX:      e.Position.X,
@@ -322,6 +322,11 @@ func CoreToPlacedObjectEvent(e core.PlacedObjectEvent) model.PlacedObjectEvent {
 		PositionZ:      e.Position.Z,
 		CaptureFrame:   uint(e.CaptureFrame),
 	}
+	if e.HitEntityID != nil {
+		id := uint(*e.HitEntityID)
+		result.HitEntityID = &id
+	}
+	return result
 }
 
 // CoreToProjectileEvent converts a core.ProjectileEvent to a GORM model.ProjectileEvent.

@@ -72,7 +72,7 @@ func (p *Parser) ParsePlacedObject(data []string) (core.PlacedObject, error) {
 }
 
 // ParsePlacedObjectEvent parses placed object event data into a core PlacedObjectEvent.
-// Args: [frame, id, eventType, "x,y,z"]
+// Args: [frame, id, eventType, "x,y,z", hitEntityOcapId?]
 func (p *Parser) ParsePlacedObjectEvent(data []string) (core.PlacedObjectEvent, error) {
 	var result core.PlacedObjectEvent
 
@@ -108,6 +108,16 @@ func (p *Parser) ParsePlacedObjectEvent(data []string) (core.PlacedObjectEvent, 
 		return result, fmt.Errorf("error parsing position: %w", err)
 	}
 	result.Position = pos3d
+
+	// [4] hitEntityOcapId (optional, only for "hit" events)
+	if len(data) >= 5 {
+		hitID, err := parseUintFromFloat(data[4])
+		if err != nil {
+			return result, fmt.Errorf("error parsing hitEntityOcapId: %w", err)
+		}
+		hitID16 := uint16(hitID)
+		result.HitEntityID = &hitID16
+	}
 
 	return result, nil
 }

@@ -153,6 +153,41 @@ func TestParsePlacedObjectEvent(t *testing.T) {
 			input:   []string{"500", "50", "detonated", "bad"},
 			wantErr: true,
 		},
+		{
+			name: "hit event with target",
+			input: []string{
+				"450",              // 0: frame
+				"50",               // 1: placedId
+				"hit",              // 2: eventType
+				"5100.5,3100.2,10", // 3: position (victim pos)
+				"12",               // 4: hitEntityOcapId
+			},
+			check: func(t *testing.T, evt core.PlacedObjectEvent) {
+				assert.Equal(t, core.Frame(450), evt.CaptureFrame)
+				assert.Equal(t, uint16(50), evt.PlacedID)
+				assert.Equal(t, "hit", evt.EventType)
+				assert.InDelta(t, 5100.5, evt.Position.X, 0.01)
+				assert.InDelta(t, 3100.2, evt.Position.Y, 0.01)
+				assert.InDelta(t, 10.0, evt.Position.Z, 0.01)
+				require.NotNil(t, evt.HitEntityID)
+				assert.Equal(t, uint16(12), *evt.HitEntityID)
+			},
+		},
+		{
+			name: "detonation has no hit entity",
+			input: []string{
+				"500", "50", "detonated", "5000.5,3000.2,10",
+			},
+			check: func(t *testing.T, evt core.PlacedObjectEvent) {
+				assert.Equal(t, "detonated", evt.EventType)
+				assert.Nil(t, evt.HitEntityID)
+			},
+		},
+		{
+			name:    "error: bad hitEntityOcapId",
+			input:   []string{"500", "50", "hit", "1,2,3", "abc"},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {

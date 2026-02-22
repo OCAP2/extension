@@ -1257,3 +1257,47 @@ func TestIsProjectileMarker(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildWithPlacedObjectHitEvents(t *testing.T) {
+	hitVictim := uint16(7)
+	data := &MissionData{
+		Mission:  &core.Mission{MissionName: "Test"},
+		World:    &core.World{WorldName: "Altis"},
+		Soldiers: make(map[uint16]*SoldierRecord),
+		Vehicles: make(map[uint16]*VehicleRecord),
+		Markers:  make(map[string]*MarkerRecord),
+		PlacedObjects: map[uint16]*PlacedObjectRecord{
+			50: {
+				PlacedObject: core.PlacedObject{
+					ID: 50, JoinFrame: 200, DisplayName: "APERS Mine",
+					Position: core.Position3D{X: 1000, Y: 2000, Z: 0},
+					OwnerID:  5, Side: "WEST",
+					MagazineIcon: `\A3\Weapons_F\Data\UI\gear_mine_AP_ca.paa`,
+				},
+				Events: []core.PlacedObjectEvent{
+					{CaptureFrame: 499, PlacedID: 50, EventType: "hit", Position: core.Position3D{X: 1003, Y: 2004, Z: 0}, HitEntityID: &hitVictim},
+					{CaptureFrame: 500, PlacedID: 50, EventType: "detonated", Position: core.Position3D{X: 1000, Y: 2000, Z: 0}},
+				},
+			},
+		},
+	}
+
+	export := Build(data)
+
+	// Should have a marker for the placed object
+	require.Len(t, export.Markers, 1)
+
+	// Should have a hit event
+	require.Len(t, export.Events, 1)
+	evt := export.Events[0]
+	assert.Equal(t, 498, evt[0])    // frame (internal 499 → v1 498)
+	assert.Equal(t, "hit", evt[1])  // event type
+	assert.Equal(t, uint(7), evt[2]) // victim ID
+
+	causedBy := evt[3].([]any)
+	assert.Equal(t, uint(5), causedBy[0])          // owner ID
+	assert.Equal(t, "APERS Mine", causedBy[1])     // weapon text (display name)
+
+	// Distance: sqrt((1000-1003)^2 + (2000-2004)^2) = sqrt(9+16) = 5.0
+	assert.InDelta(t, 5.0, float64(evt[4].(float32)), 0.01)
+}
