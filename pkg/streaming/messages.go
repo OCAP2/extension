@@ -28,6 +28,8 @@ const (
 	TypeTimeState       = "time_state"
 	TypeAce3Death       = "ace3_death"
 	TypeAce3Unconscious = "ace3_unconscious"
+	TypeAddPlaced       = "add_placed"
+	TypePlacedEvent     = "placed_event"
 )
 
 // AllMessageTypes lists every streaming message type.
@@ -38,6 +40,7 @@ var AllMessageTypes = []string{
 	TypeFiredEvent, TypeProjectileEvent, TypeGeneralEvent,
 	TypeHitEvent, TypeKillEvent, TypeChatEvent, TypeRadioEvent,
 	TypeTelemetry, TypeTimeState, TypeAce3Death, TypeAce3Unconscious,
+	TypeAddPlaced, TypePlacedEvent,
 }
 
 // Envelope wraps all messages sent over the WebSocket.

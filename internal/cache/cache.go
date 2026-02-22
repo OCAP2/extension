@@ -12,6 +12,7 @@ type EntityCache struct {
 	m        sync.Mutex
 	soldiers map[uint16]core.Soldier
 	vehicles map[uint16]core.Vehicle
+	placed   map[uint16]core.PlacedObject
 }
 
 func NewEntityCache() *EntityCache {
@@ -19,6 +20,7 @@ func NewEntityCache() *EntityCache {
 		m:        sync.Mutex{},
 		soldiers: make(map[uint16]core.Soldier),
 		vehicles: make(map[uint16]core.Vehicle),
+		placed:   make(map[uint16]core.PlacedObject),
 	}
 }
 
@@ -27,6 +29,7 @@ func (c *EntityCache) Reset() {
 	defer c.m.Unlock()
 	c.soldiers = make(map[uint16]core.Soldier)
 	c.vehicles = make(map[uint16]core.Vehicle)
+	c.placed = make(map[uint16]core.PlacedObject)
 }
 
 func (c *EntityCache) SoldierCount() int {
@@ -44,19 +47,15 @@ func (c *EntityCache) VehicleCount() int {
 func (c *EntityCache) GetSoldier(id uint16) (core.Soldier, bool) {
 	c.m.Lock()
 	defer c.m.Unlock()
-	if s, ok := c.soldiers[id]; ok {
-		return s, true
-	}
-	return core.Soldier{}, false
+	s, ok := c.soldiers[id]
+	return s, ok
 }
 
 func (c *EntityCache) GetVehicle(id uint16) (core.Vehicle, bool) {
 	c.m.Lock()
 	defer c.m.Unlock()
-	if v, ok := c.vehicles[id]; ok {
-		return v, true
-	}
-	return core.Vehicle{}, false
+	v, ok := c.vehicles[id]
+	return v, ok
 }
 
 func (c *EntityCache) AddSoldier(s core.Soldier) {
@@ -76,4 +75,17 @@ func (c *EntityCache) AddVehicle(v core.Vehicle) {
 	c.m.Lock()
 	defer c.m.Unlock()
 	c.vehicles[v.ID] = v
+}
+
+func (c *EntityCache) GetPlacedObject(id uint16) (core.PlacedObject, bool) {
+	c.m.Lock()
+	defer c.m.Unlock()
+	p, ok := c.placed[id]
+	return p, ok
+}
+
+func (c *EntityCache) AddPlacedObject(p core.PlacedObject) {
+	c.m.Lock()
+	defer c.m.Unlock()
+	c.placed[p.ID] = p
 }

@@ -162,6 +162,8 @@ func TestAllMessageTypes(t *testing.T) {
 	require.NoError(t, b.RecordTimeState(&core.TimeState{MissionTime: 120}))
 	require.NoError(t, b.RecordAce3DeathEvent(&core.Ace3DeathEvent{SoldierID: 1, Reason: "bleeding"}))
 	require.NoError(t, b.RecordAce3UnconsciousEvent(&core.Ace3UnconsciousEvent{SoldierID: 1, IsUnconscious: true}))
+	require.NoError(t, b.AddPlacedObject(&core.PlacedObject{ID: 200, ClassName: "APERSMine"}))
+	require.NoError(t, b.RecordPlacedObjectEvent(&core.PlacedObjectEvent{PlacedID: 200, EventType: "detonated"}))
 
 	require.NoError(t, b.EndMission())
 

@@ -617,6 +617,77 @@ func TestCoreToWorld(t *testing.T) {
 	assert.Equal(t, 200.0, coord.Y)
 }
 
+func TestCoreToPlacedObject(t *testing.T) {
+	now := time.Now().Truncate(time.Millisecond)
+
+	input := core.PlacedObject{
+		ID:           50,
+		JoinTime:     now,
+		JoinFrame:    200,
+		ClassName:    "APERSMine_Range_Mag",
+		DisplayName:  "APERS Mine",
+		Position:     core.Position3D{X: 1000.5, Y: 2000.5, Z: 10.0},
+		OwnerID:      5,
+		Side:         "WEST",
+		Weapon:       "put",
+		MagazineIcon: `\A3\Weapons_F\Data\UI\gear_mine_AP_ca.paa`,
+	}
+
+	result := CoreToPlacedObject(input)
+
+	assert.Equal(t, uint16(50), result.ObjectID)
+	assert.Equal(t, now, result.JoinTime)
+	assert.Equal(t, uint(200), result.JoinFrame)
+	assert.Equal(t, "APERSMine_Range_Mag", result.ClassName)
+	assert.Equal(t, "APERS Mine", result.DisplayName)
+	assert.Equal(t, 1000.5, result.PositionX)
+	assert.Equal(t, 2000.5, result.PositionY)
+	assert.Equal(t, 10.0, result.PositionZ)
+	assert.Equal(t, uint16(5), result.OwnerID)
+	assert.Equal(t, "WEST", result.Side)
+	assert.Equal(t, "put", result.Weapon)
+	assert.Equal(t, `\A3\Weapons_F\Data\UI\gear_mine_AP_ca.paa`, result.MagazineIcon)
+}
+
+func TestCoreToPlacedObjectEvent(t *testing.T) {
+	t.Run("detonated event", func(t *testing.T) {
+		input := core.PlacedObjectEvent{
+			CaptureFrame: 500,
+			PlacedID:     50,
+			EventType:    "detonated",
+			Position:     core.Position3D{X: 1000.5, Y: 2000.5, Z: 10.0},
+		}
+
+		result := CoreToPlacedObjectEvent(input)
+
+		assert.Equal(t, uint16(50), result.PlacedObjectID)
+		assert.Equal(t, "detonated", result.EventType)
+		assert.Equal(t, 1000.5, result.PositionX)
+		assert.Equal(t, 2000.5, result.PositionY)
+		assert.Equal(t, 10.0, result.PositionZ)
+		assert.Equal(t, uint(500), result.CaptureFrame)
+		assert.Nil(t, result.HitEntityID)
+	})
+
+	t.Run("hit event with entity", func(t *testing.T) {
+		hitID := uint16(12)
+		input := core.PlacedObjectEvent{
+			CaptureFrame: 450,
+			PlacedID:     50,
+			EventType:    "hit",
+			Position:     core.Position3D{X: 5100.5, Y: 3100.2, Z: 10.0},
+			HitEntityID:  &hitID,
+		}
+
+		result := CoreToPlacedObjectEvent(input)
+
+		assert.Equal(t, "hit", result.EventType)
+		assert.Equal(t, uint(450), result.CaptureFrame)
+		require.NotNil(t, result.HitEntityID)
+		assert.Equal(t, uint(12), *result.HitEntityID)
+	})
+}
+
 // Compile-time interface checks for CoreToX functions
 var (
 	_ model.Soldier              = CoreToSoldier(core.Soldier{})
@@ -633,4 +704,6 @@ var (
 	_ model.Ace3UnconsciousEvent = CoreToAce3UnconsciousEvent(core.Ace3UnconsciousEvent{})
 	_ model.ProjectileEvent      = CoreToProjectileEvent(core.ProjectileEvent{})
 	_ model.TimeState            = CoreToTimeState(core.TimeState{})
+	_ model.PlacedObject         = CoreToPlacedObject(core.PlacedObject{})
+	_ model.PlacedObjectEvent    = CoreToPlacedObjectEvent(core.PlacedObjectEvent{})
 )

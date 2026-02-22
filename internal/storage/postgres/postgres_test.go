@@ -263,6 +263,39 @@ func TestRecordAce3UnconsciousEvent_QueuesToInternalQueue(t *testing.T) {
 	assert.Equal(t, 1, b.queues.Ace3UnconsciousEvents.Len())
 }
 
+func TestAddPlacedObject_QueuesToInternalQueue(t *testing.T) {
+	b := newTestBackend()
+	b.Init() //nolint:errcheck // Init fails (no postgres) but queues are created for testing
+	defer func() { require.NoError(t, b.Close()) }()
+
+	obj := &core.PlacedObject{
+		ID:          50,
+		DisplayName: "APERS Mine",
+		ClassName:   "APERSMine_Range_Mag",
+		Side:        "WEST",
+	}
+
+	err := b.AddPlacedObject(obj)
+	require.NoError(t, err)
+	assert.Equal(t, 1, b.queues.PlacedObjects.Len())
+}
+
+func TestRecordPlacedObjectEvent_QueuesToInternalQueue(t *testing.T) {
+	b := newTestBackend()
+	b.Init() //nolint:errcheck // Init fails (no postgres) but queues are created for testing
+	defer func() { require.NoError(t, b.Close()) }()
+
+	event := &core.PlacedObjectEvent{
+		CaptureFrame: 500,
+		PlacedID:     50,
+		EventType:    "detonated",
+	}
+
+	err := b.RecordPlacedObjectEvent(event)
+	require.NoError(t, err)
+	assert.Equal(t, 1, b.queues.PlacedObjectEvents.Len())
+}
+
 func TestRecordTimeState_IsNoOp(t *testing.T) {
 	b := newTestBackend()
 	b.Init() //nolint:errcheck // Init fails (no postgres) but queues are created for testing
@@ -602,14 +635,18 @@ func TestStartDBWriters_DrainsQueues(t *testing.T) {
 	require.NoError(t, b.RecordTelemetryEvent(&core.TelemetryEvent{FpsAverage: 50, FpsMin: 30, CaptureFrame: 1}))
 	require.NoError(t, b.RecordAce3DeathEvent(&core.Ace3DeathEvent{SoldierID: 1, CaptureFrame: 1}))
 	require.NoError(t, b.RecordAce3UnconsciousEvent(&core.Ace3UnconsciousEvent{SoldierID: 1, CaptureFrame: 1}))
+	require.NoError(t, b.AddPlacedObject(&core.PlacedObject{ID: 50, DisplayName: "Mine", JoinFrame: 1}))
+	require.NoError(t, b.RecordPlacedObjectEvent(&core.PlacedObjectEvent{PlacedID: 50, EventType: "detonated", CaptureFrame: 100}))
 
 	// Wait for all background writers to drain (they run on a 2s loop, so wait up to 5s)
 	require.Eventually(t, func() bool {
-		var soldierCount, vehicleCount, generalCount, fpsCount int64
+		var soldierCount, vehicleCount, generalCount, fpsCount, placedCount, placedEventCount int64
 		db.Model(&model.Soldier{}).Count(&soldierCount)
 		db.Model(&model.Vehicle{}).Count(&vehicleCount)
 		db.Model(&model.GeneralEvent{}).Count(&generalCount)
 		db.Model(&model.ServerFpsEvent{}).Count(&fpsCount)
-		return soldierCount > 0 && vehicleCount > 0 && generalCount > 0 && fpsCount > 0
+		db.Model(&model.PlacedObject{}).Count(&placedCount)
+		db.Model(&model.PlacedObjectEvent{}).Count(&placedEventCount)
+		return soldierCount > 0 && vehicleCount > 0 && generalCount > 0 && fpsCount > 0 && placedCount > 0 && placedEventCount > 0
 	}, 5*time.Second, 100*time.Millisecond, "all queued records should be written to DB")
 }
