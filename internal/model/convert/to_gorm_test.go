@@ -650,21 +650,42 @@ func TestCoreToPlacedObject(t *testing.T) {
 }
 
 func TestCoreToPlacedObjectEvent(t *testing.T) {
-	input := core.PlacedObjectEvent{
-		CaptureFrame: 500,
-		PlacedID:     50,
-		EventType:    "detonated",
-		Position:     core.Position3D{X: 1000.5, Y: 2000.5, Z: 10.0},
-	}
+	t.Run("detonated event", func(t *testing.T) {
+		input := core.PlacedObjectEvent{
+			CaptureFrame: 500,
+			PlacedID:     50,
+			EventType:    "detonated",
+			Position:     core.Position3D{X: 1000.5, Y: 2000.5, Z: 10.0},
+		}
 
-	result := CoreToPlacedObjectEvent(input)
+		result := CoreToPlacedObjectEvent(input)
 
-	assert.Equal(t, uint16(50), result.PlacedObjectID)
-	assert.Equal(t, "detonated", result.EventType)
-	assert.Equal(t, 1000.5, result.PositionX)
-	assert.Equal(t, 2000.5, result.PositionY)
-	assert.Equal(t, 10.0, result.PositionZ)
-	assert.Equal(t, uint(500), result.CaptureFrame)
+		assert.Equal(t, uint16(50), result.PlacedObjectID)
+		assert.Equal(t, "detonated", result.EventType)
+		assert.Equal(t, 1000.5, result.PositionX)
+		assert.Equal(t, 2000.5, result.PositionY)
+		assert.Equal(t, 10.0, result.PositionZ)
+		assert.Equal(t, uint(500), result.CaptureFrame)
+		assert.Nil(t, result.HitEntityID)
+	})
+
+	t.Run("hit event with entity", func(t *testing.T) {
+		hitID := uint16(12)
+		input := core.PlacedObjectEvent{
+			CaptureFrame: 450,
+			PlacedID:     50,
+			EventType:    "hit",
+			Position:     core.Position3D{X: 5100.5, Y: 3100.2, Z: 10.0},
+			HitEntityID:  &hitID,
+		}
+
+		result := CoreToPlacedObjectEvent(input)
+
+		assert.Equal(t, "hit", result.EventType)
+		assert.Equal(t, uint(450), result.CaptureFrame)
+		require.NotNil(t, result.HitEntityID)
+		assert.Equal(t, uint(12), *result.HitEntityID)
+	})
 }
 
 // Compile-time interface checks for CoreToX functions
