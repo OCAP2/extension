@@ -738,8 +738,8 @@ func TestHandleProjectile_ClassifiesHitParts(t *testing.T) {
 			FirerObjectID: 1,
 			CaptureFrame:  620,
 			Trajectory: []core.TrajectoryPoint{
-				{Position: core.Position3D{X: 6456.5, Y: 5345.7, Z: 10.0}, Frame: 620},
-				{Position: core.Position3D{X: 6448.0, Y: 5337.0, Z: 15.0}, Frame: 625},
+				{Position: core.Position3D{X: 6456.5, Y: 5345.7, Z: 10.0}, FrameNum:620},
+				{Position: core.Position3D{X: 6448.0, Y: 5337.0, Z: 15.0}, FrameNum:625},
 			},
 			HitParts: []parser.HitPart{
 				{EntityID: 7, ComponentsHit: []string{"head"}, CaptureFrame: 625},
@@ -812,9 +812,9 @@ func TestHandleProjectile_RecordsProjectileEvent(t *testing.T) {
 			MagazineIcon:    `\A3\Weapons_F\Data\UI\gear_M67_CA.paa`,
 			SimulationType:  "shotShell",
 			Trajectory: []core.TrajectoryPoint{
-				{Position: core.Position3D{X: 6456.5, Y: 5345.7, Z: 10.443}, Frame: 620},
-				{Position: core.Position3D{X: 6448.0, Y: 5337.0, Z: 15.0}, Frame: 625},
-				{Position: core.Position3D{X: 6441.55, Y: 5328.46, Z: 9.88}, Frame: 630},
+				{Position: core.Position3D{X: 6456.5, Y: 5345.7, Z: 10.443}, FrameNum:620},
+				{Position: core.Position3D{X: 6448.0, Y: 5337.0, Z: 15.0}, FrameNum:625},
+				{Position: core.Position3D{X: 6441.55, Y: 5328.46, Z: 9.88}, FrameNum:630},
 			},
 		},
 	}
@@ -857,15 +857,15 @@ func TestHandleProjectile_RecordsProjectileEvent(t *testing.T) {
 	require.Equal(t, 1, len(backend.projectileEvents), "expected 1 projectile event")
 	pe := backend.projectileEvents[0]
 	assert.Equal(t, uint16(1), pe.FirerObjectID)
-	assert.Equal(t, uint(620), pe.CaptureFrame)
+	assert.Equal(t, core.Frame(620), pe.CaptureFrame)
 	assert.Equal(t, "RGO Grenade", pe.MagazineDisplay)
 
 	// Trajectory should have 3 points
 	require.Len(t, pe.Trajectory, 3)
 	assert.Equal(t, 6456.5, pe.Trajectory[0].Position.X)
-	assert.Equal(t, uint(620), pe.Trajectory[0].Frame)
+	assert.Equal(t, core.Frame(620), pe.Trajectory[0].FrameNum)
 	assert.Equal(t, 6441.55, pe.Trajectory[2].Position.X)
-	assert.Equal(t, uint(630), pe.Trajectory[2].Frame)
+	assert.Equal(t, core.Frame(630), pe.Trajectory[2].FrameNum)
 
 	// No markers or fired events should be created
 	assert.Empty(t, backend.markers, "dispatch should not create markers")
@@ -985,7 +985,7 @@ func TestHandleMarkerDelete_WithBackend(t *testing.T) {
 	defer backend.mu.Unlock()
 	require.Len(t, backend.deletedMarkers, 1)
 	assert.Equal(t, "Projectile#123", backend.deletedMarkers[0].Name)
-	assert.Equal(t, uint(500), backend.deletedMarkers[0].EndFrame)
+	assert.Equal(t, core.Frame(500), backend.deletedMarkers[0].EndFrame)
 }
 
 func TestHandleVehicleState_HappyPath(t *testing.T) {
@@ -1048,7 +1048,7 @@ func TestHandleTimeState(t *testing.T) {
 	backend.mu.Lock()
 	defer backend.mu.Unlock()
 	require.Equal(t, 1, len(backend.timeStates))
-	assert.Equal(t, uint(200), backend.timeStates[0].CaptureFrame)
+	assert.Equal(t, core.Frame(200), backend.timeStates[0].CaptureFrame)
 }
 
 func TestHandleGeneralEvent(t *testing.T) {

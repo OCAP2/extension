@@ -26,7 +26,7 @@ func (p *Parser) ParseChatEvent(data []string) (core.ChatEvent, error) {
 	}
 
 	chatEvent.Time = time.Now()
-	chatEvent.CaptureFrame = uint(capframe)
+	chatEvent.CaptureFrame = core.Frame(capframe)
 
 	// parse sender ObjectID
 	senderObjectID, err := parseIntFromFloat(data[1])
@@ -81,7 +81,7 @@ func (p *Parser) ParseRadioEvent(data []string) (core.RadioEvent, error) {
 	}
 
 	radioEvent.Time = time.Now()
-	radioEvent.CaptureFrame = uint(capframe)
+	radioEvent.CaptureFrame = core.Frame(capframe)
 
 	// parse sender ObjectID
 	senderObjectID, err := parseIntFromFloat(data[1])

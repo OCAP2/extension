@@ -11,14 +11,14 @@ import (
 type HitPart struct {
 	EntityID      uint16
 	ComponentsHit []string
-	CaptureFrame  uint
+	CaptureFrame  core.Frame
 	Position      core.Position3D
 }
 
 // ProjectileEvent represents a projectile event as parsed from ArmA data.
 // HitParts contain raw entity IDs that need classification by the worker.
 type ProjectileEvent struct {
-	CaptureFrame    uint
+	CaptureFrame    core.Frame
 	FirerObjectID   uint16
 	VehicleObjectID *uint16
 
@@ -38,7 +38,7 @@ type ProjectileEvent struct {
 // as soldier or vehicle.
 type KillEvent struct {
 	Time           time.Time
-	CaptureFrame   uint
+	CaptureFrame   core.Frame
 	VictimID       uint16
 	KillerID       uint16
 	WeaponVehicle  string
@@ -52,7 +52,7 @@ type KillEvent struct {
 // MarkerName needs resolution to a MarkerID via MarkerCache by the worker.
 type MarkerMove struct {
 	MarkerName   string
-	CaptureFrame uint
+	CaptureFrame core.Frame
 	Position     core.Position3D
 	Direction    float32
 	Alpha        float32

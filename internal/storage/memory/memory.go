@@ -230,7 +230,7 @@ func (b *Backend) DeleteMarker(dm *core.DeleteMarker) error {
 	defer b.mu.Unlock()
 
 	if record, ok := b.markers[dm.Name]; ok {
-		record.Marker.EndFrame = int(dm.EndFrame)
+		record.Marker.EndFrame = dm.EndFrame
 	}
 	return nil
 }
@@ -355,7 +355,7 @@ func (b *Backend) computeExportMetadata() core.UploadMetadata {
 		return core.UploadMetadata{}
 	}
 
-	var endFrame uint
+	var endFrame core.Frame
 	for _, record := range b.soldiers {
 		for _, state := range record.States {
 			if state.CaptureFrame > endFrame {

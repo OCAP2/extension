@@ -30,7 +30,7 @@ func (p *Parser) ParseProjectileEvent(data []string) (ProjectileEvent, error) {
 	if err != nil {
 		return result, fmt.Errorf("error parsing firedFrame: %v", err)
 	}
-	result.CaptureFrame = uint(capframe)
+	result.CaptureFrame = core.Frame(capframe)
 
 	// [2] firerID - set directly
 	firerID, err := parseUintFromFloat(data[2])
@@ -85,7 +85,7 @@ func (p *Parser) ParseProjectileEvent(data []string) (ProjectileEvent, error) {
 
 		result.Trajectory = append(result.Trajectory, core.TrajectoryPoint{
 			Position: pos3d,
-			Frame:    uint(frameNo),
+			FrameNum: core.Frame(frameNo),
 		})
 	}
 
@@ -134,7 +134,7 @@ func (p *Parser) ParseProjectileEvent(data []string) (ProjectileEvent, error) {
 			result.HitParts = append(result.HitParts, HitPart{
 				EntityID:      uint16(hitEntityID),
 				ComponentsHit: hitComponents,
-				CaptureFrame:  uint(hitFrame),
+				CaptureFrame:  core.Frame(hitFrame),
 				Position:      hitPos3d,
 			})
 		}
@@ -165,7 +165,7 @@ func (p *Parser) ParseGeneralEvent(data []string) (core.GeneralEvent, error) {
 	}
 
 	thisEvent.Time = time.Now()
-	thisEvent.CaptureFrame = uint(capframe)
+	thisEvent.CaptureFrame = core.Frame(capframe)
 	thisEvent.Name = data[1]
 	thisEvent.Message = data[2]
 
@@ -200,7 +200,7 @@ func (p *Parser) ParseKillEvent(data []string) (KillEvent, error) {
 	}
 
 	result.Time = time.Now()
-	result.CaptureFrame = uint(capframe)
+	result.CaptureFrame = core.Frame(capframe)
 
 	// parse victim ObjectID
 	victimObjectID, err := parseUintFromFloat(data[1])
@@ -286,7 +286,7 @@ func (p *Parser) ParseTelemetryEvent(data []string) (core.TelemetryEvent, error)
 	if err != nil {
 		return result, fmt.Errorf("telemetry: parse frameNo: %w", err)
 	}
-	result.CaptureFrame = uint(frameNo)
+	result.CaptureFrame = core.Frame(frameNo)
 
 	// [1] Server FPS: [diag_fps, diag_fpsmin]
 	var fps [2]float64
@@ -428,7 +428,7 @@ func (p *Parser) ParseTimeState(data []string) (core.TimeState, error) {
 		return timeState, fmt.Errorf("error converting capture frame to int: %w", err)
 	}
 
-	timeState.CaptureFrame = uint(capframe)
+	timeState.CaptureFrame = core.Frame(capframe)
 	timeState.Time = time.Now()
 
 	timeState.SystemTimeUTC = data[1]

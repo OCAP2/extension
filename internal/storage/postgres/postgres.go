@@ -271,7 +271,7 @@ func (b *Backend) DeleteMarker(dm *core.DeleteMarker) error {
 
 	deleteState := model.MarkerState{
 		MarkerID:     markerID,
-		CaptureFrame: dm.EndFrame,
+		CaptureFrame: uint(dm.EndFrame),
 		Time:         time.Now(),
 		Alpha:        0,
 	}
@@ -333,7 +333,7 @@ func (b *Backend) RecordRadioEvent(e *core.RadioEvent) error {
 func (b *Backend) RecordTelemetryEvent(e *core.TelemetryEvent) error {
 	b.queues.FpsEvents.Push(model.ServerFpsEvent{
 		Time:         e.Time,
-		CaptureFrame: e.CaptureFrame,
+		CaptureFrame: uint(e.CaptureFrame),
 		FpsAverage:   e.FpsAverage,
 		FpsMin:       e.FpsMin,
 	})

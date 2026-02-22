@@ -27,7 +27,7 @@ func (p *Parser) ParseSoldier(data []string) (core.Soldier, error) {
 		return soldier, fmt.Errorf("error converting capture frame to int: %w", err)
 	}
 
-	soldier.JoinFrame = uint(capframe)
+	soldier.JoinFrame = core.Frame(capframe)
 	soldier.JoinTime = time.Now()
 
 	ocapID, err := parseUintFromFloat(data[1])
@@ -73,7 +73,7 @@ func (p *Parser) ParseSoldierState(data []string) (core.SoldierState, error) {
 	if err != nil {
 		return soldierState, fmt.Errorf("error converting capture frame to int: %w", err)
 	}
-	soldierState.CaptureFrame = uint(capframe)
+	soldierState.CaptureFrame = core.Frame(capframe)
 
 	// parse ocapID and set directly (worker validates against cache)
 	ocapID, err := parseUintFromFloat(data[0])

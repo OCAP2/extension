@@ -88,7 +88,7 @@ func TestBuildEmptyMission(t *testing.T) {
 	assert.Empty(t, export.Events)
 	assert.Empty(t, export.Markers)
 	assert.Empty(t, export.Times)
-	assert.Equal(t, uint(0), export.EndFrame)
+	assert.Equal(t, -1, export.EndFrame) // no frames → FrameForever(0) → v1 -1
 }
 
 func TestBuildWithMissionMetadata(t *testing.T) {
@@ -128,7 +128,7 @@ func TestBuildWithTimeStates(t *testing.T) {
 		Vehicles: make(map[uint16]*VehicleRecord),
 		Markers:  make(map[string]*MarkerRecord),
 		TimeStates: []core.TimeState{
-			{CaptureFrame: 0, MissionDate: "2035-06-24", SystemTimeUTC: "2024-01-01T10:00:00", MissionTime: 0, TimeMultiplier: 1.0},
+			{CaptureFrame: 1, MissionDate: "2035-06-24", SystemTimeUTC: "2024-01-01T10:00:00", MissionTime: 0, TimeMultiplier: 1.0},
 			{CaptureFrame: 100, MissionDate: "2035-06-24", SystemTimeUTC: "2024-01-01T10:01:00", MissionTime: 60, TimeMultiplier: 2.0},
 		},
 	}
@@ -136,13 +136,13 @@ func TestBuildWithTimeStates(t *testing.T) {
 	export := Build(data)
 
 	require.Len(t, export.Times, 2)
-	assert.Equal(t, uint(0), export.Times[0].FrameNum)
+	assert.Equal(t, 0, export.Times[0].FrameNum) // internal 1 → v1 0
 	assert.Equal(t, "2035-06-24", export.Times[0].Date)
 	assert.Equal(t, "2024-01-01T10:00:00", export.Times[0].SystemTimeUTC)
 	assert.Equal(t, float32(0), export.Times[0].Time)
 	assert.Equal(t, float32(1.0), export.Times[0].TimeMultiplier)
 
-	assert.Equal(t, uint(100), export.Times[1].FrameNum)
+	assert.Equal(t, 99, export.Times[1].FrameNum) // internal 100 → v1 99
 	assert.Equal(t, float32(60), export.Times[1].Time)
 	assert.Equal(t, float32(2.0), export.Times[1].TimeMultiplier)
 }
@@ -182,7 +182,7 @@ func TestBuildWithSoldier(t *testing.T) {
 	assert.Equal(t, 1, entity.IsPlayer)
 	assert.Equal(t, "unit", entity.Type)
 	assert.Equal(t, "Rifleman", entity.Role)
-	assert.Equal(t, uint(10), entity.StartFrameNum)
+	assert.Equal(t, 9, entity.StartFrameNum) // internal 10 → v1 9
 
 	// Check positions
 	require.Len(t, entity.Positions, 2)
@@ -209,15 +209,15 @@ func TestBuildWithSoldier(t *testing.T) {
 	require.Len(t, entity.FramesFired, 1)
 	ff := entity.FramesFired[0]
 	require.Len(t, ff, 2)
-	assert.Equal(t, uint(15), ff[0]) // captureFrame
+	assert.Equal(t, 14, ff[0]) // internal 15 → v1 14
 	endPos := ff[1].([]float64)
 	require.Len(t, endPos, 3)
 	assert.Equal(t, 1200.0, endPos[0]) // X
 	assert.Equal(t, 2200.0, endPos[1]) // Y
 	assert.Equal(t, 0.0, endPos[2])    // Z
 
-	// EndFrame should be max state frame
-	assert.Equal(t, uint(20), export.EndFrame)
+	// EndFrame should be max state frame (internal 20 → v1 19)
+	assert.Equal(t, 19, export.EndFrame)
 }
 
 func TestBuildWithSoldierInVehicle(t *testing.T) {
@@ -227,9 +227,9 @@ func TestBuildWithSoldierInVehicle(t *testing.T) {
 		World:   &core.World{WorldName: "Altis"},
 		Soldiers: map[uint16]*SoldierRecord{
 			1: {
-				Soldier: core.Soldier{ID: 1, UnitName: "Driver"},
+				Soldier: core.Soldier{ID: 1, UnitName: "Driver", JoinFrame: 1},
 				States: []core.SoldierState{
-					{SoldierID: 1, CaptureFrame: 0, InVehicleObjectID: &inVehicleID},
+					{SoldierID: 1, CaptureFrame: 1, InVehicleObjectID: &inVehicleID},
 				},
 			},
 		},
@@ -274,7 +274,7 @@ func TestBuildWithVehicle(t *testing.T) {
 	assert.Equal(t, "vehicle", entity.Type)
 	assert.Equal(t, "UNKNOWN", entity.Side)
 	assert.Equal(t, 0, entity.IsPlayer)
-	assert.Equal(t, uint(5), entity.StartFrameNum)
+	assert.Equal(t, 4, entity.StartFrameNum) // internal 5 → v1 4
 	assert.Empty(t, entity.FramesFired)
 
 	// Check positions
@@ -294,11 +294,11 @@ func TestBuildWithVehicle(t *testing.T) {
 	crewEntry := crew[0].([]any)
 	assert.Equal(t, float64(1), crewEntry[0])
 
-	// Frame range
-	frameRange := pos[4].([]uint)
-	assert.Equal(t, []uint{5, 5}, frameRange)
+	// Frame range (internal 5 → v1 4)
+	frameRange := pos[4].([]int)
+	assert.Equal(t, []int{4, 4}, frameRange)
 
-	assert.Equal(t, uint(15), export.EndFrame)
+	assert.Equal(t, 14, export.EndFrame) // internal 15 → v1 14
 }
 
 func TestBuildWithVehicleCrewIDArray(t *testing.T) {
@@ -308,11 +308,11 @@ func TestBuildWithVehicleCrewIDArray(t *testing.T) {
 		Soldiers: make(map[uint16]*SoldierRecord),
 		Vehicles: map[uint16]*VehicleRecord{
 			10: {
-				Vehicle: core.Vehicle{ID: 10, OcapType: "apc"},
+				Vehicle: core.Vehicle{ID: 10, OcapType: "apc", JoinFrame: 1},
 				States: []core.VehicleState{
-					{VehicleID: 10, CaptureFrame: 0, Crew: "[20,21]", IsAlive: true},
-					{VehicleID: 10, CaptureFrame: 1, Crew: "[20]", IsAlive: true},
-					{VehicleID: 10, CaptureFrame: 2, Crew: "[]", IsAlive: true},
+					{VehicleID: 10, CaptureFrame: 1, Crew: "[20,21]", IsAlive: true},
+					{VehicleID: 10, CaptureFrame: 2, Crew: "[20]", IsAlive: true},
+					{VehicleID: 10, CaptureFrame: 3, Crew: "[]", IsAlive: true},
 				},
 			},
 		},
@@ -347,9 +347,9 @@ func TestBuildWithVehicleEmptyCrew(t *testing.T) {
 		Soldiers: make(map[uint16]*SoldierRecord),
 		Vehicles: map[uint16]*VehicleRecord{
 			1: {
-				Vehicle: core.Vehicle{ID: 1, OcapType: "car"},
+				Vehicle: core.Vehicle{ID: 1, OcapType: "car", JoinFrame: 1},
 				States: []core.VehicleState{
-					{VehicleID: 1, CaptureFrame: 0, Crew: ""},
+					{VehicleID: 1, CaptureFrame: 1, Crew: ""},
 				},
 			},
 		},
@@ -370,9 +370,9 @@ func TestBuildWithVehicleInvalidCrewJSON(t *testing.T) {
 		Soldiers: make(map[uint16]*SoldierRecord),
 		Vehicles: map[uint16]*VehicleRecord{
 			1: {
-				Vehicle: core.Vehicle{ID: 1, OcapType: "car"},
+				Vehicle: core.Vehicle{ID: 1, OcapType: "car", JoinFrame: 1},
 				States: []core.VehicleState{
-					{VehicleID: 1, CaptureFrame: 0, Crew: "invalid json"},
+					{VehicleID: 1, CaptureFrame: 1, Crew: "invalid json"},
 				},
 			},
 		},
@@ -393,7 +393,7 @@ func TestBuildWithDeadVehicle(t *testing.T) {
 		Soldiers: make(map[uint16]*SoldierRecord),
 		Vehicles: map[uint16]*VehicleRecord{
 			1: {
-				Vehicle: core.Vehicle{ID: 1, OcapType: "tank"},
+				Vehicle: core.Vehicle{ID: 1, OcapType: "tank", JoinFrame: 50},
 				States: []core.VehicleState{
 					{VehicleID: 1, CaptureFrame: 50, IsAlive: false},
 				},
@@ -427,13 +427,13 @@ func TestBuildWithGeneralEvents(t *testing.T) {
 
 	require.Len(t, export.Events, 4)
 
-	// Plain string message
-	assert.Equal(t, uint(10), export.Events[0][0])
+	// Plain string message (internal 10 → v1 9)
+	assert.Equal(t, 9, export.Events[0][0])
 	assert.Equal(t, "connected", export.Events[0][1])
 	assert.Equal(t, "Player joined", export.Events[0][2])
 
-	// JSON array should be parsed
-	assert.Equal(t, uint(20), export.Events[1][0])
+	// JSON array should be parsed (internal 20 → v1 19)
+	assert.Equal(t, 19, export.Events[1][0])
 	parsedArray := export.Events[1][2].([]any)
 	assert.Len(t, parsedArray, 4)
 
@@ -469,9 +469,9 @@ func TestBuildWithHitEvents(t *testing.T) {
 
 	require.Len(t, export.Events, 2)
 
-	// Soldier hit
+	// Soldier hit (internal 10 → v1 9)
 	evt1 := export.Events[0]
-	assert.Equal(t, uint(10), evt1[0])
+	assert.Equal(t, 9, evt1[0])
 	assert.Equal(t, "hit", evt1[1])
 	assert.Equal(t, uint(5), evt1[2])  // victimID
 	causedBy1 := evt1[3].([]any)
@@ -479,9 +479,9 @@ func TestBuildWithHitEvents(t *testing.T) {
 	assert.Equal(t, "rifle", causedBy1[1])
 	assert.Equal(t, float32(50), evt1[4])
 
-	// Vehicle hit
+	// Vehicle hit (internal 20 → v1 19)
 	evt2 := export.Events[1]
-	assert.Equal(t, uint(20), evt2[2]) // vehicleVictim takes precedence
+	assert.Equal(t, uint(20), evt2[2]) // vehicleVictim takes precedence (ID, not frame)
 	causedBy2 := evt2[3].([]any)
 	assert.Equal(t, uint(25), causedBy2[0])
 }
@@ -505,7 +505,7 @@ func TestBuildWithKillEvents(t *testing.T) {
 
 	require.Len(t, export.Events, 1)
 	evt := export.Events[0]
-	assert.Equal(t, uint(100), evt[0])
+	assert.Equal(t, 99, evt[0]) // internal 100 → v1 99
 	assert.Equal(t, "killed", evt[1])
 	assert.Equal(t, uint(5), evt[2])
 	causedBy := evt[3].([]any)
@@ -525,7 +525,7 @@ func TestBuildWithMarker(t *testing.T) {
 				Marker: core.Marker{
 					ID: 1, MarkerName: "obj_alpha", Text: "Objective", MarkerType: "mil_objective",
 					Color: "#800000", Side: "WEST", Shape: "ICON", OwnerID: 42, Size: "[2.0,3.0]", Brush: "Solid",
-					CaptureFrame: 0, Position: core.Position3D{X: 5000, Y: 6000}, Direction: 45, Alpha: 1.0,
+					CaptureFrame: 1, Position: core.Position3D{X: 5000, Y: 6000}, Direction: 45, Alpha: 1.0,
 				},
 				States: []core.MarkerState{
 					{MarkerID: 1, CaptureFrame: 50, Position: core.Position3D{X: 5100, Y: 6100}, Direction: 90, Alpha: 0.8},
@@ -541,8 +541,8 @@ func TestBuildWithMarker(t *testing.T) {
 
 	assert.Equal(t, "mil_objective", marker[0])  // type
 	assert.Equal(t, "Objective", marker[1])      // text
-	assert.Equal(t, uint(0), marker[2])          // startFrame
-	assert.Equal(t, -1, marker[3])               // endFrame
+	assert.Equal(t, 0, marker[2])                // startFrame (internal 1 → v1 0)
+	assert.Equal(t, -1, marker[3])               // endFrame (FrameForever → -1)
 	assert.Equal(t, 42, marker[4])               // playerId
 	assert.Equal(t, "800000", marker[5])         // color (# stripped)
 	assert.Equal(t, 1, marker[6])                // sideIndex (WEST = 1)
@@ -550,8 +550,8 @@ func TestBuildWithMarker(t *testing.T) {
 	// Positions
 	positions := marker[7].([][]any)
 	require.Len(t, positions, 2)
-	assert.Equal(t, uint(0), positions[0][0])    // initial frame
-	assert.Equal(t, uint(50), positions[1][0])   // state change frame
+	assert.Equal(t, 0, positions[0][0])          // initial frame (internal 1 → v1 0)
+	assert.Equal(t, 49, positions[1][0])         // state change frame (internal 50 → v1 49)
 
 	assert.Equal(t, []float64{2.0, 3.0}, marker[8]) // size
 	assert.Equal(t, "ICON", marker[9])              // shape
@@ -583,8 +583,8 @@ func TestBuildWithDeletedMarker(t *testing.T) {
 	require.Len(t, export.Markers, 1)
 	marker := export.Markers[0]
 
-	assert.Equal(t, uint(100), marker[2]) // startFrame
-	assert.Equal(t, 106, marker[3])       // endFrame (should NOT be -1)
+	assert.Equal(t, 99, marker[2]) // startFrame (internal 100 → v1 99)
+	assert.Equal(t, 105, marker[3])      // endFrame (internal 106 → v1 105, should NOT be -1)
 }
 
 func TestBuildWithPolylineMarker(t *testing.T) {
@@ -619,7 +619,7 @@ func TestBuildWithPolylineMarker(t *testing.T) {
 	require.Len(t, positions, 1) // Polylines have single frame entry
 
 	frameEntry := positions[0]
-	assert.Equal(t, uint(10), frameEntry[0]) // frameNum
+	assert.Equal(t, 9, frameEntry[0]) // frameNum (internal 10 → v1 9)
 
 	// Coordinates array
 	coords := frameEntry[1].([][]float64)
@@ -707,7 +707,7 @@ func TestBuildMaxFrameFromMultipleSources(t *testing.T) {
 
 	export := Build(data)
 
-	assert.Equal(t, uint(150), export.EndFrame)
+	assert.Equal(t, 149, export.EndFrame) // internal 150 → v1 149
 }
 
 func TestBuildWithNoEntitiesButEvents(t *testing.T) {
@@ -796,8 +796,8 @@ func TestBuildWithBulletProjectile(t *testing.T) {
 				FirerObjectID:  5,
 				SimulationType: "shotBullet",
 				Trajectory: []core.TrajectoryPoint{
-					{Position: core.Position3D{X: 1000, Y: 2000, Z: 1.5}, Frame: 15},
-					{Position: core.Position3D{X: 1200, Y: 2200, Z: 1.0}, Frame: 16},
+					{Position: core.Position3D{X: 1000, Y: 2000, Z: 1.5}, FrameNum:15},
+					{Position: core.Position3D{X: 1200, Y: 2200, Z: 1.0}, FrameNum:16},
 				},
 			},
 		},
@@ -809,7 +809,7 @@ func TestBuildWithBulletProjectile(t *testing.T) {
 	entity := export.Entities[5]
 	require.Len(t, entity.FramesFired, 1)
 	ff := entity.FramesFired[0]
-	assert.Equal(t, uint(15), ff[0]) // captureFrame
+	assert.Equal(t, 14, ff[0]) // captureFrame (internal 15 → v1 14)
 	endPos := ff[1].([]float64)
 	assert.Equal(t, 1200.0, endPos[0])
 	assert.Equal(t, 2200.0, endPos[1])
@@ -837,8 +837,8 @@ func TestBuildWithThrownGrenade(t *testing.T) {
 				MagazineDisplay: "Smoke Grenade (White)",
 				MagazineIcon:    `\A3\Weapons_F\Data\UI\gear_smokegrenade_white_ca.paa`,
 				Trajectory: []core.TrajectoryPoint{
-					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, Frame: 100},
-					{Position: core.Position3D{X: 150, Y: 250, Z: 5}, Frame: 105},
+					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, FrameNum:100},
+					{Position: core.Position3D{X: 150, Y: 250, Z: 5}, FrameNum:105},
 				},
 			},
 		},
@@ -850,8 +850,8 @@ func TestBuildWithThrownGrenade(t *testing.T) {
 	marker := export.Markers[0]
 	assert.Equal(t, "magIcons/gear_smokegrenade_white_ca.paa", marker[0]) // type
 	assert.Equal(t, "Smoke Grenade (White)", marker[1])                   // text (thrown = magDisp only)
-	assert.Equal(t, uint(100), marker[2])                                 // startFrame
-	assert.Equal(t, 105, marker[3])                                       // endFrame
+	assert.Equal(t, 99, marker[2])                                        // startFrame (internal 100 → v1 99)
+	assert.Equal(t, 104, marker[3])                                       // endFrame (internal 105 → v1 104)
 	assert.Equal(t, 3, marker[4])                                         // ownerID
 	assert.Equal(t, "ColorWhite", marker[5])                              // color
 	assert.Equal(t, -1, marker[6])                                        // sideIndex (GLOBAL)
@@ -861,7 +861,7 @@ func TestBuildWithThrownGrenade(t *testing.T) {
 	// Check positions array
 	posArray := marker[7].([][]any)
 	require.Len(t, posArray, 2)
-	assert.Equal(t, uint(100), posArray[0][0])
+	assert.Equal(t, 99, posArray[0][0]) // internal 100 → v1 99
 	pos0 := posArray[0][1].([]float64)
 	assert.Equal(t, 100.0, pos0[0])
 	assert.Equal(t, 200.0, pos0[1])
@@ -890,8 +890,8 @@ func TestBuildWithVehicleProjectile(t *testing.T) {
 				MagazineDisplay: ".50 BMG 200Rnd",
 				MagazineIcon:    `\A3\weapons_f\data\ui\icon_mg_ca.paa`,
 				Trajectory: []core.TrajectoryPoint{
-					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, Frame: 50},
-					{Position: core.Position3D{X: 200, Y: 300, Z: 5}, Frame: 55},
+					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, FrameNum:50},
+					{Position: core.Position3D{X: 200, Y: 300, Z: 5}, FrameNum:55},
 				},
 			},
 		},
@@ -925,8 +925,8 @@ func TestBuildWithOnFootLauncher(t *testing.T) {
 				MagazineDisplay: "HEAT Rocket",
 				MagazineIcon:    `\A3\weapons_f\data\ui\icon_at_ca.paa`,
 				Trajectory: []core.TrajectoryPoint{
-					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, Frame: 80},
-					{Position: core.Position3D{X: 300, Y: 400, Z: 0}, Frame: 85},
+					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, FrameNum:80},
+					{Position: core.Position3D{X: 300, Y: 400, Z: 0}, FrameNum:85},
 				},
 			},
 		},
@@ -957,7 +957,7 @@ func TestBuildWithShotGrenade(t *testing.T) {
 				MuzzleDisplay:   "3GL",
 				MagazineDisplay: "40mm HE",
 				Trajectory: []core.TrajectoryPoint{
-					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, Frame: 60},
+					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, FrameNum:60},
 				},
 			},
 		},
@@ -990,8 +990,8 @@ func TestBuildWithProjectileHitEvents(t *testing.T) {
 				MuzzleDisplay:   "MX 6.5 mm",
 				MagazineDisplay: "6.5 mm 30Rnd",
 				Trajectory: []core.TrajectoryPoint{
-					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, Frame: 50},
-					{Position: core.Position3D{X: 300, Y: 400, Z: 5}, Frame: 52},
+					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, FrameNum:50},
+					{Position: core.Position3D{X: 300, Y: 400, Z: 5}, FrameNum:52},
 				},
 				Hits: []core.ProjectileHit{
 					{CaptureFrame: 52, Position: core.Position3D{X: 300, Y: 400, Z: 5}, SoldierID: &soldierVictim},
@@ -1005,7 +1005,7 @@ func TestBuildWithProjectileHitEvents(t *testing.T) {
 	// Should generate a hit event
 	require.Len(t, export.Events, 1)
 	evt := export.Events[0]
-	assert.Equal(t, uint(52), evt[0])
+	assert.Equal(t, 51, evt[0]) // internal 52 → v1 51
 	assert.Equal(t, "hit", evt[1])
 	assert.Equal(t, uint(10), evt[2]) // victimID
 	causedBy := evt[3].([]any)
@@ -1033,7 +1033,7 @@ func TestBuildWithEmptyMagazineIcon(t *testing.T) {
 				MagazineDisplay: "Unknown",
 				MagazineIcon:    "", // empty → fallback
 				Trajectory: []core.TrajectoryPoint{
-					{Position: core.Position3D{X: 100, Y: 200}, Frame: 50},
+					{Position: core.Position3D{X: 100, Y: 200}, FrameNum:50},
 				},
 			},
 		},
@@ -1066,8 +1066,8 @@ func TestBuildWithProjectileHitOnVehicle(t *testing.T) {
 				MuzzleDisplay:   "PCML",
 				MagazineDisplay: "PCML Missile",
 				Trajectory: []core.TrajectoryPoint{
-					{Position: core.Position3D{X: 0, Y: 0, Z: 10}, Frame: 60},
-					{Position: core.Position3D{X: 300, Y: 400, Z: 5}, Frame: 65},
+					{Position: core.Position3D{X: 0, Y: 0, Z: 10}, FrameNum:60},
+					{Position: core.Position3D{X: 300, Y: 400, Z: 5}, FrameNum:65},
 				},
 				Hits: []core.ProjectileHit{
 					{CaptureFrame: 65, Position: core.Position3D{X: 300, Y: 400, Z: 5}, VehicleID: &vehicleVictim},
@@ -1080,7 +1080,7 @@ func TestBuildWithProjectileHitOnVehicle(t *testing.T) {
 
 	require.Len(t, export.Events, 1)
 	evt := export.Events[0]
-	assert.Equal(t, uint(65), evt[0])
+	assert.Equal(t, 64, evt[0]) // internal 65 → v1 64
 	assert.Equal(t, "hit", evt[1])
 	assert.Equal(t, uint(20), evt[2]) // victimID from VehicleID
 	causedBy := evt[3].([]any)
@@ -1107,8 +1107,8 @@ func TestBuildWithProjectileHitEmptyMuzzleDisplay(t *testing.T) {
 				MuzzleDisplay:   "", // empty → falls back to WeaponDisplay
 				MagazineDisplay: "6.5 mm 30Rnd",
 				Trajectory: []core.TrajectoryPoint{
-					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, Frame: 50},
-					{Position: core.Position3D{X: 300, Y: 400, Z: 5}, Frame: 52},
+					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, FrameNum:50},
+					{Position: core.Position3D{X: 300, Y: 400, Z: 5}, FrameNum:52},
 				},
 				Hits: []core.ProjectileHit{
 					{CaptureFrame: 52, Position: core.Position3D{X: 300, Y: 400, Z: 5}, SoldierID: &soldierVictim},

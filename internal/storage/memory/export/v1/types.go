@@ -11,7 +11,7 @@ type Export struct {
 	MissionName      string     `json:"missionName"`
 	MissionAuthor    string     `json:"missionAuthor"`
 	WorldName        string     `json:"worldName"`
-	EndFrame         uint       `json:"endFrame"`
+	EndFrame         int        `json:"endFrame"`
 	CaptureDelay     float32    `json:"captureDelay"`
 	Tags             string     `json:"tags"`
 	Times            []Time     `json:"times"`
@@ -23,7 +23,7 @@ type Export struct {
 // Time represents time synchronization data for a frame
 type Time struct {
 	Date           string  `json:"date"`
-	FrameNum       uint    `json:"frameNum"`
+	FrameNum       int     `json:"frameNum"`
 	SystemTimeUTC  string  `json:"systemTimeUTC"`
 	Time           float32 `json:"time"`
 	TimeMultiplier float32 `json:"timeMultiplier"`
@@ -39,7 +39,7 @@ type Entity struct {
 	Type          string  `json:"type"`
 	Role          string  `json:"role,omitempty"`
 	Class         string  `json:"class,omitempty"`
-	StartFrameNum uint    `json:"startFrameNum"`
+	StartFrameNum int     `json:"startFrameNum"`
 	Positions     [][]any `json:"positions"`
 	FramesFired   [][]any `json:"framesFired"`
 }

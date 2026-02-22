@@ -10,7 +10,7 @@ import (
 type FiredEvent struct {
 	SoldierID    uint16 // ObjectID of the soldier who fired
 	Time         time.Time
-	CaptureFrame uint
+	CaptureFrame Frame
 	Weapon       string
 	Magazine     string
 	FiringMode   string
@@ -22,7 +22,7 @@ type FiredEvent struct {
 type GeneralEvent struct {
 	ID           uint
 	Time         time.Time
-	CaptureFrame uint
+	CaptureFrame Frame
 	Name         string
 	Message      string
 	ExtraData    map[string]any
@@ -32,7 +32,7 @@ type GeneralEvent struct {
 type HitEvent struct {
 	ID               uint
 	Time             time.Time
-	CaptureFrame     uint
+	CaptureFrame     Frame
 	VictimSoldierID  *uint
 	VictimVehicleID  *uint
 	ShooterSoldierID *uint
@@ -48,7 +48,7 @@ type HitEvent struct {
 type KillEvent struct {
 	ID              uint
 	Time            time.Time
-	CaptureFrame    uint
+	CaptureFrame    Frame
 	VictimSoldierID *uint
 	VictimVehicleID *uint
 	KillerSoldierID *uint
@@ -65,7 +65,7 @@ type ChatEvent struct {
 	ID           uint
 	SoldierID    *uint
 	Time         time.Time
-	CaptureFrame uint
+	CaptureFrame Frame
 	Channel      string
 	FromName     string
 	SenderName   string
@@ -78,7 +78,7 @@ type RadioEvent struct {
 	ID           uint
 	SoldierID    *uint
 	Time         time.Time
-	CaptureFrame uint
+	CaptureFrame Frame
 	Radio        string
 	RadioType    string
 	StartEnd     string
@@ -93,7 +93,7 @@ type Ace3DeathEvent struct {
 	ID                 uint
 	SoldierID          uint
 	Time               time.Time
-	CaptureFrame       uint
+	CaptureFrame       Frame
 	Reason             string
 	LastDamageSourceID *uint
 }
@@ -103,19 +103,19 @@ type Ace3UnconsciousEvent struct {
 	ID            uint
 	SoldierID     uint
 	Time          time.Time
-	CaptureFrame  uint
+	CaptureFrame  Frame
 	IsUnconscious bool // true = went unconscious, false = regained consciousness
 }
 
 // TrajectoryPoint represents a single position sample in a projectile trajectory.
 type TrajectoryPoint struct {
 	Position Position3D
-	Frame    uint
+	FrameNum Frame
 }
 
 // ProjectileHit represents a hit from a projectile on a soldier or vehicle.
 type ProjectileHit struct {
-	CaptureFrame  uint
+	CaptureFrame  Frame
 	Position      Position3D
 	SoldierID     *uint16  // set if soldier was hit
 	VehicleID     *uint16  // set if vehicle was hit
@@ -124,7 +124,7 @@ type ProjectileHit struct {
 
 // ProjectileEvent represents a raw projectile event from the game.
 type ProjectileEvent struct {
-	CaptureFrame    uint
+	CaptureFrame    Frame
 	FirerObjectID   uint16
 	VehicleObjectID *uint16 // nil if not fired from vehicle
 
@@ -143,7 +143,7 @@ type ProjectileEvent struct {
 type TimeState struct {
 	ID             uint
 	Time           time.Time
-	CaptureFrame   uint
+	CaptureFrame   Frame
 	SystemTimeUTC  string
 	MissionDate    string
 	TimeMultiplier float32
@@ -154,7 +154,7 @@ type TimeState struct {
 // Replaces the old :FPS: and :METRIC: commands with a single :TELEMETRY: call.
 type TelemetryEvent struct {
 	Time         time.Time
-	CaptureFrame uint
+	CaptureFrame Frame
 
 	// FPS data (also written to mission recording by DB backends)
 	FpsAverage float32
