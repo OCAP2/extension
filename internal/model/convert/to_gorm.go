@@ -52,7 +52,7 @@ func CoreToSoldier(s core.Soldier) model.Soldier {
 	return model.Soldier{
 		ObjectID:        s.ID,
 		JoinTime:        s.JoinTime,
-		JoinFrame:       s.JoinFrame,
+		JoinFrame:       uint(s.JoinFrame),
 		OcapType:        s.OcapType,
 		UnitName:        s.UnitName,
 		GroupID:         s.GroupID,
@@ -72,7 +72,7 @@ func CoreToVehicle(v core.Vehicle) model.Vehicle {
 	return model.Vehicle{
 		ObjectID:      v.ID,
 		JoinTime:      v.JoinTime,
-		JoinFrame:     v.JoinFrame,
+		JoinFrame:     uint(v.JoinFrame),
 		OcapType:      v.OcapType,
 		ClassName:     v.ClassName,
 		DisplayName:   v.DisplayName,
@@ -85,7 +85,7 @@ func CoreToMarker(m core.Marker) model.Marker {
 	return model.Marker{
 		ID:           m.ID,
 		Time:         m.Time,
-		CaptureFrame: m.CaptureFrame,
+		CaptureFrame: uint(m.CaptureFrame),
 		MarkerName:   m.MarkerName,
 		Direction:    m.Direction,
 		MarkerType:   m.MarkerType,
@@ -113,7 +113,7 @@ func CoreToSoldierState(s core.SoldierState) model.SoldierState {
 	return model.SoldierState{
 		SoldierObjectID:  s.SoldierID,
 		Time:             s.Time,
-		CaptureFrame:     s.CaptureFrame,
+		CaptureFrame:     uint(s.CaptureFrame),
 		Position:         position3DToPoint(s.Position),
 		ElevationASL:     float32(s.Position.Z),
 		Bearing:          s.Bearing,
@@ -145,7 +145,7 @@ func CoreToVehicleState(v core.VehicleState) model.VehicleState {
 	return model.VehicleState{
 		VehicleObjectID: v.VehicleID,
 		Time:            v.Time,
-		CaptureFrame:    v.CaptureFrame,
+		CaptureFrame:    uint(v.CaptureFrame),
 		Position:        position3DToPoint(v.Position),
 		ElevationASL:    float32(v.Position.Z),
 		Bearing:         v.Bearing,
@@ -169,7 +169,7 @@ func CoreToMarkerState(s core.MarkerState) model.MarkerState {
 		ID:           s.ID,
 		MarkerID:     s.MarkerID,
 		Time:         s.Time,
-		CaptureFrame: s.CaptureFrame,
+		CaptureFrame: uint(s.CaptureFrame),
 		Position:     position3DToPoint(s.Position),
 		Direction:    s.Direction,
 		Alpha:        s.Alpha,
@@ -188,7 +188,7 @@ func CoreToGeneralEvent(e core.GeneralEvent) model.GeneralEvent {
 	return model.GeneralEvent{
 		ID:           e.ID,
 		Time:         e.Time,
-		CaptureFrame: e.CaptureFrame,
+		CaptureFrame: uint(e.CaptureFrame),
 		Name:         e.Name,
 		Message:      e.Message,
 		ExtraData:    extraData,
@@ -200,7 +200,7 @@ func CoreToKillEvent(e core.KillEvent) model.KillEvent {
 	result := model.KillEvent{
 		ID:             e.ID,
 		Time:           e.Time,
-		CaptureFrame:   e.CaptureFrame,
+		CaptureFrame:   uint(e.CaptureFrame),
 		WeaponVehicle:  e.WeaponVehicle,
 		WeaponName:     e.WeaponName,
 		WeaponMagazine: e.WeaponMagazine,
@@ -229,7 +229,7 @@ func CoreToChatEvent(e core.ChatEvent) model.ChatEvent {
 	result := model.ChatEvent{
 		ID:           e.ID,
 		Time:         e.Time,
-		CaptureFrame: e.CaptureFrame,
+		CaptureFrame: uint(e.CaptureFrame),
 		Channel:      e.Channel,
 		FromName:     e.FromName,
 		SenderName:   e.SenderName,
@@ -249,7 +249,7 @@ func CoreToRadioEvent(e core.RadioEvent) model.RadioEvent {
 	result := model.RadioEvent{
 		ID:           e.ID,
 		Time:         e.Time,
-		CaptureFrame: e.CaptureFrame,
+		CaptureFrame: uint(e.CaptureFrame),
 		Radio:        e.Radio,
 		RadioType:    e.RadioType,
 		StartEnd:     e.StartEnd,
@@ -272,7 +272,7 @@ func CoreToAce3DeathEvent(e core.Ace3DeathEvent) model.Ace3DeathEvent {
 		ID:              e.ID,
 		SoldierObjectID: uint16(e.SoldierID),
 		Time:            e.Time,
-		CaptureFrame:    e.CaptureFrame,
+		CaptureFrame:    uint(e.CaptureFrame),
 		Reason:          e.Reason,
 	}
 
@@ -289,7 +289,7 @@ func CoreToAce3UnconsciousEvent(e core.Ace3UnconsciousEvent) model.Ace3Unconscio
 		ID:              e.ID,
 		SoldierObjectID: uint16(e.SoldierID),
 		Time:            e.Time,
-		CaptureFrame:    e.CaptureFrame,
+		CaptureFrame:    uint(e.CaptureFrame),
 		IsUnconscious:   e.IsUnconscious,
 	}
 }
@@ -299,7 +299,7 @@ func CoreToAce3UnconsciousEvent(e core.Ace3UnconsciousEvent) model.Ace3Unconscio
 // into separate HitSoldiers and HitVehicles slices.
 func CoreToProjectileEvent(e core.ProjectileEvent) model.ProjectileEvent {
 	result := model.ProjectileEvent{
-		CaptureFrame:    e.CaptureFrame,
+		CaptureFrame:    uint(e.CaptureFrame),
 		FirerObjectID:   e.FirerObjectID,
 		WeaponDisplay:   e.WeaponDisplay,
 		MagazineDisplay: e.MagazineDisplay,
@@ -317,7 +317,7 @@ func CoreToProjectileEvent(e core.ProjectileEvent) model.ProjectileEvent {
 	if len(e.Trajectory) >= 2 {
 		coords := make([]float64, 0, len(e.Trajectory)*4)
 		for _, tp := range e.Trajectory {
-			coords = append(coords, tp.Position.X, tp.Position.Y, tp.Position.Z, float64(tp.Frame))
+			coords = append(coords, tp.Position.X, tp.Position.Y, tp.Position.Z, float64(tp.FrameNum))
 		}
 		seq := geom.NewSequence(coords, geom.DimXYZM)
 		ls := geom.NewLineString(seq)
@@ -329,7 +329,7 @@ func CoreToProjectileEvent(e core.ProjectileEvent) model.ProjectileEvent {
 		if hit.SoldierID != nil {
 			result.HitSoldiers = append(result.HitSoldiers, model.ProjectileHitsSoldier{
 				SoldierObjectID: *hit.SoldierID,
-				CaptureFrame:    hit.CaptureFrame,
+				CaptureFrame:    uint(hit.CaptureFrame),
 				Position:        position3DToPoint(hit.Position),
 				ComponentsHit:   componentsToJSON(hit.ComponentsHit),
 			})
@@ -337,7 +337,7 @@ func CoreToProjectileEvent(e core.ProjectileEvent) model.ProjectileEvent {
 		if hit.VehicleID != nil {
 			result.HitVehicles = append(result.HitVehicles, model.ProjectileHitsVehicle{
 				VehicleObjectID: *hit.VehicleID,
-				CaptureFrame:    hit.CaptureFrame,
+				CaptureFrame:    uint(hit.CaptureFrame),
 				Position:        position3DToPoint(hit.Position),
 				ComponentsHit:   componentsToJSON(hit.ComponentsHit),
 			})
@@ -408,7 +408,7 @@ func CoreToWorld(w core.World) model.World {
 func CoreToTimeState(t core.TimeState) model.TimeState {
 	return model.TimeState{
 		Time:           t.Time,
-		CaptureFrame:   t.CaptureFrame,
+		CaptureFrame:   uint(t.CaptureFrame),
 		SystemTimeUTC:  t.SystemTimeUTC,
 		MissionDate:    t.MissionDate,
 		TimeMultiplier: t.TimeMultiplier,

@@ -41,7 +41,7 @@ func TestParseMarkerCreate(t *testing.T) {
 				assert.Equal(t, float32(0), m.Direction)
 				assert.Equal(t, "mil_dot", m.MarkerType)
 				assert.Equal(t, "Respawn West", m.Text)
-				assert.Equal(t, uint(0), m.CaptureFrame)
+				assert.Equal(t, core.Frame(0), m.CaptureFrame)
 				assert.Equal(t, -1, m.OwnerID)
 				assert.Equal(t, "ColorBLUFOR", m.Color)
 				assert.Equal(t, "ICON", m.Shape)
@@ -74,7 +74,7 @@ func TestParseMarkerCreate(t *testing.T) {
 				assert.InDelta(t, float32(0.5), m.Alpha, 0.01)
 				assert.Equal(t, "grid", m.Brush)
 				assert.Equal(t, 5, m.OwnerID)
-				assert.Equal(t, uint(100), m.CaptureFrame)
+				assert.Equal(t, core.Frame(100), m.CaptureFrame)
 			},
 		},
 		{
@@ -206,7 +206,7 @@ func TestParseMarkerMove(t *testing.T) {
 			input: []string{"markerName", "517", "6069.06,5627.81,17.81", "0", "1"},
 			check: func(t *testing.T, r MarkerMove) {
 				assert.Equal(t, "markerName", r.MarkerName)
-				assert.Equal(t, uint(517), r.CaptureFrame)
+				assert.Equal(t, core.Frame(517), r.CaptureFrame)
 				assert.NotEqual(t, core.Position3D{}, r.Position)
 				assert.Equal(t, float32(0), r.Direction)
 				assert.Equal(t, float32(1), r.Alpha)
@@ -267,7 +267,7 @@ func TestParseMarkerDelete(t *testing.T) {
 		name      string
 		input     []string
 		wantName  string
-		wantFrame uint
+		wantFrame core.Frame
 		wantErr   bool
 	}{
 		{

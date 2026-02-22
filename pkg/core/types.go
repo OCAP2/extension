@@ -1,6 +1,14 @@
 // pkg/core/types.go
 package core
 
+// Frame represents a capture frame number in the recording timeline.
+// The zero value (FrameForever) means "unset" or "persists until mission end".
+// Valid frames start at 1; frame 0 means "unset".
+type Frame uint
+
+// FrameForever is the zero value — indicates no defined end (persists until mission end).
+const FrameForever Frame = 0
+
 // Position3D represents a 3D coordinate without GIS dependencies
 type Position3D struct {
 	X float64 `json:"x"` // easting

@@ -162,8 +162,8 @@ func TestRecordProjectileEvent_QueuesToInternalQueue(t *testing.T) {
 		FirerObjectID: 1,
 		CaptureFrame:  620,
 		Trajectory: []core.TrajectoryPoint{
-			{Position: core.Position3D{X: 100, Y: 200, Z: 10}, Frame: 620},
-			{Position: core.Position3D{X: 110, Y: 210, Z: 11}, Frame: 621},
+			{Position: core.Position3D{X: 100, Y: 200, Z: 10}, FrameNum:620},
+			{Position: core.Position3D{X: 110, Y: 210, Z: 11}, FrameNum:621},
 		},
 	}
 

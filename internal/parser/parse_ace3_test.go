@@ -22,7 +22,7 @@ func TestParseAce3DeathEvent(t *testing.T) {
 			name:  "death with source",
 			input: []string{"100", "5", "bleeding", "10"},
 			check: func(t *testing.T, e core.Ace3DeathEvent) {
-				assert.Equal(t, uint(100), e.CaptureFrame)
+				assert.Equal(t, core.Frame(100), e.CaptureFrame)
 				assert.Equal(t, uint(5), e.SoldierID)
 				assert.Equal(t, "bleeding", e.Reason)
 				assert.NotNil(t, e.LastDamageSourceID)
@@ -42,7 +42,7 @@ func TestParseAce3DeathEvent(t *testing.T) {
 			name:  "float frame and objectIDs",
 			input: []string{"100.00", "5.00", "drowning", "10.00"},
 			check: func(t *testing.T, e core.Ace3DeathEvent) {
-				assert.Equal(t, uint(100), e.CaptureFrame)
+				assert.Equal(t, core.Frame(100), e.CaptureFrame)
 				assert.Equal(t, uint(5), e.SoldierID)
 				assert.Equal(t, uint(10), *e.LastDamageSourceID)
 			},
@@ -90,7 +90,7 @@ func TestParseAce3UnconsciousEvent(t *testing.T) {
 			name:  "goes unconscious",
 			input: []string{"100", "5", "true"},
 			check: func(t *testing.T, e core.Ace3UnconsciousEvent) {
-				assert.Equal(t, uint(100), e.CaptureFrame)
+				assert.Equal(t, core.Frame(100), e.CaptureFrame)
 				assert.Equal(t, uint(5), e.SoldierID)
 				assert.True(t, e.IsUnconscious)
 			},
@@ -107,7 +107,7 @@ func TestParseAce3UnconsciousEvent(t *testing.T) {
 			name:  "float IDs",
 			input: []string{"200.00", "42.00", "true"},
 			check: func(t *testing.T, e core.Ace3UnconsciousEvent) {
-				assert.Equal(t, uint(200), e.CaptureFrame)
+				assert.Equal(t, core.Frame(200), e.CaptureFrame)
 				assert.Equal(t, uint(42), e.SoldierID)
 			},
 		},

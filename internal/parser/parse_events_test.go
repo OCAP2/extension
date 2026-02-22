@@ -135,7 +135,7 @@ func TestParseProjectileEvent(t *testing.T) {
 				"iconBullet",          // 19: magazineIcon
 			},
 			check: func(t *testing.T, r ProjectileEvent) {
-				assert.Equal(t, uint(100), r.CaptureFrame)
+				assert.Equal(t, core.Frame(100), r.CaptureFrame)
 				assert.Equal(t, uint16(5), r.FirerObjectID)
 				assert.Nil(t, r.VehicleObjectID)
 				assert.Equal(t, "MX 6.5 mm", r.WeaponDisplay)
@@ -175,7 +175,7 @@ func TestParseProjectileEvent(t *testing.T) {
 				assert.Equal(t, uint16(30), *r.VehicleObjectID)
 				assert.Len(t, r.HitParts, 1)
 				assert.Equal(t, uint16(42), r.HitParts[0].EntityID)
-				assert.Equal(t, uint(205), r.HitParts[0].CaptureFrame)
+				assert.Equal(t, core.Frame(205), r.HitParts[0].CaptureFrame)
 				assert.NotEqual(t, core.Position3D{}, r.HitParts[0].Position)
 			},
 		},
@@ -436,7 +436,7 @@ func TestParseProjectileEvent(t *testing.T) {
 			},
 			check: func(t *testing.T, r ProjectileEvent) {
 				// remoteControllerID is no longer parsed, so bad values don't error
-				assert.Equal(t, uint(100), r.CaptureFrame)
+				assert.Equal(t, core.Frame(100), r.CaptureFrame)
 			},
 		},
 		{
@@ -475,7 +475,7 @@ func TestParseGeneralEvent(t *testing.T) {
 			name:  "recording started",
 			input: []string{"0", "generalEvent", "Recording started.", "{}"},
 			check: func(t *testing.T, e core.GeneralEvent) {
-				assert.Equal(t, uint(0), e.CaptureFrame)
+				assert.Equal(t, core.Frame(0), e.CaptureFrame)
 				assert.Equal(t, "generalEvent", e.Name)
 				assert.Equal(t, "Recording started.", e.Message)
 			},
@@ -484,7 +484,7 @@ func TestParseGeneralEvent(t *testing.T) {
 			name:  "end mission with extraData",
 			input: []string{"1043", "endMission", "", `{"message":"BLUFOR wins","winner":"WEST"}`},
 			check: func(t *testing.T, e core.GeneralEvent) {
-				assert.Equal(t, uint(1043), e.CaptureFrame)
+				assert.Equal(t, core.Frame(1043), e.CaptureFrame)
 				assert.Equal(t, "endMission", e.Name)
 				assert.Equal(t, "", e.Message)
 				assert.Equal(t, "BLUFOR wins", e.ExtraData["message"])
@@ -538,7 +538,7 @@ func TestParseTimeState(t *testing.T) {
 			name:  "normal",
 			input: []string{"0", "2026-02-15T17:46:12.621", "2035-07-02T18:00:00", "1", "0"},
 			check: func(t *testing.T, ts core.TimeState) {
-				assert.Equal(t, uint(0), ts.CaptureFrame)
+				assert.Equal(t, core.Frame(0), ts.CaptureFrame)
 				assert.Equal(t, "2026-02-15T17:46:12.621", ts.SystemTimeUTC)
 				assert.Equal(t, "2035-07-02T18:00:00", ts.MissionDate)
 				assert.Equal(t, float32(1), ts.TimeMultiplier)
@@ -549,7 +549,7 @@ func TestParseTimeState(t *testing.T) {
 			name:  "with mission time",
 			input: []string{"10", "2026-02-15T17:47:00", "2035-07-02T18:05:00", "1", "5.013"},
 			check: func(t *testing.T, ts core.TimeState) {
-				assert.Equal(t, uint(10), ts.CaptureFrame)
+				assert.Equal(t, core.Frame(10), ts.CaptureFrame)
 				assert.InDelta(t, float32(5.013), ts.MissionTime, 0.001)
 			},
 		},
@@ -638,7 +638,7 @@ func TestParseTelemetryEvent(t *testing.T) {
 			name:  "RPT mission start (frame 0)",
 			input: missionStart,
 			check: func(t *testing.T, e core.TelemetryEvent) {
-				assert.Equal(t, uint(0), e.CaptureFrame)
+				assert.Equal(t, core.Frame(0), e.CaptureFrame)
 				assert.InDelta(t, 43.3604, float64(e.FpsAverage), 0.001)
 				assert.InDelta(t, 4.36681, float64(e.FpsMin), 0.001)
 
@@ -714,7 +714,7 @@ func TestParseTelemetryEvent(t *testing.T) {
 			name:  "RPT mid-mission (frame 114) — combat, scientific notation bandwidth",
 			input: midMission,
 			check: func(t *testing.T, e core.TelemetryEvent) {
-				assert.Equal(t, uint(114), e.CaptureFrame)
+				assert.Equal(t, core.Frame(114), e.CaptureFrame)
 				assert.InDelta(t, 122.137, float64(e.FpsAverage), 0.01)
 				assert.InDelta(t, 90.9091, float64(e.FpsMin), 0.01)
 
@@ -748,7 +748,7 @@ func TestParseTelemetryEvent(t *testing.T) {
 			name:  "RPT late mission (frame 234) — more casualties, weapon holders",
 			input: lateMission,
 			check: func(t *testing.T, e core.TelemetryEvent) {
-				assert.Equal(t, uint(234), e.CaptureFrame)
+				assert.Equal(t, core.Frame(234), e.CaptureFrame)
 				assert.InDelta(t, 132.231, float64(e.FpsAverage), 0.01)
 				assert.InDelta(t, 76.9231, float64(e.FpsMin), 0.01)
 
@@ -790,7 +790,7 @@ func TestParseTelemetryEvent(t *testing.T) {
 				"[0,0,0,0,0,0,0,0,0,0,0,0]", "[]",
 			},
 			check: func(t *testing.T, e core.TelemetryEvent) {
-				assert.Equal(t, uint(0), e.CaptureFrame)
+				assert.Equal(t, core.Frame(0), e.CaptureFrame)
 				assert.InDelta(t, 50.0, float64(e.FpsAverage), 0.01)
 				assert.Empty(t, e.Players)
 			},

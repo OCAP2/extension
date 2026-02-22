@@ -8,7 +8,7 @@ import "time"
 type Soldier struct {
 	ID              uint16 // ObjectID - game identifier
 	JoinTime        time.Time
-	JoinFrame       uint
+	JoinFrame       Frame
 	OcapType        string
 	UnitName        string
 	GroupID         string
@@ -26,7 +26,7 @@ type Soldier struct {
 type SoldierState struct {
 	SoldierID         uint16 // References Soldier.ID (ObjectID)
 	Time              time.Time
-	CaptureFrame      uint
+	CaptureFrame      Frame
 	Position          Position3D
 	Bearing           uint16
 	Lifestate         uint8

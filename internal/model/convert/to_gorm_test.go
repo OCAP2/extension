@@ -467,9 +467,9 @@ func TestCoreToProjectileEvent(t *testing.T) {
 		SimulationType:  "shotShell",
 		MagazineIcon:    `\A3\weapons_f\data\ui\icon_shell.paa`,
 		Trajectory: []core.TrajectoryPoint{
-			{Position: core.Position3D{X: 100.0, Y: 200.0, Z: 10.0}, Frame: 50},
-			{Position: core.Position3D{X: 150.0, Y: 250.0, Z: 15.0}, Frame: 52},
-			{Position: core.Position3D{X: 200.0, Y: 300.0, Z: 5.0}, Frame: 55},
+			{Position: core.Position3D{X: 100.0, Y: 200.0, Z: 10.0}, FrameNum: 50},
+			{Position: core.Position3D{X: 150.0, Y: 250.0, Z: 15.0}, FrameNum: 52},
+			{Position: core.Position3D{X: 200.0, Y: 300.0, Z: 5.0}, FrameNum: 55},
 		},
 		Hits: []core.ProjectileHit{
 			{SoldierID: &soldierHitID, CaptureFrame: 55, Position: core.Position3D{X: 200.0, Y: 300.0, Z: 5.0}, ComponentsHit: []string{"head"}},

@@ -8,7 +8,7 @@ import "time"
 type Vehicle struct {
 	ID            uint16 // ObjectID - game identifier
 	JoinTime      time.Time
-	JoinFrame     uint
+	JoinFrame     Frame
 	OcapType      string
 	ClassName     string
 	DisplayName   string
@@ -20,7 +20,7 @@ type Vehicle struct {
 type VehicleState struct {
 	VehicleID       uint16 // References Vehicle.ID (ObjectID)
 	Time            time.Time
-	CaptureFrame    uint
+	CaptureFrame    Frame
 	Position        Position3D
 	Bearing         uint16
 	IsAlive         bool

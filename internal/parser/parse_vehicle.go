@@ -29,7 +29,7 @@ func (p *Parser) ParseVehicle(data []string) (core.Vehicle, error) {
 
 	vehicle.JoinTime = time.Now()
 
-	vehicle.JoinFrame = uint(capframe)
+	vehicle.JoinFrame = core.Frame(capframe)
 	ocapID, err := parseUintFromFloat(data[1])
 	if err != nil {
 		return vehicle, fmt.Errorf("error converting ocapID to uint: %w", err)
@@ -58,7 +58,7 @@ func (p *Parser) ParseVehicleState(data []string) (core.VehicleState, error) {
 	if err != nil {
 		return vehicleState, fmt.Errorf("error converting capture frame to int: %w", err)
 	}
-	vehicleState.CaptureFrame = uint(capframe)
+	vehicleState.CaptureFrame = core.Frame(capframe)
 
 	// parse ocapID and set directly (worker validates against cache)
 	ocapID, err := parseUintFromFloat(data[0])

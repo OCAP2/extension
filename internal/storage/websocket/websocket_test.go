@@ -216,7 +216,7 @@ func TestEnvelopeSerialization(t *testing.T) {
 	var dp core.DeleteMarker
 	require.NoError(t, json.Unmarshal(decoded.Payload, &dp))
 	assert.Equal(t, "mrk1", dp.Name)
-	assert.Equal(t, uint(42), dp.EndFrame)
+	assert.Equal(t, core.Frame(42), dp.EndFrame)
 }
 
 func TestMarkerIDResetsAfterEndMission(t *testing.T) {

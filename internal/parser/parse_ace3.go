@@ -25,7 +25,7 @@ func (p *Parser) ParseAce3DeathEvent(data []string) (core.Ace3DeathEvent, error)
 	}
 
 	deathEvent.Time = time.Now()
-	deathEvent.CaptureFrame = uint(capframe)
+	deathEvent.CaptureFrame = core.Frame(capframe)
 
 	// parse victim ObjectID - set directly
 	victimObjectID, err := parseUintFromFloat(data[1])
@@ -65,7 +65,7 @@ func (p *Parser) ParseAce3UnconsciousEvent(data []string) (core.Ace3UnconsciousE
 		return unconsciousEvent, fmt.Errorf("error converting capture frame to int: %w", err)
 	}
 
-	unconsciousEvent.CaptureFrame = uint(capframe)
+	unconsciousEvent.CaptureFrame = core.Frame(capframe)
 
 	ocapID, err := parseUintFromFloat(data[1])
 	if err != nil {

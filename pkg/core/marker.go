@@ -7,8 +7,8 @@ import "time"
 type Marker struct {
 	ID           uint
 	Time         time.Time
-	CaptureFrame uint
-	EndFrame     int // -1 means persist until end, otherwise frame when marker disappears
+	CaptureFrame Frame
+	EndFrame     Frame // FrameForever (0) means persist until end, otherwise frame when marker disappears
 	MarkerName   string
 	Direction    float32
 	MarkerType   string
@@ -28,7 +28,7 @@ type Marker struct {
 // DeleteMarker represents a marker deletion at a specific frame
 type DeleteMarker struct {
 	Name     string
-	EndFrame uint
+	EndFrame Frame
 }
 
 // MarkerState tracks marker position changes over time
@@ -36,7 +36,7 @@ type MarkerState struct {
 	ID           uint
 	MarkerID     uint
 	Time         time.Time
-	CaptureFrame uint
+	CaptureFrame Frame
 	Position     Position3D
 	Direction    float32
 	Alpha        float32

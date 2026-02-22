@@ -33,7 +33,7 @@ func TestParseSoldier(t *testing.T) {
 				"[]",             // 10: squadParams
 			},
 			check: func(t *testing.T, s core.Soldier) {
-				assert.Equal(t, uint(0), s.JoinFrame)
+				assert.Equal(t, core.Frame(0), s.JoinFrame)
 				assert.Equal(t, uint16(0), s.ID)
 				assert.Equal(t, "Farid Amin", s.UnitName)
 				assert.Equal(t, "Alpha 1-1", s.GroupID)
@@ -84,7 +84,7 @@ func TestParseSoldier(t *testing.T) {
 				"[]",             // 10: squadParams
 			},
 			check: func(t *testing.T, s core.Soldier) {
-				assert.Equal(t, uint(415), s.JoinFrame)
+				assert.Equal(t, core.Frame(415), s.JoinFrame)
 				assert.Equal(t, uint16(78), s.ID)
 				assert.Equal(t, "", s.UnitName)
 				assert.Equal(t, "UNKNOWN", s.Side)
@@ -106,7 +106,7 @@ func TestParseSoldier(t *testing.T) {
 				"[]",                     // 10: squadParams
 			},
 			check: func(t *testing.T, s core.Soldier) {
-				assert.Equal(t, uint(21), s.JoinFrame)
+				assert.Equal(t, core.Frame(21), s.JoinFrame)
 				assert.Equal(t, uint16(70), s.ID)
 				assert.Equal(t, "Team Leader", s.DisplayName)
 			},

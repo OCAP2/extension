@@ -22,7 +22,7 @@ func TestParseChatEvent(t *testing.T) {
 			name:  "player chat global channel",
 			input: []string{"50", "5", "0", "Player1", "Player1", "Hello world", "76561198000074241"},
 			check: func(t *testing.T, e core.ChatEvent) {
-				assert.Equal(t, uint(50), e.CaptureFrame)
+				assert.Equal(t, core.Frame(50), e.CaptureFrame)
 				assert.NotNil(t, e.SoldierID)
 				assert.Equal(t, uint(5), *e.SoldierID)
 				assert.Equal(t, "Global", e.Channel)
@@ -146,7 +146,7 @@ func TestParseRadioEvent(t *testing.T) {
 			name:  "TFAR start transmission",
 			input: []string{"50", "5", "TFAR_anprc152", "LR", "START", "1", "false", "87.5", "_lr_code"},
 			check: func(t *testing.T, e core.RadioEvent) {
-				assert.Equal(t, uint(50), e.CaptureFrame)
+				assert.Equal(t, core.Frame(50), e.CaptureFrame)
 				assert.NotNil(t, e.SoldierID)
 				assert.Equal(t, uint(5), *e.SoldierID)
 				assert.Equal(t, "TFAR_anprc152", e.Radio)

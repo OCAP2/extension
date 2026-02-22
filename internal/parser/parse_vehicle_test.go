@@ -28,7 +28,7 @@ func TestParseVehicle(t *testing.T) {
 				`[["Black",1],[]]`,          // 5: customization
 			},
 			check: func(t *testing.T, v core.Vehicle) {
-				assert.Equal(t, uint(0), v.JoinFrame)
+				assert.Equal(t, core.Frame(0), v.JoinFrame)
 				assert.Equal(t, uint16(30), v.ID)
 				assert.Equal(t, "heli", v.OcapType)
 				assert.Equal(t, "UH-80 Ghost Hawk", v.DisplayName)
@@ -73,7 +73,7 @@ func TestParseVehicle(t *testing.T) {
 				"10.00", "50.00", "boat", "Speedboat", "C_Boat_Civil_01_F", "[]",
 			},
 			check: func(t *testing.T, v core.Vehicle) {
-				assert.Equal(t, uint(10), v.JoinFrame)
+				assert.Equal(t, core.Frame(10), v.JoinFrame)
 				assert.Equal(t, uint16(50), v.ID)
 			},
 		},
@@ -200,7 +200,7 @@ func TestParseVehicleState_AllFields(t *testing.T) {
 			},
 			check: func(t *testing.T, v core.VehicleState) {
 				assert.Equal(t, uint16(10), v.VehicleID)
-				assert.Equal(t, uint(500), v.CaptureFrame)
+				assert.Equal(t, core.Frame(500), v.CaptureFrame)
 				assert.True(t, v.IsAlive)
 				assert.Equal(t, "[20,21,22]", v.Crew)
 				assert.InDelta(t, float32(0.95), v.Fuel, 0.01)

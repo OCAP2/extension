@@ -174,8 +174,8 @@ func TestRecordSoldierState(t *testing.T) {
 
 	record := b.soldiers[s.ID]
 	assert.Len(t, record.States, 2)
-	assert.Equal(t, uint(0), record.States[0].CaptureFrame)
-	assert.Equal(t, uint(1), record.States[1].CaptureFrame)
+	assert.Equal(t, core.Frame(0), record.States[0].CaptureFrame)
+	assert.Equal(t, core.Frame(1), record.States[1].CaptureFrame)
 
 	// Recording state for non-existent soldier should not error
 	orphanState := &core.SoldierState{SoldierID: 999, CaptureFrame: 0}
@@ -233,7 +233,7 @@ func TestRecordMarkerState(t *testing.T) {
 func TestDeleteMarker(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
-	m := &core.Marker{MarkerName: "grenade_1", EndFrame: -1}
+	m := &core.Marker{MarkerName: "grenade_1", EndFrame: core.FrameForever}
 	_, err := b.AddMarker(m)
 	require.NoError(t, err)
 
@@ -241,7 +241,7 @@ func TestDeleteMarker(t *testing.T) {
 	require.NoError(t, b.DeleteMarker(&core.DeleteMarker{Name: "grenade_1", EndFrame: 100}))
 
 	record := b.markers["grenade_1"]
-	assert.Equal(t, 100, record.Marker.EndFrame)
+	assert.Equal(t, core.Frame(100), record.Marker.EndFrame)
 
 	// Deleting non-existent marker should not panic
 	require.NoError(t, b.DeleteMarker(&core.DeleteMarker{Name: "nonexistent", EndFrame: 50}))
@@ -393,7 +393,7 @@ func TestRecordTimeState(t *testing.T) {
 	require.NoError(t, b.RecordTimeState(state))
 
 	assert.Len(t, b.timeStates, 1)
-	assert.Equal(t, uint(100), b.timeStates[0].CaptureFrame)
+	assert.Equal(t, core.Frame(100), b.timeStates[0].CaptureFrame)
 	assert.Equal(t, float32(2.0), b.timeStates[0].TimeMultiplier)
 }
 
@@ -436,8 +436,8 @@ func TestRecordProjectileEvent(t *testing.T) {
 		SimulationType: "",
 		MagazineDisplay: "RGO Grenade",
 		Trajectory: []core.TrajectoryPoint{
-			{Position: core.Position3D{X: 100, Y: 200, Z: 10}, Frame: 100},
-			{Position: core.Position3D{X: 150, Y: 250, Z: 5}, Frame: 105},
+			{Position: core.Position3D{X: 100, Y: 200, Z: 10}, FrameNum: 100},
+			{Position: core.Position3D{X: 150, Y: 250, Z: 5}, FrameNum: 105},
 		},
 	}
 

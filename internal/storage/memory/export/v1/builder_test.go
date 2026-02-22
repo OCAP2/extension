@@ -796,8 +796,8 @@ func TestBuildWithBulletProjectile(t *testing.T) {
 				FirerObjectID:  5,
 				SimulationType: "shotBullet",
 				Trajectory: []core.TrajectoryPoint{
-					{Position: core.Position3D{X: 1000, Y: 2000, Z: 1.5}, Frame: 15},
-					{Position: core.Position3D{X: 1200, Y: 2200, Z: 1.0}, Frame: 16},
+					{Position: core.Position3D{X: 1000, Y: 2000, Z: 1.5}, FrameNum:15},
+					{Position: core.Position3D{X: 1200, Y: 2200, Z: 1.0}, FrameNum:16},
 				},
 			},
 		},
@@ -837,8 +837,8 @@ func TestBuildWithThrownGrenade(t *testing.T) {
 				MagazineDisplay: "Smoke Grenade (White)",
 				MagazineIcon:    `\A3\Weapons_F\Data\UI\gear_smokegrenade_white_ca.paa`,
 				Trajectory: []core.TrajectoryPoint{
-					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, Frame: 100},
-					{Position: core.Position3D{X: 150, Y: 250, Z: 5}, Frame: 105},
+					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, FrameNum:100},
+					{Position: core.Position3D{X: 150, Y: 250, Z: 5}, FrameNum:105},
 				},
 			},
 		},
@@ -890,8 +890,8 @@ func TestBuildWithVehicleProjectile(t *testing.T) {
 				MagazineDisplay: ".50 BMG 200Rnd",
 				MagazineIcon:    `\A3\weapons_f\data\ui\icon_mg_ca.paa`,
 				Trajectory: []core.TrajectoryPoint{
-					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, Frame: 50},
-					{Position: core.Position3D{X: 200, Y: 300, Z: 5}, Frame: 55},
+					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, FrameNum:50},
+					{Position: core.Position3D{X: 200, Y: 300, Z: 5}, FrameNum:55},
 				},
 			},
 		},
@@ -925,8 +925,8 @@ func TestBuildWithOnFootLauncher(t *testing.T) {
 				MagazineDisplay: "HEAT Rocket",
 				MagazineIcon:    `\A3\weapons_f\data\ui\icon_at_ca.paa`,
 				Trajectory: []core.TrajectoryPoint{
-					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, Frame: 80},
-					{Position: core.Position3D{X: 300, Y: 400, Z: 0}, Frame: 85},
+					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, FrameNum:80},
+					{Position: core.Position3D{X: 300, Y: 400, Z: 0}, FrameNum:85},
 				},
 			},
 		},
@@ -957,7 +957,7 @@ func TestBuildWithShotGrenade(t *testing.T) {
 				MuzzleDisplay:   "3GL",
 				MagazineDisplay: "40mm HE",
 				Trajectory: []core.TrajectoryPoint{
-					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, Frame: 60},
+					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, FrameNum:60},
 				},
 			},
 		},
@@ -990,8 +990,8 @@ func TestBuildWithProjectileHitEvents(t *testing.T) {
 				MuzzleDisplay:   "MX 6.5 mm",
 				MagazineDisplay: "6.5 mm 30Rnd",
 				Trajectory: []core.TrajectoryPoint{
-					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, Frame: 50},
-					{Position: core.Position3D{X: 300, Y: 400, Z: 5}, Frame: 52},
+					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, FrameNum:50},
+					{Position: core.Position3D{X: 300, Y: 400, Z: 5}, FrameNum:52},
 				},
 				Hits: []core.ProjectileHit{
 					{CaptureFrame: 52, Position: core.Position3D{X: 300, Y: 400, Z: 5}, SoldierID: &soldierVictim},
@@ -1033,7 +1033,7 @@ func TestBuildWithEmptyMagazineIcon(t *testing.T) {
 				MagazineDisplay: "Unknown",
 				MagazineIcon:    "", // empty → fallback
 				Trajectory: []core.TrajectoryPoint{
-					{Position: core.Position3D{X: 100, Y: 200}, Frame: 50},
+					{Position: core.Position3D{X: 100, Y: 200}, FrameNum:50},
 				},
 			},
 		},
@@ -1066,8 +1066,8 @@ func TestBuildWithProjectileHitOnVehicle(t *testing.T) {
 				MuzzleDisplay:   "PCML",
 				MagazineDisplay: "PCML Missile",
 				Trajectory: []core.TrajectoryPoint{
-					{Position: core.Position3D{X: 0, Y: 0, Z: 10}, Frame: 60},
-					{Position: core.Position3D{X: 300, Y: 400, Z: 5}, Frame: 65},
+					{Position: core.Position3D{X: 0, Y: 0, Z: 10}, FrameNum:60},
+					{Position: core.Position3D{X: 300, Y: 400, Z: 5}, FrameNum:65},
 				},
 				Hits: []core.ProjectileHit{
 					{CaptureFrame: 65, Position: core.Position3D{X: 300, Y: 400, Z: 5}, VehicleID: &vehicleVictim},
@@ -1107,8 +1107,8 @@ func TestBuildWithProjectileHitEmptyMuzzleDisplay(t *testing.T) {
 				MuzzleDisplay:   "", // empty → falls back to WeaponDisplay
 				MagazineDisplay: "6.5 mm 30Rnd",
 				Trajectory: []core.TrajectoryPoint{
-					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, Frame: 50},
-					{Position: core.Position3D{X: 300, Y: 400, Z: 5}, Frame: 52},
+					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, FrameNum:50},
+					{Position: core.Position3D{X: 300, Y: 400, Z: 5}, FrameNum:52},
 				},
 				Hits: []core.ProjectileHit{
 					{CaptureFrame: 52, Position: core.Position3D{X: 300, Y: 400, Z: 5}, SoldierID: &soldierVictim},

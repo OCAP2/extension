@@ -41,9 +41,10 @@ func (p *Parser) ParseMarkerCreate(data []string) (core.Marker, error) {
 	if err != nil {
 		return marker, fmt.Errorf("error parsing capture frame: %w", err)
 	}
-	marker.CaptureFrame = uint(capframe)
+	marker.CaptureFrame = core.Frame(capframe)
 
-	// data[5] is -1, skip
+	// data[5] is -1 from addon, meaning "forever" — set explicitly
+	marker.EndFrame = core.FrameForever
 
 	// ownerId
 	ownerId, err := strconv.Atoi(data[6])
@@ -118,7 +119,7 @@ func (p *Parser) ParseMarkerMove(data []string) (MarkerMove, error) {
 	if err != nil {
 		return result, fmt.Errorf("error parsing capture frame: %w", err)
 	}
-	result.CaptureFrame = uint(capframe)
+	result.CaptureFrame = core.Frame(capframe)
 
 	// position
 	pos := data[2]
@@ -165,6 +166,6 @@ func (p *Parser) ParseMarkerDelete(data []string) (*core.DeleteMarker, error) {
 
 	return &core.DeleteMarker{
 		Name:     data[0],
-		EndFrame: uint(capframe),
+		EndFrame: core.Frame(capframe),
 	}, nil
 }
