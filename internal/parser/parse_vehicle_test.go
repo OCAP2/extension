@@ -18,7 +18,7 @@ func TestParseVehicle(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "helicopter",
+			name: "helicopter with side",
 			input: []string{
 				"0",                         // 0: frame
 				"30",                        // 1: ocapID
@@ -26,6 +26,7 @@ func TestParseVehicle(t *testing.T) {
 				"UH-80 Ghost Hawk",          // 3: displayName
 				"B_Heli_Transport_01_F",     // 4: className
 				`[["Black",1],[]]`,          // 5: customization
+				"WEST",                      // 6: side
 			},
 			check: func(t *testing.T, v core.Vehicle) {
 				assert.Equal(t, core.Frame(0), v.JoinFrame)
@@ -34,6 +35,7 @@ func TestParseVehicle(t *testing.T) {
 				assert.Equal(t, "UH-80 Ghost Hawk", v.DisplayName)
 				assert.Equal(t, "B_Heli_Transport_01_F", v.ClassName)
 				assert.Equal(t, `[["Black",1],[]]`, v.Customization)
+				assert.Equal(t, "WEST", v.Side)
 			},
 		},
 		{
@@ -45,11 +47,13 @@ func TestParseVehicle(t *testing.T) {
 				"MSE-3 Marid",                // 3: displayName
 				"O_APC_Wheeled_02_rcws_F",    // 4: className
 				`[["Hex",1],[]]`,             // 5: customization
+				"EAST",                       // 6: side
 			},
 			check: func(t *testing.T, v core.Vehicle) {
 				assert.Equal(t, uint16(33), v.ID)
 				assert.Equal(t, "apc", v.OcapType)
 				assert.Equal(t, "MSE-3 Marid", v.DisplayName)
+				assert.Equal(t, "EAST", v.Side)
 			},
 		},
 		{
@@ -61,30 +65,33 @@ func TestParseVehicle(t *testing.T) {
 				"Hatchback",             // 3: displayName
 				"C_Hatchback_01_F",      // 4: className
 				`[["Yellow",1],[]]`,     // 5: customization
+				"CIV",                   // 6: side
 			},
 			check: func(t *testing.T, v core.Vehicle) {
 				assert.Equal(t, uint16(7), v.ID)
 				assert.Equal(t, "car", v.OcapType)
+				assert.Equal(t, "CIV", v.Side)
 			},
 		},
 		{
 			name: "float IDs",
 			input: []string{
-				"10.00", "50.00", "boat", "Speedboat", "C_Boat_Civil_01_F", "[]",
+				"10.00", "50.00", "boat", "Speedboat", "C_Boat_Civil_01_F", "[]", "GUER",
 			},
 			check: func(t *testing.T, v core.Vehicle) {
 				assert.Equal(t, core.Frame(10), v.JoinFrame)
 				assert.Equal(t, uint16(50), v.ID)
+				assert.Equal(t, "GUER", v.Side)
 			},
 		},
 		{
 			name:    "error: bad frame",
-			input:   []string{"abc", "0", "car", "Name", "Class", "[]"},
+			input:   []string{"abc", "0", "car", "Name", "Class", "[]", "WEST"},
 			wantErr: true,
 		},
 		{
 			name:    "error: bad objectID",
-			input:   []string{"0", "abc", "car", "Name", "Class", "[]"},
+			input:   []string{"0", "abc", "car", "Name", "Class", "[]", "WEST"},
 			wantErr: true,
 		},
 	}

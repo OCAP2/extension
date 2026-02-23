@@ -77,6 +77,7 @@ func CoreToVehicle(v core.Vehicle) model.Vehicle {
 		ClassName:     v.ClassName,
 		DisplayName:   v.DisplayName,
 		Customization: v.Customization,
+		Side:          v.Side,
 	}
 }
 

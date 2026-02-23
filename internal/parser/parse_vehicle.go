@@ -39,6 +39,7 @@ func (p *Parser) ParseVehicle(data []string) (core.Vehicle, error) {
 	vehicle.DisplayName = data[3]
 	vehicle.ClassName = data[4]
 	vehicle.Customization = data[5]
+	vehicle.Side = data[6]
 
 	return vehicle, nil
 }

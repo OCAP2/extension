@@ -267,7 +267,7 @@ type SoldierScores struct {
 // Uses composite primary key (MissionID, ObjectID) - ObjectID is the OCAP-assigned sequential ID
 //
 // SQF Command: :VEHICLE:CREATE:
-// Args: [frameNo, ocapId, vehicleClass, displayName, className, customization]
+// Args: [frameNo, ocapId, vehicleClass, displayName, className, customization, side]
 type Vehicle struct {
 	MissionID     uint           `json:"missionId" gorm:"primaryKey;autoIncrement:false"`
 	ObjectID      uint16         `json:"ocapId" gorm:"primaryKey;autoIncrement:false"` // OCAP-assigned sequential ID (not Arma netId)
@@ -281,6 +281,7 @@ type Vehicle struct {
 	ClassName     string         `json:"className" gorm:"size:64"`                                              // Config class name (typeOf)
 	DisplayName   string         `json:"displayName" gorm:"size:64"`                                            // Display name from config
 	Customization string         `json:"customization"`                                                         // Vehicle customization data (textures, animations)
+	Side          string         `json:"side" gorm:"size:16;default:UNKNOWN"`                                   // Config side: WEST, EAST, GUER, CIV (from "str side vehicle")
 }
 
 func (*Vehicle) TableName() string {

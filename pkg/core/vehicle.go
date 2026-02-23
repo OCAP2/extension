@@ -13,6 +13,7 @@ type Vehicle struct {
 	ClassName     string
 	DisplayName   string
 	Customization string
+	Side          string // Config side: WEST, EAST, GUER, CIV (from "str side vehicle")
 }
 
 // VehicleState represents vehicle state at a point in time.
