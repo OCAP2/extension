@@ -362,15 +362,6 @@ func Build(data *MissionData) Export {
 			markerType = "Minefield"
 		}
 
-		// Determine end frame from lifecycle events
-		placedEndFrame := -1
-		for _, evt := range record.Events {
-			if evt.EventType == "detonated" || evt.EventType == "deleted" {
-				placedEndFrame = frameToV1(evt.CaptureFrame)
-				break
-			}
-		}
-
 		posArray := [][]any{
 			{
 				frameToV1(record.PlacedObject.JoinFrame),
@@ -380,11 +371,25 @@ func Build(data *MissionData) Export {
 			},
 		}
 
+		// Add faded state at detonation/deletion frame so the marker
+		// remains visible on the map (alpha 0.25) instead of disappearing.
+		for _, evt := range record.Events {
+			if evt.EventType == "detonated" || evt.EventType == "deleted" {
+				posArray = append(posArray, []any{
+					frameToV1(evt.CaptureFrame),
+					[]float64{evt.Position.X, evt.Position.Y, evt.Position.Z},
+					0,
+					0.25,
+				})
+				break
+			}
+		}
+
 		marker := []any{
 			markerType,                                  // [0] type
 			record.PlacedObject.DisplayName,             // [1] text
 			frameToV1(record.PlacedObject.JoinFrame),    // [2] startFrame
-			placedEndFrame,                         // [3] endFrame
+			-1,                                     // [3] endFrame (always visible)
 			int(record.PlacedObject.OwnerID),       // [4] playerId
 			"D96600",                               // [5] color (orange hex)
 			-1,                                     // [6] sideIndex (GLOBAL — visible to all sides)

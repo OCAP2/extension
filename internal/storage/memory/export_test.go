@@ -1366,9 +1366,9 @@ func TestPlacedObjectExport(t *testing.T) {
 	require.NotNil(t, mineMarker, "mine marker not found")
 	require.NotNil(t, unknownMarker, "unknown explosive marker not found")
 
-	// Mine with icon: magIcons type, detonated endFrame
+	// Mine with icon: magIcons type, stays visible (faded) after detonation
 	assert.Equal(t, "magIcons/gear_mine_AP_ca.paa", mineMarker[0])
-	assert.Equal(t, 499, mineMarker[3])    // endFrame from detonation (internal 500 → v1 499)
+	assert.Equal(t, -1, mineMarker[3])     // endFrame always -1 (faded after detonation, not removed)
 	assert.Equal(t, -1, mineMarker[6])     // GLOBAL (placed objects always visible)
 
 	// Unknown without icon: Minefield fallback, persists

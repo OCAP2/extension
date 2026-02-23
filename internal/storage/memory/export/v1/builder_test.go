@@ -1158,20 +1158,25 @@ func TestBuildWithPlacedObjectMarker(t *testing.T) {
 	assert.Equal(t, "magIcons/gear_mine_AP_ca.paa", marker[0]) // type
 	assert.Equal(t, "APERS Mine", marker[1])                    // text
 	assert.Equal(t, 199, marker[2])                              // startFrame (internal 200 → v1 199)
-	assert.Equal(t, 499, marker[3])                              // endFrame (internal 500 → v1 499)
+	assert.Equal(t, -1, marker[3])                               // endFrame (-1 = always visible, faded after detonation)
 	assert.Equal(t, int(5), marker[4])                          // playerId (ownerID)
 	assert.Equal(t, "D96600", marker[5])                        // color (orange hex)
 	assert.Equal(t, -1, marker[6])                              // sideIndex (GLOBAL)
 	assert.Equal(t, "ICON", marker[9])                          // shape
 	assert.Equal(t, "Solid", marker[10])                        // brush
 
-	// Check positions array
+	// Check positions array: initial + faded detonation state
 	posArray := marker[7].([][]any)
-	require.Len(t, posArray, 1)
+	require.Len(t, posArray, 2)
 	assert.Equal(t, 199, posArray[0][0])
 	pos0 := posArray[0][1].([]float64)
 	assert.Equal(t, 1000.0, pos0[0])
 	assert.Equal(t, 2000.0, pos0[1])
+	assert.Equal(t, 1.0, posArray[0][3])  // full alpha initially
+
+	// Detonation state: faded
+	assert.Equal(t, 499, posArray[1][0])
+	assert.Equal(t, 0.25, posArray[1][3]) // faded alpha after detonation
 }
 
 func TestBuildWithPlacedObjectNoIcon(t *testing.T) {
@@ -1233,8 +1238,13 @@ func TestBuildWithPlacedObjectDeletedEvent(t *testing.T) {
 	marker := export.Markers[0]
 
 	assert.Equal(t, "magIcons/gear_satchel_ca.paa", marker[0])
-	assert.Equal(t, 349, marker[3]) // endFrame from "deleted" event (internal 350 → v1 349)
+	assert.Equal(t, -1, marker[3])  // endFrame (-1 = always visible, faded after deletion)
 	assert.Equal(t, -1, marker[6])  // sideIndex (GLOBAL)
+
+	// Position array has faded state from "deleted" event
+	posArray := marker[7].([][]any)
+	require.Len(t, posArray, 2)
+	assert.Equal(t, 0.25, posArray[1][3]) // faded alpha after deletion
 }
 
 func TestIsProjectileMarker(t *testing.T) {
