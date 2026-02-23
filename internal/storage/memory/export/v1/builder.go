@@ -173,10 +173,14 @@ func Build(data *MissionData) Export {
 
 	// Convert vehicles - place at index matching their ID
 	for _, record := range data.Vehicles {
+		vehicleSide := record.Vehicle.Side
+		if vehicleSide == "" {
+			vehicleSide = "UNKNOWN"
+		}
 		entity := Entity{
 			ID:            record.Vehicle.ID,
 			Name:          record.Vehicle.DisplayName,
-			Side:          "UNKNOWN",
+			Side:          vehicleSide,
 			IsPlayer:      0,
 			Type:          "vehicle",
 			Class:         record.Vehicle.OcapType,

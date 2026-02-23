@@ -94,6 +94,7 @@ func TestCoreToVehicle(t *testing.T) {
 		ClassName:     "B_MRAP_01_F",
 		DisplayName:   "Hunter",
 		Customization: "default",
+		Side:          "WEST",
 	}
 
 	result := CoreToVehicle(input)
@@ -105,6 +106,7 @@ func TestCoreToVehicle(t *testing.T) {
 	assert.Equal(t, "B_MRAP_01_F", result.ClassName)
 	assert.Equal(t, "Hunter", result.DisplayName)
 	assert.Equal(t, "default", result.Customization)
+	assert.Equal(t, "WEST", result.Side)
 }
 
 func TestCoreToSoldierState(t *testing.T) {
