@@ -190,7 +190,7 @@ func (*Addon) TableName() string {
 // Soldier is a player or AI unit
 // Uses composite primary key (MissionID, ObjectID) - ObjectID is the OCAP-assigned sequential ID
 //
-// SQF Command: :NEW:SOLDIER:
+// SQF Command: :SOLDIER:CREATE:
 // Args: [frameNo, ocapId, name, groupId, side, isPlayer, roleDescription, className, displayName, playerUID, squadParams]
 type Soldier struct {
 	MissionID       uint           `json:"missionId" gorm:"primaryKey;autoIncrement:false"`
@@ -220,7 +220,7 @@ func (*Soldier) TableName() string {
 // SoldierState tracks soldier state at a point in time
 // References Soldier by (MissionID, SoldierObjectID) composite FK
 //
-// SQF Command: :NEW:SOLDIER:STATE:
+// SQF Command: :SOLDIER:STATE:
 // Args: [ocapId, pos, dir, lifeState, inVehicle, name, isPlayer, role, frameNo, hasStableVitals, isDragged, scores, vehicleRole, vehicleOcapId, stance, groupID, side]
 type SoldierState struct {
 	ID              uint      `json:"id" gorm:"primarykey;autoIncrement;"`
@@ -266,7 +266,7 @@ type SoldierScores struct {
 // Vehicle is a vehicle or static weapon
 // Uses composite primary key (MissionID, ObjectID) - ObjectID is the OCAP-assigned sequential ID
 //
-// SQF Command: :NEW:VEHICLE:
+// SQF Command: :VEHICLE:CREATE:
 // Args: [frameNo, ocapId, vehicleClass, displayName, className, customization]
 type Vehicle struct {
 	MissionID     uint           `json:"missionId" gorm:"primaryKey;autoIncrement:false"`
@@ -290,7 +290,7 @@ func (*Vehicle) TableName() string {
 // VehicleState tracks vehicle state at a point in time
 // References Vehicle by (MissionID, VehicleObjectID) composite FK
 //
-// SQF Command: :NEW:VEHICLE:STATE:
+// SQF Command: :VEHICLE:STATE:
 // Args: [ocapId, pos, dir, alive, crew, frameNo, fuel, damage, engineOn, locked, side, vectorDir, vectorUp, turretAz, turretEl]
 type VehicleState struct {
 	ID              uint      `json:"id" gorm:"primarykey;autoIncrement;"`
@@ -324,7 +324,7 @@ func (*VehicleState) TableName() string {
 // ProjectileEvent represents a weapon being fired and its full lifetime tracking
 // References Soldier by ObjectID for Firer and ActualFirer (remote controller)
 //
-// SQF Command: :PROJECTILE:
+// SQF Command: :EVENT:PROJECTILE:
 // Args: [firedFrame, firedTime, firerID, vehicleID, vehicleRole, remoteControllerID,
 //
 //	weapon, weaponDisplay, muzzle, muzzleDisplay, magazine, magazineDisplay,
@@ -370,7 +370,7 @@ func (p *ProjectileEvent) TableName() string {
 }
 
 // ProjectileHitsSoldier records when a projectile hits a soldier
-// Part of hitParts array in :PROJECTILE: command: [hitOcapId, component, "x,y,z", frameNo]
+// Part of hitParts array in :EVENT:PROJECTILE: command: [hitOcapId, component, "x,y,z", frameNo]
 type ProjectileHitsSoldier struct {
 	ID                uint            `json:"id" gorm:"primarykey;autoIncrement;"`
 	ProjectileEventID uint            `json:"projectileEventId" gorm:"index:idx_projectile_hit_soldier_projectile_event_id"`
@@ -384,7 +384,7 @@ type ProjectileHitsSoldier struct {
 }
 
 // ProjectileHitsVehicle records when a projectile hits a vehicle
-// Part of hitParts array in :PROJECTILE: command: [hitOcapId, component, "x,y,z", frameNo]
+// Part of hitParts array in :EVENT:PROJECTILE: command: [hitOcapId, component, "x,y,z", frameNo]
 type ProjectileHitsVehicle struct {
 	ID                uint            `json:"id" gorm:"primarykey;autoIncrement;"`
 	ProjectileEventID uint            `json:"projectileEventId" gorm:"index:idx_projectile_hit_vehicle_projectile_event_id"`
@@ -399,7 +399,7 @@ type ProjectileHitsVehicle struct {
 
 // GeneralEvent is a generic event for player connections, mission end, custom events
 //
-// SQF Command: :EVENT:
+// SQF Command: :EVENT:GENERAL:
 // Args: [frameNo, eventType, message, extraDataJSON]
 // Common eventTypes: "connected", "disconnected", "endMission"
 type GeneralEvent struct {
@@ -420,7 +420,7 @@ func (g *GeneralEvent) TableName() string {
 // KillEvent represents an entity being killed/destroyed
 // Stores ObjectIDs directly - victim/killer could be soldier or vehicle
 //
-// SQF Command: :KILL:
+// SQF Command: :EVENT:KILL:
 // Args: [frameNo, victimOcapId, killerOcapId, weaponText, distance]
 type KillEvent struct {
 	ID   uint      `json:"id" gorm:"primarykey;autoIncrement;"`
@@ -492,7 +492,7 @@ func (a *Ace3UnconsciousEvent) TableName() string {
 
 // ChatEvent records chat messages
 //
-// SQF Command: :CHAT:
+// SQF Command: :EVENT:CHAT:
 // Args: [frameNo, senderOcapId, channel, from, name, text, playerUID]
 type ChatEvent struct {
 	ID              uint          `json:"id" gorm:"primarykey;autoIncrement;"`
@@ -514,7 +514,7 @@ func (c *ChatEvent) TableName() string {
 
 // RadioEvent records TFAR radio transmissions
 //
-// SQF Command: :RADIO:
+// SQF Command: :EVENT:RADIO:
 // Args: [frameNo, senderOcapId, radio, radioType, startEnd, channel, isAdditional, frequency, code]
 type RadioEvent struct {
 	ID              uint          `json:"id" gorm:"primarykey;autoIncrement;"`
@@ -538,7 +538,7 @@ func (r *RadioEvent) TableName() string {
 }
 
 // ServerFpsEvent records server performance metrics.
-// Populated from :TELEMETRY: command data (FPS fields).
+// Populated from :TELEMETRY:FRAME: command data (FPS fields).
 type ServerFpsEvent struct {
 	Time         time.Time `json:"time" gorm:"type:timestamptz;"`                              // Server time when measurement taken
 	MissionID    uint      `json:"missionId" gorm:"index:idx_serverfpsevent_mission_id"`
@@ -554,7 +554,7 @@ func (s *ServerFpsEvent) TableName() string {
 
 // TimeState represents mission time synchronization data
 //
-// SQF Command: :NEW:TIME:STATE:
+// SQF Command: :TIME:STATE:
 // Args: [frameNo, systemTimeUTC, missionDateTime, timeMultiplier, missionTime]
 type TimeState struct {
 	Time           time.Time `json:"time" gorm:"type:timestamptz;"`                              // Server time when recorded
@@ -573,7 +573,7 @@ func (t *TimeState) TableName() string {
 
 // Marker represents a map marker
 //
-// SQF Command: :NEW:MARKER:
+// SQF Command: :MARKER:CREATE:
 // Args: [markerName, direction, type, text, frameNo, -1, ownerOcapId, color, size, side, position, shape, alpha, brush]
 type Marker struct {
 	ID           uint      `json:"id" gorm:"primarykey;autoIncrement;"`
@@ -647,7 +647,7 @@ func (*PlacedObjectEvent) TableName() string {
 
 // MarkerState tracks marker position/property changes over time
 //
-// SQF Command: :NEW:MARKER:STATE:
+// SQF Command: :MARKER:STATE:
 // Args: [markerName, frameNo, position, direction, alpha]
 type MarkerState struct {
 	ID           uint      `json:"id" gorm:"primarykey;autoIncrement;"`

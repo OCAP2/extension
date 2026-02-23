@@ -234,12 +234,12 @@ func init() {
 
 func initExtension() {
 	// send ready callback to Arma
-	if err := a3interface.WriteArmaCallback(ExtensionName, ":EXT:READY:"); err != nil {
-		Logger.Warn("Failed to send EXT:READY callback", "error", err)
+	if err := a3interface.WriteArmaCallback(ExtensionName, ":SYS:READY:"); err != nil {
+		Logger.Warn("Failed to send SYS:READY callback", "error", err)
 	}
 	// send extension version
-	if err := a3interface.WriteArmaCallback(ExtensionName, ":VERSION:", BuildVersion); err != nil {
-		Logger.Warn("Failed to send VERSION callback", "error", err)
+	if err := a3interface.WriteArmaCallback(ExtensionName, ":SYS:VERSION:", BuildVersion); err != nil {
+		Logger.Warn("Failed to send SYS:VERSION callback", "error", err)
 	}
 }
 
@@ -247,7 +247,7 @@ func setupA3Interface() (err error) {
 	a3interface.SetVersion(BuildVersion)
 
 	// Create early dispatcher for commands that don't need DB/workers
-	// This ensures :VERSION:, :INIT:, etc. work immediately when the DLL loads
+	// This ensures :SYS:VERSION:, :SYS:INIT:, etc. work immediately when the DLL loads
 	dispatcherLogger := logging.NewDispatcherLogger(Logger)
 	earlyDispatcher, err := dispatcher.New(dispatcherLogger)
 	if err != nil {
@@ -284,7 +284,7 @@ func initAPIClient() {
 	}
 }
 
-// handleNewMission handles the :NEW:MISSION: command: parses mission data,
+// handleNewMission handles the :MISSION:START: command: parses mission data,
 // delegates DB persistence to the storage backend, and sets runtime state.
 func handleNewMission(e dispatcher.Event) (any, error) {
 	if parserService == nil {
@@ -323,12 +323,12 @@ func handleNewMission(e dispatcher.Event) (any, error) {
 // registerLifecycleHandlers registers system/lifecycle command handlers with the dispatcher
 func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 	// Simple commands (RVExtension style - no args)
-	d.Register(":INIT:", func(e dispatcher.Event) (any, error) {
+	d.Register(":SYS:INIT:", func(e dispatcher.Event) (any, error) {
 		go initExtension()
 		return nil, nil
 	})
 
-	d.Register(":INIT:STORAGE:", func(e dispatcher.Event) (any, error) {
+	d.Register(":STORAGE:INIT:", func(e dispatcher.Event) (any, error) {
 		go func() {
 			if err := initStorage(); err != nil {
 				Logger.Error("Storage initialization failed", "error", err)
@@ -338,24 +338,24 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 	})
 
 	// Simple queries - sync return is sufficient, no callback needed
-	d.Register(":VERSION:", func(e dispatcher.Event) (any, error) {
+	d.Register(":SYS:VERSION:", func(e dispatcher.Event) (any, error) {
 		return []string{BuildVersion, BuildCommit, BuildDate}, nil
 	})
 
-	d.Register(":GETDIR:ARMA:", func(e dispatcher.Event) (any, error) {
+	d.Register(":SYS:DIR:ARMA:", func(e dispatcher.Event) (any, error) {
 		return ArmaDir, nil
 	})
 
-	d.Register(":GETDIR:MODULE:", func(e dispatcher.Event) (any, error) {
+	d.Register(":SYS:DIR:MODULE:", func(e dispatcher.Event) (any, error) {
 		return ModulePath, nil
 	})
 
-	d.Register(":GETDIR:OCAPLOG:", func(e dispatcher.Event) (any, error) {
+	d.Register(":SYS:DIR:LOG:", func(e dispatcher.Event) (any, error) {
 		return OcapLogFilePath, nil
 	})
 
 	// Commands with args (RVExtensionArgs style)
-	d.Register(":ADDON:VERSION:", func(e dispatcher.Event) (any, error) {
+	d.Register(":SYS:ADDON_VERSION:", func(e dispatcher.Event) (any, error) {
 		if len(e.Args) > 0 {
 			addonVersion = util.FixEscapeQuotes(util.TrimQuotes(e.Args[0]))
 			Logger.Info("Addon version", "version", addonVersion)
@@ -363,8 +363,8 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 		return nil, nil
 	})
 
-	// :LOG: is used by the addon to log messages through the extension
-	d.Register(":LOG:", func(e dispatcher.Event) (any, error) {
+	// :SYS:LOG: is used by the addon to log messages through the extension
+	d.Register(":SYS:LOG:", func(e dispatcher.Event) (any, error) {
 		if len(e.Args) > 0 {
 			msg := util.FixEscapeQuotes(util.TrimQuotes(e.Args[0]))
 			Logger.Info("Addon log", "message", msg, "args", e.Args[1:])
@@ -372,10 +372,10 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 		return nil, nil
 	})
 
-	d.Register(":NEW:MISSION:", handleNewMission, dispatcher.Buffered(1), dispatcher.Blocking(), dispatcher.Gated(storageReady))
+	d.Register(":MISSION:START:", handleNewMission, dispatcher.Buffered(1), dispatcher.Blocking(), dispatcher.Gated(storageReady))
 
-	d.Register(":SAVE:MISSION:", func(e dispatcher.Event) (any, error) {
-		Logger.Info("Received :SAVE:MISSION: command, ending mission recording")
+	d.Register(":MISSION:SAVE:", func(e dispatcher.Event) (any, error) {
+		Logger.Info("Received :MISSION:SAVE: command, ending mission recording")
 		if storageBackend != nil {
 			if err := storageBackend.EndMission(); err != nil {
 				Logger.Error("Failed to end mission in storage backend", "error", err)

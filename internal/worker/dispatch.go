@@ -11,39 +11,39 @@ import (
 // RegisterHandlers registers all event handlers with the dispatcher.
 func (m *Manager) RegisterHandlers(d *dispatcher.Dispatcher) {
 	// Entity creation - sync (need to cache before states arrive)
-	d.Register(":NEW:SOLDIER:", m.handleNewSoldier, dispatcher.Logged())
-	d.Register(":NEW:VEHICLE:", m.handleNewVehicle, dispatcher.Logged())
+	d.Register(":SOLDIER:CREATE:", m.handleNewSoldier, dispatcher.Logged())
+	d.Register(":VEHICLE:CREATE:", m.handleNewVehicle, dispatcher.Logged())
 
 	// High-volume state updates - buffered
-	d.Register(":NEW:SOLDIER:STATE:", m.handleSoldierState, dispatcher.Buffered(10000), dispatcher.Logged())
-	d.Register(":NEW:VEHICLE:STATE:", m.handleVehicleState, dispatcher.Buffered(10000), dispatcher.Logged())
+	d.Register(":SOLDIER:STATE:", m.handleSoldierState, dispatcher.Buffered(10000), dispatcher.Logged())
+	d.Register(":VEHICLE:STATE:", m.handleVehicleState, dispatcher.Buffered(10000), dispatcher.Logged())
 
 	// Time state tracking - buffered
-	d.Register(":NEW:TIME:STATE:", m.handleTimeState, dispatcher.Buffered(100), dispatcher.Logged())
+	d.Register(":TIME:STATE:", m.handleTimeState, dispatcher.Buffered(100), dispatcher.Logged())
 
 	// Combat events - buffered
-	d.Register(":PROJECTILE:", m.handleProjectileEvent, dispatcher.Buffered(5000), dispatcher.Logged())
-	d.Register(":KILL:", m.handleKillEvent, dispatcher.Buffered(2000), dispatcher.Logged())
+	d.Register(":EVENT:PROJECTILE:", m.handleProjectileEvent, dispatcher.Buffered(5000), dispatcher.Logged())
+	d.Register(":EVENT:KILL:", m.handleKillEvent, dispatcher.Buffered(2000), dispatcher.Logged())
 
 	// General events - buffered
-	d.Register(":EVENT:", m.handleGeneralEvent, dispatcher.Buffered(1000), dispatcher.Logged())
-	d.Register(":CHAT:", m.handleChatEvent, dispatcher.Buffered(1000), dispatcher.Logged())
-	d.Register(":RADIO:", m.handleRadioEvent, dispatcher.Buffered(1000), dispatcher.Logged())
-	d.Register(":TELEMETRY:", m.handleTelemetryEvent, dispatcher.Buffered(100), dispatcher.Logged())
+	d.Register(":EVENT:GENERAL:", m.handleGeneralEvent, dispatcher.Buffered(1000), dispatcher.Logged())
+	d.Register(":EVENT:CHAT:", m.handleChatEvent, dispatcher.Buffered(1000), dispatcher.Logged())
+	d.Register(":EVENT:RADIO:", m.handleRadioEvent, dispatcher.Buffered(1000), dispatcher.Logged())
+	d.Register(":TELEMETRY:FRAME:", m.handleTelemetryEvent, dispatcher.Buffered(100), dispatcher.Logged())
 
 	// ACE3 events - buffered
 	d.Register(":ACE3:DEATH:", m.handleAce3DeathEvent, dispatcher.Buffered(1000), dispatcher.Logged())
 	d.Register(":ACE3:UNCONSCIOUS:", m.handleAce3UnconsciousEvent, dispatcher.Buffered(1000), dispatcher.Logged())
 
 	// Placed objects - sync creation (need to cache), buffered events
-	d.Register(":NEW:PLACED:", m.handleNewPlaced, dispatcher.Logged())
+	d.Register(":PLACED:CREATE:", m.handleNewPlaced, dispatcher.Logged())
 	d.Register(":PLACED:EVENT:", m.handlePlacedEvent, dispatcher.Buffered(1000), dispatcher.Logged())
 
 	// Marker creation - sync (need to cache before states arrive)
-	d.Register(":NEW:MARKER:", m.handleMarkerCreate, dispatcher.Logged())
+	d.Register(":MARKER:CREATE:", m.handleMarkerCreate, dispatcher.Logged())
 	// Marker updates - buffered
-	d.Register(":NEW:MARKER:STATE:", m.handleMarkerMove, dispatcher.Buffered(1000), dispatcher.Logged())
-	d.Register(":DELETE:MARKER:", m.handleMarkerDelete, dispatcher.Buffered(500), dispatcher.Logged())
+	d.Register(":MARKER:STATE:", m.handleMarkerMove, dispatcher.Buffered(1000), dispatcher.Logged())
+	d.Register(":MARKER:DELETE:", m.handleMarkerDelete, dispatcher.Buffered(500), dispatcher.Logged())
 }
 
 func (m *Manager) handleNewSoldier(e dispatcher.Event) (any, error) {
