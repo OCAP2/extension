@@ -66,17 +66,19 @@ GORM models for PostgreSQL/SQLite:
 
 ### Commands
 
+All commands follow a `:RESOURCE:ACTION:` naming convention. New commands must use this pattern — resource noun first, then verb/qualifier (e.g., `:SOLDIER:CREATE:`, `:EVENT:KILL:`, `:SYS:INIT:`).
+
 | Command | Purpose |
 |---------|---------|
-| `:NEW:SOLDIER:`, `:NEW:VEHICLE:` | Register new units/vehicles |
-| `:NEW:SOLDIER:STATE:`, `:NEW:VEHICLE:STATE:` | Update position/state data |
-| `:PROJECTILE:`, `:KILL:` | Combat events |
-| `:EVENT:`, `:CHAT:`, `:RADIO:`, `:TELEMETRY:` | General gameplay events |
-| `:NEW:MARKER:`, `:NEW:MARKER:STATE:`, `:DELETE:MARKER:` | Marker operations |
-| `:NEW:PLACED:`, `:PLACED:EVENT:` | Placed object (mine/explosive) lifecycle |
+| `:SOLDIER:CREATE:`, `:VEHICLE:CREATE:` | Register new units/vehicles |
+| `:SOLDIER:STATE:`, `:VEHICLE:STATE:` | Update position/state data |
+| `:EVENT:PROJECTILE:`, `:EVENT:KILL:` | Combat events |
+| `:EVENT:GENERAL:`, `:EVENT:CHAT:`, `:EVENT:RADIO:`, `:TELEMETRY:FRAME:` | General gameplay events |
+| `:MARKER:CREATE:`, `:MARKER:STATE:`, `:MARKER:DELETE:` | Marker operations |
+| `:PLACED:CREATE:`, `:PLACED:EVENT:` | Placed object (mine/explosive) lifecycle |
 | `:ACE3:DEATH:`, `:ACE3:UNCONSCIOUS:` | ACE3 integration events |
-| `:INIT:`, `:INIT:STORAGE:` | Initialize extension and storage |
-| `:NEW:MISSION:`, `:SAVE:MISSION:` | Begin/end recording |
+| `:SYS:INIT:`, `:STORAGE:INIT:` | Initialize extension and storage |
+| `:MISSION:START:`, `:MISSION:SAVE:` | Begin/end recording |
 
 ### Data Flow
 

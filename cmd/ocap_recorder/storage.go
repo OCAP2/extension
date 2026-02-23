@@ -17,7 +17,7 @@ import (
 )
 
 func initStorage() error {
-	Logger.Debug("Received :INIT:STORAGE: call")
+	Logger.Debug("Received :STORAGE:INIT: call")
 
 	storageCfg := config.GetStorageConfig()
 

@@ -30,7 +30,7 @@ Dispatcher.Dispatch(Event)
                                      └─ SQLite → Queue → DB writer (batch insert every 2s) → SQLite
 ```
 
-Buffered handlers are gated on `:INIT:STORAGE:` — events queue in channels until the storage backend is ready.
+Buffered handlers are gated on `:STORAGE:INIT:` — events queue in channels until the storage backend is ready.
 
 ### DLL Entry Points
 
@@ -102,45 +102,47 @@ Copy `ocap_recorder.cfg.json.example` to `ocap_recorder.cfg.json` alongside the 
 
 ## Supported Commands
 
+All commands follow a `:RESOURCE:ACTION:` naming convention. New commands must use this pattern — resource noun first, then verb/qualifier (e.g., `:SOLDIER:CREATE:`, `:EVENT:KILL:`, `:SYS:INIT:`).
+
 ### Entity Commands
 
 | Command | Buffer | Purpose |
 |---------|--------|---------|
-| `:NEW:SOLDIER:` | Sync | Register new unit |
-| `:NEW:VEHICLE:` | Sync | Register new vehicle |
-| `:NEW:SOLDIER:STATE:` | 10,000 | Update unit position/state |
-| `:NEW:VEHICLE:STATE:` | 10,000 | Update vehicle position/state |
+| `:SOLDIER:CREATE:` | Sync | Register new unit |
+| `:VEHICLE:CREATE:` | Sync | Register new vehicle |
+| `:SOLDIER:STATE:` | 10,000 | Update unit position/state |
+| `:VEHICLE:STATE:` | 10,000 | Update vehicle position/state |
 
 ### Combat Commands
 
 | Command | Buffer | Purpose |
 |---------|--------|---------|
-| `:PROJECTILE:` | 5,000 | Projectile tracking (positions + hits) |
-| `:KILL:` | 2,000 | Kill event |
+| `:EVENT:PROJECTILE:` | 5,000 | Projectile tracking (positions + hits) |
+| `:EVENT:KILL:` | 2,000 | Kill event |
 
 ### General Commands
 
 | Command | Buffer | Purpose |
 |---------|--------|---------|
-| `:EVENT:` | 1,000 | General gameplay event |
-| `:CHAT:` | 1,000 | Chat message |
-| `:RADIO:` | 1,000 | Radio transmission |
-| `:TELEMETRY:` | 1,000 | Server telemetry (FPS, entity counts, weather, player network stats) |
-| `:NEW:TIME:STATE:` | 100 | Mission time/date tracking |
+| `:EVENT:GENERAL:` | 1,000 | General gameplay event |
+| `:EVENT:CHAT:` | 1,000 | Chat message |
+| `:EVENT:RADIO:` | 1,000 | Radio transmission |
+| `:TELEMETRY:FRAME:` | 100 | Server telemetry (FPS, entity counts, weather, player network stats) |
+| `:TIME:STATE:` | 100 | Mission time/date tracking |
 
 ### Marker Commands
 
 | Command | Buffer | Purpose |
 |---------|--------|---------|
-| `:NEW:MARKER:` | Sync | Create map marker (needs immediate DB ID) |
-| `:NEW:MARKER:STATE:` | 1,000 | Update marker position/appearance |
-| `:DELETE:MARKER:` | 500 | Delete marker |
+| `:MARKER:CREATE:` | Sync | Create map marker (needs immediate DB ID) |
+| `:MARKER:STATE:` | 1,000 | Update marker position/appearance |
+| `:MARKER:DELETE:` | 500 | Delete marker |
 
 ### Placed Object Commands
 
 | Command | Buffer | Purpose |
 |---------|--------|---------|
-| `:NEW:PLACED:` | Sync | Register placed object (mine, explosive) |
+| `:PLACED:CREATE:` | Sync | Register placed object (mine, explosive) |
 | `:PLACED:EVENT:` | 1,000 | Placed object lifecycle event (detonated/deleted) |
 
 ### ACE3 Integration
@@ -154,8 +156,8 @@ Copy `ocap_recorder.cfg.json.example` to `ocap_recorder.cfg.json` alongside the 
 
 | Command | Purpose |
 |---------|---------|
-| `:INIT:` | Initialize extension, send `:EXT:READY:` callback |
-| `:INIT:STORAGE:` | Initialize storage backend, ungate buffered handlers |
-| `:NEW:MISSION:` | Start recording mission |
-| `:SAVE:MISSION:` | End recording, flush data, upload if configured |
-| `:VERSION:` | Get extension version |
+| `:SYS:INIT:` | Initialize extension, send `:SYS:READY:` callback |
+| `:STORAGE:INIT:` | Initialize storage backend, ungate buffered handlers |
+| `:MISSION:START:` | Start recording mission |
+| `:MISSION:SAVE:` | End recording, flush data, upload if configured |
+| `:SYS:VERSION:` | Get extension version |

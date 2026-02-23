@@ -514,24 +514,24 @@ func TestRegisterHandlers_RegistersAllCommands(t *testing.T) {
 	manager.RegisterHandlers(d)
 
 	expectedCommands := []string{
-		":NEW:SOLDIER:",
-		":NEW:VEHICLE:",
-		":NEW:SOLDIER:STATE:",
-		":NEW:VEHICLE:STATE:",
-		":NEW:TIME:STATE:",
-		":PROJECTILE:",
-		":KILL:",
-		":EVENT:",
-		":CHAT:",
-		":RADIO:",
-		":TELEMETRY:",
+		":SOLDIER:CREATE:",
+		":VEHICLE:CREATE:",
+		":SOLDIER:STATE:",
+		":VEHICLE:STATE:",
+		":TIME:STATE:",
+		":EVENT:PROJECTILE:",
+		":EVENT:KILL:",
+		":EVENT:GENERAL:",
+		":EVENT:CHAT:",
+		":EVENT:RADIO:",
+		":TELEMETRY:FRAME:",
 		":ACE3:DEATH:",
 		":ACE3:UNCONSCIOUS:",
-		":NEW:PLACED:",
+		":PLACED:CREATE:",
 		":PLACED:EVENT:",
-		":NEW:MARKER:",
-		":NEW:MARKER:STATE:",
-		":DELETE:MARKER:",
+		":MARKER:CREATE:",
+		":MARKER:STATE:",
+		":MARKER:DELETE:",
 	}
 
 	for _, cmd := range expectedCommands {
@@ -562,7 +562,7 @@ func TestHandleNewSoldier_CachesEntityWithBackend(t *testing.T) {
 	manager.RegisterHandlers(d)
 
 	// Dispatch new soldier event
-	result, err := d.Dispatch(dispatcher.Event{Command: ":NEW:SOLDIER:", Args: []string{}})
+	result, err := d.Dispatch(dispatcher.Event{Command: ":SOLDIER:CREATE:", Args: []string{}})
 
 	require.NoError(t, err)
 	assert.Nil(t, result, "expected nil result")
@@ -592,7 +592,7 @@ func TestHandleNewVehicle_CachesEntityWithBackend(t *testing.T) {
 	manager.RegisterHandlers(d)
 
 	// Dispatch new vehicle event
-	result, err := d.Dispatch(dispatcher.Event{Command: ":NEW:VEHICLE:", Args: []string{}})
+	result, err := d.Dispatch(dispatcher.Event{Command: ":VEHICLE:CREATE:", Args: []string{}})
 
 	require.NoError(t, err)
 	assert.Nil(t, result, "expected nil result")
@@ -628,7 +628,7 @@ func TestHandleSoldierState_ValidatesAndFillsGroupSide(t *testing.T) {
 	}, backend)
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:SOLDIER:STATE:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":SOLDIER:STATE:", Args: []string{}})
 	require.NoError(t, err)
 
 	// Wait for buffered handler
@@ -671,7 +671,7 @@ func TestHandleSoldierState_ReturnsErrorWhenNotCached(t *testing.T) {
 	}, backend)
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:SOLDIER:STATE:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":SOLDIER:STATE:", Args: []string{}})
 	require.NoError(t, err) // dispatch itself doesn't error for buffered handlers
 
 	waitForLogMsg(t, logger, "buffered handler failed")
@@ -697,7 +697,7 @@ func TestHandleVehicleState_ReturnsErrorWhenNotCached(t *testing.T) {
 	}, backend)
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:VEHICLE:STATE:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":VEHICLE:STATE:", Args: []string{}})
 	require.NoError(t, err)
 
 	waitForLogMsg(t, logger, "buffered handler failed")
@@ -730,7 +730,7 @@ func TestHandleKillEvent_ClassifiesVictimAndKiller(t *testing.T) {
 	}, backend)
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":KILL:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":EVENT:KILL:", Args: []string{}})
 	require.NoError(t, err)
 
 	// Wait for buffered handler
@@ -796,7 +796,7 @@ func TestHandleProjectile_ClassifiesHitParts(t *testing.T) {
 	}, backend)
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":PROJECTILE:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":EVENT:PROJECTILE:", Args: []string{}})
 	require.NoError(t, err)
 
 	// Wait for buffered handler
@@ -868,7 +868,7 @@ func TestHandleProjectile_RecordsProjectileEvent(t *testing.T) {
 	manager.RegisterHandlers(d)
 
 	// Dispatch a projectile event
-	_, err := d.Dispatch(dispatcher.Event{Command: ":PROJECTILE:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":EVENT:PROJECTILE:", Args: []string{}})
 	require.NoError(t, err)
 
 	// Wait for the buffered handler to process
@@ -933,7 +933,7 @@ func TestHandleMarkerMove_ResolvesMarkerName(t *testing.T) {
 	}, backend)
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:MARKER:STATE:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":MARKER:STATE:", Args: []string{}})
 	require.NoError(t, err)
 
 	// Wait for buffered handler
@@ -978,7 +978,7 @@ func TestHandleChatEvent_ValidatesSender(t *testing.T) {
 	}, backend)
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":CHAT:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":EVENT:CHAT:", Args: []string{}})
 	require.NoError(t, err) // buffered dispatch doesn't return handler errors
 
 	waitForLogMsg(t, logger, "event failed")
@@ -1007,11 +1007,11 @@ func TestHandleMarkerDelete_WithBackend(t *testing.T) {
 	manager.RegisterHandlers(d)
 
 	// First create a marker so it exists in cache (sync handler)
-	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:MARKER:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":MARKER:CREATE:", Args: []string{}})
 	require.NoError(t, err, "failed to create marker")
 
 	// Now delete it (buffered handler - processes asynchronously)
-	_, err = d.Dispatch(dispatcher.Event{Command: ":DELETE:MARKER:", Args: []string{}})
+	_, err = d.Dispatch(dispatcher.Event{Command: ":MARKER:DELETE:", Args: []string{}})
 	require.NoError(t, err)
 
 	waitFor(t, func() bool {
@@ -1044,7 +1044,7 @@ func TestHandleVehicleState_HappyPath(t *testing.T) {
 	}, backend)
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:VEHICLE:STATE:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":VEHICLE:STATE:", Args: []string{}})
 	require.NoError(t, err)
 
 	waitFor(t, func() bool {
@@ -1075,7 +1075,7 @@ func TestHandleTimeState(t *testing.T) {
 	}, backend)
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:TIME:STATE:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":TIME:STATE:", Args: []string{}})
 	require.NoError(t, err)
 
 	waitFor(t, func() bool {
@@ -1105,7 +1105,7 @@ func TestHandleGeneralEvent(t *testing.T) {
 	}, backend)
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":EVENT:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":EVENT:GENERAL:", Args: []string{}})
 	require.NoError(t, err)
 
 	waitFor(t, func() bool {
@@ -1138,7 +1138,7 @@ func TestHandleRadioEvent_ValidSender(t *testing.T) {
 	}, backend)
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":RADIO:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":EVENT:RADIO:", Args: []string{}})
 	require.NoError(t, err)
 
 	waitFor(t, func() bool {
@@ -1175,7 +1175,7 @@ func TestHandleTelemetryEvent(t *testing.T) {
 	}, backend)
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":TELEMETRY:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":TELEMETRY:FRAME:", Args: []string{}})
 	require.NoError(t, err)
 
 	waitFor(t, func() bool {
@@ -1321,7 +1321,7 @@ func TestHandleChatEvent_ValidSender(t *testing.T) {
 	}, backend)
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":CHAT:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":EVENT:CHAT:", Args: []string{}})
 	require.NoError(t, err)
 
 	waitFor(t, func() bool {
@@ -1353,7 +1353,7 @@ func TestHandleMarkerCreate_BackendError(t *testing.T) {
 	}, backend)
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:MARKER:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":MARKER:CREATE:", Args: []string{}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "add marker")
 
@@ -1386,7 +1386,7 @@ func TestHandleSoldierState_UpdatesCacheWhenPlayerTakesOver(t *testing.T) {
 	}, backend)
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:SOLDIER:STATE:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":SOLDIER:STATE:", Args: []string{}})
 	require.NoError(t, err)
 
 	// Wait for buffered handler
@@ -1477,7 +1477,7 @@ func TestHandleNewSoldier_ParserError(t *testing.T) {
 	}, backend)
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:SOLDIER:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":SOLDIER:CREATE:", Args: []string{}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to log new soldier")
 }
@@ -1493,7 +1493,7 @@ func TestHandleNewVehicle_ParserError(t *testing.T) {
 	}, backend)
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:VEHICLE:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":VEHICLE:CREATE:", Args: []string{}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to log new vehicle")
 }
@@ -1510,7 +1510,7 @@ func TestHandleMarkerCreate_ParserError(t *testing.T) {
 	}, backend)
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:MARKER:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":MARKER:CREATE:", Args: []string{}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to create marker")
 }
@@ -1531,7 +1531,7 @@ func TestHandleNewSoldier_BackendError(t *testing.T) {
 	}, backend)
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:SOLDIER:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":SOLDIER:CREATE:", Args: []string{}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "add soldier")
 
@@ -1554,7 +1554,7 @@ func TestHandleNewVehicle_BackendError(t *testing.T) {
 	}, backend)
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:VEHICLE:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":VEHICLE:CREATE:", Args: []string{}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "add vehicle")
 
@@ -1576,7 +1576,7 @@ func TestHandleSoldierState_ParserError(t *testing.T) {
 	}, backend)
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:SOLDIER:STATE:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":SOLDIER:STATE:", Args: []string{}})
 	require.NoError(t, err) // buffered dispatch doesn't return handler errors
 
 	waitForLogMsg(t, logger, "event failed")
@@ -1596,7 +1596,7 @@ func TestHandleVehicleState_ParserError(t *testing.T) {
 	}, backend)
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:VEHICLE:STATE:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":VEHICLE:STATE:", Args: []string{}})
 	require.NoError(t, err)
 
 	waitForLogMsg(t, logger, "event failed")
@@ -1616,7 +1616,7 @@ func TestHandleTimeState_ParserError(t *testing.T) {
 	}, backend)
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:TIME:STATE:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":TIME:STATE:", Args: []string{}})
 	require.NoError(t, err)
 
 	waitForLogMsg(t, logger, "event failed")
@@ -1636,7 +1636,7 @@ func TestHandleProjectileEvent_ParserError(t *testing.T) {
 	}, backend)
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":PROJECTILE:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":EVENT:PROJECTILE:", Args: []string{}})
 	require.NoError(t, err)
 
 	waitForLogMsg(t, logger, "event failed")
@@ -1656,7 +1656,7 @@ func TestHandleGeneralEvent_ParserError(t *testing.T) {
 	}, backend)
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":EVENT:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":EVENT:GENERAL:", Args: []string{}})
 	require.NoError(t, err)
 
 	waitForLogMsg(t, logger, "event failed")
@@ -1676,7 +1676,7 @@ func TestHandleKillEvent_ParserError(t *testing.T) {
 	}, backend)
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":KILL:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":EVENT:KILL:", Args: []string{}})
 	require.NoError(t, err)
 
 	waitForLogMsg(t, logger, "event failed")
@@ -1696,7 +1696,7 @@ func TestHandleChatEvent_ParserError(t *testing.T) {
 	}, backend)
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":CHAT:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":EVENT:CHAT:", Args: []string{}})
 	require.NoError(t, err)
 
 	waitForLogMsg(t, logger, "event failed")
@@ -1716,7 +1716,7 @@ func TestHandleRadioEvent_ParserError(t *testing.T) {
 	}, backend)
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":RADIO:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":EVENT:RADIO:", Args: []string{}})
 	require.NoError(t, err)
 
 	waitForLogMsg(t, logger, "event failed")
@@ -1736,7 +1736,7 @@ func TestHandleTelemetryEvent_ParserError(t *testing.T) {
 	}, backend)
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":TELEMETRY:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":TELEMETRY:FRAME:", Args: []string{}})
 	require.NoError(t, err)
 
 	waitForLogMsg(t, logger, "event failed")
@@ -1797,7 +1797,7 @@ func TestHandleMarkerMove_ParserError(t *testing.T) {
 	}, backend)
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:MARKER:STATE:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":MARKER:STATE:", Args: []string{}})
 	require.NoError(t, err)
 
 	waitForLogMsg(t, logger, "event failed")
@@ -1818,7 +1818,7 @@ func TestHandleMarkerDelete_ParserError(t *testing.T) {
 	}, backend)
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":DELETE:MARKER:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":MARKER:DELETE:", Args: []string{}})
 	require.NoError(t, err)
 
 	waitForLogMsg(t, logger, "event failed")
@@ -1844,7 +1844,7 @@ func TestHandleChatEvent_NilSoldierID(t *testing.T) {
 	}, backend)
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":CHAT:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":EVENT:CHAT:", Args: []string{}})
 	require.NoError(t, err)
 
 	waitFor(t, func() bool {
@@ -1875,7 +1875,7 @@ func TestHandleRadioEvent_NilSoldierID(t *testing.T) {
 	}, backend)
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":RADIO:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":EVENT:RADIO:", Args: []string{}})
 	require.NoError(t, err)
 
 	waitFor(t, func() bool {
@@ -1906,7 +1906,7 @@ func TestHandleRadioEvent_SenderNotCached(t *testing.T) {
 	}, backend)
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":RADIO:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":EVENT:RADIO:", Args: []string{}})
 	require.NoError(t, err)
 
 	waitForLogMsg(t, logger, "event failed")
@@ -1935,7 +1935,7 @@ func TestHandleMarkerMove_MarkerNotInCache(t *testing.T) {
 	}, backend)
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:MARKER:STATE:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":MARKER:STATE:", Args: []string{}})
 	require.NoError(t, err)
 
 	waitForLogMsg(t, logger, "event failed")
@@ -2189,7 +2189,7 @@ func TestHandleSoldierState_BackendError(t *testing.T) {
 	}, &configurableErrorBackend{failOn: map[string]error{"RecordSoldierState": errInjected}})
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:SOLDIER:STATE:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":SOLDIER:STATE:", Args: []string{}})
 	require.NoError(t, err)
 	waitForLogMsg(t, logger, "event failed")
 }
@@ -2209,7 +2209,7 @@ func TestHandleVehicleState_BackendError(t *testing.T) {
 	}, &configurableErrorBackend{failOn: map[string]error{"RecordVehicleState": errInjected}})
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:VEHICLE:STATE:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":VEHICLE:STATE:", Args: []string{}})
 	require.NoError(t, err)
 	waitForLogMsg(t, logger, "event failed")
 }
@@ -2227,7 +2227,7 @@ func TestHandleTimeState_BackendError(t *testing.T) {
 	}, &configurableErrorBackend{failOn: map[string]error{"RecordTimeState": errInjected}})
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:TIME:STATE:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":TIME:STATE:", Args: []string{}})
 	require.NoError(t, err)
 	waitForLogMsg(t, logger, "event failed")
 }
@@ -2245,7 +2245,7 @@ func TestHandleProjectileEvent_BackendError(t *testing.T) {
 	}, &configurableErrorBackend{failOn: map[string]error{"RecordProjectileEvent": errInjected}})
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":PROJECTILE:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":EVENT:PROJECTILE:", Args: []string{}})
 	require.NoError(t, err)
 	waitForLogMsg(t, logger, "event failed")
 }
@@ -2263,7 +2263,7 @@ func TestHandleGeneralEvent_BackendError(t *testing.T) {
 	}, &configurableErrorBackend{failOn: map[string]error{"RecordGeneralEvent": errInjected}})
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":EVENT:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":EVENT:GENERAL:", Args: []string{}})
 	require.NoError(t, err)
 	waitForLogMsg(t, logger, "event failed")
 }
@@ -2281,7 +2281,7 @@ func TestHandleKillEvent_BackendError(t *testing.T) {
 	}, &configurableErrorBackend{failOn: map[string]error{"RecordKillEvent": errInjected}})
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":KILL:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":EVENT:KILL:", Args: []string{}})
 	require.NoError(t, err)
 	waitForLogMsg(t, logger, "event failed")
 }
@@ -2302,7 +2302,7 @@ func TestHandleChatEvent_BackendError(t *testing.T) {
 	}, &configurableErrorBackend{failOn: map[string]error{"RecordChatEvent": errInjected}})
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":CHAT:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":EVENT:CHAT:", Args: []string{}})
 	require.NoError(t, err)
 	waitForLogMsg(t, logger, "event failed")
 }
@@ -2323,7 +2323,7 @@ func TestHandleRadioEvent_BackendError(t *testing.T) {
 	}, &configurableErrorBackend{failOn: map[string]error{"RecordRadioEvent": errInjected}})
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":RADIO:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":EVENT:RADIO:", Args: []string{}})
 	require.NoError(t, err)
 	waitForLogMsg(t, logger, "event failed")
 }
@@ -2341,7 +2341,7 @@ func TestHandleTelemetryEvent_BackendError(t *testing.T) {
 	}, &configurableErrorBackend{failOn: map[string]error{"RecordTelemetryEvent": errInjected}})
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":TELEMETRY:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":TELEMETRY:FRAME:", Args: []string{}})
 	require.NoError(t, err)
 	waitForLogMsg(t, logger, "event failed")
 }
@@ -2403,7 +2403,7 @@ func TestHandleMarkerMove_BackendError(t *testing.T) {
 	}, &configurableErrorBackend{failOn: map[string]error{"RecordMarkerState": errInjected}})
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:MARKER:STATE:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":MARKER:STATE:", Args: []string{}})
 	require.NoError(t, err)
 	waitForLogMsg(t, logger, "event failed")
 }
@@ -2431,7 +2431,7 @@ func TestHandleNewPlaced_CachesEntityWithBackend(t *testing.T) {
 	}, backend)
 	manager.RegisterHandlers(d)
 
-	result, err := d.Dispatch(dispatcher.Event{Command: ":NEW:PLACED:", Args: []string{}})
+	result, err := d.Dispatch(dispatcher.Event{Command: ":PLACED:CREATE:", Args: []string{}})
 
 	require.NoError(t, err)
 	assert.Nil(t, result, "expected nil result")
@@ -2456,7 +2456,7 @@ func TestHandleNewPlaced_ParserError(t *testing.T) {
 	}, backend)
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:PLACED:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":PLACED:CREATE:", Args: []string{}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to parse new placed object")
 }
@@ -2475,7 +2475,7 @@ func TestHandleNewPlaced_BackendError(t *testing.T) {
 	}, backend)
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":NEW:PLACED:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":PLACED:CREATE:", Args: []string{}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "add placed object")
 
@@ -2602,7 +2602,7 @@ func TestHandleMarkerDelete_BackendError(t *testing.T) {
 	}, &configurableErrorBackend{failOn: map[string]error{"DeleteMarker": errInjected}})
 	manager.RegisterHandlers(d)
 
-	_, err := d.Dispatch(dispatcher.Event{Command: ":DELETE:MARKER:", Args: []string{}})
+	_, err := d.Dispatch(dispatcher.Event{Command: ":MARKER:DELETE:", Args: []string{}})
 	require.NoError(t, err)
 	waitForLogMsg(t, logger, "event failed")
 }

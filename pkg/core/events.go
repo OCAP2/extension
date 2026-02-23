@@ -151,7 +151,7 @@ type TimeState struct {
 }
 
 // TelemetryEvent represents a unified telemetry snapshot from the game server.
-// Replaces the old :FPS: and :METRIC: commands with a single :TELEMETRY: call.
+// Replaces the old :FPS: and :METRIC: commands with a single :TELEMETRY:FRAME: call.
 type TelemetryEvent struct {
 	Time         time.Time
 	CaptureFrame Frame

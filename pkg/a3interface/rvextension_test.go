@@ -18,21 +18,21 @@ func TestFormatDispatchResponse(t *testing.T) {
 	}{
 		{
 			name:     "success with string array (VERSION)",
-			command:  ":VERSION:",
+			command:  ":SYS:VERSION:",
 			result:   []string{"0.0.1", "2026-02-01"},
 			err:      nil,
 			expected: `["ok", ["0.0.1","2026-02-01"]]`,
 		},
 		{
 			name:     "success with simple string",
-			command:  ":INIT:",
+			command:  ":SYS:INIT:",
 			result:   "ok",
 			err:      nil,
 			expected: `["ok", "ok"]`,
 		},
 		{
 			name:     "success with path string",
-			command:  ":GETDIR:ARMA:",
+			command:  ":SYS:DIR:ARMA:",
 			result:   `C:\Program Files\Arma 3`,
 			err:      nil,
 			expected: `["ok", "C:\Program Files\Arma 3"]`,
@@ -46,7 +46,7 @@ func TestFormatDispatchResponse(t *testing.T) {
 		},
 		{
 			name:     "error response",
-			command:  ":LOG:",
+			command:  ":SYS:LOG:",
 			result:   nil,
 			err:      errors.New("no handler registered"),
 			expected: `["error", "no handler registered"]`,

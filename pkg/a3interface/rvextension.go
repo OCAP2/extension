@@ -41,7 +41,7 @@ func RVExtension(output *C.char, outputsize C.size_t, input *C.char) {
 	commandSubstr := strings.Split(command, "|")[0]
 
 	// Handle built-in timestamp command
-	if command == ":TIMESTAMP:" {
+	if command == ":SYS:TIMESTAMP:" {
 		replyToSyncArmaCall(fmt.Sprintf(`["ok", "%s"]`, getTimestamp()), output, outputsize)
 		return
 	}
@@ -80,7 +80,7 @@ func RVExtensionArgs(output *C.char, outputsize C.size_t, input *C.char, argv **
 	args := parseArgsFromC(argv, argc)
 
 	// Handle built-in timestamp command
-	if command == ":TIMESTAMP:" {
+	if command == ":SYS:TIMESTAMP:" {
 		replyToSyncArmaCall(fmt.Sprintf(`["ok", "%s"]`, getTimestamp()), output, outputsize)
 		return
 	}
