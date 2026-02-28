@@ -89,16 +89,16 @@ func Build(data *MissionData) Export {
 	// Pre-compute maxFrame across all entities (needed for gap-filling sparse states)
 	var maxFrame core.Frame = 0
 	for _, record := range data.Soldiers {
-		if n := len(record.States); n > 0 {
-			if f := record.States[n-1].CaptureFrame; f > maxFrame {
-				maxFrame = f
+		for _, state := range record.States {
+			if state.CaptureFrame > maxFrame {
+				maxFrame = state.CaptureFrame
 			}
 		}
 	}
 	for _, record := range data.Vehicles {
-		if n := len(record.States); n > 0 {
-			if f := record.States[n-1].CaptureFrame; f > maxFrame {
-				maxFrame = f
+		for _, state := range record.States {
+			if state.CaptureFrame > maxFrame {
+				maxFrame = state.CaptureFrame
 			}
 		}
 	}
