@@ -50,7 +50,7 @@ jobs:
           }' | sort >> cover.out
 
       - name: Archive code coverage results
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v4
         with:
           name: code-coverage
           path: cover.out
@@ -76,7 +76,7 @@ jobs:
           diff-base-breakdown-file-name: ${{ steps.download-main-breakdown.outputs.found_artifact == 'true' && 'main.breakdown' || '' }}
 
       - name: Upload artifact (main.breakdown)
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v4
         if: github.ref_name == 'main'
         with:
           name: main.breakdown
@@ -98,7 +98,7 @@ jobs:
               -o dist/ocap_recorder_x64.dll -buildmode=c-shared ./cmd/ocap_recorder
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v4
         with:
           name: dll-artifacts
           path: dist/ocap_recorder_x64.dll
