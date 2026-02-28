@@ -86,7 +86,22 @@ func Build(data *MissionData) Export {
 		})
 	}
 
+	// Pre-compute maxFrame across all entities (needed for gap-filling sparse states)
 	var maxFrame core.Frame = 0
+	for _, record := range data.Soldiers {
+		for _, state := range record.States {
+			if state.CaptureFrame > maxFrame {
+				maxFrame = state.CaptureFrame
+			}
+		}
+	}
+	for _, record := range data.Vehicles {
+		for _, state := range record.States {
+			if state.CaptureFrame > maxFrame {
+				maxFrame = state.CaptureFrame
+			}
+		}
+	}
 
 	// Find max entity ID to size the entities array correctly
 	// The JS frontend uses entities[id] to look up entities, so array index must equal entity ID
@@ -135,7 +150,7 @@ func Build(data *MissionData) Export {
 			FramesFired:   make([][]any, 0, len(record.FiredEvents)),
 		}
 
-		for _, state := range record.States {
+		for i, state := range record.States {
 			// Convert nil InVehicleObjectID to 0 (old C++ extension uses 0 for "not in vehicle")
 			var inVehicleID any = 0
 			if state.InVehicleObjectID != nil {
@@ -153,9 +168,17 @@ func Build(data *MissionData) Export {
 				state.GroupID,
 				state.Side,
 			}
-			entity.Positions = append(entity.Positions, pos)
-			if state.CaptureFrame > maxFrame {
-				maxFrame = state.CaptureFrame
+
+			// Gap-fill: emit one position entry per frame (dense output)
+			startF := frameToV1(state.CaptureFrame)
+			var endF int
+			if i+1 < len(record.States) {
+				endF = frameToV1(record.States[i+1].CaptureFrame) - 1
+			} else {
+				endF = frameToV1(maxFrame)
+			}
+			for f := startF; f <= endF; f++ {
+				entity.Positions = append(entity.Positions, pos)
 			}
 		}
 
@@ -189,7 +212,7 @@ func Build(data *MissionData) Export {
 			FramesFired:   [][]any{},
 		}
 
-		for _, state := range record.States {
+		for i, state := range record.States {
 			// Parse crew JSON string into actual JSON array
 			var crew any
 			if state.Crew != "" {
@@ -200,17 +223,23 @@ func Build(data *MissionData) Export {
 				crew = []any{}
 			}
 
+			// Gap-fill: extend frame range to next state change (or maxFrame)
+			startF := frameToV1(state.CaptureFrame)
+			var endF int
+			if i+1 < len(record.States) {
+				endF = frameToV1(record.States[i+1].CaptureFrame) - 1
+			} else {
+				endF = frameToV1(maxFrame)
+			}
+
 			pos := []any{
 				[]float64{state.Position.X, state.Position.Y, state.Position.Z},
 				state.Bearing,
 				boolToInt(state.IsAlive),
 				crew,
-				[]int{frameToV1(state.CaptureFrame), frameToV1(state.CaptureFrame)},
+				[]int{startF, endF},
 			}
 			entity.Positions = append(entity.Positions, pos)
-			if state.CaptureFrame > maxFrame {
-				maxFrame = state.CaptureFrame
-			}
 		}
 
 		export.Entities[record.Vehicle.ID] = entity

@@ -124,7 +124,7 @@ func TestIntegrationFullExport(t *testing.T) {
 	assert.Equal(t, "Alpha", soldierEntity.Group)
 	assert.Equal(t, "WEST", soldierEntity.Side)
 	assert.Equal(t, 1, soldierEntity.IsPlayer)
-	require.Len(t, soldierEntity.Positions, 2)
+	require.Len(t, soldierEntity.Positions, 10) // dense gap-fill: state@1 covers v1 0-8 (9), state@10 covers v1 9 (1)
 	require.Len(t, soldierEntity.FramesFired, 1)
 
 	// Verify soldier position coordinates after JSON round-trip
@@ -1268,14 +1268,14 @@ func TestPlayerTakeoverUpdatesEntityMetadata(t *testing.T) {
 	assert.Equal(t, 1, entity.IsPlayer, "entity should be marked as player after takeover")
 	assert.Equal(t, "zigster", entity.Name, "entity name should be the player's name")
 
-	// Per-frame data should still be correct
-	require.Len(t, entity.Positions, 4)
-	// Frame 0: AI
+	// Per-frame data should still be correct (dense gap-fill: 30 entries total)
+	require.Len(t, entity.Positions, 30)
+	// Frame 0: AI (state@1, covers v1 0-8)
 	assert.Equal(t, "Habibzai", entity.Positions[0][4])
 	assert.Equal(t, 0, entity.Positions[0][5])
-	// Frame 20: player took over
-	assert.Equal(t, "zigster", entity.Positions[2][4])
-	assert.Equal(t, 1, entity.Positions[2][5])
+	// Frame 19: player took over (state@20, covers v1 19-28)
+	assert.Equal(t, "zigster", entity.Positions[19][4])
+	assert.Equal(t, 1, entity.Positions[19][5])
 }
 
 func TestExportJSON_MkdirAllError(t *testing.T) {

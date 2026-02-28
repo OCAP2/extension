@@ -184,8 +184,8 @@ func TestBuildWithSoldier(t *testing.T) {
 	assert.Equal(t, "Rifleman", entity.Role)
 	assert.Equal(t, 9, entity.StartFrameNum) // internal 10 → v1 9
 
-	// Check positions
-	require.Len(t, entity.Positions, 2)
+	// Check positions — dense gap-fill: state@10 covers v1 frames 9-18 (10 entries), state@20 covers v1 frame 19 (1 entry)
+	require.Len(t, entity.Positions, 11)
 	pos := entity.Positions[0]
 	coords := pos[0].([]float64)
 	require.Len(t, coords, 3)
@@ -201,8 +201,8 @@ func TestBuildWithSoldier(t *testing.T) {
 	assert.Equal(t, "Alpha", pos[7])    // groupID
 	assert.Equal(t, "WEST", pos[8])     // side
 
-	// Second position has different group
-	pos2 := entity.Positions[1]
+	// Last position has different group (from second state)
+	pos2 := entity.Positions[10]
 	assert.Equal(t, "Bravo", pos2[7])   // groupID changed mid-mission
 
 	// Check fired events - v1 format: [frameNum, [x, y, z]]
@@ -294,9 +294,9 @@ func TestBuildWithVehicle(t *testing.T) {
 	crewEntry := crew[0].([]any)
 	assert.Equal(t, float64(1), crewEntry[0])
 
-	// Frame range (internal 5 → v1 4)
+	// Frame range — gap-filled to next state (internal 5-14 → v1 4-13)
 	frameRange := pos[4].([]int)
-	assert.Equal(t, []int{4, 4}, frameRange)
+	assert.Equal(t, []int{4, 13}, frameRange)
 
 	assert.Equal(t, 14, export.EndFrame) // internal 15 → v1 14
 }
