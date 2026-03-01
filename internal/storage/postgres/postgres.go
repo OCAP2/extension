@@ -245,6 +245,16 @@ func (b *Backend) AddMarker(m *core.Marker) (uint, error) {
 	return 0, nil
 }
 
+// DeleteSoldier is a no-op — postgres tracks all states, export logic differs.
+func (b *Backend) DeleteSoldier(id uint16, frame core.Frame) error {
+	return nil
+}
+
+// DeleteVehicle is a no-op — postgres tracks all states, export logic differs.
+func (b *Backend) DeleteVehicle(id uint16, frame core.Frame) error {
+	return nil
+}
+
 // RecordSoldierState converts and queues a soldier state.
 func (b *Backend) RecordSoldierState(s *core.SoldierState) error {
 	gormObj := convert.CoreToSoldierState(*s)

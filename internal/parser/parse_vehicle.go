@@ -44,6 +44,30 @@ func (p *Parser) ParseVehicle(data []string) (core.Vehicle, error) {
 	return vehicle, nil
 }
 
+// ParseVehicleDelete parses a vehicle delete command.
+// Args: [entityId, frameNo]
+func (p *Parser) ParseVehicleDelete(data []string) (uint16, core.Frame, error) {
+	if len(data) < 2 {
+		return 0, 0, fmt.Errorf("expected 2 args, got %d", len(data))
+	}
+
+	for i, v := range data {
+		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
+	}
+
+	id, err := parseUintFromFloat(data[0])
+	if err != nil {
+		return 0, 0, fmt.Errorf("error converting entityId: %w", err)
+	}
+
+	frame, err := strconv.ParseFloat(data[1], 64)
+	if err != nil {
+		return 0, 0, fmt.Errorf("error converting frameNo: %w", err)
+	}
+
+	return uint16(id), core.Frame(frame), nil
+}
+
 // ParseVehicleState parses vehicle state data and returns a core VehicleState.
 // Sets VehicleID directly from the parsed ocapID (no cache lookup).
 func (p *Parser) ParseVehicleState(data []string) (core.VehicleState, error) {

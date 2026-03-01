@@ -149,6 +149,8 @@ func TestAllMessageTypes(t *testing.T) {
 	require.NoError(t, b.RecordVehicleState(&core.VehicleState{VehicleID: 100, CaptureFrame: 1}))
 	require.NoError(t, b.RecordMarkerState(&core.MarkerState{MarkerID: 1, CaptureFrame: 1}))
 	require.NoError(t, b.DeleteMarker(&core.DeleteMarker{Name: "m1", EndFrame: 10}))
+	require.NoError(t, b.DeleteSoldier(1, 50))
+	require.NoError(t, b.DeleteVehicle(100, 60))
 
 	// Events
 	require.NoError(t, b.RecordFiredEvent(&core.FiredEvent{SoldierID: 1, Weapon: "arifle_MX_F"}))

@@ -119,6 +119,14 @@ func (b *mockBackend) AddMarker(m *core.Marker) (uint, error) {
 	return id, nil
 }
 
+func (b *mockBackend) DeleteSoldier(id uint16, frame core.Frame) error {
+	return nil
+}
+
+func (b *mockBackend) DeleteVehicle(id uint16, frame core.Frame) error {
+	return nil
+}
+
 func (b *mockBackend) RecordSoldierState(s *core.SoldierState) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -414,6 +422,26 @@ func (h *mockParserService) ParseAce3UnconsciousEvent(args []string) (core.Ace3U
 	return h.ace3Uncon, nil
 }
 
+func (h *mockParserService) ParseSoldierDelete(args []string) (uint16, core.Frame, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.calls = append(h.calls, "ParseSoldierDelete")
+	if h.returnError {
+		return 0, 0, errors.New(h.errorMsg)
+	}
+	return 0, 0, nil
+}
+
+func (h *mockParserService) ParseVehicleDelete(args []string) (uint16, core.Frame, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.calls = append(h.calls, "ParseVehicleDelete")
+	if h.returnError {
+		return 0, 0, errors.New(h.errorMsg)
+	}
+	return 0, 0, nil
+}
+
 func (h *mockParserService) ParseMarkerCreate(args []string) (core.Marker, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -527,6 +555,8 @@ func TestRegisterHandlers_RegistersAllCommands(t *testing.T) {
 		":TELEMETRY:FRAME:",
 		":ACE3:DEATH:",
 		":ACE3:UNCONSCIOUS:",
+		":SOLDIER:DELETE:",
+		":VEHICLE:DELETE:",
 		":PLACED:CREATE:",
 		":PLACED:EVENT:",
 		":MARKER:CREATE:",

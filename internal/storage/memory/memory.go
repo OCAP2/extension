@@ -196,6 +196,28 @@ func (b *Backend) AddMarker(m *core.Marker) (uint, error) {
 	return id, nil
 }
 
+// DeleteSoldier sets the delete frame for a soldier, marking it as excluded at that frame.
+func (b *Backend) DeleteSoldier(id uint16, frame core.Frame) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if record, ok := b.soldiers[id]; ok {
+		record.Soldier.DeleteFrame = frame
+	}
+	return nil
+}
+
+// DeleteVehicle sets the delete frame for a vehicle, marking it as excluded at that frame.
+func (b *Backend) DeleteVehicle(id uint16, frame core.Frame) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if record, ok := b.vehicles[id]; ok {
+		record.Vehicle.DeleteFrame = frame
+	}
+	return nil
+}
+
 // RecordSoldierState records a soldier state update.
 // SoldierID must be set to the soldier's ObjectID.
 func (b *Backend) RecordSoldierState(s *core.SoldierState) error {
