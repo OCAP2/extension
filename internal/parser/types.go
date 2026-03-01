@@ -56,5 +56,11 @@ type MarkerMove struct {
 	Position     core.Position3D
 	Direction    float32
 	Alpha        float32
+	Text         string
+	Color        string
+	Size         string
+	MarkerType   string
+	Brush        string
+	Shape        string
 	Time         time.Time
 }
