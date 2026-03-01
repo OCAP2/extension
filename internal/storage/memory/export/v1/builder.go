@@ -175,7 +175,12 @@ func Build(data *MissionData) Export {
 			if i+1 < len(record.States) {
 				endF = frameToV1(record.States[i+1].CaptureFrame) - 1
 			} else {
-				endF = frameToV1(maxFrame)
+				// Last state: extend to entity's delete frame (or maxFrame if still active)
+				if record.Soldier.DeleteFrame > 0 {
+					endF = frameToV1(record.Soldier.DeleteFrame)
+				} else {
+					endF = frameToV1(maxFrame)
+				}
 			}
 			for f := startF; f <= endF; f++ {
 				entity.Positions = append(entity.Positions, pos)
@@ -223,13 +228,18 @@ func Build(data *MissionData) Export {
 				crew = []any{}
 			}
 
-			// Gap-fill: extend frame range to next state change (or maxFrame)
+			// Gap-fill: extend frame range to next state change (or entity end)
 			startF := frameToV1(state.CaptureFrame)
 			var endF int
 			if i+1 < len(record.States) {
 				endF = frameToV1(record.States[i+1].CaptureFrame) - 1
 			} else {
-				endF = frameToV1(maxFrame)
+				// Last state: extend to entity's delete frame (or maxFrame if still active)
+				if record.Vehicle.DeleteFrame > 0 {
+					endF = frameToV1(record.Vehicle.DeleteFrame)
+				} else {
+					endF = frameToV1(maxFrame)
+				}
 			}
 
 			pos := []any{

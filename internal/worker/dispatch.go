@@ -39,6 +39,10 @@ func (m *Manager) RegisterHandlers(d *dispatcher.Dispatcher) {
 	d.Register(":PLACED:CREATE:", m.handleNewPlaced, dispatcher.Logged())
 	d.Register(":PLACED:EVENT:", m.handlePlacedEvent, dispatcher.Buffered(1000), dispatcher.Logged())
 
+	// Entity removal - buffered
+	d.Register(":SOLDIER:DELETE:", m.handleSoldierDelete, dispatcher.Buffered(500), dispatcher.Logged())
+	d.Register(":VEHICLE:DELETE:", m.handleVehicleDelete, dispatcher.Buffered(500), dispatcher.Logged())
+
 	// Marker creation - sync (need to cache before states arrive)
 	d.Register(":MARKER:CREATE:", m.handleMarkerCreate, dispatcher.Logged())
 	// Marker updates - buffered
@@ -363,6 +367,22 @@ func (m *Manager) handleAce3UnconsciousEvent(e dispatcher.Event) (any, error) {
 		return nil, fmt.Errorf("record ace3 unconscious event: %w", err)
 	}
 	return nil, nil
+}
+
+func (m *Manager) handleSoldierDelete(e dispatcher.Event) (any, error) {
+	id, frame, err := m.deps.ParserService.ParseSoldierDelete(e.Args)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse soldier delete: %w", err)
+	}
+	return nil, m.backend.DeleteSoldier(id, frame)
+}
+
+func (m *Manager) handleVehicleDelete(e dispatcher.Event) (any, error) {
+	id, frame, err := m.deps.ParserService.ParseVehicleDelete(e.Args)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse vehicle delete: %w", err)
+	}
+	return nil, m.backend.DeleteVehicle(id, frame)
 }
 
 func (m *Manager) handleMarkerCreate(e dispatcher.Event) (any, error) {

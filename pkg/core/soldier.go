@@ -19,6 +19,7 @@ type Soldier struct {
 	DisplayName     string
 	PlayerUID       string
 	SquadParams     []any
+	DeleteFrame     Frame // Frame when entity was excluded (0 = active until end)
 }
 
 // SoldierState represents soldier state at a point in time.

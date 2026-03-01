@@ -69,6 +69,8 @@ type Service interface {
 	ParseMarkerCreate(args []string) (core.Marker, error)
 	ParseMarkerMove(args []string) (MarkerMove, error)
 	ParseMarkerDelete(args []string) (*core.DeleteMarker, error)
+	ParseSoldierDelete(args []string) (uint16, core.Frame, error)
+	ParseVehicleDelete(args []string) (uint16, core.Frame, error)
 	ParseTelemetryEvent(args []string) (core.TelemetryEvent, error)
 	ParsePlacedObject(args []string) (core.PlacedObject, error)
 	ParsePlacedObjectEvent(args []string) (core.PlacedObjectEvent, error)

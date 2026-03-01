@@ -14,6 +14,7 @@ type Vehicle struct {
 	DisplayName   string
 	Customization string
 	Side          string // Config side: WEST, EAST, GUER, CIV (from "str side vehicle")
+	DeleteFrame   Frame  // Frame when entity was excluded (0 = active until end)
 }
 
 // VehicleState represents vehicle state at a point in time.

@@ -39,6 +39,16 @@ func (l *mockLogger) Error(msg string, keysAndValues ...any) {
 	l.messages = append(l.messages, msg)
 }
 
+type soldierDeleteCall struct {
+	id    uint16
+	frame core.Frame
+}
+
+type vehicleDeleteCall struct {
+	id    uint16
+	frame core.Frame
+}
+
 // mockBackend implements storage.Backend for testing
 type mockBackend struct {
 	mu sync.Mutex
@@ -63,6 +73,8 @@ type mockBackend struct {
 	deletedMarkers    []*core.DeleteMarker
 	placedObjects     []*core.PlacedObject
 	placedEvents      []*core.PlacedObjectEvent
+	deletedSoldiers   []soldierDeleteCall
+	deletedVehicles   []vehicleDeleteCall
 	initCalled     bool
 	closeCalled    bool
 	missionStarted bool
@@ -117,6 +129,20 @@ func (b *mockBackend) AddMarker(m *core.Marker) (uint, error) {
 	id := uint(len(b.markers) + 1)
 	b.markers = append(b.markers, m)
 	return id, nil
+}
+
+func (b *mockBackend) DeleteSoldier(id uint16, frame core.Frame) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.deletedSoldiers = append(b.deletedSoldiers, soldierDeleteCall{id, frame})
+	return nil
+}
+
+func (b *mockBackend) DeleteVehicle(id uint16, frame core.Frame) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.deletedVehicles = append(b.deletedVehicles, vehicleDeleteCall{id, frame})
+	return nil
 }
 
 func (b *mockBackend) RecordSoldierState(s *core.SoldierState) error {
@@ -263,8 +289,12 @@ type mockParserService struct {
 	marker        core.Marker
 	markerMove    parser.MarkerMove
 	deleteMarker *core.DeleteMarker
-	placedObject  core.PlacedObject
-	placedEvent   core.PlacedObjectEvent
+	placedObject       core.PlacedObject
+	placedEvent        core.PlacedObjectEvent
+	soldierDeleteID    uint16
+	soldierDeleteFrame core.Frame
+	vehicleDeleteID    uint16
+	vehicleDeleteFrame core.Frame
 
 	// Error simulation
 	returnError bool
@@ -414,6 +444,26 @@ func (h *mockParserService) ParseAce3UnconsciousEvent(args []string) (core.Ace3U
 	return h.ace3Uncon, nil
 }
 
+func (h *mockParserService) ParseSoldierDelete(args []string) (uint16, core.Frame, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.calls = append(h.calls, "ParseSoldierDelete")
+	if h.returnError {
+		return 0, 0, errors.New(h.errorMsg)
+	}
+	return h.soldierDeleteID, h.soldierDeleteFrame, nil
+}
+
+func (h *mockParserService) ParseVehicleDelete(args []string) (uint16, core.Frame, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.calls = append(h.calls, "ParseVehicleDelete")
+	if h.returnError {
+		return 0, 0, errors.New(h.errorMsg)
+	}
+	return h.vehicleDeleteID, h.vehicleDeleteFrame, nil
+}
+
 func (h *mockParserService) ParseMarkerCreate(args []string) (core.Marker, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -527,6 +577,8 @@ func TestRegisterHandlers_RegistersAllCommands(t *testing.T) {
 		":TELEMETRY:FRAME:",
 		":ACE3:DEATH:",
 		":ACE3:UNCONSCIOUS:",
+		":SOLDIER:DELETE:",
+		":VEHICLE:DELETE:",
 		":PLACED:CREATE:",
 		":PLACED:EVENT:",
 		":MARKER:CREATE:",
@@ -1026,6 +1078,120 @@ func TestHandleMarkerDelete_WithBackend(t *testing.T) {
 	require.Len(t, backend.deletedMarkers, 1)
 	assert.Equal(t, "Projectile#123", backend.deletedMarkers[0].Name)
 	assert.Equal(t, core.Frame(500), backend.deletedMarkers[0].EndFrame)
+}
+
+func TestHandleSoldierDelete_WithBackend(t *testing.T) {
+	d, _ := newTestDispatcher(t)
+
+	parserService := &mockParserService{
+		soldierDeleteID:    42,
+		soldierDeleteFrame: 500,
+	}
+
+	backend := &mockBackend{}
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   cache.NewEntityCache(),
+	}, backend)
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":SOLDIER:DELETE:", Args: []string{"42", "500"}})
+	require.NoError(t, err)
+
+	waitFor(t, func() bool {
+		backend.mu.Lock()
+		n := len(backend.deletedSoldiers)
+		backend.mu.Unlock()
+		return n > 0
+	}, "timed out waiting for soldier delete")
+
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	require.Len(t, backend.deletedSoldiers, 1)
+	assert.Equal(t, uint16(42), backend.deletedSoldiers[0].id)
+	assert.Equal(t, core.Frame(500), backend.deletedSoldiers[0].frame)
+}
+
+func TestHandleSoldierDelete_ParseError(t *testing.T) {
+	d, logger := newTestDispatcher(t)
+
+	parserService := &mockParserService{
+		returnError: true,
+		errorMsg:    "bad soldier delete",
+	}
+
+	backend := &mockBackend{}
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   cache.NewEntityCache(),
+	}, backend)
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":SOLDIER:DELETE:", Args: []string{}})
+	require.NoError(t, err) // buffered dispatch doesn't return handler errors
+
+	waitForLogMsg(t, logger, "event failed")
+
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	assert.Empty(t, backend.deletedSoldiers)
+}
+
+func TestHandleVehicleDelete_WithBackend(t *testing.T) {
+	d, _ := newTestDispatcher(t)
+
+	parserService := &mockParserService{
+		vehicleDeleteID:    99,
+		vehicleDeleteFrame: 750,
+	}
+
+	backend := &mockBackend{}
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   cache.NewEntityCache(),
+	}, backend)
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":VEHICLE:DELETE:", Args: []string{"99", "750"}})
+	require.NoError(t, err)
+
+	waitFor(t, func() bool {
+		backend.mu.Lock()
+		n := len(backend.deletedVehicles)
+		backend.mu.Unlock()
+		return n > 0
+	}, "timed out waiting for vehicle delete")
+
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	require.Len(t, backend.deletedVehicles, 1)
+	assert.Equal(t, uint16(99), backend.deletedVehicles[0].id)
+	assert.Equal(t, core.Frame(750), backend.deletedVehicles[0].frame)
+}
+
+func TestHandleVehicleDelete_ParseError(t *testing.T) {
+	d, logger := newTestDispatcher(t)
+
+	parserService := &mockParserService{
+		returnError: true,
+		errorMsg:    "bad vehicle delete",
+	}
+
+	backend := &mockBackend{}
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   cache.NewEntityCache(),
+	}, backend)
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":VEHICLE:DELETE:", Args: []string{}})
+	require.NoError(t, err) // buffered dispatch doesn't return handler errors
+
+	waitForLogMsg(t, logger, "event failed")
+
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	assert.Empty(t, backend.deletedVehicles)
 }
 
 func TestHandleVehicleState_HappyPath(t *testing.T) {

@@ -121,6 +121,14 @@ func (b *Backend) AddMarker(m *core.Marker) (uint, error) {
 	return id, b.sendEnvelope(streaming.TypeAddMarker, &markerCopy)
 }
 
+func (b *Backend) DeleteSoldier(id uint16, frame core.Frame) error {
+	return b.sendEnvelope(streaming.TypeDeleteSoldier, map[string]any{"id": id, "frame": frame})
+}
+
+func (b *Backend) DeleteVehicle(id uint16, frame core.Frame) error {
+	return b.sendEnvelope(streaming.TypeDeleteVehicle, map[string]any{"id": id, "frame": frame})
+}
+
 func (b *Backend) RecordSoldierState(s *core.SoldierState) error {
 	return b.sendEnvelope(streaming.TypeSoldierState, s)
 }

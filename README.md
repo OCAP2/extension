@@ -109,9 +109,11 @@ All commands follow a `:RESOURCE:ACTION:` naming convention. New commands must u
 | Command | Buffer | Purpose |
 |---------|--------|---------|
 | `:SOLDIER:CREATE:` | Sync | Register new unit |
-| `:VEHICLE:CREATE:` | Sync | Register new vehicle |
 | `:SOLDIER:STATE:` | 10,000 | Update unit position/state |
+| `:SOLDIER:DELETE:` | 500 | Mark unit as removed (disconnect, respawn corpse) |
+| `:VEHICLE:CREATE:` | Sync | Register new vehicle |
 | `:VEHICLE:STATE:` | 10,000 | Update vehicle position/state |
+| `:VEHICLE:DELETE:` | 500 | Mark vehicle as removed |
 
 ### Combat Commands
 

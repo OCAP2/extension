@@ -56,6 +56,30 @@ func (p *Parser) ParseSoldier(data []string) (core.Soldier, error) {
 	return soldier, nil
 }
 
+// ParseSoldierDelete parses a soldier delete command.
+// Args: [entityId, frameNo]
+func (p *Parser) ParseSoldierDelete(data []string) (uint16, core.Frame, error) {
+	if len(data) < 2 {
+		return 0, 0, fmt.Errorf("expected 2 args, got %d", len(data))
+	}
+
+	for i, v := range data {
+		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
+	}
+
+	id, err := parseUintFromFloat(data[0])
+	if err != nil {
+		return 0, 0, fmt.Errorf("error converting entityId: %w", err)
+	}
+
+	frame, err := strconv.ParseFloat(data[1], 64)
+	if err != nil {
+		return 0, 0, fmt.Errorf("error converting frameNo: %w", err)
+	}
+
+	return uint16(id), core.Frame(frame), nil
+}
+
 // ParseSoldierState parses soldier state data and returns a core SoldierState.
 // Sets SoldierID directly from the parsed ocapID (no cache lookup).
 // If groupID/side fields are not in the data (len < 17), they are left empty

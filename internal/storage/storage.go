@@ -19,6 +19,8 @@ type Backend interface {
 	AddMarker(m *core.Marker) (uint, error)
 
 	// State recording
+	DeleteSoldier(id uint16, frame core.Frame) error
+	DeleteVehicle(id uint16, frame core.Frame) error
 	RecordSoldierState(s *core.SoldierState) error
 	RecordVehicleState(v *core.VehicleState) error
 	RecordMarkerState(s *core.MarkerState) error

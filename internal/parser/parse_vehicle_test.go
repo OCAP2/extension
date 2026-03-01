@@ -109,6 +109,64 @@ func TestParseVehicle(t *testing.T) {
 	}
 }
 
+func TestParseVehicleDelete(t *testing.T) {
+	p := newTestParser()
+
+	tests := []struct {
+		name      string
+		input     []string
+		wantID    uint16
+		wantFrame core.Frame
+		wantErr   bool
+	}{
+		{
+			name:      "valid delete",
+			input:     []string{"33", "1000"},
+			wantID:    33,
+			wantFrame: 1000,
+		},
+		{
+			name:      "float values from ArmA",
+			input:     []string{"33.00", "1000.00"},
+			wantID:    33,
+			wantFrame: 1000,
+		},
+		{
+			name:    "too few args",
+			input:   []string{"33"},
+			wantErr: true,
+		},
+		{
+			name:    "empty args",
+			input:   []string{},
+			wantErr: true,
+		},
+		{
+			name:    "bad entity ID",
+			input:   []string{"abc", "1000"},
+			wantErr: true,
+		},
+		{
+			name:    "bad frame",
+			input:   []string{"33", "abc"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			id, frame, err := p.ParseVehicleDelete(tt.input)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantID, id)
+			assert.Equal(t, tt.wantFrame, frame)
+		})
+	}
+}
+
 func TestParseVehicleState_CrewPreservesBrackets(t *testing.T) {
 	p := newTestParser()
 
