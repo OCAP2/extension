@@ -257,6 +257,11 @@ func TestParseMarkerMove(t *testing.T) {
 			input:   []string{"marker1", "100", "not_valid", "0", "1", "text", "color", "size", "type", "brush", "shape"},
 			wantErr: true,
 		},
+		{
+			name:    "error: insufficient fields",
+			input:   []string{"marker1", "100", "1000.0,2000.0,0", "0", "1"},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
