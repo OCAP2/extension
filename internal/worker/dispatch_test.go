@@ -922,6 +922,12 @@ func TestHandleMarkerMove_ResolvesMarkerName(t *testing.T) {
 		markerMove: parser.MarkerMove{
 			CaptureFrame: 100,
 			MarkerName:   "marker_alpha",
+			Text:         "Objective Alpha",
+			Color:        "#FF0000",
+			Size:         "[200,200]",
+			MarkerType:   "hd_objective",
+			Brush:        "grid",
+			Shape:        "ELLIPSE",
 		},
 	}
 
@@ -957,6 +963,12 @@ func TestHandleMarkerMove_ResolvesMarkerName(t *testing.T) {
 	defer backend.mu.Unlock()
 	require.Equal(t, 1, len(backend.markerStates))
 	assert.Equal(t, uint(42), backend.markerStates[0].MarkerID)
+	assert.Equal(t, "Objective Alpha", backend.markerStates[0].Text)
+	assert.Equal(t, "#FF0000", backend.markerStates[0].Color)
+	assert.Equal(t, "[200,200]", backend.markerStates[0].Size)
+	assert.Equal(t, "hd_objective", backend.markerStates[0].MarkerType)
+	assert.Equal(t, "grid", backend.markerStates[0].Brush)
+	assert.Equal(t, "ELLIPSE", backend.markerStates[0].Shape)
 }
 
 func TestHandleChatEvent_ValidatesSender(t *testing.T) {
