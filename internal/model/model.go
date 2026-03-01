@@ -649,7 +649,7 @@ func (*PlacedObjectEvent) TableName() string {
 // MarkerState tracks marker position/property changes over time
 //
 // SQF Command: :MARKER:STATE:
-// Args: [markerName, frameNo, position, direction, alpha]
+// Args: [markerName, frameNo, position, direction, alpha, text, color, size, type, brush, shape]
 type MarkerState struct {
 	ID           uint      `json:"id" gorm:"primarykey;autoIncrement;"`
 	Time         time.Time `json:"time" gorm:"type:timestamptz;"`                               // Server time when state recorded
@@ -659,9 +659,15 @@ type MarkerState struct {
 	Marker       Marker    `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;foreignkey:MarkerID;"`
 	CaptureFrame uint      `json:"captureFrame" gorm:"index:idx_markerstate_capture_frame;"`    // Frame number when state recorded
 
-	Position  geom.Point `json:"position"`  // Current marker position ASL
-	Direction float32    `json:"direction"` // Current marker rotation (0-360 degrees)
-	Alpha     float32    `json:"alpha"`     // Current marker opacity (0.0-1.0, 0 = deleted)
+	Position   geom.Point `json:"position"`   // Current marker position ASL
+	Direction  float32    `json:"direction"`  // Current marker rotation (0-360 degrees)
+	Alpha      float32    `json:"alpha"`      // Current marker opacity (0.0-1.0, 0 = deleted)
+	Text       string     `json:"text" gorm:"size:512"`
+	Color      string     `json:"color" gorm:"size:32"`
+	Size       string     `json:"size" gorm:"size:32"`
+	MarkerType string     `json:"markerType" gorm:"size:128"`
+	Brush      string     `json:"brush" gorm:"size:64"`
+	Shape      string     `json:"shape" gorm:"size:32"`
 }
 
 func (*MarkerState) TableName() string {

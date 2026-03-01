@@ -330,10 +330,15 @@ func Build(data *MissionData) Export {
 
 	// Convert markers
 	// Format: [type, text, startFrame, endFrame, playerId, color, sideIndex, positions, size, shape, brush]
-	// positions is always: [[frameNum, pos, direction, alpha], ...]
+	// positions is always: [[frameNum, pos, direction, alpha, text, color, size, type, brush, shape], ...]
 	// For POLYLINE: pos is [[x1,y1],[x2,y2],...] (array of coordinates)
 	// For other shapes: pos is [x, y] (single coordinate)
 	for _, record := range data.Markers {
+		// Strip "#" prefix from hex colors (e.g., "#800000" -> "800000") for URL compatibility
+		// The web UI constructs URLs like: /images/markers/${type}/${color}.png
+		// With "#" prefix, browsers interpret the fragment as an anchor, causing 404s
+		markerColor := strings.TrimPrefix(record.Marker.Color, "#")
+
 		posArray := make([][]any, 0)
 
 		if record.Marker.Shape == "POLYLINE" {
@@ -347,6 +352,12 @@ func Build(data *MissionData) Export {
 				coords, // [[x1,y1], [x2,y2], ...]
 				record.Marker.Direction,
 				record.Marker.Alpha,
+				record.Marker.Text,
+				markerColor,
+				parseMarkerSize(record.Marker.Size),
+				record.Marker.MarkerType,
+				record.Marker.Brush,
+				record.Marker.Shape,
 			})
 		} else {
 			// For other shapes: pos is a single coordinate
@@ -355,6 +366,12 @@ func Build(data *MissionData) Export {
 				[]float64{record.Marker.Position.X, record.Marker.Position.Y, record.Marker.Position.Z},
 				record.Marker.Direction,
 				record.Marker.Alpha,
+				record.Marker.Text,
+				markerColor,
+				parseMarkerSize(record.Marker.Size),
+				record.Marker.MarkerType,
+				record.Marker.Brush,
+				record.Marker.Shape,
 			})
 
 			// State changes
@@ -364,14 +381,15 @@ func Build(data *MissionData) Export {
 					[]float64{state.Position.X, state.Position.Y, state.Position.Z},
 					state.Direction,
 					state.Alpha,
+					state.Text,
+					strings.TrimPrefix(state.Color, "#"),
+					parseMarkerSize(state.Size),
+					state.MarkerType,
+					state.Brush,
+					state.Shape,
 				})
 			}
 		}
-
-		// Strip "#" prefix from hex colors (e.g., "#800000" -> "800000") for URL compatibility
-		// The web UI constructs URLs like: /images/markers/${type}/${color}.png
-		// With "#" prefix, browsers interpret the fragment as an anchor, causing 404s
-		markerColor := strings.TrimPrefix(record.Marker.Color, "#")
 
 		marker := []any{
 			record.Marker.MarkerType,               // [0] type

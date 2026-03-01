@@ -106,6 +106,10 @@ func (p *Parser) ParseMarkerCreate(data []string) (core.Marker, error) {
 func (p *Parser) ParseMarkerMove(data []string) (MarkerMove, error) {
 	var result MarkerMove
 
+	if len(data) < 11 {
+		return result, fmt.Errorf("insufficient data fields: got %d, need 11", len(data))
+	}
+
 	// fix received data
 	for i, v := range data {
 		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
@@ -146,6 +150,24 @@ func (p *Parser) ParseMarkerMove(data []string) (MarkerMove, error) {
 		alpha = 1.0
 	}
 	result.Alpha = float32(alpha)
+
+	// text
+	result.Text = data[5]
+
+	// color
+	result.Color = data[6]
+
+	// size
+	result.Size = data[7]
+
+	// type
+	result.MarkerType = data[8]
+
+	// brush
+	result.Brush = data[9]
+
+	// shape
+	result.Shape = data[10]
 
 	result.Time = time.Now()
 

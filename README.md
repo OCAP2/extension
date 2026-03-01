@@ -137,7 +137,7 @@ All commands follow a `:RESOURCE:ACTION:` naming convention. New commands must u
 | Command | Buffer | Purpose |
 |---------|--------|---------|
 | `:MARKER:CREATE:` | Sync | Create map marker (needs immediate DB ID) |
-| `:MARKER:STATE:` | 1,000 | Update marker position/appearance |
+| `:MARKER:STATE:` | 1,000 | Update marker position/appearance (pos, dir, alpha, text, color, size, type, brush, shape) |
 | `:MARKER:DELETE:` | 500 | Delete marker |
 
 ### Placed Object Commands

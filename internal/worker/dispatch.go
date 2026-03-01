@@ -419,6 +419,12 @@ func (m *Manager) handleMarkerMove(e dispatcher.Event) (any, error) {
 		Position:     parsed.Position,
 		Direction:    parsed.Direction,
 		Alpha:        parsed.Alpha,
+		Text:         parsed.Text,
+		Color:        parsed.Color,
+		Size:         parsed.Size,
+		MarkerType:   parsed.MarkerType,
+		Brush:        parsed.Brush,
+		Shape:        parsed.Shape,
 		Time:         parsed.Time,
 	}
 

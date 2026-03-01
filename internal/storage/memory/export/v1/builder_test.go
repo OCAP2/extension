@@ -528,7 +528,8 @@ func TestBuildWithMarker(t *testing.T) {
 					CaptureFrame: 1, Position: core.Position3D{X: 5000, Y: 6000}, Direction: 45, Alpha: 1.0,
 				},
 				States: []core.MarkerState{
-					{MarkerID: 1, CaptureFrame: 50, Position: core.Position3D{X: 5100, Y: 6100}, Direction: 90, Alpha: 0.8},
+					{MarkerID: 1, CaptureFrame: 50, Position: core.Position3D{X: 5100, Y: 6100}, Direction: 90, Alpha: 0.8,
+						Text: "Objective Updated", Color: "#900000", Size: "[3.0,4.0]", MarkerType: "mil_objective", Brush: "Solid", Shape: "ICON"},
 				},
 			},
 		},
@@ -550,8 +551,24 @@ func TestBuildWithMarker(t *testing.T) {
 	// Positions
 	positions := marker[7].([][]any)
 	require.Len(t, positions, 2)
+
+	// Initial position entry
 	assert.Equal(t, 0, positions[0][0])          // initial frame (internal 1 → v1 0)
+	assert.Equal(t, "Objective", positions[0][4])           // text
+	assert.Equal(t, "800000", positions[0][5])              // color (# stripped)
+	assert.Equal(t, []float64{2.0, 3.0}, positions[0][6])  // size
+	assert.Equal(t, "mil_objective", positions[0][7])       // type
+	assert.Equal(t, "Solid", positions[0][8])               // brush
+	assert.Equal(t, "ICON", positions[0][9])                // shape
+
+	// State change position entry
 	assert.Equal(t, 49, positions[1][0])         // state change frame (internal 50 → v1 49)
+	assert.Equal(t, "Objective Updated", positions[1][4])   // text
+	assert.Equal(t, "900000", positions[1][5])              // color (# stripped)
+	assert.Equal(t, []float64{3.0, 4.0}, positions[1][6])  // size
+	assert.Equal(t, "mil_objective", positions[1][7])       // type
+	assert.Equal(t, "Solid", positions[1][8])               // brush
+	assert.Equal(t, "ICON", positions[1][9])                // shape
 
 	assert.Equal(t, []float64{2.0, 3.0}, marker[8]) // size
 	assert.Equal(t, "ICON", marker[9])              // shape

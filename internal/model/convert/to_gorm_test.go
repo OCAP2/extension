@@ -265,6 +265,12 @@ func TestCoreToMarkerState(t *testing.T) {
 		Position:     core.Position3D{X: 150.0, Y: 250.0, Z: 0.0},
 		Direction:    90.0,
 		Alpha:        0.5,
+		Text:         "Sector Alpha",
+		Color:        "#FF0000",
+		Size:         "[200,200]",
+		MarkerType:   "hd_objective",
+		Brush:        "grid",
+		Shape:        "ELLIPSE",
 	}
 
 	result := CoreToMarkerState(input)
@@ -275,6 +281,12 @@ func TestCoreToMarkerState(t *testing.T) {
 	assert.Equal(t, uint(100), result.CaptureFrame)
 	assert.Equal(t, float32(90.0), result.Direction)
 	assert.Equal(t, float32(0.5), result.Alpha)
+	assert.Equal(t, "Sector Alpha", result.Text)
+	assert.Equal(t, "#FF0000", result.Color)
+	assert.Equal(t, "[200,200]", result.Size)
+	assert.Equal(t, "hd_objective", result.MarkerType)
+	assert.Equal(t, "grid", result.Brush)
+	assert.Equal(t, "ELLIPSE", result.Shape)
 }
 
 func TestCoreToGeneralEvent(t *testing.T) {

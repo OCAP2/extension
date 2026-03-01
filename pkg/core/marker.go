@@ -40,4 +40,10 @@ type MarkerState struct {
 	Position     Position3D
 	Direction    float32
 	Alpha        float32
+	Text         string
+	Color        string
+	Size         string
+	MarkerType   string
+	Brush        string
+	Shape        string
 }

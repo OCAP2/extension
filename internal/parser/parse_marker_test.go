@@ -203,46 +203,63 @@ func TestParseMarkerMove(t *testing.T) {
 	}{
 		{
 			name:  "normal move",
-			input: []string{"markerName", "517", "6069.06,5627.81,17.81", "0", "1"},
+			input: []string{"markerName", "517", "6069.06,5627.81,17.81", "0", "1", "FPS: 45", "#00FF00", "[0.7,0.7]", "mil_start", "Solid", "ICON"},
 			check: func(t *testing.T, r MarkerMove) {
 				assert.Equal(t, "markerName", r.MarkerName)
 				assert.Equal(t, core.Frame(517), r.CaptureFrame)
 				assert.NotEqual(t, core.Position3D{}, r.Position)
 				assert.Equal(t, float32(0), r.Direction)
 				assert.Equal(t, float32(1), r.Alpha)
+				assert.Equal(t, "FPS: 45", r.Text)
+				assert.Equal(t, "#00FF00", r.Color)
+				assert.Equal(t, "[0.7,0.7]", r.Size)
+				assert.Equal(t, "mil_start", r.MarkerType)
+				assert.Equal(t, "Solid", r.Brush)
+				assert.Equal(t, "ICON", r.Shape)
 			},
 		},
 		{
 			name:  "with direction and alpha",
-			input: []string{"sector_1", "200", "5000.0,4000.0,0", "-40.08", "0.5"},
+			input: []string{"sector_1", "200", "5000.0,4000.0,0", "-40.08", "0.5", "Sector Alpha", "#FF0000", "[200,200]", "hd_objective", "grid", "ELLIPSE"},
 			check: func(t *testing.T, r MarkerMove) {
 				assert.Equal(t, "sector_1", r.MarkerName)
 				assert.InDelta(t, float32(-40.08), r.Direction, 0.01)
 				assert.InDelta(t, float32(0.5), r.Alpha, 0.01)
+				assert.Equal(t, "Sector Alpha", r.Text)
+				assert.Equal(t, "#FF0000", r.Color)
+				assert.Equal(t, "[200,200]", r.Size)
+				assert.Equal(t, "hd_objective", r.MarkerType)
+				assert.Equal(t, "grid", r.Brush)
+				assert.Equal(t, "ELLIPSE", r.Shape)
 			},
 		},
 		{
 			name:  "bad direction falls back to 0",
-			input: []string{"marker1", "100", "1000.0,2000.0,0", "not_float", "1"},
+			input: []string{"marker1", "100", "1000.0,2000.0,0", "not_float", "1", "text", "color", "size", "type", "brush", "shape"},
 			check: func(t *testing.T, r MarkerMove) {
 				assert.Equal(t, float32(0), r.Direction)
 			},
 		},
 		{
 			name:  "bad alpha falls back to 1.0",
-			input: []string{"marker1", "100", "1000.0,2000.0,0", "0", "not_float"},
+			input: []string{"marker1", "100", "1000.0,2000.0,0", "0", "not_float", "text", "color", "size", "type", "brush", "shape"},
 			check: func(t *testing.T, r MarkerMove) {
 				assert.Equal(t, float32(1.0), r.Alpha)
 			},
 		},
 		{
 			name:    "error: bad frame",
-			input:   []string{"marker1", "abc", "1000.0,2000.0,0", "0", "1"},
+			input:   []string{"marker1", "abc", "1000.0,2000.0,0", "0", "1", "text", "color", "size", "type", "brush", "shape"},
 			wantErr: true,
 		},
 		{
 			name:    "error: bad position",
-			input:   []string{"marker1", "100", "not_valid", "0", "1"},
+			input:   []string{"marker1", "100", "not_valid", "0", "1", "text", "color", "size", "type", "brush", "shape"},
+			wantErr: true,
+		},
+		{
+			name:    "error: insufficient fields",
+			input:   []string{"marker1", "100", "1000.0,2000.0,0", "0", "1"},
 			wantErr: true,
 		},
 	}

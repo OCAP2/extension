@@ -174,6 +174,12 @@ func CoreToMarkerState(s core.MarkerState) model.MarkerState {
 		Position:     position3DToPoint(s.Position),
 		Direction:    s.Direction,
 		Alpha:        s.Alpha,
+		Text:         s.Text,
+		Color:        s.Color,
+		Size:         s.Size,
+		MarkerType:   s.MarkerType,
+		Brush:        s.Brush,
+		Shape:        s.Shape,
 	}
 }
 
