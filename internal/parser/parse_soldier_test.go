@@ -154,6 +154,64 @@ func TestParseSoldier(t *testing.T) {
 	}
 }
 
+func TestParseSoldierDelete(t *testing.T) {
+	p := newTestParser()
+
+	tests := []struct {
+		name      string
+		input     []string
+		wantID    uint16
+		wantFrame core.Frame
+		wantErr   bool
+	}{
+		{
+			name:      "valid delete",
+			input:     []string{"42", "500"},
+			wantID:    42,
+			wantFrame: 500,
+		},
+		{
+			name:      "float values from ArmA",
+			input:     []string{"42.00", "500.00"},
+			wantID:    42,
+			wantFrame: 500,
+		},
+		{
+			name:    "too few args",
+			input:   []string{"42"},
+			wantErr: true,
+		},
+		{
+			name:    "empty args",
+			input:   []string{},
+			wantErr: true,
+		},
+		{
+			name:    "bad entity ID",
+			input:   []string{"abc", "500"},
+			wantErr: true,
+		},
+		{
+			name:    "bad frame",
+			input:   []string{"42", "abc"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			id, frame, err := p.ParseSoldierDelete(tt.input)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantID, id)
+			assert.Equal(t, tt.wantFrame, frame)
+		})
+	}
+}
+
 func TestParseSoldierState_ScoresParsingPanic(t *testing.T) {
 	p := newTestParser()
 

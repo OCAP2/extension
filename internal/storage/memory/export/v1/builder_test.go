@@ -1301,3 +1301,92 @@ func TestBuildWithPlacedObjectHitEvents(t *testing.T) {
 	// Distance: sqrt((1000-1003)^2 + (2000-2004)^2) = sqrt(9+16) = 5.0
 	assert.InDelta(t, 5.0, float64(evt[4].(float32)), 0.01)
 }
+
+func TestBuildWithSoldierDeleteFrame(t *testing.T) {
+	// Soldier with DeleteFrame should stop gap-filling at the delete frame
+	// instead of extending to maxFrame.
+	data := &MissionData{
+		Mission: &core.Mission{MissionName: "Test"},
+		World:   &core.World{WorldName: "Altis"},
+		Soldiers: map[uint16]*SoldierRecord{
+			0: {
+				Soldier: core.Soldier{
+					ID: 0, UnitName: "Disconnected", Side: "WEST", JoinFrame: 1,
+					DeleteFrame: 6, // removed at frame 6
+				},
+				States: []core.SoldierState{
+					{SoldierID: 0, CaptureFrame: 1, Position: core.Position3D{X: 100, Y: 200}, Lifestate: 1, Side: "WEST"},
+				},
+			},
+			1: {
+				Soldier: core.Soldier{
+					ID: 1, UnitName: "StillAlive", Side: "WEST", JoinFrame: 1,
+				},
+				States: []core.SoldierState{
+					{SoldierID: 1, CaptureFrame: 1, Position: core.Position3D{X: 300, Y: 400}, Lifestate: 1, Side: "WEST"},
+					{SoldierID: 1, CaptureFrame: 11, Position: core.Position3D{X: 310, Y: 410}, Lifestate: 1, Side: "WEST"},
+				},
+			},
+		},
+		Vehicles: make(map[uint16]*VehicleRecord),
+		Markers:  make(map[string]*MarkerRecord),
+	}
+
+	export := Build(data)
+
+	// Entity 0 with DeleteFrame=6:
+	// Single state at frame 1, last state extends to deleteFrame=6.
+	// v1: startF=0 (frameToV1(1)=0), endF=5 (frameToV1(6)=5)
+	// Gap-fill: frames 0-5 = 6 positions
+	entity0 := export.Entities[0]
+	assert.Len(t, entity0.Positions, 6)
+
+	// Entity 1 without DeleteFrame:
+	// State at frame 1 extends to frame 10 (next state - 1), state at frame 11 extends to maxFrame=11.
+	// v1: first state fills frames 0-9, second state fills frame 10 = 11 total
+	entity1 := export.Entities[1]
+	assert.Len(t, entity1.Positions, 11)
+}
+
+func TestBuildWithVehicleDeleteFrame(t *testing.T) {
+	// Vehicle with DeleteFrame should use delete frame as gap-fill boundary
+	// instead of maxFrame.
+	data := &MissionData{
+		Mission:  &core.Mission{MissionName: "Test"},
+		World:    &core.World{WorldName: "Altis"},
+		Soldiers: map[uint16]*SoldierRecord{
+			0: {
+				Soldier: core.Soldier{ID: 0, JoinFrame: 1},
+				States: []core.SoldierState{
+					{SoldierID: 0, CaptureFrame: 1, Lifestate: 1},
+					{SoldierID: 0, CaptureFrame: 21, Lifestate: 1},
+				},
+			},
+		},
+		Vehicles: map[uint16]*VehicleRecord{
+			1: {
+				Vehicle: core.Vehicle{
+					ID: 1, OcapType: "car", JoinFrame: 1,
+					DeleteFrame: 11, // removed at frame 11
+				},
+				States: []core.VehicleState{
+					{VehicleID: 1, CaptureFrame: 1, IsAlive: true, Crew: "[]"},
+				},
+			},
+		},
+		Markers: make(map[string]*MarkerRecord),
+	}
+
+	export := Build(data)
+
+	// Vehicle with DeleteFrame=11:
+	// Single state at frame 1, extends to deleteFrame=11.
+	// v1: startF=0 (frameToV1(1)=0), endF=10 (frameToV1(11)=10)
+	// Range entry: [0, 10]
+	entity := export.Entities[1]
+	require.Len(t, entity.Positions, 1)
+	frameRange := entity.Positions[0][4].([]int)
+	assert.Equal(t, []int{0, 10}, frameRange)
+
+	// Without DeleteFrame it would extend to maxFrame=21 → v1 [0, 20]
+}

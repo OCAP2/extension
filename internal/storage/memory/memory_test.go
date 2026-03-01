@@ -247,6 +247,38 @@ func TestDeleteMarker(t *testing.T) {
 	require.NoError(t, b.DeleteMarker(&core.DeleteMarker{Name: "nonexistent", EndFrame: 50}))
 }
 
+func TestDeleteSoldier(t *testing.T) {
+	b := New(config.MemoryConfig{})
+
+	s := &core.Soldier{ID: 1, UnitName: "Test"}
+	require.NoError(t, b.AddSoldier(s))
+
+	// Delete soldier at frame 500
+	require.NoError(t, b.DeleteSoldier(1, 500))
+
+	record := b.soldiers[1]
+	assert.Equal(t, core.Frame(500), record.Soldier.DeleteFrame)
+
+	// Deleting non-existent soldier should not panic
+	require.NoError(t, b.DeleteSoldier(999, 100))
+}
+
+func TestDeleteVehicle(t *testing.T) {
+	b := New(config.MemoryConfig{})
+
+	v := &core.Vehicle{ID: 10, ClassName: "B_MRAP_01_F"}
+	require.NoError(t, b.AddVehicle(v))
+
+	// Delete vehicle at frame 750
+	require.NoError(t, b.DeleteVehicle(10, 750))
+
+	record := b.vehicles[10]
+	assert.Equal(t, core.Frame(750), record.Vehicle.DeleteFrame)
+
+	// Deleting non-existent vehicle should not panic
+	require.NoError(t, b.DeleteVehicle(999, 100))
+}
+
 func TestRecordFiredEvent(t *testing.T) {
 	b := New(config.MemoryConfig{})
 
