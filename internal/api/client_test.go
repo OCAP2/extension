@@ -16,19 +16,19 @@ func TestNew(t *testing.T) {
 	c := New("http://localhost:5000", "secret123")
 
 	require.NotNil(t, c)
-	assert.Equal(t, "http://localhost:5000", c.baseURL)
+	assert.Equal(t, "http://localhost:5000/api", c.baseURL)
 	assert.Equal(t, "secret123", c.apiKey)
 	assert.NotNil(t, c.httpClient)
 }
 
 func TestNew_TrimsTrailingSlash(t *testing.T) {
 	c := New("http://localhost:5000/", "secret")
-	assert.Equal(t, "http://localhost:5000", c.baseURL)
+	assert.Equal(t, "http://localhost:5000/api", c.baseURL)
 }
 
 func TestHealthcheck_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/healthcheck", r.URL.Path)
+		assert.Equal(t, "/api/healthcheck", r.URL.Path)
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
@@ -62,7 +62,7 @@ func TestUpload_Success(t *testing.T) {
 	var receivedFileContent []byte
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/v1/operations/add", r.URL.Path)
+		assert.Equal(t, "/api/v1/operations/add", r.URL.Path)
 		assert.Equal(t, http.MethodPost, r.Method)
 
 		err := r.ParseMultipartForm(10 << 20)

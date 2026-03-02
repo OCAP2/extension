@@ -14,6 +14,9 @@ import (
 	"github.com/OCAP2/extension/v5/pkg/core"
 )
 
+// PathPrefix is the API path prefix appended to the base server URL.
+const PathPrefix = "/api"
+
 // Client handles communication with the OCAP web frontend.
 type Client struct {
 	baseURL    string
@@ -24,7 +27,7 @@ type Client struct {
 // New creates a new API client.
 func New(baseURL, apiKey string) *Client {
 	return &Client{
-		baseURL:    strings.TrimRight(baseURL, "/"),
+		baseURL:    strings.TrimRight(baseURL, "/") + PathPrefix,
 		apiKey:     apiKey,
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 	}

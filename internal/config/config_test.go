@@ -43,7 +43,7 @@ func TestLoad_DefaultValues(t *testing.T) {
 	assert.Equal(t, "info", viper.GetString("logLevel"))
 	assert.Equal(t, "Op", viper.GetString("defaultTag"))
 	assert.Equal(t, "./ocaplogs", viper.GetString("logsDir"))
-	assert.Equal(t, "http://localhost:5000/api", viper.GetString("api.serverUrl"))
+	assert.Equal(t, "http://localhost:5000", viper.GetString("api.serverUrl"))
 	assert.Equal(t, "", viper.GetString("api.apiKey"))
 	assert.Equal(t, "localhost", viper.GetString("db.host"))
 	assert.Equal(t, "5432", viper.GetString("db.port"))
