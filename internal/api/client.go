@@ -24,7 +24,7 @@ type Client struct {
 // New creates a new API client.
 func New(baseURL, apiKey string) *Client {
 	return &Client{
-		baseURL:    strings.TrimRight(baseURL, "/"),
+		baseURL:    strings.TrimRight(baseURL, "/") + "/api",
 		apiKey:     apiKey,
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 	}
