@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/OCAP2/extension/v5/internal/api"
 	"github.com/OCAP2/extension/v5/internal/config"
 	"github.com/OCAP2/extension/v5/internal/storage"
 	"github.com/OCAP2/extension/v5/internal/storage/memory"
@@ -76,7 +77,7 @@ func createStorageBackend(storageCfg config.StorageConfig) (storage.Backend, err
 		return backend, nil
 
 	case "websocket":
-		wsURL := httpToWS(viper.GetString("api.serverUrl")) + "/api/v1/stream"
+		wsURL := httpToWS(viper.GetString("api.serverUrl")) + api.PathPrefix + "/v1/stream"
 		secret := viper.GetString("api.apiKey")
 		Logger.Info("WebSocket storage backend initialized", "url", wsURL)
 		return wsstorage.New(wsstorage.Config{
