@@ -48,6 +48,10 @@ func (m *Manager) RegisterHandlers(d *dispatcher.Dispatcher) {
 	// Marker updates - buffered
 	d.Register(":MARKER:STATE:", m.handleMarkerMove, dispatcher.Buffered(1000), dispatcher.Logged())
 	d.Register(":MARKER:DELETE:", m.handleMarkerDelete, dispatcher.Buffered(500), dispatcher.Logged())
+
+	// Mission focus - sync (low volume, metadata)
+	d.Register(":MISSION:FOCUS_START:", m.handleFocusStart, dispatcher.Logged())
+	d.Register(":MISSION:FOCUS_END:", m.handleFocusEnd, dispatcher.Logged())
 }
 
 func (m *Manager) handleNewSoldier(e dispatcher.Event) (any, error) {
@@ -444,4 +448,20 @@ func (m *Manager) handleMarkerDelete(e dispatcher.Event) (any, error) {
 		return nil, fmt.Errorf("delete marker: %w", err)
 	}
 	return nil, nil
+}
+
+func (m *Manager) handleFocusStart(e dispatcher.Event) (any, error) {
+	frame, err := m.deps.ParserService.ParseFocusStart(e.Args)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse focus start: %w", err)
+	}
+	return nil, m.backend.SetFocusStart(frame)
+}
+
+func (m *Manager) handleFocusEnd(e dispatcher.Event) (any, error) {
+	frame, err := m.deps.ParserService.ParseFocusEnd(e.Args)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse focus end: %w", err)
+	}
+	return nil, m.backend.SetFocusEnd(frame)
 }

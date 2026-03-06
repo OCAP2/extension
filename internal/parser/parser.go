@@ -74,6 +74,8 @@ type Service interface {
 	ParseTelemetryEvent(args []string) (core.TelemetryEvent, error)
 	ParsePlacedObject(args []string) (core.PlacedObject, error)
 	ParsePlacedObjectEvent(args []string) (core.PlacedObjectEvent, error)
+	ParseFocusStart(args []string) (core.Frame, error)
+	ParseFocusEnd(args []string) (core.Frame, error)
 }
 
 var _ Service = (*Parser)(nil)

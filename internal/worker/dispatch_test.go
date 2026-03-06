@@ -75,6 +75,8 @@ type mockBackend struct {
 	placedEvents      []*core.PlacedObjectEvent
 	deletedSoldiers   []soldierDeleteCall
 	deletedVehicles   []vehicleDeleteCall
+	focusStarts       []core.Frame
+	focusEnds         []core.Frame
 	initCalled     bool
 	closeCalled    bool
 	missionStarted bool
@@ -264,6 +266,20 @@ func (b *mockBackend) RecordPlacedObjectEvent(e *core.PlacedObjectEvent) error {
 	return nil
 }
 
+func (b *mockBackend) SetFocusStart(frame core.Frame) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.focusStarts = append(b.focusStarts, frame)
+	return nil
+}
+
+func (b *mockBackend) SetFocusEnd(frame core.Frame) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.focusEnds = append(b.focusEnds, frame)
+	return nil
+}
+
 // errorBackend is a mockBackend that returns an error from AddMarker.
 
 // mockParserService provides a minimal implementation for testing
@@ -295,6 +311,8 @@ type mockParserService struct {
 	soldierDeleteFrame core.Frame
 	vehicleDeleteID    uint16
 	vehicleDeleteFrame core.Frame
+	focusStartFrame    core.Frame
+	focusEndFrame      core.Frame
 
 	// Error simulation
 	returnError bool
@@ -514,6 +532,26 @@ func (h *mockParserService) ParsePlacedObjectEvent(args []string) (core.PlacedOb
 	return h.placedEvent, nil
 }
 
+func (h *mockParserService) ParseFocusStart(args []string) (core.Frame, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.calls = append(h.calls, "ParseFocusStart")
+	if h.returnError {
+		return 0, errors.New(h.errorMsg)
+	}
+	return h.focusStartFrame, nil
+}
+
+func (h *mockParserService) ParseFocusEnd(args []string) (core.Frame, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.calls = append(h.calls, "ParseFocusEnd")
+	if h.returnError {
+		return 0, errors.New(h.errorMsg)
+	}
+	return h.focusEndFrame, nil
+}
+
 // waitFor polls until check returns true or times out after 2s.
 func waitFor(t *testing.T, check func() bool, msg string) {
 	t.Helper()
@@ -584,6 +622,8 @@ func TestRegisterHandlers_RegistersAllCommands(t *testing.T) {
 		":MARKER:CREATE:",
 		":MARKER:STATE:",
 		":MARKER:DELETE:",
+		":MISSION:FOCUS_START:",
+		":MISSION:FOCUS_END:",
 	}
 
 	for _, cmd := range expectedCommands {

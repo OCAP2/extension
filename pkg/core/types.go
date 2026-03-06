@@ -57,4 +57,7 @@ type UploadMetadata struct {
 	MissionName     string
 	MissionDuration float64
 	Tag             string
+	EndFrame        Frame
+	FocusStart      *Frame
+	FocusEnd        *Frame
 }
