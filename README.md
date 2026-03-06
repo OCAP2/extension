@@ -162,4 +162,6 @@ All commands follow a `:RESOURCE:ACTION:` naming convention. New commands must u
 | `:STORAGE:INIT:` | Initialize storage backend, ungate buffered handlers |
 | `:MISSION:START:` | Start recording mission |
 | `:MISSION:SAVE:` | End recording, flush data, upload if configured |
+| `:MISSION:FOCUS_START:` | Set playback focus start frame |
+| `:MISSION:FOCUS_END:` | Set playback focus end frame |
 | `:SYS:VERSION:` | Get extension version |
