@@ -3,6 +3,7 @@ package memory
 
 import (
 	"fmt"
+	"log/slog"
 	"sync"
 
 	"github.com/OCAP2/extension/v5/internal/config"
@@ -62,14 +63,18 @@ type Backend struct {
 	ace3UnconsciousEvents []core.Ace3UnconsciousEvent
 	projectileEvents      []core.ProjectileEvent
 
-	focusStart *core.Frame
-	focusEnd   *core.Frame
+	focusRanges    []core.FocusRange // completed ranges
+	focusOpenStart *core.Frame       // currently open range (start set, end not yet)
 
-	mu sync.RWMutex
+	logger *slog.Logger
+	mu     sync.RWMutex
 }
 
 // New creates a new memory backend
-func New(cfg config.MemoryConfig) *Backend {
+func New(cfg config.MemoryConfig, logger *slog.Logger) *Backend {
+	if logger == nil {
+		logger = slog.Default()
+	}
 	return &Backend{
 		cfg:         cfg,
 		soldiers:    make(map[uint16]*SoldierRecord),
@@ -77,6 +82,7 @@ func New(cfg config.MemoryConfig) *Backend {
 		markers:     make(map[string]*MarkerRecord),
 		markersByID: make(map[uint]*MarkerRecord),
 		placed:      make(map[uint16]*PlacedObjectRecord),
+		logger:      logger,
 	}
 }
 
@@ -147,8 +153,8 @@ func (b *Backend) resetCollections() {
 	b.ace3DeathEvents = nil
 	b.ace3UnconsciousEvents = nil
 	b.projectileEvents = nil
-	b.focusStart = nil
-	b.focusEnd = nil
+	b.focusRanges = nil
+	b.focusOpenStart = nil
 }
 
 // AddSoldier registers a new soldier.
@@ -389,19 +395,28 @@ func (b *Backend) RecordPlacedObjectEvent(e *core.PlacedObjectEvent) error {
 	return nil
 }
 
-// SetFocusStart sets the playback focus start frame.
+// SetFocusStart opens a new focus range. If a range is already open, logs a warning and ignores.
 func (b *Backend) SetFocusStart(frame core.Frame) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.focusStart = &frame
+	if b.focusOpenStart != nil {
+		b.logger.Warn("SetFocusStart called while a focus range is already open, ignoring", "openStart", *b.focusOpenStart, "newStart", frame)
+		return nil
+	}
+	b.focusOpenStart = &frame
 	return nil
 }
 
-// SetFocusEnd sets the playback focus end frame.
+// SetFocusEnd closes the currently open focus range. If no range is open, logs a warning and ignores.
 func (b *Backend) SetFocusEnd(frame core.Frame) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.focusEnd = &frame
+	if b.focusOpenStart == nil {
+		b.logger.Warn("SetFocusEnd called without an open focus range, ignoring", "frame", frame)
+		return nil
+	}
+	b.focusRanges = append(b.focusRanges, core.FocusRange{Start: *b.focusOpenStart, End: frame})
+	b.focusOpenStart = nil
 	return nil
 }
 
@@ -465,22 +480,17 @@ func (b *Backend) computeExportMetadata() core.UploadMetadata {
 		EndFrame:        endFrame,
 	}
 
-	// Resolve focus: if either is set, default the missing one
-	if b.focusStart != nil || b.focusEnd != nil {
-		if b.focusStart != nil {
-			fs := *b.focusStart
-			meta.FocusStart = &fs
-		} else {
-			fs := core.Frame(0)
-			meta.FocusStart = &fs
-		}
-		if b.focusEnd != nil {
-			fe := *b.focusEnd
-			meta.FocusEnd = &fe
-		} else {
-			fe := endFrame
-			meta.FocusEnd = &fe
-		}
+	// Resolve focus ranges for upload
+	allRanges := make([]core.FocusRange, len(b.focusRanges))
+	copy(allRanges, b.focusRanges)
+
+	// Auto-close any open range with endFrame
+	if b.focusOpenStart != nil {
+		allRanges = append(allRanges, core.FocusRange{Start: *b.focusOpenStart, End: endFrame})
+	}
+
+	if len(allRanges) > 0 {
+		meta.FocusRanges = allRanges
 	}
 
 	return meta

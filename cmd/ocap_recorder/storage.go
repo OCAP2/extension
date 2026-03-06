@@ -87,7 +87,7 @@ func createStorageBackend(storageCfg config.StorageConfig) (storage.Backend, err
 
 	default:
 		Logger.Info("Memory storage backend initialized")
-		return memory.New(storageCfg.Memory), nil
+		return memory.New(storageCfg.Memory, Logger), nil
 	}
 }
 
