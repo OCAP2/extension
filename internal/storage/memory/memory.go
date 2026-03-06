@@ -441,6 +441,7 @@ func (b *Backend) computeExportMetadata() core.UploadMetadata {
 		MissionName:     b.mission.MissionName,
 		MissionDuration: duration,
 		Tag:             b.mission.Tag,
+		EndFrame:        endFrame,
 	}
 }
 

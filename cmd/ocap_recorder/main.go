@@ -14,6 +14,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -28,6 +30,7 @@ import (
 	"github.com/OCAP2/extension/v5/internal/util"
 	"github.com/OCAP2/extension/v5/internal/worker"
 	"github.com/OCAP2/extension/v5/pkg/a3interface"
+	"github.com/OCAP2/extension/v5/pkg/core"
 
 	"github.com/spf13/viper"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
@@ -83,6 +86,10 @@ var (
 	SessionStartTime time.Time = time.Now()
 
 	addonVersion string = "unknown"
+
+	// Focus range: set by :MISSION:FOCUS_START: / :MISSION:FOCUS_END:, cleared on new mission
+	focusStart *core.Frame
+	focusEnd   *core.Frame
 
 	// storageReady is closed when storage (DB or memory) is initialized and ready
 	storageReady     = make(chan struct{})
@@ -302,6 +309,8 @@ func handleNewMission(e dispatcher.Event) (any, error) {
 	// 2. Reset caches
 	MarkerCache.Reset()
 	EntityCache.Reset()
+	focusStart = nil
+	focusEnd = nil
 
 	// 3. Start backend (handles DB ops for GORM/SQLite backends, stores missionID internally)
 	if storageBackend != nil {
@@ -374,6 +383,34 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 
 	d.Register(":MISSION:START:", handleNewMission, dispatcher.Buffered(1), dispatcher.Blocking(), dispatcher.Gated(storageReady))
 
+	d.Register(":MISSION:FOCUS_START:", func(e dispatcher.Event) (any, error) {
+		if len(e.Args) < 1 {
+			return nil, fmt.Errorf("MISSION:FOCUS_START requires 1 arg (frame)")
+		}
+		v, err := strconv.ParseUint(strings.TrimSpace(util.TrimQuotes(e.Args[0])), 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid focus start frame: %w", err)
+		}
+		f := core.Frame(v)
+		focusStart = &f
+		Logger.Info("Focus start set", "frame", f)
+		return nil, nil
+	})
+
+	d.Register(":MISSION:FOCUS_END:", func(e dispatcher.Event) (any, error) {
+		if len(e.Args) < 1 {
+			return nil, fmt.Errorf("MISSION:FOCUS_END requires 1 arg (frame)")
+		}
+		v, err := strconv.ParseUint(strings.TrimSpace(util.TrimQuotes(e.Args[0])), 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid focus end frame: %w", err)
+		}
+		f := core.Frame(v)
+		focusEnd = &f
+		Logger.Info("Focus end set", "frame", f)
+		return nil, nil
+	})
+
 	d.Register(":MISSION:SAVE:", func(e dispatcher.Event) (any, error) {
 		Logger.Info("Received :MISSION:SAVE: command, ending mission recording")
 		if storageBackend != nil {
@@ -387,6 +424,19 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 			if u, ok := storageBackend.(storage.Uploadable); ok && apiClient != nil {
 				if path := u.GetExportedFilePath(); path != "" {
 					meta := u.GetExportMetadata()
+					if focusStart != nil || focusEnd != nil {
+						if focusStart != nil {
+							meta.FocusStart = focusStart
+						} else {
+							f := core.Frame(0)
+							meta.FocusStart = &f
+						}
+						if focusEnd != nil {
+							meta.FocusEnd = focusEnd
+						} else {
+							meta.FocusEnd = &meta.EndFrame
+						}
+					}
 					if err := apiClient.Upload(path, meta); err != nil {
 						Logger.Error("Failed to upload to OCAP web", "error", err, "path", path)
 						// Don't return error - file is saved locally
