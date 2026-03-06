@@ -464,6 +464,24 @@ func TestDeleteVehicle_IsNoOp(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestSetFocusStart_IsNoOp(t *testing.T) {
+	b := newTestBackend()
+	b.Init() //nolint:errcheck // Init fails (no postgres) but queues are created for testing
+	defer func() { require.NoError(t, b.Close()) }()
+
+	err := b.SetFocusStart(100)
+	require.NoError(t, err)
+}
+
+func TestSetFocusEnd_IsNoOp(t *testing.T) {
+	b := newTestBackend()
+	b.Init() //nolint:errcheck // Init fails (no postgres) but queues are created for testing
+	defer func() { require.NoError(t, b.Close()) }()
+
+	err := b.SetFocusEnd(500)
+	require.NoError(t, err)
+}
+
 func TestDeleteMarker_PushesAlphaZeroState(t *testing.T) {
 	b := newTestBackend()
 	b.Init() //nolint:errcheck // Init fails (no postgres) but queues are created for testing
