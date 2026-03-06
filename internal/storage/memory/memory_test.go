@@ -985,3 +985,103 @@ func TestFocusRange_ResetOnNewMission(t *testing.T) {
 	assert.Nil(t, b.focusOpenStart)
 	assert.Len(t, b.focusRanges, 0)
 }
+
+func TestFocusRange_StartFrameZero(t *testing.T) {
+	b := New(config.MemoryConfig{}, nil)
+
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Focus", CaptureDelay: 1.0}, &core.World{WorldName: "Altis"}))
+
+	// Frame 0 (FrameForever) is invalid for focus start
+	err := b.SetFocusStart(core.Frame(0))
+	assert.Error(t, err)
+	assert.Nil(t, b.focusOpenStart)
+}
+
+func TestFocusRange_EndBeforeStart(t *testing.T) {
+	b := New(config.MemoryConfig{}, nil)
+
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Focus", CaptureDelay: 1.0}, &core.World{WorldName: "Altis"}))
+
+	// start(45), end(1) — end must be > start
+	require.NoError(t, b.SetFocusStart(core.Frame(45)))
+	err := b.SetFocusEnd(core.Frame(1))
+	assert.Error(t, err)
+
+	// Range should NOT have been added, but the open start should still be there
+	assert.Len(t, b.focusRanges, 0)
+	assert.NotNil(t, b.focusOpenStart)
+	assert.Equal(t, core.Frame(45), *b.focusOpenStart)
+}
+
+func TestFocusRange_EndEqualToStart(t *testing.T) {
+	b := New(config.MemoryConfig{}, nil)
+
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Focus", CaptureDelay: 1.0}, &core.World{WorldName: "Altis"}))
+
+	// start(50), end(50) — end must be strictly greater
+	require.NoError(t, b.SetFocusStart(core.Frame(50)))
+	err := b.SetFocusEnd(core.Frame(50))
+	assert.Error(t, err)
+	assert.Len(t, b.focusRanges, 0)
+}
+
+func TestFocusRange_OverlappingStart(t *testing.T) {
+	b := New(config.MemoryConfig{}, nil)
+
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Focus", CaptureDelay: 1.0}, &core.World{WorldName: "Altis"}))
+
+	// First range: start(1), end(10) — valid
+	require.NoError(t, b.SetFocusStart(core.Frame(1)))
+	require.NoError(t, b.SetFocusEnd(core.Frame(10)))
+
+	// Second start before previous end: start(5) — must be >= 10
+	err := b.SetFocusStart(core.Frame(5))
+	assert.Error(t, err)
+	assert.Nil(t, b.focusOpenStart)
+	assert.Len(t, b.focusRanges, 1)
+}
+
+func TestFocusRange_UserScenario(t *testing.T) {
+	// User's exact scenario: start(1), end(10), start(45), end(1), start(10), end(100)
+	b := New(config.MemoryConfig{}, nil)
+
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Focus", CaptureDelay: 1.0}, &core.World{WorldName: "Altis"}))
+
+	s := &core.Soldier{ID: 1}
+	require.NoError(t, b.AddSoldier(s))
+	require.NoError(t, b.RecordSoldierState(&core.SoldierState{SoldierID: 1, CaptureFrame: 500}))
+
+	// start(1), end(10) — valid first range
+	require.NoError(t, b.SetFocusStart(core.Frame(1)))
+	require.NoError(t, b.SetFocusEnd(core.Frame(10)))
+	assert.Len(t, b.focusRanges, 1)
+
+	// start(45), end(1) — start is valid (45 >= 10), but end(1) < start(45) = error
+	require.NoError(t, b.SetFocusStart(core.Frame(45)))
+	err := b.SetFocusEnd(core.Frame(1))
+	assert.Error(t, err)
+	// Range still open at 45
+	assert.Len(t, b.focusRanges, 1)
+	assert.NotNil(t, b.focusOpenStart)
+
+	// Close the open range properly, then start a new one
+	require.NoError(t, b.SetFocusEnd(core.Frame(50)))
+	assert.Len(t, b.focusRanges, 2)
+
+	// start(10) — must be >= 50 (end of last range), so this fails
+	err = b.SetFocusStart(core.Frame(10))
+	assert.Error(t, err)
+
+	// start(100), end(200) — valid third range
+	require.NoError(t, b.SetFocusStart(core.Frame(100)))
+	require.NoError(t, b.SetFocusEnd(core.Frame(200)))
+
+	meta := b.GetExportMetadata()
+	require.Len(t, meta.FocusRanges, 3)
+	assert.Equal(t, core.Frame(1), meta.FocusRanges[0].Start)
+	assert.Equal(t, core.Frame(10), meta.FocusRanges[0].End)
+	assert.Equal(t, core.Frame(45), meta.FocusRanges[1].Start)
+	assert.Equal(t, core.Frame(50), meta.FocusRanges[1].End)
+	assert.Equal(t, core.Frame(100), meta.FocusRanges[2].Start)
+	assert.Equal(t, core.Frame(200), meta.FocusRanges[2].End)
+}

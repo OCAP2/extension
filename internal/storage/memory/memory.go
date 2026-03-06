@@ -395,25 +395,41 @@ func (b *Backend) RecordPlacedObjectEvent(e *core.PlacedObjectEvent) error {
 	return nil
 }
 
-// SetFocusStart opens a new focus range. If a range is already open, logs a warning and ignores.
+// SetFocusStart opens a new focus range.
+// Returns an error if a range is already open or if the start frame is invalid.
 func (b *Backend) SetFocusStart(frame core.Frame) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	if frame == core.FrameForever {
+		return fmt.Errorf("focus start frame must be > 0")
+	}
 	if b.focusOpenStart != nil {
 		b.logger.Warn("SetFocusStart called while a focus range is already open, ignoring", "openStart", *b.focusOpenStart, "newStart", frame)
 		return nil
+	}
+	if len(b.focusRanges) > 0 {
+		lastEnd := b.focusRanges[len(b.focusRanges)-1].End
+		if frame < lastEnd {
+			return fmt.Errorf("focus start frame %d must be >= end of previous range %d", frame, lastEnd)
+		}
 	}
 	b.focusOpenStart = &frame
 	return nil
 }
 
-// SetFocusEnd closes the currently open focus range. If no range is open, logs a warning and ignores.
+// SetFocusEnd closes the currently open focus range.
+// Returns an error if no range is open or if the end frame is invalid.
 func (b *Backend) SetFocusEnd(frame core.Frame) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
 	if b.focusOpenStart == nil {
 		b.logger.Warn("SetFocusEnd called without an open focus range, ignoring", "frame", frame)
 		return nil
+	}
+	if frame <= *b.focusOpenStart {
+		return fmt.Errorf("focus end frame %d must be > start frame %d", frame, *b.focusOpenStart)
 	}
 	b.focusRanges = append(b.focusRanges, core.FocusRange{Start: *b.focusOpenStart, End: frame})
 	b.focusOpenStart = nil
