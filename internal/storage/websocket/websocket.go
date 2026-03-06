@@ -189,6 +189,14 @@ func (b *Backend) RecordAce3UnconsciousEvent(e *core.Ace3UnconsciousEvent) error
 	return b.sendEnvelope(streaming.TypeAce3Unconscious, e)
 }
 
+func (b *Backend) SetFocusStart(frame core.Frame) error {
+	return b.sendEnvelope(streaming.TypeMissionFocusStart, map[string]any{"frame": frame})
+}
+
+func (b *Backend) SetFocusEnd(frame core.Frame) error {
+	return b.sendEnvelope(streaming.TypeMissionFocusEnd, map[string]any{"frame": frame})
+}
+
 func (b *Backend) AddPlacedObject(p *core.PlacedObject) error {
 	return b.sendEnvelope(streaming.TypeAddPlaced, p)
 }

@@ -51,10 +51,18 @@ type SideFriendly struct {
 	WestIndependent bool `json:"westIndependent"`
 }
 
+// FocusRange represents a focus range in the recording timeline.
+type FocusRange struct {
+	Start Frame
+	End   Frame
+}
+
 // UploadMetadata contains mission information needed for upload.
 type UploadMetadata struct {
 	WorldName       string
 	MissionName     string
 	MissionDuration float64
 	Tag             string
+	EndFrame        Frame
+	FocusRanges     []FocusRange
 }

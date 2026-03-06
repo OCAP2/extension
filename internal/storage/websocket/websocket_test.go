@@ -166,6 +166,8 @@ func TestAllMessageTypes(t *testing.T) {
 	require.NoError(t, b.RecordAce3UnconsciousEvent(&core.Ace3UnconsciousEvent{SoldierID: 1, IsUnconscious: true}))
 	require.NoError(t, b.AddPlacedObject(&core.PlacedObject{ID: 200, ClassName: "APERSMine"}))
 	require.NoError(t, b.RecordPlacedObjectEvent(&core.PlacedObjectEvent{PlacedID: 200, EventType: "detonated"}))
+	require.NoError(t, b.SetFocusStart(core.Frame(100)))
+	require.NoError(t, b.SetFocusEnd(core.Frame(200)))
 
 	require.NoError(t, b.EndMission())
 

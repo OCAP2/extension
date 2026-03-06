@@ -24,7 +24,7 @@ func TestIntegrationFullExport(t *testing.T) {
 	b := New(config.MemoryConfig{
 		OutputDir:      tempDir,
 		CompressOutput: false,
-	})
+	}, nil)
 
 	mission := &core.Mission{
 		MissionName:      "Test Mission",
@@ -175,7 +175,7 @@ func TestExportJSON(t *testing.T) {
 	b := New(config.MemoryConfig{
 		OutputDir:      tempDir,
 		CompressOutput: false,
-	})
+	}, nil)
 
 	require.NoError(t, b.StartMission(&core.Mission{
 		MissionName: "Export Test", Author: "Author", StartTime: time.Date(2024, 3, 15, 14, 30, 0, 0, time.UTC),
@@ -198,7 +198,7 @@ func TestExportJSON(t *testing.T) {
 func TestExportGzipJSON(t *testing.T) {
 	tempDir := t.TempDir()
 
-	b := New(config.MemoryConfig{OutputDir: tempDir, CompressOutput: true})
+	b := New(config.MemoryConfig{OutputDir: tempDir, CompressOutput: true}, nil)
 
 	require.NoError(t, b.StartMission(&core.Mission{
 		MissionName: "Gzip Test", Author: "Author", StartTime: time.Date(2024, 3, 15, 14, 30, 0, 0, time.UTC),
@@ -238,7 +238,7 @@ func TestFilenameGeneration(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		b := New(config.MemoryConfig{OutputDir: tempDir, CompressOutput: tt.compress})
+		b := New(config.MemoryConfig{OutputDir: tempDir, CompressOutput: tt.compress}, nil)
 
 		require.NoError(t, b.StartMission(&core.Mission{MissionName: tt.missionName, StartTime: time.Now()}, &core.World{WorldName: "Test"}))
 		require.NoError(t, b.EndMission())
@@ -260,7 +260,7 @@ func TestExportCreatesOutputDir(t *testing.T) {
 	b := New(config.MemoryConfig{
 		OutputDir:      nonExistentDir,
 		CompressOutput: false,
-	})
+	}, nil)
 
 	mission := &core.Mission{
 		MissionName: "Nested Dir Test",
@@ -281,7 +281,7 @@ func TestExportCreatesOutputDir(t *testing.T) {
 }
 
 func TestSoldierPositionFormat(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
 	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 1, UnitName: "Player1", IsPlayer: true, JoinFrame: 1}))
@@ -315,7 +315,7 @@ func TestSoldierPositionFormat(t *testing.T) {
 }
 
 func TestVehiclePositionFormat(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
 	require.NoError(t, b.AddVehicle(&core.Vehicle{ID: 10, DisplayName: "Hunter", OcapType: "car", JoinFrame: 1}))
@@ -348,7 +348,7 @@ func TestVehiclePositionFormat(t *testing.T) {
 }
 
 func TestFiredEventFormat(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
 	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 1, JoinFrame: 1}))
@@ -377,7 +377,7 @@ func TestFiredEventFormat(t *testing.T) {
 }
 
 func TestMarkerPositionFormat(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
 	testMarker := &core.Marker{
@@ -410,7 +410,7 @@ func TestMarkerPositionFormat(t *testing.T) {
 
 func TestEmptyExport(t *testing.T) {
 	tempDir := t.TempDir()
-	b := New(config.MemoryConfig{OutputDir: tempDir, CompressOutput: false})
+	b := New(config.MemoryConfig{OutputDir: tempDir, CompressOutput: false}, nil)
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Empty Mission", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
 	require.NoError(t, b.EndMission())
@@ -431,7 +431,7 @@ func TestEmptyExport(t *testing.T) {
 }
 
 func TestMaxFrameCalculation(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
 	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 1, JoinFrame: 1}))
@@ -446,7 +446,7 @@ func TestMaxFrameCalculation(t *testing.T) {
 }
 
 func TestSoldierWithoutVehicle(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
 	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 1, UnitName: "Infantry", IsPlayer: false, JoinFrame: 1}))
@@ -468,7 +468,7 @@ func TestSoldierWithoutVehicle(t *testing.T) {
 }
 
 func TestDeadVehicle(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
 	require.NoError(t, b.AddVehicle(&core.Vehicle{ID: 5, DisplayName: "Destroyed Tank", OcapType: "tank", ClassName: "B_MBT_01_cannon_F", JoinFrame: 1}))
@@ -488,7 +488,7 @@ func TestDeadVehicle(t *testing.T) {
 }
 
 func TestMultipleEntitiesExport(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
 	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 1, UnitName: "Alpha1", GroupID: "Alpha", Side: "WEST", IsPlayer: true, JoinFrame: 1}))
@@ -522,7 +522,7 @@ func TestMultipleEntitiesExport(t *testing.T) {
 }
 
 func TestEventWithoutExtraData(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
 	require.NoError(t, b.RecordGeneralEvent(&core.GeneralEvent{CaptureFrame: 100, Name: "endMission", Message: "Mission ended", ExtraData: nil}))
@@ -575,7 +575,7 @@ func TestGeneralEventJSONMessageParsing(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			b := New(config.MemoryConfig{})
+			b := New(config.MemoryConfig{}, nil)
 			require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
 			require.NoError(t, b.RecordGeneralEvent(&core.GeneralEvent{
 				CaptureFrame: 10,
@@ -592,7 +592,7 @@ func TestGeneralEventJSONMessageParsing(t *testing.T) {
 }
 
 func TestMultipleMarkersExport(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
 	// Each marker needs a unique ID so RecordMarkerState can find the correct one
@@ -637,7 +637,7 @@ func TestMultipleMarkersExport(t *testing.T) {
 }
 
 func TestMultipleFiredEvents(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
 	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 1, UnitName: "Shooter", JoinFrame: 1}))
@@ -673,7 +673,7 @@ func TestMultipleFiredEvents(t *testing.T) {
 }
 
 func TestVehicleWithJoinFrame(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
 	require.NoError(t, b.AddVehicle(&core.Vehicle{
@@ -697,7 +697,7 @@ func TestVehicleWithJoinFrame(t *testing.T) {
 // TestJSONFormatValidation validates that JSON output matches the old C++ extension format
 func TestJSONFormatValidation(t *testing.T) {
 	tempDir := t.TempDir()
-	b := New(config.MemoryConfig{OutputDir: tempDir, CompressOutput: false})
+	b := New(config.MemoryConfig{OutputDir: tempDir, CompressOutput: false}, nil)
 
 	require.NoError(t, b.StartMission(&core.Mission{
 		MissionName: "Format Test", Author: "Author", StartTime: time.Now(),
@@ -829,7 +829,7 @@ func ptrUint16(v uint16) *uint16 {
 }
 
 func TestMarkerColorHashPrefixIsStripped(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
 
@@ -873,7 +873,7 @@ func TestMarkerColorHashPrefixIsStripped(t *testing.T) {
 }
 
 func TestMarkerOwnerIDExport(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
 
@@ -919,7 +919,7 @@ func TestMarkerOwnerIDExport(t *testing.T) {
 }
 
 func TestMarkerSizeAndBrushExport(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
 
@@ -968,7 +968,7 @@ func TestMarkerSizeAndBrushExport(t *testing.T) {
 }
 
 func TestExtensionBuildExport(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	require.NoError(t, b.StartMission(&core.Mission{
 		MissionName:    "Test",
@@ -982,7 +982,7 @@ func TestExtensionBuildExport(t *testing.T) {
 }
 
 func TestTagsExport(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	require.NoError(t, b.StartMission(&core.Mission{
 		MissionName: "Test",
@@ -996,7 +996,7 @@ func TestTagsExport(t *testing.T) {
 }
 
 func TestTimesExport(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	require.NoError(t, b.StartMission(&core.Mission{
 		MissionName: "Test",
@@ -1039,7 +1039,7 @@ func TestTimesExport(t *testing.T) {
 }
 
 func TestTimesExportEmpty(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	require.NoError(t, b.StartMission(&core.Mission{
 		MissionName: "Test",
@@ -1055,7 +1055,7 @@ func TestTimesExportEmpty(t *testing.T) {
 
 func TestTimesExportJSON(t *testing.T) {
 	tempDir := t.TempDir()
-	b := New(config.MemoryConfig{OutputDir: tempDir, CompressOutput: false})
+	b := New(config.MemoryConfig{OutputDir: tempDir, CompressOutput: false}, nil)
 
 	require.NoError(t, b.StartMission(&core.Mission{
 		MissionName:    "Times Test",
@@ -1105,7 +1105,7 @@ func TestTimesExportJSON(t *testing.T) {
 }
 
 func TestPolylineMarkerExport(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
 
@@ -1161,7 +1161,7 @@ func TestPolylineMarkerExport(t *testing.T) {
 func TestVehicleCrewExportIntegration(t *testing.T) {
 	tempDir := t.TempDir()
 
-	b := New(config.MemoryConfig{OutputDir: tempDir, CompressOutput: false})
+	b := New(config.MemoryConfig{OutputDir: tempDir, CompressOutput: false}, nil)
 
 	require.NoError(t, b.StartMission(&core.Mission{
 		MissionName: "Crew Test", Author: "Test", StartTime: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
@@ -1226,7 +1226,7 @@ func TestVehicleCrewExportIntegration(t *testing.T) {
 }
 
 func TestPlayerTakeoverUpdatesEntityMetadata(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
 
@@ -1283,7 +1283,7 @@ func TestExportJSON_MkdirAllError(t *testing.T) {
 	b := New(config.MemoryConfig{
 		OutputDir:      "/dev/null/subdir",
 		CompressOutput: false,
-	})
+	}, nil)
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
 
@@ -1316,7 +1316,7 @@ func TestEndMission_ExportError(t *testing.T) {
 	b := New(config.MemoryConfig{
 		OutputDir:      "/dev/null/subdir",
 		CompressOutput: true,
-	})
+	}, nil)
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
 
@@ -1326,7 +1326,7 @@ func TestEndMission_ExportError(t *testing.T) {
 }
 
 func TestPlacedObjectExport(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
 
@@ -1379,7 +1379,7 @@ func TestPlacedObjectExport(t *testing.T) {
 
 func TestMarkerSideValues(t *testing.T) {
 	// Test that sideToIndex correctly handles side string values
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
 
 	// Add markers with string side values
@@ -1427,7 +1427,7 @@ func TestMarkerSideValues(t *testing.T) {
 }
 
 func TestPlacedObjectHitEventExport(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
 

@@ -42,6 +42,10 @@ type Backend interface {
 	// Placed objects
 	AddPlacedObject(p *core.PlacedObject) error
 	RecordPlacedObjectEvent(e *core.PlacedObjectEvent) error
+
+	// Mission focus
+	SetFocusStart(frame core.Frame) error
+	SetFocusEnd(frame core.Frame) error
 }
 
 // Uploadable is an optional interface for storage backends that produce

@@ -75,6 +75,8 @@ type mockBackend struct {
 	placedEvents      []*core.PlacedObjectEvent
 	deletedSoldiers   []soldierDeleteCall
 	deletedVehicles   []vehicleDeleteCall
+	focusStarts       []core.Frame
+	focusEnds         []core.Frame
 	initCalled     bool
 	closeCalled    bool
 	missionStarted bool
@@ -264,6 +266,20 @@ func (b *mockBackend) RecordPlacedObjectEvent(e *core.PlacedObjectEvent) error {
 	return nil
 }
 
+func (b *mockBackend) SetFocusStart(frame core.Frame) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.focusStarts = append(b.focusStarts, frame)
+	return nil
+}
+
+func (b *mockBackend) SetFocusEnd(frame core.Frame) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.focusEnds = append(b.focusEnds, frame)
+	return nil
+}
+
 // errorBackend is a mockBackend that returns an error from AddMarker.
 
 // mockParserService provides a minimal implementation for testing
@@ -295,6 +311,8 @@ type mockParserService struct {
 	soldierDeleteFrame core.Frame
 	vehicleDeleteID    uint16
 	vehicleDeleteFrame core.Frame
+	focusStartFrame    core.Frame
+	focusEndFrame      core.Frame
 
 	// Error simulation
 	returnError bool
@@ -514,6 +532,26 @@ func (h *mockParserService) ParsePlacedObjectEvent(args []string) (core.PlacedOb
 	return h.placedEvent, nil
 }
 
+func (h *mockParserService) ParseFocusStart(args []string) (core.Frame, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.calls = append(h.calls, "ParseFocusStart")
+	if h.returnError {
+		return 0, errors.New(h.errorMsg)
+	}
+	return h.focusStartFrame, nil
+}
+
+func (h *mockParserService) ParseFocusEnd(args []string) (core.Frame, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.calls = append(h.calls, "ParseFocusEnd")
+	if h.returnError {
+		return 0, errors.New(h.errorMsg)
+	}
+	return h.focusEndFrame, nil
+}
+
 // waitFor polls until check returns true or times out after 2s.
 func waitFor(t *testing.T, check func() bool, msg string) {
 	t.Helper()
@@ -584,6 +622,8 @@ func TestRegisterHandlers_RegistersAllCommands(t *testing.T) {
 		":MARKER:CREATE:",
 		":MARKER:STATE:",
 		":MARKER:DELETE:",
+		":MISSION:FOCUS_START:",
+		":MISSION:FOCUS_END:",
 	}
 
 	for _, cmd := range expectedCommands {
@@ -2350,6 +2390,20 @@ func (b *configurableErrorBackend) RecordPlacedObjectEvent(e *core.PlacedObjectE
 	return b.mockBackend.RecordPlacedObjectEvent(e)
 }
 
+func (b *configurableErrorBackend) SetFocusStart(frame core.Frame) error {
+	if e := b.fail("SetFocusStart"); e != nil {
+		return e
+	}
+	return b.mockBackend.SetFocusStart(frame)
+}
+
+func (b *configurableErrorBackend) SetFocusEnd(frame core.Frame) error {
+	if e := b.fail("SetFocusEnd"); e != nil {
+		return e
+	}
+	return b.mockBackend.SetFocusEnd(frame)
+}
+
 // --- Backend Record* error tests ---
 
 func TestHandleSoldierState_BackendError(t *testing.T) {
@@ -2783,4 +2837,120 @@ func TestHandleMarkerDelete_BackendError(t *testing.T) {
 	_, err := d.Dispatch(dispatcher.Event{Command: ":MARKER:DELETE:", Args: []string{}})
 	require.NoError(t, err)
 	waitForLogMsg(t, logger, "event failed")
+}
+
+// --- Focus handler tests ---
+
+func TestHandleFocusStart(t *testing.T) {
+	d, _ := newTestDispatcher(t)
+
+	parserService := &mockParserService{
+		focusStartFrame: core.Frame(100),
+	}
+
+	backend := &mockBackend{}
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   cache.NewEntityCache(),
+	}, backend)
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":MISSION:FOCUS_START:", Args: []string{"100"}})
+	require.NoError(t, err)
+
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	require.Len(t, backend.focusStarts, 1)
+	assert.Equal(t, core.Frame(100), backend.focusStarts[0])
+}
+
+func TestHandleFocusEnd(t *testing.T) {
+	d, _ := newTestDispatcher(t)
+
+	parserService := &mockParserService{
+		focusEndFrame: core.Frame(500),
+	}
+
+	backend := &mockBackend{}
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   cache.NewEntityCache(),
+	}, backend)
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":MISSION:FOCUS_END:", Args: []string{"500"}})
+	require.NoError(t, err)
+
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	require.Len(t, backend.focusEnds, 1)
+	assert.Equal(t, core.Frame(500), backend.focusEnds[0])
+}
+
+func TestHandleFocusStart_ParserError(t *testing.T) {
+	d, _ := newTestDispatcher(t)
+
+	parserService := &mockParserService{returnError: true, errorMsg: "bad focus start"}
+	backend := &mockBackend{}
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   cache.NewEntityCache(),
+	}, backend)
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":MISSION:FOCUS_START:", Args: []string{}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to parse focus start")
+	assert.Empty(t, backend.focusStarts)
+}
+
+func TestHandleFocusEnd_ParserError(t *testing.T) {
+	d, _ := newTestDispatcher(t)
+
+	parserService := &mockParserService{returnError: true, errorMsg: "bad focus end"}
+	backend := &mockBackend{}
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   cache.NewEntityCache(),
+	}, backend)
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":MISSION:FOCUS_END:", Args: []string{}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to parse focus end")
+	assert.Empty(t, backend.focusEnds)
+}
+
+func TestHandleFocusStart_BackendError(t *testing.T) {
+	d, _ := newTestDispatcher(t)
+
+	parserService := &mockParserService{
+		focusStartFrame: core.Frame(100),
+	}
+
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   cache.NewEntityCache(),
+	}, &configurableErrorBackend{failOn: map[string]error{"SetFocusStart": errInjected}})
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":MISSION:FOCUS_START:", Args: []string{"100"}})
+	require.Error(t, err)
+}
+
+func TestHandleFocusEnd_BackendError(t *testing.T) {
+	d, _ := newTestDispatcher(t)
+
+	parserService := &mockParserService{
+		focusEndFrame: core.Frame(500),
+	}
+
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   cache.NewEntityCache(),
+	}, &configurableErrorBackend{failOn: map[string]error{"SetFocusEnd": errInjected}})
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":MISSION:FOCUS_END:", Args: []string{"500"}})
+	require.Error(t, err)
 }

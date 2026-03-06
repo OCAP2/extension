@@ -3,6 +3,7 @@ package memory
 
 import (
 	"fmt"
+	"log/slog"
 	"sync"
 
 	"github.com/OCAP2/extension/v5/internal/config"
@@ -62,11 +63,18 @@ type Backend struct {
 	ace3UnconsciousEvents []core.Ace3UnconsciousEvent
 	projectileEvents      []core.ProjectileEvent
 
-	mu sync.RWMutex
+	focusRanges    []core.FocusRange // completed ranges
+	focusOpenStart *core.Frame       // currently open range (start set, end not yet)
+
+	logger *slog.Logger
+	mu     sync.RWMutex
 }
 
 // New creates a new memory backend
-func New(cfg config.MemoryConfig) *Backend {
+func New(cfg config.MemoryConfig, logger *slog.Logger) *Backend {
+	if logger == nil {
+		logger = slog.Default()
+	}
 	return &Backend{
 		cfg:         cfg,
 		soldiers:    make(map[uint16]*SoldierRecord),
@@ -74,6 +82,7 @@ func New(cfg config.MemoryConfig) *Backend {
 		markers:     make(map[string]*MarkerRecord),
 		markersByID: make(map[uint]*MarkerRecord),
 		placed:      make(map[uint16]*PlacedObjectRecord),
+		logger:      logger,
 	}
 }
 
@@ -144,6 +153,8 @@ func (b *Backend) resetCollections() {
 	b.ace3DeathEvents = nil
 	b.ace3UnconsciousEvents = nil
 	b.projectileEvents = nil
+	b.focusRanges = nil
+	b.focusOpenStart = nil
 }
 
 // AddSoldier registers a new soldier.
@@ -384,6 +395,47 @@ func (b *Backend) RecordPlacedObjectEvent(e *core.PlacedObjectEvent) error {
 	return nil
 }
 
+// SetFocusStart opens a new focus range.
+// Returns an error if a range is already open or if the start frame is invalid.
+func (b *Backend) SetFocusStart(frame core.Frame) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if frame == core.FrameForever {
+		return fmt.Errorf("focus start frame must be > 0")
+	}
+	if b.focusOpenStart != nil {
+		b.logger.Warn("SetFocusStart called while a focus range is already open, ignoring", "openStart", *b.focusOpenStart, "newStart", frame)
+		return nil
+	}
+	if len(b.focusRanges) > 0 {
+		lastEnd := b.focusRanges[len(b.focusRanges)-1].End
+		if frame < lastEnd {
+			return fmt.Errorf("focus start frame %d must be >= end of previous range %d", frame, lastEnd)
+		}
+	}
+	b.focusOpenStart = &frame
+	return nil
+}
+
+// SetFocusEnd closes the currently open focus range.
+// Returns an error if no range is open or if the end frame is invalid.
+func (b *Backend) SetFocusEnd(frame core.Frame) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.focusOpenStart == nil {
+		b.logger.Warn("SetFocusEnd called without an open focus range, ignoring", "frame", frame)
+		return nil
+	}
+	if frame <= *b.focusOpenStart {
+		return fmt.Errorf("focus end frame %d must be > start frame %d", frame, *b.focusOpenStart)
+	}
+	b.focusRanges = append(b.focusRanges, core.FocusRange{Start: *b.focusOpenStart, End: frame})
+	b.focusOpenStart = nil
+	return nil
+}
+
 // GetExportedFilePath returns the path to the last exported file.
 func (b *Backend) GetExportedFilePath() string {
 	b.mu.RLock()
@@ -436,12 +488,28 @@ func (b *Backend) computeExportMetadata() core.UploadMetadata {
 
 	duration := float64(endFrame) * float64(b.mission.CaptureDelay) / 1000.0
 
-	return core.UploadMetadata{
+	meta := core.UploadMetadata{
 		WorldName:       b.world.WorldName,
 		MissionName:     b.mission.MissionName,
 		MissionDuration: duration,
 		Tag:             b.mission.Tag,
+		EndFrame:        endFrame,
 	}
+
+	// Resolve focus ranges for upload
+	allRanges := make([]core.FocusRange, len(b.focusRanges))
+	copy(allRanges, b.focusRanges)
+
+	// Auto-close any open range with endFrame (only if endFrame > start)
+	if b.focusOpenStart != nil && endFrame > *b.focusOpenStart {
+		allRanges = append(allRanges, core.FocusRange{Start: *b.focusOpenStart, End: endFrame})
+	}
+
+	if len(allRanges) > 0 {
+		meta.FocusRanges = allRanges
+	}
+
+	return meta
 }
 
 // BuildExport creates a v1 export from the current mission data.

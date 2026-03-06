@@ -25,7 +25,7 @@ func TestNew(t *testing.T) {
 		OutputDir:      "/tmp/test",
 		CompressOutput: true,
 	}
-	b := New(cfg)
+	b := New(cfg, nil)
 
 	require.NotNil(t, b)
 	assert.Equal(t, "/tmp/test", b.cfg.OutputDir)
@@ -36,14 +36,14 @@ func TestNew(t *testing.T) {
 }
 
 func TestInitAndClose(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	assert.NoError(t, b.Init())
 	assert.NoError(t, b.Close())
 }
 
 func TestStartMission(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	mission := &core.Mission{
 		MissionName: "Test Mission",
@@ -68,7 +68,7 @@ func TestStartMission(t *testing.T) {
 }
 
 func TestAddSoldier(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	s1 := &core.Soldier{
 		ID:       1,
@@ -97,7 +97,7 @@ func TestAddSoldier(t *testing.T) {
 }
 
 func TestAddVehicle(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	v1 := &core.Vehicle{
 		ID:          10,
@@ -121,7 +121,7 @@ func TestAddVehicle(t *testing.T) {
 }
 
 func TestAddMarker(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	m1 := &core.Marker{
 		MarkerName: "marker_1",
@@ -149,7 +149,7 @@ func TestAddMarker(t *testing.T) {
 }
 
 func TestRecordSoldierState(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	s := &core.Soldier{ID: 1, UnitName: "Test"}
 	require.NoError(t, b.AddSoldier(s))
@@ -183,7 +183,7 @@ func TestRecordSoldierState(t *testing.T) {
 }
 
 func TestRecordVehicleState(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	v := &core.Vehicle{ID: 10, ClassName: "Car"}
 	require.NoError(t, b.AddVehicle(v))
@@ -206,7 +206,7 @@ func TestRecordVehicleState(t *testing.T) {
 }
 
 func TestRecordMarkerState(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	m := &core.Marker{MarkerName: "test_marker"}
 	id, err := b.AddMarker(m)
@@ -231,7 +231,7 @@ func TestRecordMarkerState(t *testing.T) {
 }
 
 func TestDeleteMarker(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	m := &core.Marker{MarkerName: "grenade_1", EndFrame: core.FrameForever}
 	_, err := b.AddMarker(m)
@@ -248,7 +248,7 @@ func TestDeleteMarker(t *testing.T) {
 }
 
 func TestDeleteSoldier(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	s := &core.Soldier{ID: 1, UnitName: "Test"}
 	require.NoError(t, b.AddSoldier(s))
@@ -264,7 +264,7 @@ func TestDeleteSoldier(t *testing.T) {
 }
 
 func TestDeleteVehicle(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	v := &core.Vehicle{ID: 10, ClassName: "B_MRAP_01_F"}
 	require.NoError(t, b.AddVehicle(v))
@@ -280,7 +280,7 @@ func TestDeleteVehicle(t *testing.T) {
 }
 
 func TestRecordFiredEvent(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	s := &core.Soldier{ID: 1}
 	require.NoError(t, b.AddSoldier(s))
@@ -307,7 +307,7 @@ func TestRecordFiredEvent(t *testing.T) {
 }
 
 func TestRecordGeneralEvent(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	evt := &core.GeneralEvent{
 		CaptureFrame: 50,
@@ -323,7 +323,7 @@ func TestRecordGeneralEvent(t *testing.T) {
 }
 
 func TestRecordHitEvent(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	victimID := uint(1)
 	shooterID := uint(2)
@@ -341,7 +341,7 @@ func TestRecordHitEvent(t *testing.T) {
 }
 
 func TestRecordKillEvent(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	victimID := uint(1)
 	killerID := uint(2)
@@ -359,7 +359,7 @@ func TestRecordKillEvent(t *testing.T) {
 }
 
 func TestRecordChatEvent(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	soldierID := uint(1)
 	evt := &core.ChatEvent{
@@ -376,7 +376,7 @@ func TestRecordChatEvent(t *testing.T) {
 }
 
 func TestRecordRadioEvent(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	soldierID := uint(1)
 	evt := &core.RadioEvent{
@@ -395,7 +395,7 @@ func TestRecordRadioEvent(t *testing.T) {
 }
 
 func TestRecordTelemetryEvent(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	evt := &core.TelemetryEvent{
 		CaptureFrame: 100,
@@ -410,7 +410,7 @@ func TestRecordTelemetryEvent(t *testing.T) {
 }
 
 func TestRecordTimeState(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	now := time.Now()
 	state := &core.TimeState{
@@ -430,7 +430,7 @@ func TestRecordTimeState(t *testing.T) {
 }
 
 func TestRecordAce3DeathEvent(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	damageSource := uint(2)
 	evt := &core.Ace3DeathEvent{
@@ -446,7 +446,7 @@ func TestRecordAce3DeathEvent(t *testing.T) {
 }
 
 func TestRecordAce3UnconsciousEvent(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	evt := &core.Ace3UnconsciousEvent{
 		SoldierID:     1,
@@ -460,7 +460,7 @@ func TestRecordAce3UnconsciousEvent(t *testing.T) {
 }
 
 func TestRecordProjectileEvent(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	evt := &core.ProjectileEvent{
 		CaptureFrame:   100,
@@ -481,7 +481,7 @@ func TestRecordProjectileEvent(t *testing.T) {
 }
 
 func TestAddPlacedObject(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	p1 := &core.PlacedObject{
 		ID:          100,
@@ -513,7 +513,7 @@ func TestAddPlacedObject(t *testing.T) {
 }
 
 func TestRecordPlacedObjectEvent(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	p := &core.PlacedObject{ID: 100, DisplayName: "Mine"}
 	require.NoError(t, b.AddPlacedObject(p))
@@ -537,7 +537,7 @@ func TestRecordPlacedObjectEvent(t *testing.T) {
 }
 
 func TestConcurrentAccess(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	var wg sync.WaitGroup
 	numGoroutines := 10
@@ -576,7 +576,7 @@ func TestConcurrentAccess(t *testing.T) {
 }
 
 func TestIDsPreserved(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	// IDs are ObjectIDs set by caller, not auto-assigned
 	s := &core.Soldier{ID: 1}
@@ -597,7 +597,7 @@ func TestIDsPreserved(t *testing.T) {
 }
 
 func TestStartMissionResetsEverything(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	// Populate with data
 	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 1}))
@@ -642,7 +642,7 @@ func TestGetExportedFilePath(t *testing.T) {
 	b := New(config.MemoryConfig{
 		OutputDir:      t.TempDir(),
 		CompressOutput: true,
-	})
+	}, nil)
 
 	// Before export, should return empty
 	assert.Empty(t, b.GetExportedFilePath())
@@ -653,7 +653,7 @@ func TestGetExportedFilePath_AfterExport(t *testing.T) {
 	b := New(config.MemoryConfig{
 		OutputDir:      tmpDir,
 		CompressOutput: true,
-	})
+	}, nil)
 
 	mission := &core.Mission{
 		MissionName: "Test",
@@ -675,7 +675,7 @@ func TestGetExportedFilePath_UncompressedExport(t *testing.T) {
 	b := New(config.MemoryConfig{
 		OutputDir:      tmpDir,
 		CompressOutput: false,
-	})
+	}, nil)
 
 	mission := &core.Mission{
 		MissionName: "Test",
@@ -693,7 +693,7 @@ func TestGetExportedFilePath_UncompressedExport(t *testing.T) {
 }
 
 func TestGetExportMetadata(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	mission := &core.Mission{
 		MissionName:  "Test Mission",
@@ -724,7 +724,7 @@ func TestGetExportMetadata(t *testing.T) {
 }
 
 func TestGetExportMetadata_VehicleEndFrame(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	mission := &core.Mission{
 		MissionName:  "Vehicle Test",
@@ -758,7 +758,7 @@ func TestGetExportMetadata_VehicleEndFrame(t *testing.T) {
 }
 
 func TestGetExportMetadata_EmptyMission(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	mission := &core.Mission{
 		MissionName:  "Empty Mission",
@@ -783,7 +783,7 @@ func TestStartMissionResetsExportPath(t *testing.T) {
 	b := New(config.MemoryConfig{
 		OutputDir:      t.TempDir(),
 		CompressOutput: true,
-	})
+	}, nil)
 
 	mission := &core.Mission{
 		MissionName: "First",
@@ -804,7 +804,7 @@ func TestStartMissionResetsExportPath(t *testing.T) {
 }
 
 func TestEndMissionWithoutStartMission(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	// EndMission without StartMission should return an error, not panic
 	err := b.EndMission()
@@ -813,7 +813,7 @@ func TestEndMissionWithoutStartMission(t *testing.T) {
 }
 
 func TestGetExportMetadataWithoutStartMission(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	// GetExportMetadata without StartMission should return empty metadata, not panic
 	meta := b.GetExportMetadata()
@@ -825,7 +825,7 @@ func TestGetExportMetadataWithoutStartMission(t *testing.T) {
 }
 
 func TestGetExportMetadata_PlacedEventEndFrame(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	mission := &core.Mission{
 		MissionName:  "Placed Test",
@@ -859,7 +859,7 @@ func TestGetExportMetadata_PlacedEventEndFrame(t *testing.T) {
 }
 
 func TestComputeExportMetadata_NilMission(t *testing.T) {
-	b := New(config.MemoryConfig{})
+	b := New(config.MemoryConfig{}, nil)
 
 	// Directly call computeExportMetadata with nil mission/world
 	meta := b.computeExportMetadata()
@@ -867,4 +867,221 @@ func TestComputeExportMetadata_NilMission(t *testing.T) {
 	assert.Empty(t, meta.WorldName)
 	assert.Empty(t, meta.MissionName)
 	assert.Equal(t, 0.0, meta.MissionDuration)
+}
+
+func TestFocusRange_SingleRange(t *testing.T) {
+	b := New(config.MemoryConfig{}, nil)
+
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Focus", CaptureDelay: 1.0}, &core.World{WorldName: "Altis"}))
+
+	s := &core.Soldier{ID: 1}
+	require.NoError(t, b.AddSoldier(s))
+	require.NoError(t, b.RecordSoldierState(&core.SoldierState{SoldierID: 1, CaptureFrame: 200}))
+
+	require.NoError(t, b.SetFocusStart(core.Frame(50)))
+	require.NoError(t, b.SetFocusEnd(core.Frame(150)))
+
+	meta := b.GetExportMetadata()
+
+	require.Len(t, meta.FocusRanges, 1)
+	assert.Equal(t, core.Frame(50), meta.FocusRanges[0].Start)
+	assert.Equal(t, core.Frame(150), meta.FocusRanges[0].End)
+}
+
+func TestFocusRange_MultipleRanges(t *testing.T) {
+	b := New(config.MemoryConfig{}, nil)
+
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Focus", CaptureDelay: 1.0}, &core.World{WorldName: "Altis"}))
+
+	s := &core.Soldier{ID: 1}
+	require.NoError(t, b.AddSoldier(s))
+	require.NoError(t, b.RecordSoldierState(&core.SoldierState{SoldierID: 1, CaptureFrame: 500}))
+
+	// First range
+	require.NoError(t, b.SetFocusStart(core.Frame(10)))
+	require.NoError(t, b.SetFocusEnd(core.Frame(100)))
+
+	// Second range
+	require.NoError(t, b.SetFocusStart(core.Frame(200)))
+	require.NoError(t, b.SetFocusEnd(core.Frame(400)))
+
+	meta := b.GetExportMetadata()
+
+	require.Len(t, meta.FocusRanges, 2)
+	assert.Equal(t, core.Frame(10), meta.FocusRanges[0].Start)
+	assert.Equal(t, core.Frame(100), meta.FocusRanges[0].End)
+	assert.Equal(t, core.Frame(200), meta.FocusRanges[1].Start)
+	assert.Equal(t, core.Frame(400), meta.FocusRanges[1].End)
+}
+
+func TestFocusRange_DoubleStart(t *testing.T) {
+	b := New(config.MemoryConfig{}, nil)
+
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Focus", CaptureDelay: 1.0}, &core.World{WorldName: "Altis"}))
+
+	// First start opens a range
+	require.NoError(t, b.SetFocusStart(core.Frame(10)))
+
+	// Second start should be ignored (warning logged)
+	require.NoError(t, b.SetFocusStart(core.Frame(50)))
+
+	// The open range should still be at frame 10
+	assert.Equal(t, core.Frame(10), *b.focusOpenStart)
+	assert.Len(t, b.focusRanges, 0)
+}
+
+func TestFocusRange_DoubleEnd(t *testing.T) {
+	b := New(config.MemoryConfig{}, nil)
+
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Focus", CaptureDelay: 1.0}, &core.World{WorldName: "Altis"}))
+
+	// End without start should be ignored (warning logged)
+	require.NoError(t, b.SetFocusEnd(core.Frame(100)))
+
+	assert.Nil(t, b.focusOpenStart)
+	assert.Len(t, b.focusRanges, 0)
+}
+
+func TestFocusRange_AutoClose(t *testing.T) {
+	b := New(config.MemoryConfig{}, nil)
+
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Focus", CaptureDelay: 1.0}, &core.World{WorldName: "Altis"}))
+
+	s := &core.Soldier{ID: 1}
+	require.NoError(t, b.AddSoldier(s))
+	require.NoError(t, b.RecordSoldierState(&core.SoldierState{SoldierID: 1, CaptureFrame: 300}))
+
+	// Start a range but never close it
+	require.NoError(t, b.SetFocusStart(core.Frame(50)))
+
+	meta := b.GetExportMetadata()
+
+	// Should auto-close with endFrame (300)
+	require.Len(t, meta.FocusRanges, 1)
+	assert.Equal(t, core.Frame(50), meta.FocusRanges[0].Start)
+	assert.Equal(t, core.Frame(300), meta.FocusRanges[0].End)
+}
+
+func TestFocusRange_NoRanges(t *testing.T) {
+	b := New(config.MemoryConfig{}, nil)
+
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Focus", CaptureDelay: 1.0}, &core.World{WorldName: "Altis"}))
+
+	meta := b.GetExportMetadata()
+
+	assert.Nil(t, meta.FocusRanges)
+}
+
+func TestFocusRange_ResetOnNewMission(t *testing.T) {
+	b := New(config.MemoryConfig{}, nil)
+
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: "First", CaptureDelay: 1.0}, &core.World{WorldName: "Altis"}))
+	require.NoError(t, b.SetFocusStart(core.Frame(10)))
+	require.NoError(t, b.SetFocusEnd(core.Frame(100)))
+
+	// Start new mission should reset focus ranges
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Second", CaptureDelay: 1.0}, &core.World{WorldName: "Altis"}))
+
+	assert.Nil(t, b.focusOpenStart)
+	assert.Len(t, b.focusRanges, 0)
+}
+
+func TestFocusRange_StartFrameZero(t *testing.T) {
+	b := New(config.MemoryConfig{}, nil)
+
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Focus", CaptureDelay: 1.0}, &core.World{WorldName: "Altis"}))
+
+	// Frame 0 (FrameForever) is invalid for focus start
+	err := b.SetFocusStart(core.Frame(0))
+	assert.Error(t, err)
+	assert.Nil(t, b.focusOpenStart)
+}
+
+func TestFocusRange_EndBeforeStart(t *testing.T) {
+	b := New(config.MemoryConfig{}, nil)
+
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Focus", CaptureDelay: 1.0}, &core.World{WorldName: "Altis"}))
+
+	// start(45), end(1) — end must be > start
+	require.NoError(t, b.SetFocusStart(core.Frame(45)))
+	err := b.SetFocusEnd(core.Frame(1))
+	assert.Error(t, err)
+
+	// Range should NOT have been added, but the open start should still be there
+	assert.Len(t, b.focusRanges, 0)
+	assert.NotNil(t, b.focusOpenStart)
+	assert.Equal(t, core.Frame(45), *b.focusOpenStart)
+}
+
+func TestFocusRange_EndEqualToStart(t *testing.T) {
+	b := New(config.MemoryConfig{}, nil)
+
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Focus", CaptureDelay: 1.0}, &core.World{WorldName: "Altis"}))
+
+	// start(50), end(50) — end must be strictly greater
+	require.NoError(t, b.SetFocusStart(core.Frame(50)))
+	err := b.SetFocusEnd(core.Frame(50))
+	assert.Error(t, err)
+	assert.Len(t, b.focusRanges, 0)
+}
+
+func TestFocusRange_OverlappingStart(t *testing.T) {
+	b := New(config.MemoryConfig{}, nil)
+
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Focus", CaptureDelay: 1.0}, &core.World{WorldName: "Altis"}))
+
+	// First range: start(1), end(10) — valid
+	require.NoError(t, b.SetFocusStart(core.Frame(1)))
+	require.NoError(t, b.SetFocusEnd(core.Frame(10)))
+
+	// Second start before previous end: start(5) — must be >= 10
+	err := b.SetFocusStart(core.Frame(5))
+	assert.Error(t, err)
+	assert.Nil(t, b.focusOpenStart)
+	assert.Len(t, b.focusRanges, 1)
+}
+
+func TestFocusRange_UserScenario(t *testing.T) {
+	// User's exact scenario: start(1), end(10), start(45), end(1), start(10), end(100)
+	b := New(config.MemoryConfig{}, nil)
+
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Focus", CaptureDelay: 1.0}, &core.World{WorldName: "Altis"}))
+
+	s := &core.Soldier{ID: 1}
+	require.NoError(t, b.AddSoldier(s))
+	require.NoError(t, b.RecordSoldierState(&core.SoldierState{SoldierID: 1, CaptureFrame: 500}))
+
+	// start(1), end(10) — valid first range
+	require.NoError(t, b.SetFocusStart(core.Frame(1)))
+	require.NoError(t, b.SetFocusEnd(core.Frame(10)))
+	assert.Len(t, b.focusRanges, 1)
+
+	// start(45), end(1) — start is valid (45 >= 10), but end(1) < start(45) = error
+	require.NoError(t, b.SetFocusStart(core.Frame(45)))
+	err := b.SetFocusEnd(core.Frame(1))
+	assert.Error(t, err)
+	// Range still open at 45
+	assert.Len(t, b.focusRanges, 1)
+	assert.NotNil(t, b.focusOpenStart)
+
+	// Close the open range properly, then start a new one
+	require.NoError(t, b.SetFocusEnd(core.Frame(50)))
+	assert.Len(t, b.focusRanges, 2)
+
+	// start(10) — must be >= 50 (end of last range), so this fails
+	err = b.SetFocusStart(core.Frame(10))
+	assert.Error(t, err)
+
+	// start(100), end(200) — valid third range
+	require.NoError(t, b.SetFocusStart(core.Frame(100)))
+	require.NoError(t, b.SetFocusEnd(core.Frame(200)))
+
+	meta := b.GetExportMetadata()
+	require.Len(t, meta.FocusRanges, 3)
+	assert.Equal(t, core.Frame(1), meta.FocusRanges[0].Start)
+	assert.Equal(t, core.Frame(10), meta.FocusRanges[0].End)
+	assert.Equal(t, core.Frame(45), meta.FocusRanges[1].Start)
+	assert.Equal(t, core.Frame(50), meta.FocusRanges[1].End)
+	assert.Equal(t, core.Frame(100), meta.FocusRanges[2].Start)
+	assert.Equal(t, core.Frame(200), meta.FocusRanges[2].End)
 }

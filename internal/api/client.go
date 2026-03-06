@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -72,6 +73,11 @@ func (c *Client) Upload(filePath string, meta core.UploadMetadata) error {
 		_ = writer.WriteField("missionName", meta.MissionName)
 		_ = writer.WriteField("missionDuration", fmt.Sprintf("%f", meta.MissionDuration))
 		_ = writer.WriteField("tag", meta.Tag)
+		if len(meta.FocusRanges) > 0 {
+			first := meta.FocusRanges[0]
+			_ = writer.WriteField("focusStart", strconv.FormatUint(uint64(first.Start), 10))
+			_ = writer.WriteField("focusEnd", strconv.FormatUint(uint64(first.End), 10))
+		}
 
 		// File
 		part, err := writer.CreateFormFile("file", filepath.Base(filePath))

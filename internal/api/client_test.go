@@ -112,6 +112,42 @@ func TestUpload_Success(t *testing.T) {
 	assert.Equal(t, "test content", string(receivedFileContent))
 }
 
+func TestUpload_WithFocusRanges(t *testing.T) {
+	var receivedFocusStart, receivedFocusEnd string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		err := r.ParseMultipartForm(10 << 20)
+		require.NoError(t, err)
+
+		receivedFocusStart = r.FormValue("focusStart")
+		receivedFocusEnd = r.FormValue("focusEnd")
+
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	tmpDir := t.TempDir()
+	testFile := tmpDir + "/test_mission.json.gz"
+	err := writeTestFile(testFile, []byte("test content"))
+	require.NoError(t, err)
+
+	c := New(server.URL, "mysecret")
+	meta := core.UploadMetadata{
+		WorldName:   "Altis",
+		MissionName: "Focus Test",
+		FocusRanges: []core.FocusRange{
+			{Start: 50, End: 150},
+			{Start: 200, End: 400}, // only first range should be sent
+		},
+	}
+
+	err = c.Upload(testFile, meta)
+	require.NoError(t, err)
+
+	assert.Equal(t, "50", receivedFocusStart)
+	assert.Equal(t, "150", receivedFocusEnd)
+}
+
 func TestUpload_FileNotFound(t *testing.T) {
 	c := New("http://localhost:5000", "secret")
 	err := c.Upload("/nonexistent/file.json.gz", core.UploadMetadata{})

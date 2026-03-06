@@ -380,6 +380,12 @@ func (b *Backend) AddPlacedObject(p *core.PlacedObject) error {
 	return nil
 }
 
+// SetFocusStart is a no-op — focus metadata is only used by memory backend export.
+func (b *Backend) SetFocusStart(frame core.Frame) error { return nil }
+
+// SetFocusEnd is a no-op — focus metadata is only used by memory backend export.
+func (b *Backend) SetFocusEnd(frame core.Frame) error { return nil }
+
 // RecordPlacedObjectEvent converts and queues a placed object event.
 func (b *Backend) RecordPlacedObjectEvent(e *core.PlacedObjectEvent) error {
 	gormObj := convert.CoreToPlacedObjectEvent(*e)
