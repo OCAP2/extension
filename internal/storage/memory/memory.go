@@ -500,8 +500,8 @@ func (b *Backend) computeExportMetadata() core.UploadMetadata {
 	allRanges := make([]core.FocusRange, len(b.focusRanges))
 	copy(allRanges, b.focusRanges)
 
-	// Auto-close any open range with endFrame
-	if b.focusOpenStart != nil {
+	// Auto-close any open range with endFrame (only if endFrame > start)
+	if b.focusOpenStart != nil && endFrame > *b.focusOpenStart {
 		allRanges = append(allRanges, core.FocusRange{Start: *b.focusOpenStart, End: endFrame})
 	}
 
