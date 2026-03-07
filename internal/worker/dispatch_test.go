@@ -60,8 +60,10 @@ type mockBackend struct {
 	vehicleStates  []*core.VehicleState
 	markerStates   []*core.MarkerState
 	firedEvents    []*core.FiredEvent
-	generalEvents  []*core.GeneralEvent
-	hitEvents      []*core.HitEvent
+	generalEvents    []*core.GeneralEvent
+	sectorEvents     []*core.SectorEvent
+	endMissionEvents []*core.EndMissionEvent
+	hitEvents        []*core.HitEvent
 	killEvents     []*core.KillEvent
 	chatEvents        []*core.ChatEvent
 	radioEvents       []*core.RadioEvent
@@ -189,6 +191,20 @@ func (b *mockBackend) RecordGeneralEvent(e *core.GeneralEvent) error {
 	return nil
 }
 
+func (b *mockBackend) RecordSectorEvent(e *core.SectorEvent) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.sectorEvents = append(b.sectorEvents, e)
+	return nil
+}
+
+func (b *mockBackend) RecordEndMissionEvent(e *core.EndMissionEvent) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.endMissionEvents = append(b.endMissionEvents, e)
+	return nil
+}
+
 func (b *mockBackend) RecordHitEvent(e *core.HitEvent) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -294,8 +310,10 @@ type mockParserService struct {
 	soldierState  core.SoldierState
 	vehicleState  core.VehicleState
 	projectile    parser.ProjectileEvent
-	generalEvent  core.GeneralEvent
-	killEvent     parser.KillEvent
+	generalEvent     core.GeneralEvent
+	sectorEvent      core.SectorEvent
+	endMissionEvent  core.EndMissionEvent
+	killEvent        parser.KillEvent
 	chatEvent     core.ChatEvent
 	radioEvent    core.RadioEvent
 	telemetryEvent core.TelemetryEvent
@@ -390,6 +408,26 @@ func (h *mockParserService) ParseGeneralEvent(args []string) (core.GeneralEvent,
 		return core.GeneralEvent{}, errors.New(h.errorMsg)
 	}
 	return h.generalEvent, nil
+}
+
+func (h *mockParserService) ParseSectorEvent(args []string) (core.SectorEvent, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.calls = append(h.calls, "ParseSectorEvent")
+	if h.returnError {
+		return core.SectorEvent{}, errors.New(h.errorMsg)
+	}
+	return h.sectorEvent, nil
+}
+
+func (h *mockParserService) ParseEndMissionEvent(args []string) (core.EndMissionEvent, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.calls = append(h.calls, "ParseEndMissionEvent")
+	if h.returnError {
+		return core.EndMissionEvent{}, errors.New(h.errorMsg)
+	}
+	return h.endMissionEvent, nil
 }
 
 func (h *mockParserService) ParseKillEvent(args []string) (parser.KillEvent, error) {
@@ -610,6 +648,8 @@ func TestRegisterHandlers_RegistersAllCommands(t *testing.T) {
 		":EVENT:PROJECTILE:",
 		":EVENT:KILL:",
 		":EVENT:GENERAL:",
+		":EVENT:SECTOR:",
+		":EVENT:ENDMISSION:",
 		":EVENT:CHAT:",
 		":EVENT:RADIO:",
 		":TELEMETRY:FRAME:",
@@ -1003,6 +1043,77 @@ func TestHandleProjectile_RecordsProjectileEvent(t *testing.T) {
 	assert.Empty(t, backend.markers, "dispatch should not create markers")
 	assert.Empty(t, backend.firedEvents, "dispatch should not create fired events")
 	assert.Empty(t, backend.hitEvents, "dispatch should not create hit events")
+}
+
+func TestHandleSectorEvent_RecordsEvent(t *testing.T) {
+	d, _ := newTestDispatcher(t)
+
+	parserService := &mockParserService{
+		sectorEvent: core.SectorEvent{
+			CaptureFrame: 200,
+			Name:         "captured",
+			ObjectType:   "sector",
+			UnitName:     "Sector Alpha",
+			PosX:         100.5,
+			PosY:         200.3,
+		},
+	}
+
+	backend := &mockBackend{}
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   cache.NewEntityCache(),
+	}, backend)
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":EVENT:SECTOR:", Args: []string{}})
+	require.NoError(t, err)
+
+	waitFor(t, func() bool {
+		backend.mu.Lock()
+		defer backend.mu.Unlock()
+		return len(backend.sectorEvents) > 0
+	}, "timed out waiting for sector event")
+
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	require.Equal(t, 1, len(backend.sectorEvents))
+	assert.Equal(t, "captured", backend.sectorEvents[0].Name)
+	assert.Equal(t, "Sector Alpha", backend.sectorEvents[0].UnitName)
+}
+
+func TestHandleEndMissionEvent_RecordsEvent(t *testing.T) {
+	d, _ := newTestDispatcher(t)
+
+	parserService := &mockParserService{
+		endMissionEvent: core.EndMissionEvent{
+			CaptureFrame: 1043,
+			Side:         "WEST",
+			Message:      "BLUFOR wins",
+		},
+	}
+
+	backend := &mockBackend{}
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   cache.NewEntityCache(),
+	}, backend)
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":EVENT:ENDMISSION:", Args: []string{}})
+	require.NoError(t, err)
+
+	waitFor(t, func() bool {
+		backend.mu.Lock()
+		defer backend.mu.Unlock()
+		return len(backend.endMissionEvents) > 0
+	}, "timed out waiting for end mission event")
+
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	require.Equal(t, 1, len(backend.endMissionEvents))
+	assert.Equal(t, "WEST", backend.endMissionEvents[0].Side)
+	assert.Equal(t, "BLUFOR wins", backend.endMissionEvents[0].Message)
 }
 
 func TestHandleMarkerMove_ResolvesMarkerName(t *testing.T) {
@@ -1883,6 +1994,46 @@ func TestHandleGeneralEvent_ParserError(t *testing.T) {
 	assert.Empty(t, backend.generalEvents)
 }
 
+func TestHandleSectorEvent_ParserError(t *testing.T) {
+	d, logger := newTestDispatcher(t)
+
+	parserService := &mockParserService{returnError: true, errorMsg: "bad sector"}
+	backend := &mockBackend{}
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   cache.NewEntityCache(),
+	}, backend)
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":EVENT:SECTOR:", Args: []string{}})
+	require.NoError(t, err)
+
+	waitForLogMsg(t, logger, "event failed")
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	assert.Empty(t, backend.sectorEvents)
+}
+
+func TestHandleEndMissionEvent_ParserError(t *testing.T) {
+	d, logger := newTestDispatcher(t)
+
+	parserService := &mockParserService{returnError: true, errorMsg: "bad endmission"}
+	backend := &mockBackend{}
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   cache.NewEntityCache(),
+	}, backend)
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":EVENT:ENDMISSION:", Args: []string{}})
+	require.NoError(t, err)
+
+	waitForLogMsg(t, logger, "event failed")
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	assert.Empty(t, backend.endMissionEvents)
+}
+
 func TestHandleKillEvent_ParserError(t *testing.T) {
 	d, logger := newTestDispatcher(t)
 
@@ -2320,6 +2471,20 @@ func (b *configurableErrorBackend) RecordGeneralEvent(e *core.GeneralEvent) erro
 	return b.mockBackend.RecordGeneralEvent(e)
 }
 
+func (b *configurableErrorBackend) RecordSectorEvent(e *core.SectorEvent) error {
+	if err := b.fail("RecordSectorEvent"); err != nil {
+		return err
+	}
+	return b.mockBackend.RecordSectorEvent(e)
+}
+
+func (b *configurableErrorBackend) RecordEndMissionEvent(e *core.EndMissionEvent) error {
+	if err := b.fail("RecordEndMissionEvent"); err != nil {
+		return err
+	}
+	return b.mockBackend.RecordEndMissionEvent(e)
+}
+
 func (b *configurableErrorBackend) RecordKillEvent(e *core.KillEvent) error {
 	if err := b.fail("RecordKillEvent"); err != nil {
 		return err
@@ -2496,6 +2661,42 @@ func TestHandleGeneralEvent_BackendError(t *testing.T) {
 	manager.RegisterHandlers(d)
 
 	_, err := d.Dispatch(dispatcher.Event{Command: ":EVENT:GENERAL:", Args: []string{}})
+	require.NoError(t, err)
+	waitForLogMsg(t, logger, "event failed")
+}
+
+func TestHandleSectorEvent_BackendError(t *testing.T) {
+	d, logger := newTestDispatcher(t)
+
+	parserService := &mockParserService{
+		sectorEvent: core.SectorEvent{CaptureFrame: 100, Name: "captured"},
+	}
+
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   cache.NewEntityCache(),
+	}, &configurableErrorBackend{failOn: map[string]error{"RecordSectorEvent": errInjected}})
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":EVENT:SECTOR:", Args: []string{}})
+	require.NoError(t, err)
+	waitForLogMsg(t, logger, "event failed")
+}
+
+func TestHandleEndMissionEvent_BackendError(t *testing.T) {
+	d, logger := newTestDispatcher(t)
+
+	parserService := &mockParserService{
+		endMissionEvent: core.EndMissionEvent{CaptureFrame: 100, Side: "WEST"},
+	}
+
+	manager := NewManager(Dependencies{
+		ParserService: parserService,
+		EntityCache:   cache.NewEntityCache(),
+	}, &configurableErrorBackend{failOn: map[string]error{"RecordEndMissionEvent": errInjected}})
+	manager.RegisterHandlers(d)
+
+	_, err := d.Dispatch(dispatcher.Event{Command: ":EVENT:ENDMISSION:", Args: []string{}})
 	require.NoError(t, err)
 	waitForLogMsg(t, logger, "event failed")
 }

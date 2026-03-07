@@ -149,77 +149,107 @@ func (p *Parser) ParseProjectileEvent(data []string) (ProjectileEvent, error) {
 	return result, nil
 }
 
-// ParseGeneralEvent parses general event data and returns a core GeneralEvent
+// ParseGeneralEvent parses general event data and returns a core GeneralEvent.
+// Handles: connected, disconnected, generalEvent, respawnTickets, counterInit,
+// counterSet, terminalHackStarted, terminalHackCanceled.
+// Args: [frame, type, message, extraDataJSON?]
 func (p *Parser) ParseGeneralEvent(data []string) (core.GeneralEvent, error) {
 	var thisEvent core.GeneralEvent
 
-	// fix received data
 	for i, v := range data {
 		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
 	}
 
-	if len(data) < 2 {
-		return thisEvent, fmt.Errorf("insufficient data fields: got %d, need at least 2", len(data))
+	if len(data) < 3 {
+		return thisEvent, fmt.Errorf("insufficient data fields: got %d, need at least 3", len(data))
 	}
 
-	// get frame
 	capframe, err := strconv.ParseFloat(data[0], 64)
 	if err != nil {
-		return thisEvent, fmt.Errorf("error converting capture frame to int: %w", err)
+		return thisEvent, fmt.Errorf("error converting capture frame: %w", err)
 	}
 
 	thisEvent.Time = time.Now()
 	thisEvent.CaptureFrame = core.Frame(capframe)
 	thisEvent.Name = data[1]
+	thisEvent.Message = data[2]
 
-	switch data[1] {
-	case "captured", "contested", "capturedFlag":
-		// Typed args: [frame, type, objectType, unitName, posX?, posY?, posZ?]
-		if len(data) >= 4 {
-			objectType := data[2]
-			unitName := data[3]
-			if len(data) >= 7 {
-				posX, errX := strconv.ParseFloat(data[4], 64)
-				posY, errY := strconv.ParseFloat(data[5], 64)
-				posZ, errZ := strconv.ParseFloat(data[6], 64)
-				if errX != nil || errY != nil || errZ != nil {
-					return thisEvent, fmt.Errorf("invalid position data for event %q", data[1])
-				}
-				thisEvent.Message = fmt.Sprintf("[%s,%s,[%g,%g,%g]]",
-					strconv.Quote(objectType), strconv.Quote(unitName), posX, posY, posZ)
-			} else {
-				thisEvent.Message = fmt.Sprintf("[%s,%s]",
-					strconv.Quote(objectType), strconv.Quote(unitName))
-			}
-		} else if len(data) >= 3 {
-			// Legacy format: [frame, type, "name,objectType"]
-			thisEvent.Message = data[2]
-		}
-
-	case "endMission":
-		// Typed args: [frame, "endMission", side, message]
-		if len(data) >= 4 {
-			side := data[2]
-			message := data[3]
-			thisEvent.Message = fmt.Sprintf("[%s,%s]", strconv.Quote(side), strconv.Quote(message))
-		} else if len(data) >= 3 {
-			thisEvent.Message = data[2]
-		}
-
-	default:
-		// connected, disconnected, generalEvent, respawnTickets, counterInit,
-		// counterSet, terminalHack* — all use: [frame, type, message, extraData?]
-		if len(data) >= 3 {
-			thisEvent.Message = data[2]
-		}
-		if len(data) > 3 {
-			if err := json.Unmarshal([]byte(data[3]), &thisEvent.ExtraData); err != nil {
-				return thisEvent, fmt.Errorf("error unmarshalling extra data: %w", err)
-			}
+	if len(data) > 3 {
+		if err := json.Unmarshal([]byte(data[3]), &thisEvent.ExtraData); err != nil {
+			return thisEvent, fmt.Errorf("error unmarshalling extra data: %w", err)
 		}
 	}
 
 	return thisEvent, nil
+}
+
+// ParseSectorEvent parses sector state change events.
+// Handles: captured, contested, capturedFlag.
+// Args: [frame, type, objectType, unitName, posX?, posY?, posZ?]
+func (p *Parser) ParseSectorEvent(data []string) (core.SectorEvent, error) {
+	var event core.SectorEvent
+
+	for i, v := range data {
+		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
+	}
+
+	if len(data) < 4 {
+		return event, fmt.Errorf("insufficient data for sector event: got %d, need at least 4", len(data))
+	}
+
+	capframe, err := strconv.ParseFloat(data[0], 64)
+	if err != nil {
+		return event, fmt.Errorf("error converting capture frame: %w", err)
+	}
+
+	event.Time = time.Now()
+	event.CaptureFrame = core.Frame(capframe)
+	event.Name = data[1]
+	event.ObjectType = data[2]
+	event.UnitName = data[3]
+
+	if len(data) >= 7 {
+		event.PosX, err = strconv.ParseFloat(data[4], 64)
+		if err != nil {
+			return event, fmt.Errorf("invalid position X for sector event: %w", err)
+		}
+		event.PosY, err = strconv.ParseFloat(data[5], 64)
+		if err != nil {
+			return event, fmt.Errorf("invalid position Y for sector event: %w", err)
+		}
+		event.PosZ, err = strconv.ParseFloat(data[6], 64)
+		if err != nil {
+			return event, fmt.Errorf("invalid position Z for sector event: %w", err)
+		}
+	}
+
+	return event, nil
+}
+
+// ParseEndMissionEvent parses end-of-mission events.
+// Args: [frame, side, message]
+func (p *Parser) ParseEndMissionEvent(data []string) (core.EndMissionEvent, error) {
+	var event core.EndMissionEvent
+
+	for i, v := range data {
+		data[i] = util.FixEscapeQuotes(util.TrimQuotes(v))
+	}
+
+	if len(data) < 3 {
+		return event, fmt.Errorf("insufficient data for end mission event: got %d, need at least 3", len(data))
+	}
+
+	capframe, err := strconv.ParseFloat(data[0], 64)
+	if err != nil {
+		return event, fmt.Errorf("error converting capture frame: %w", err)
+	}
+
+	event.Time = time.Now()
+	event.CaptureFrame = core.Frame(capframe)
+	event.Side = data[1]
+	event.Message = data[2]
+
+	return event, nil
 }
 
 

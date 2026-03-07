@@ -27,6 +27,8 @@ func (m *Manager) RegisterHandlers(d *dispatcher.Dispatcher) {
 
 	// General events - buffered
 	d.Register(":EVENT:GENERAL:", m.handleGeneralEvent, dispatcher.Buffered(1000), dispatcher.Logged())
+	d.Register(":EVENT:SECTOR:", m.handleSectorEvent, dispatcher.Buffered(1000), dispatcher.Logged())
+	d.Register(":EVENT:ENDMISSION:", m.handleEndMissionEvent, dispatcher.Buffered(100), dispatcher.Logged())
 	d.Register(":EVENT:CHAT:", m.handleChatEvent, dispatcher.Buffered(1000), dispatcher.Logged())
 	d.Register(":EVENT:RADIO:", m.handleRadioEvent, dispatcher.Buffered(1000), dispatcher.Logged())
 	d.Register(":TELEMETRY:FRAME:", m.handleTelemetryEvent, dispatcher.Buffered(100), dispatcher.Logged())
@@ -250,6 +252,30 @@ func (m *Manager) handleGeneralEvent(e dispatcher.Event) (any, error) {
 
 	if err := m.backend.RecordGeneralEvent(&obj); err != nil {
 		return nil, fmt.Errorf("record general event: %w", err)
+	}
+	return nil, nil
+}
+
+func (m *Manager) handleSectorEvent(e dispatcher.Event) (any, error) {
+	obj, err := m.deps.ParserService.ParseSectorEvent(e.Args)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse sector event: %w", err)
+	}
+
+	if err := m.backend.RecordSectorEvent(&obj); err != nil {
+		return nil, fmt.Errorf("record sector event: %w", err)
+	}
+	return nil, nil
+}
+
+func (m *Manager) handleEndMissionEvent(e dispatcher.Event) (any, error) {
+	obj, err := m.deps.ParserService.ParseEndMissionEvent(e.Args)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse end mission event: %w", err)
+	}
+
+	if err := m.backend.RecordEndMissionEvent(&obj); err != nil {
+		return nil, fmt.Errorf("record end mission event: %w", err)
 	}
 	return nil, nil
 }

@@ -4,10 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 
-	"github.com/OCAP2/extension/v5/pkg/core"
 	"github.com/OCAP2/extension/v5/internal/util"
+	"github.com/OCAP2/extension/v5/pkg/core"
 )
 
 // MissionData contains all the data needed to build an export
@@ -20,6 +21,8 @@ type MissionData struct {
 	PlacedObjects map[uint16]*PlacedObjectRecord
 
 	GeneralEvents    []core.GeneralEvent
+	SectorEvents     []core.SectorEvent
+	EndMissionEvents []core.EndMissionEvent
 	HitEvents        []core.HitEvent
 	KillEvents       []core.KillEvent
 	TimeStates       []core.TimeState
@@ -273,6 +276,27 @@ func Build(data *MissionData) Export {
 			frameToV1(evt.CaptureFrame),
 			evt.Name,
 			message,
+		})
+	}
+
+	// Convert sector events
+	// Format: [frameNum, "captured"|"contested"|"capturedFlag", [objectType, unitName, [x, y, z]]]
+	for _, evt := range data.SectorEvents {
+		export.Events = append(export.Events, []any{
+			frameToV1(evt.CaptureFrame),
+			evt.Name,
+			[]any{evt.ObjectType, evt.UnitName, []float64{evt.PosX, evt.PosY, evt.PosZ}},
+		})
+	}
+
+	// Convert end mission events
+	// Format: [frameNum, "endMission", side, message]
+	for _, evt := range data.EndMissionEvents {
+		export.Events = append(export.Events, []any{
+			frameToV1(evt.CaptureFrame),
+			"endMission",
+			evt.Side,
+			evt.Message,
 		})
 	}
 
@@ -585,6 +609,11 @@ func Build(data *MissionData) Export {
 			}
 		}
 	}
+
+	// Sort events by frame number so consumers can rely on chronological order
+	sort.SliceStable(export.Events, func(i, j int) bool {
+		return export.Events[i][0].(int) < export.Events[j][0].(int)
+	})
 
 	return export
 }

@@ -21,8 +21,10 @@ const (
 	TypeDeleteVehicle   = "delete_vehicle"
 	TypeFiredEvent      = "fired_event"
 	TypeProjectileEvent = "projectile_event"
-	TypeGeneralEvent    = "general_event"
-	TypeHitEvent        = "hit_event"
+	TypeGeneralEvent      = "general_event"
+	TypeSectorEvent       = "sector_event"
+	TypeEndMissionEvent   = "end_mission_event"
+	TypeHitEvent          = "hit_event"
 	TypeKillEvent       = "kill_event"
 	TypeChatEvent       = "chat_event"
 	TypeRadioEvent      = "radio_event"
@@ -41,7 +43,7 @@ var AllMessageTypes = []string{
 	TypeStartMission, TypeEndMission,
 	TypeAddSoldier, TypeAddVehicle, TypeAddMarker,
 	TypeSoldierState, TypeVehicleState, TypeMarkerState, TypeDeleteMarker, TypeDeleteSoldier, TypeDeleteVehicle,
-	TypeFiredEvent, TypeProjectileEvent, TypeGeneralEvent,
+	TypeFiredEvent, TypeProjectileEvent, TypeGeneralEvent, TypeSectorEvent, TypeEndMissionEvent,
 	TypeHitEvent, TypeKillEvent, TypeChatEvent, TypeRadioEvent,
 	TypeTelemetry, TypeTimeState, TypeAce3Death, TypeAce3Unconscious,
 	TypeAddPlaced, TypePlacedEvent,

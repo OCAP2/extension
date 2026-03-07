@@ -53,6 +53,8 @@ type Backend struct {
 	placed        map[uint16]*PlacedObjectRecord  // keyed by ObjectID
 
 	generalEvents         []core.GeneralEvent
+	sectorEvents          []core.SectorEvent
+	endMissionEvents      []core.EndMissionEvent
 	hitEvents             []core.HitEvent
 	killEvents            []core.KillEvent
 	chatEvents            []core.ChatEvent
@@ -144,6 +146,8 @@ func (b *Backend) resetCollections() {
 	b.nextMarkerID = 0
 	b.placed = make(map[uint16]*PlacedObjectRecord)
 	b.generalEvents = nil
+	b.sectorEvents = nil
+	b.endMissionEvents = nil
 	b.hitEvents = nil
 	b.killEvents = nil
 	b.chatEvents = nil
@@ -303,6 +307,22 @@ func (b *Backend) RecordGeneralEvent(e *core.GeneralEvent) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.generalEvents = append(b.generalEvents, *e)
+	return nil
+}
+
+// RecordSectorEvent records a sector state change event.
+func (b *Backend) RecordSectorEvent(e *core.SectorEvent) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.sectorEvents = append(b.sectorEvents, *e)
+	return nil
+}
+
+// RecordEndMissionEvent records an end-of-mission event.
+func (b *Backend) RecordEndMissionEvent(e *core.EndMissionEvent) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.endMissionEvents = append(b.endMissionEvents, *e)
 	return nil
 }
 
@@ -531,6 +551,8 @@ func (b *Backend) buildExportUnlocked() v1.Export {
 		Markers:          make(map[string]*v1.MarkerRecord),
 		PlacedObjects:    make(map[uint16]*v1.PlacedObjectRecord),
 		GeneralEvents:    b.generalEvents,
+		SectorEvents:     b.sectorEvents,
+		EndMissionEvents: b.endMissionEvents,
 		HitEvents:        b.hitEvents,
 		KillEvents:       b.killEvents,
 		TimeStates:       b.timeStates,

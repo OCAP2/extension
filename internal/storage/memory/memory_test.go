@@ -322,6 +322,41 @@ func TestRecordGeneralEvent(t *testing.T) {
 	assert.Equal(t, "connected", b.generalEvents[0].Name)
 }
 
+func TestRecordSectorEvent(t *testing.T) {
+	b := New(config.MemoryConfig{}, nil)
+
+	evt := &core.SectorEvent{
+		CaptureFrame: 200,
+		Name:         "captured",
+		ObjectType:   "sector",
+		UnitName:     "Sector Alpha",
+		PosX:         100.5,
+		PosY:         200.3,
+	}
+
+	require.NoError(t, b.RecordSectorEvent(evt))
+
+	assert.Len(t, b.sectorEvents, 1)
+	assert.Equal(t, "captured", b.sectorEvents[0].Name)
+	assert.Equal(t, "Sector Alpha", b.sectorEvents[0].UnitName)
+}
+
+func TestRecordEndMissionEvent(t *testing.T) {
+	b := New(config.MemoryConfig{}, nil)
+
+	evt := &core.EndMissionEvent{
+		CaptureFrame: 1043,
+		Side:         "WEST",
+		Message:      "BLUFOR wins",
+	}
+
+	require.NoError(t, b.RecordEndMissionEvent(evt))
+
+	assert.Len(t, b.endMissionEvents, 1)
+	assert.Equal(t, "WEST", b.endMissionEvents[0].Side)
+	assert.Equal(t, "BLUFOR wins", b.endMissionEvents[0].Message)
+}
+
 func TestRecordHitEvent(t *testing.T) {
 	b := New(config.MemoryConfig{}, nil)
 
@@ -605,6 +640,8 @@ func TestStartMissionResetsEverything(t *testing.T) {
 	_, err := b.AddMarker(&core.Marker{MarkerName: "m1"})
 	require.NoError(t, err)
 	require.NoError(t, b.RecordGeneralEvent(&core.GeneralEvent{Name: "test"}))
+	require.NoError(t, b.RecordSectorEvent(&core.SectorEvent{Name: "captured"}))
+	require.NoError(t, b.RecordEndMissionEvent(&core.EndMissionEvent{Side: "WEST"}))
 	require.NoError(t, b.RecordHitEvent(&core.HitEvent{}))
 	require.NoError(t, b.RecordKillEvent(&core.KillEvent{}))
 	require.NoError(t, b.RecordChatEvent(&core.ChatEvent{}))
@@ -626,6 +663,8 @@ func TestStartMissionResetsEverything(t *testing.T) {
 	assert.Len(t, b.vehicles, 0)
 	assert.Len(t, b.markers, 0)
 	assert.Len(t, b.generalEvents, 0)
+	assert.Len(t, b.sectorEvents, 0)
+	assert.Len(t, b.endMissionEvents, 0)
 	assert.Len(t, b.hitEvents, 0)
 	assert.Len(t, b.killEvents, 0)
 	assert.Len(t, b.chatEvents, 0)

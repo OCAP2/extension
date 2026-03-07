@@ -482,6 +482,98 @@ func TestBuildWithCapturedEventJSONArray(t *testing.T) {
 	assert.Equal(t, float64(0), nested[2])
 }
 
+func TestBuildWithSectorEvents(t *testing.T) {
+	data := &MissionData{
+		Mission:  &core.Mission{MissionName: "Test"},
+		World:    &core.World{WorldName: "Altis"},
+		Soldiers: make(map[uint16]*SoldierRecord),
+		Vehicles: make(map[uint16]*VehicleRecord),
+		Markers:  make(map[string]*MarkerRecord),
+		SectorEvents: []core.SectorEvent{
+			{CaptureFrame: 15, Name: "captured", ObjectType: "sector", UnitName: "Sector Alpha", PosX: 100.5, PosY: 200.3, PosZ: 0},
+			{CaptureFrame: 30, Name: "contested", ObjectType: "flag", UnitName: "Flag Bravo", PosX: 300, PosY: 400, PosZ: 10},
+		},
+	}
+
+	export := Build(data)
+
+	require.Len(t, export.Events, 2)
+
+	// First sector event (internal 15 → v1 14)
+	evt0 := export.Events[0]
+	assert.Equal(t, 14, evt0[0])
+	assert.Equal(t, "captured", evt0[1])
+	payload0 := evt0[2].([]any)
+	assert.Equal(t, "sector", payload0[0])
+	assert.Equal(t, "Sector Alpha", payload0[1])
+	pos0 := payload0[2].([]float64)
+	assert.Equal(t, 100.5, pos0[0])
+	assert.Equal(t, 200.3, pos0[1])
+	assert.Equal(t, 0.0, pos0[2])
+
+	// Second sector event (internal 30 → v1 29)
+	evt1 := export.Events[1]
+	assert.Equal(t, 29, evt1[0])
+	assert.Equal(t, "contested", evt1[1])
+}
+
+func TestBuildWithEndMissionEvents(t *testing.T) {
+	data := &MissionData{
+		Mission:  &core.Mission{MissionName: "Test"},
+		World:    &core.World{WorldName: "Altis"},
+		Soldiers: make(map[uint16]*SoldierRecord),
+		Vehicles: make(map[uint16]*VehicleRecord),
+		Markers:  make(map[string]*MarkerRecord),
+		EndMissionEvents: []core.EndMissionEvent{
+			{CaptureFrame: 500, Side: "WEST", Message: "BLUFOR controlled all sectors!"},
+		},
+	}
+
+	export := Build(data)
+
+	require.Len(t, export.Events, 1)
+
+	evt := export.Events[0]
+	assert.Equal(t, 499, evt[0])            // internal 500 → v1 499
+	assert.Equal(t, "endMission", evt[1])
+	assert.Equal(t, "WEST", evt[2])
+	assert.Equal(t, "BLUFOR controlled all sectors!", evt[3])
+}
+
+func TestBuildEventsSortedByFrame(t *testing.T) {
+	soldierVictim := uint(5)
+	data := &MissionData{
+		Mission:  &core.Mission{MissionName: "Test"},
+		World:    &core.World{WorldName: "Altis"},
+		Soldiers: make(map[uint16]*SoldierRecord),
+		Vehicles: make(map[uint16]*VehicleRecord),
+		Markers:  make(map[string]*MarkerRecord),
+		GeneralEvents: []core.GeneralEvent{
+			{CaptureFrame: 50, Name: "connected", Message: "Player1"},
+		},
+		SectorEvents: []core.SectorEvent{
+			{CaptureFrame: 10, Name: "captured", ObjectType: "sector", UnitName: "Alpha"},
+		},
+		EndMissionEvents: []core.EndMissionEvent{
+			{CaptureFrame: 100, Side: "WEST", Message: "Win"},
+		},
+		KillEvents: []core.KillEvent{
+			{CaptureFrame: 30, VictimSoldierID: &soldierVictim, EventText: "rifle"},
+		},
+	}
+
+	export := Build(data)
+
+	require.Len(t, export.Events, 4)
+
+	// Events must be sorted by frame number regardless of type
+	frames := make([]int, len(export.Events))
+	for i, evt := range export.Events {
+		frames[i] = evt[0].(int)
+	}
+	assert.Equal(t, []int{9, 29, 49, 99}, frames)
+}
+
 func TestBuildWithHitEvents(t *testing.T) {
 	soldierVictim := uint(5)
 	soldierShooter := uint(10)

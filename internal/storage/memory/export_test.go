@@ -76,6 +76,12 @@ func TestIntegrationFullExport(t *testing.T) {
 	require.NoError(t, b.RecordGeneralEvent(&core.GeneralEvent{
 		CaptureFrame: 15, Name: "connected", Message: "Player1 connected", ExtraData: map[string]any{"uid": "12345"},
 	}))
+	require.NoError(t, b.RecordSectorEvent(&core.SectorEvent{
+		CaptureFrame: 8, Name: "captured", ObjectType: "sector", UnitName: "Sector Alpha", PosX: 100.5, PosY: 200.3, PosZ: 0,
+	}))
+	require.NoError(t, b.RecordEndMissionEvent(&core.EndMissionEvent{
+		CaptureFrame: 25, Side: "WEST", Message: "BLUFOR wins",
+	}))
 	require.NoError(t, b.RecordTimeState(&core.TimeState{
 		CaptureFrame: 1, SystemTimeUTC: "2024-01-15T10:30:00.000", MissionDate: "2035-06-24T06:00:00", TimeMultiplier: 1.0, MissionTime: 0,
 	}))
@@ -151,11 +157,27 @@ func TestIntegrationFullExport(t *testing.T) {
 	assert.Equal(t, "car", vehicleEntity.Class)
 	require.Len(t, vehicleEntity.Positions, 1)
 
-	// Verify events (array format: [frameNum, type, message])
-	require.Len(t, export.Events, 1)
-	assert.Equal(t, "connected", export.Events[0][1])         // type
-	assert.EqualValues(t, 14, export.Events[0][0])            // frameNum (input 15 → v1 output 14)
-	assert.Equal(t, "Player1 connected", export.Events[0][2]) // message
+	// Verify events — sorted by frame number
+	require.Len(t, export.Events, 3)
+
+	// Sector event at frame 8 (v1: 7)
+	assert.EqualValues(t, 7, export.Events[0][0])
+	assert.Equal(t, "captured", export.Events[0][1])
+	sectorPayload, ok := export.Events[0][2].([]any)
+	require.True(t, ok, "sector event payload should be []any")
+	assert.Equal(t, "sector", sectorPayload[0])
+	assert.Equal(t, "Sector Alpha", sectorPayload[1])
+
+	// General event at frame 15 (v1: 14)
+	assert.EqualValues(t, 14, export.Events[1][0])
+	assert.Equal(t, "connected", export.Events[1][1])
+	assert.Equal(t, "Player1 connected", export.Events[1][2])
+
+	// EndMission event at frame 25 (v1: 24)
+	assert.EqualValues(t, 24, export.Events[2][0])
+	assert.Equal(t, "endMission", export.Events[2][1])
+	assert.Equal(t, "WEST", export.Events[2][2])
+	assert.Equal(t, "BLUFOR wins", export.Events[2][3])
 
 	// Verify markers (array format: [type, text, startFrame, endFrame, playerId, color, sideIndex, positions, size, shape, brush])
 	require.Len(t, export.Markers, 1)

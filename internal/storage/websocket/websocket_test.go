@@ -156,6 +156,8 @@ func TestAllMessageTypes(t *testing.T) {
 	require.NoError(t, b.RecordFiredEvent(&core.FiredEvent{SoldierID: 1, Weapon: "arifle_MX_F"}))
 	require.NoError(t, b.RecordProjectileEvent(&core.ProjectileEvent{FirerObjectID: 1}))
 	require.NoError(t, b.RecordGeneralEvent(&core.GeneralEvent{Name: "test"}))
+	require.NoError(t, b.RecordSectorEvent(&core.SectorEvent{Name: "captured", ObjectType: "sector", UnitName: "Alpha"}))
+	require.NoError(t, b.RecordEndMissionEvent(&core.EndMissionEvent{Side: "WEST", Message: "BLUFOR wins"}))
 	require.NoError(t, b.RecordHitEvent(&core.HitEvent{EventText: "hit"}))
 	require.NoError(t, b.RecordKillEvent(&core.KillEvent{EventText: "killed"}))
 	require.NoError(t, b.RecordChatEvent(&core.ChatEvent{Message: "hello"}))

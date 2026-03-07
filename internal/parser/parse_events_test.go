@@ -481,15 +481,6 @@ func TestParseGeneralEvent(t *testing.T) {
 			},
 		},
 		{
-			name:  "endMission with empty side",
-			input: []string{"1043", "endMission", "", "Recording ended due to server being empty"},
-			check: func(t *testing.T, e core.GeneralEvent) {
-				assert.Equal(t, core.Frame(1043), e.CaptureFrame)
-				assert.Equal(t, "endMission", e.Name)
-				assert.Equal(t, `["","Recording ended due to server being empty"]`, e.Message)
-			},
-		},
-		{
 			name:  "no extraData (3 fields)",
 			input: []string{"0", "respawnTickets", "[-1,-1,-1,-1]"},
 			check: func(t *testing.T, e core.GeneralEvent) {
@@ -499,66 +490,11 @@ func TestParseGeneralEvent(t *testing.T) {
 			},
 		},
 		{
-			name:  "captured with typed args",
-			input: []string{"200", "captured", "sector", "Sector Alpha", "100.5", "200.3", "0"},
-			check: func(t *testing.T, e core.GeneralEvent) {
-				assert.Equal(t, core.Frame(200), e.CaptureFrame)
-				assert.Equal(t, "captured", e.Name)
-				assert.Equal(t, `["sector","Sector Alpha",[100.5,200.3,0]]`, e.Message)
-			},
-		},
-		{
-			name:  "contested with typed args and commas in name",
-			input: []string{"300", "contested", "sector", "Sector,With,Commas", "50", "60", "0"},
-			check: func(t *testing.T, e core.GeneralEvent) {
-				assert.Equal(t, "contested", e.Name)
-				assert.Equal(t, `["sector","Sector,With,Commas",[50,60,0]]`, e.Message)
-			},
-		},
-		{
-			name:  "capturedFlag with typed args",
-			input: []string{"150", "capturedFlag", "flag", "Player One", "300", "400", "5"},
-			check: func(t *testing.T, e core.GeneralEvent) {
-				assert.Equal(t, "capturedFlag", e.Name)
-				assert.Equal(t, `["flag","Player One",[300,400,5]]`, e.Message)
-			},
-		},
-		{
-			name:  "captured with typed args no position",
-			input: []string{"200", "captured", "sector", "Sector Alpha"},
-			check: func(t *testing.T, e core.GeneralEvent) {
-				assert.Equal(t, `["sector","Sector Alpha"]`, e.Message)
-			},
-		},
-		{
-			name:  "endMission with typed args",
-			input: []string{"1043", "endMission", "WEST", "BLUFOR wins"},
-			check: func(t *testing.T, e core.GeneralEvent) {
-				assert.Equal(t, "endMission", e.Name)
-				assert.Equal(t, `["WEST","BLUFOR wins"]`, e.Message)
-			},
-		},
-		{
-			name:  "endMission with comma in message",
-			input: []string{"500", "endMission", "EAST", "OPFOR wins, decisively"},
-			check: func(t *testing.T, e core.GeneralEvent) {
-				assert.Equal(t, `["EAST","OPFOR wins, decisively"]`, e.Message)
-			},
-		},
-		{
-			name:  "terminalHackStarted with typed args",
+			name:  "terminalHackStarted",
 			input: []string{"400", "terminalHackStarted", "Player One"},
 			check: func(t *testing.T, e core.GeneralEvent) {
 				assert.Equal(t, "terminalHackStarted", e.Name)
 				assert.Equal(t, "Player One", e.Message)
-			},
-		},
-		{
-			name:  "endMission with side only (3 fields)",
-			input: []string{"500", "endMission", "WEST"},
-			check: func(t *testing.T, e core.GeneralEvent) {
-				assert.Equal(t, "endMission", e.Name)
-				assert.Equal(t, "WEST", e.Message)
 			},
 		},
 		{
@@ -576,23 +512,164 @@ func TestParseGeneralEvent(t *testing.T) {
 			input:   []string{"0", "evt", "msg", "not_json"},
 			wantErr: true,
 		},
-		{
-			name:    "error: bad position data in captured event",
-			input:   []string{"200", "captured", "sector", "Alpha", "not_a_number", "200", "0"},
-			wantErr: true,
-		},
-		{
-			name:  "captured with legacy 3-field format",
-			input: []string{"200", "captured", "Alpha,sector"},
-			check: func(t *testing.T, e core.GeneralEvent) {
-				assert.Equal(t, "Alpha,sector", e.Message)
-			},
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := p.ParseGeneralEvent(tt.input)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			tt.check(t, result)
+		})
+	}
+}
+
+func TestParseSectorEvent(t *testing.T) {
+	p := newTestParser()
+
+	tests := []struct {
+		name    string
+		input   []string
+		check   func(t *testing.T, e core.SectorEvent)
+		wantErr bool
+	}{
+		{
+			name:  "captured with position",
+			input: []string{"200", "captured", "sector", "Sector Alpha", "100.5", "200.3", "0"},
+			check: func(t *testing.T, e core.SectorEvent) {
+				assert.Equal(t, core.Frame(200), e.CaptureFrame)
+				assert.Equal(t, "captured", e.Name)
+				assert.Equal(t, "sector", e.ObjectType)
+				assert.Equal(t, "Sector Alpha", e.UnitName)
+				assert.InDelta(t, 100.5, e.PosX, 0.001)
+				assert.InDelta(t, 200.3, e.PosY, 0.001)
+				assert.InDelta(t, 0.0, e.PosZ, 0.001)
+			},
+		},
+		{
+			name:  "contested",
+			input: []string{"300", "contested", "sector", "Sector,With,Commas", "50", "60", "0"},
+			check: func(t *testing.T, e core.SectorEvent) {
+				assert.Equal(t, "contested", e.Name)
+				assert.Equal(t, "Sector,With,Commas", e.UnitName)
+			},
+		},
+		{
+			name:  "capturedFlag",
+			input: []string{"150", "capturedFlag", "flag", "Player One", "300", "400", "5"},
+			check: func(t *testing.T, e core.SectorEvent) {
+				assert.Equal(t, "capturedFlag", e.Name)
+				assert.Equal(t, "flag", e.ObjectType)
+				assert.Equal(t, "Player One", e.UnitName)
+				assert.InDelta(t, 300.0, e.PosX, 0.001)
+				assert.InDelta(t, 400.0, e.PosY, 0.001)
+				assert.InDelta(t, 5.0, e.PosZ, 0.001)
+			},
+		},
+		{
+			name:  "captured without position",
+			input: []string{"200", "captured", "sector", "Sector Alpha"},
+			check: func(t *testing.T, e core.SectorEvent) {
+				assert.Equal(t, "captured", e.Name)
+				assert.Equal(t, "Sector Alpha", e.UnitName)
+				assert.Equal(t, 0.0, e.PosX)
+				assert.Equal(t, 0.0, e.PosY)
+				assert.Equal(t, 0.0, e.PosZ)
+			},
+		},
+		{
+			name:    "error: insufficient data",
+			input:   []string{"200", "captured", "sector"},
+			wantErr: true,
+		},
+		{
+			name:    "error: bad frame",
+			input:   []string{"abc", "captured", "sector", "Alpha"},
+			wantErr: true,
+		},
+		{
+			name:    "error: bad position X",
+			input:   []string{"200", "captured", "sector", "Alpha", "not_a_number", "200", "0"},
+			wantErr: true,
+		},
+		{
+			name:    "error: bad position Y",
+			input:   []string{"200", "captured", "sector", "Alpha", "100", "not_a_number", "0"},
+			wantErr: true,
+		},
+		{
+			name:    "error: bad position Z",
+			input:   []string{"200", "captured", "sector", "Alpha", "100", "200", "not_a_number"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := p.ParseSectorEvent(tt.input)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			tt.check(t, result)
+		})
+	}
+}
+
+func TestParseEndMissionEvent(t *testing.T) {
+	p := newTestParser()
+
+	tests := []struct {
+		name    string
+		input   []string
+		check   func(t *testing.T, e core.EndMissionEvent)
+		wantErr bool
+	}{
+		{
+			name:  "normal",
+			input: []string{"1043", "WEST", "BLUFOR wins"},
+			check: func(t *testing.T, e core.EndMissionEvent) {
+				assert.Equal(t, core.Frame(1043), e.CaptureFrame)
+				assert.Equal(t, "WEST", e.Side)
+				assert.Equal(t, "BLUFOR wins", e.Message)
+			},
+		},
+		{
+			name:  "empty side",
+			input: []string{"1043", "", "Recording ended due to server being empty"},
+			check: func(t *testing.T, e core.EndMissionEvent) {
+				assert.Equal(t, core.Frame(1043), e.CaptureFrame)
+				assert.Equal(t, "", e.Side)
+				assert.Equal(t, "Recording ended due to server being empty", e.Message)
+			},
+		},
+		{
+			name:  "comma in message",
+			input: []string{"500", "EAST", "OPFOR wins, decisively"},
+			check: func(t *testing.T, e core.EndMissionEvent) {
+				assert.Equal(t, "EAST", e.Side)
+				assert.Equal(t, "OPFOR wins, decisively", e.Message)
+			},
+		},
+		{
+			name:    "error: insufficient data",
+			input:   []string{"500", "WEST"},
+			wantErr: true,
+		},
+		{
+			name:    "error: bad frame",
+			input:   []string{"abc", "WEST", "message"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := p.ParseEndMissionEvent(tt.input)
 			if tt.wantErr {
 				assert.Error(t, err)
 				return

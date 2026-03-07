@@ -187,6 +187,41 @@ func TestRecordGeneralEvent_QueuesToInternalQueue(t *testing.T) {
 	assert.Equal(t, 1, b.queues.GeneralEvents.Len())
 }
 
+func TestRecordSectorEvent_QueuesToGeneralEvents(t *testing.T) {
+	b := newTestBackend()
+	b.Init() //nolint:errcheck // Init fails (no postgres) but queues are created for testing
+	defer func() { require.NoError(t, b.Close()) }()
+
+	event := &core.SectorEvent{
+		CaptureFrame: 100,
+		Name:         "captured",
+		ObjectType:   "sector",
+		UnitName:     "Sector Alpha",
+		PosX:         100.5,
+		PosY:         200.3,
+	}
+
+	err := b.RecordSectorEvent(event)
+	require.NoError(t, err)
+	assert.Equal(t, 1, b.queues.GeneralEvents.Len())
+}
+
+func TestRecordEndMissionEvent_QueuesToGeneralEvents(t *testing.T) {
+	b := newTestBackend()
+	b.Init() //nolint:errcheck // Init fails (no postgres) but queues are created for testing
+	defer func() { require.NoError(t, b.Close()) }()
+
+	event := &core.EndMissionEvent{
+		CaptureFrame: 500,
+		Side:         "WEST",
+		Message:      "BLUFOR wins",
+	}
+
+	err := b.RecordEndMissionEvent(event)
+	require.NoError(t, err)
+	assert.Equal(t, 1, b.queues.GeneralEvents.Len())
+}
+
 func TestRecordKillEvent_QueuesToInternalQueue(t *testing.T) {
 	b := newTestBackend()
 	b.Init() //nolint:errcheck // Init fails (no postgres) but queues are created for testing
