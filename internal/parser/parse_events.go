@@ -184,7 +184,7 @@ func (p *Parser) ParseGeneralEvent(data []string) (core.GeneralEvent, error) {
 }
 
 // ParseSectorEvent parses sector state change events.
-// Handles: captured, contested, capturedFlag.
+// Handles: captured, contested.
 // Args: [frame, type, objectType, unitName, side, posX?, posY?, posZ?]
 func (p *Parser) ParseSectorEvent(data []string) (core.SectorEvent, error) {
 	var event core.SectorEvent

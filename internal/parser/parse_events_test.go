@@ -560,19 +560,6 @@ func TestParseSectorEvent(t *testing.T) {
 			},
 		},
 		{
-			name:  "capturedFlag",
-			input: []string{"150", "capturedFlag", "flag", "Player One", "EAST", "300", "400", "5"},
-			check: func(t *testing.T, e core.SectorEvent) {
-				assert.Equal(t, "capturedFlag", e.Name)
-				assert.Equal(t, "flag", e.ObjectType)
-				assert.Equal(t, "Player One", e.UnitName)
-				assert.Equal(t, "EAST", e.Side)
-				assert.InDelta(t, 300.0, e.PosX, 0.001)
-				assert.InDelta(t, 400.0, e.PosY, 0.001)
-				assert.InDelta(t, 5.0, e.PosZ, 0.001)
-			},
-		},
-		{
 			name:  "captured without position",
 			input: []string{"200", "captured", "sector", "Sector Alpha", "WEST"},
 			check: func(t *testing.T, e core.SectorEvent) {
