@@ -1054,6 +1054,7 @@ func TestHandleSectorEvent_RecordsEvent(t *testing.T) {
 			Name:         "captured",
 			ObjectType:   "sector",
 			UnitName:     "Sector Alpha",
+			Side:         "WEST",
 			PosX:         100.5,
 			PosY:         200.3,
 		},
@@ -1080,6 +1081,7 @@ func TestHandleSectorEvent_RecordsEvent(t *testing.T) {
 	require.Equal(t, 1, len(backend.sectorEvents))
 	assert.Equal(t, "captured", backend.sectorEvents[0].Name)
 	assert.Equal(t, "Sector Alpha", backend.sectorEvents[0].UnitName)
+	assert.Equal(t, "WEST", backend.sectorEvents[0].Side)
 }
 
 func TestHandleEndMissionEvent_RecordsEvent(t *testing.T) {

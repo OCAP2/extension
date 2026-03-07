@@ -280,12 +280,12 @@ func Build(data *MissionData) Export {
 	}
 
 	// Convert sector events
-	// Format: [frameNum, "captured"|"contested"|"capturedFlag", [objectType, unitName, [x, y, z]]]
+	// Format: [frameNum, "captured"|"contested"|"capturedFlag", [objectType, unitName, side, [x, y, z]]]
 	for _, evt := range data.SectorEvents {
 		export.Events = append(export.Events, []any{
 			frameToV1(evt.CaptureFrame),
 			evt.Name,
-			[]any{evt.ObjectType, evt.UnitName, []float64{evt.PosX, evt.PosY, evt.PosZ}},
+			[]any{evt.ObjectType, evt.UnitName, evt.Side, []float64{evt.PosX, evt.PosY, evt.PosZ}},
 		})
 	}
 

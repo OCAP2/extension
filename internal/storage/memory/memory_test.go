@@ -330,6 +330,7 @@ func TestRecordSectorEvent(t *testing.T) {
 		Name:         "captured",
 		ObjectType:   "sector",
 		UnitName:     "Sector Alpha",
+		Side:         "WEST",
 		PosX:         100.5,
 		PosY:         200.3,
 	}
@@ -339,6 +340,7 @@ func TestRecordSectorEvent(t *testing.T) {
 	assert.Len(t, b.sectorEvents, 1)
 	assert.Equal(t, "captured", b.sectorEvents[0].Name)
 	assert.Equal(t, "Sector Alpha", b.sectorEvents[0].UnitName)
+	assert.Equal(t, "WEST", b.sectorEvents[0].Side)
 }
 
 func TestRecordEndMissionEvent(t *testing.T) {
