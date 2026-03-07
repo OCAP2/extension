@@ -36,6 +36,7 @@ type SectorEvent struct {
 	Name         string  // "captured", "contested", "capturedFlag"
 	ObjectType   string  // "sector", "flag", etc.
 	UnitName     string  // name of the sector/flag
+	Side         string  // capturing side ("WEST", "EAST", etc.) or empty
 	PosX         float64
 	PosY         float64
 	PosZ         float64
