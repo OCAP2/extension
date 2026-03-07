@@ -34,9 +34,10 @@ type SectorEvent struct {
 	Time         time.Time
 	CaptureFrame Frame
 	Name         string  // "captured", "contested"
-	ObjectType   string  // "sector", etc.
-	UnitName     string  // name of the sector
+	ObjectType   string  // "sector", "flag", etc.
+	UnitName     string  // name of the sector or player
 	Side         string  // capturing side ("WEST", "EAST", etc.) or empty
+	Color        string  // hex color (e.g. "#FF0000") or empty
 	PosX         float64
 	PosY         float64
 	PosZ         float64
