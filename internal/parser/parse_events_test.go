@@ -538,14 +538,14 @@ func TestParseSectorEvent(t *testing.T) {
 	}{
 		{
 			name:  "captured with side, color and position",
-			input: []string{"200", "captured", "flag", "PlayerName", "WEST", "#FF0000", "100.5", "200.3", "0"},
+			input: []string{"200", "captured", "sector", "Sector Alpha", "WEST", "#0000FF", "100.5", "200.3", "0"},
 			check: func(t *testing.T, e core.SectorEvent) {
 				assert.Equal(t, core.Frame(200), e.CaptureFrame)
 				assert.Equal(t, "captured", e.Name)
-				assert.Equal(t, "flag", e.ObjectType)
-				assert.Equal(t, "PlayerName", e.UnitName)
+				assert.Equal(t, "sector", e.ObjectType)
+				assert.Equal(t, "Sector Alpha", e.UnitName)
 				assert.Equal(t, "WEST", e.Side)
-				assert.Equal(t, "#FF0000", e.Color)
+				assert.Equal(t, "#0000FF", e.Color)
 				assert.InDelta(t, 100.5, e.PosX, 0.001)
 				assert.InDelta(t, 200.3, e.PosY, 0.001)
 				assert.InDelta(t, 0.0, e.PosZ, 0.001)
