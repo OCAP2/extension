@@ -127,7 +127,7 @@ All commands follow a `:RESOURCE:ACTION:` naming convention. New commands must u
 | Command | Buffer | Purpose |
 |---------|--------|---------|
 | `:EVENT:GENERAL:` | 1,000 | General gameplay event |
-| `:EVENT:SECTOR:` | 1,000 | Sector state change (captured/contested/capturedFlag) |
+| `:EVENT:SECTOR:` | 1,000 | Sector state change (captured/contested) |
 | `:EVENT:ENDMISSION:` | 100 | End-of-mission event with side and message |
 | `:EVENT:CHAT:` | 1,000 | Chat message |
 | `:EVENT:RADIO:` | 1,000 | Radio transmission |

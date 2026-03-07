@@ -490,8 +490,8 @@ func TestBuildWithSectorEvents(t *testing.T) {
 		Vehicles: make(map[uint16]*VehicleRecord),
 		Markers:  make(map[string]*MarkerRecord),
 		SectorEvents: []core.SectorEvent{
-			{CaptureFrame: 15, Name: "captured", ObjectType: "sector", UnitName: "Sector Alpha", Side: "WEST", PosX: 100.5, PosY: 200.3, PosZ: 0},
-			{CaptureFrame: 30, Name: "contested", ObjectType: "flag", UnitName: "Flag Bravo", Side: "", PosX: 300, PosY: 400, PosZ: 10},
+			{CaptureFrame: 15, Name: "captured", ObjectType: "flag", UnitName: "PlayerName", Side: "WEST", Color: "#FF0000", PosX: 100.5, PosY: 200.3, PosZ: 0},
+			{CaptureFrame: 30, Name: "contested", ObjectType: "sector", UnitName: "Sector Bravo", Side: "", PosX: 300, PosY: 400, PosZ: 10},
 		},
 	}
 
@@ -504,10 +504,10 @@ func TestBuildWithSectorEvents(t *testing.T) {
 	assert.Equal(t, 14, evt0[0])
 	assert.Equal(t, "captured", evt0[1])
 	payload0 := evt0[2].([]any)
-	assert.Equal(t, "sector", payload0[0])
-	assert.Equal(t, "Sector Alpha", payload0[1])
+	assert.Equal(t, "flag", payload0[0])
+	assert.Equal(t, "PlayerName", payload0[1])
 	assert.Equal(t, "WEST", payload0[2])
-	assert.Equal(t, "", payload0[3]) // color (not captured, always empty)
+	assert.Equal(t, "#FF0000", payload0[3])
 	pos0 := payload0[4].([]float64)
 	assert.Equal(t, 100.5, pos0[0])
 	assert.Equal(t, 200.3, pos0[1])

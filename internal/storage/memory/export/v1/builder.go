@@ -285,7 +285,7 @@ func Build(data *MissionData) Export {
 		export.Events = append(export.Events, []any{
 			frameToV1(evt.CaptureFrame),
 			evt.Name,
-			[]any{evt.ObjectType, evt.UnitName, evt.Side, "", []float64{evt.PosX, evt.PosY, evt.PosZ}},
+			[]any{evt.ObjectType, evt.UnitName, evt.Side, evt.Color, []float64{evt.PosX, evt.PosY, evt.PosZ}},
 		})
 	}
 

@@ -185,7 +185,7 @@ func (p *Parser) ParseGeneralEvent(data []string) (core.GeneralEvent, error) {
 
 // ParseSectorEvent parses sector state change events.
 // Handles: captured, contested.
-// Args: [frame, type, objectType, unitName, side, posX?, posY?, posZ?]
+// Args: [frame, type, objectType, unitName, side, color, posX?, posY?, posZ?]
 func (p *Parser) ParseSectorEvent(data []string) (core.SectorEvent, error) {
 	var event core.SectorEvent
 
@@ -212,16 +212,20 @@ func (p *Parser) ParseSectorEvent(data []string) (core.SectorEvent, error) {
 		event.Side = data[4]
 	}
 
-	if len(data) >= 8 {
-		event.PosX, err = strconv.ParseFloat(data[5], 64)
+	if len(data) >= 6 {
+		event.Color = data[5]
+	}
+
+	if len(data) >= 9 {
+		event.PosX, err = strconv.ParseFloat(data[6], 64)
 		if err != nil {
 			return event, fmt.Errorf("invalid position X for sector event: %w", err)
 		}
-		event.PosY, err = strconv.ParseFloat(data[6], 64)
+		event.PosY, err = strconv.ParseFloat(data[7], 64)
 		if err != nil {
 			return event, fmt.Errorf("invalid position Y for sector event: %w", err)
 		}
-		event.PosZ, err = strconv.ParseFloat(data[7], 64)
+		event.PosZ, err = strconv.ParseFloat(data[8], 64)
 		if err != nil {
 			return event, fmt.Errorf("invalid position Z for sector event: %w", err)
 		}
