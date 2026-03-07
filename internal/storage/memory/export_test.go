@@ -77,7 +77,7 @@ func TestIntegrationFullExport(t *testing.T) {
 		CaptureFrame: 15, Name: "connected", Message: "Player1 connected", ExtraData: map[string]any{"uid": "12345"},
 	}))
 	require.NoError(t, b.RecordSectorEvent(&core.SectorEvent{
-		CaptureFrame: 8, Name: "captured", ObjectType: "sector", UnitName: "Sector Alpha", Side: "WEST", Color: "#00FF00", PosX: 100.5, PosY: 200.3, PosZ: 0,
+		CaptureFrame: 8, Name: "captured", ObjectType: "sector", UnitName: "Sector Alpha", Side: "WEST", PosX: 100.5, PosY: 200.3, PosZ: 0,
 	}))
 	require.NoError(t, b.RecordEndMissionEvent(&core.EndMissionEvent{
 		CaptureFrame: 25, Side: "WEST", Message: "BLUFOR wins",
@@ -168,7 +168,6 @@ func TestIntegrationFullExport(t *testing.T) {
 	assert.Equal(t, "sector", sectorPayload[0])
 	assert.Equal(t, "Sector Alpha", sectorPayload[1])
 	assert.Equal(t, "WEST", sectorPayload[2])
-	assert.Equal(t, "#00FF00", sectorPayload[3])
 
 	// General event at frame 15 (v1: 14)
 	assert.EqualValues(t, 14, export.Events[1][0])
