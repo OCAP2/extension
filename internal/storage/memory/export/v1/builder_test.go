@@ -540,6 +540,40 @@ func TestBuildWithEndMissionEvents(t *testing.T) {
 	assert.Equal(t, "BLUFOR controlled all sectors!", evt[3])
 }
 
+func TestBuildEventsSortedByFrame(t *testing.T) {
+	soldierVictim := uint(5)
+	data := &MissionData{
+		Mission:  &core.Mission{MissionName: "Test"},
+		World:    &core.World{WorldName: "Altis"},
+		Soldiers: make(map[uint16]*SoldierRecord),
+		Vehicles: make(map[uint16]*VehicleRecord),
+		Markers:  make(map[string]*MarkerRecord),
+		GeneralEvents: []core.GeneralEvent{
+			{CaptureFrame: 50, Name: "connected", Message: "Player1"},
+		},
+		SectorEvents: []core.SectorEvent{
+			{CaptureFrame: 10, Name: "captured", ObjectType: "sector", UnitName: "Alpha"},
+		},
+		EndMissionEvents: []core.EndMissionEvent{
+			{CaptureFrame: 100, Side: "WEST", Message: "Win"},
+		},
+		KillEvents: []core.KillEvent{
+			{CaptureFrame: 30, VictimSoldierID: &soldierVictim, EventText: "rifle"},
+		},
+	}
+
+	export := Build(data)
+
+	require.Len(t, export.Events, 4)
+
+	// Events must be sorted by frame number regardless of type
+	frames := make([]int, len(export.Events))
+	for i, evt := range export.Events {
+		frames[i] = evt[0].(int)
+	}
+	assert.Equal(t, []int{9, 29, 49, 99}, frames)
+}
+
 func TestBuildWithHitEvents(t *testing.T) {
 	soldierVictim := uint(5)
 	soldierShooter := uint(10)

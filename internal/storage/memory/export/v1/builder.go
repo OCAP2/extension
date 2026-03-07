@@ -4,10 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 
-	"github.com/OCAP2/extension/v5/pkg/core"
 	"github.com/OCAP2/extension/v5/internal/util"
+	"github.com/OCAP2/extension/v5/pkg/core"
 )
 
 // MissionData contains all the data needed to build an export
@@ -608,6 +609,11 @@ func Build(data *MissionData) Export {
 			}
 		}
 	}
+
+	// Sort events by frame number so consumers can rely on chronological order
+	sort.SliceStable(export.Events, func(i, j int) bool {
+		return export.Events[i][0].(int) < export.Events[j][0].(int)
+	})
 
 	return export
 }
