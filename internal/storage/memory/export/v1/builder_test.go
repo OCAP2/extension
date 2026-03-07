@@ -490,8 +490,8 @@ func TestBuildWithSectorEvents(t *testing.T) {
 		Vehicles: make(map[uint16]*VehicleRecord),
 		Markers:  make(map[string]*MarkerRecord),
 		SectorEvents: []core.SectorEvent{
-			{CaptureFrame: 15, Name: "captured", ObjectType: "sector", UnitName: "Sector Alpha", PosX: 100.5, PosY: 200.3, PosZ: 0},
-			{CaptureFrame: 30, Name: "contested", ObjectType: "flag", UnitName: "Flag Bravo", PosX: 300, PosY: 400, PosZ: 10},
+			{CaptureFrame: 15, Name: "captured", ObjectType: "sector", UnitName: "Sector Alpha", Side: "WEST", PosX: 100.5, PosY: 200.3, PosZ: 0},
+			{CaptureFrame: 30, Name: "contested", ObjectType: "flag", UnitName: "Flag Bravo", Side: "", PosX: 300, PosY: 400, PosZ: 10},
 		},
 	}
 
@@ -506,7 +506,8 @@ func TestBuildWithSectorEvents(t *testing.T) {
 	payload0 := evt0[2].([]any)
 	assert.Equal(t, "sector", payload0[0])
 	assert.Equal(t, "Sector Alpha", payload0[1])
-	pos0 := payload0[2].([]float64)
+	assert.Equal(t, "WEST", payload0[2])
+	pos0 := payload0[3].([]float64)
 	assert.Equal(t, 100.5, pos0[0])
 	assert.Equal(t, 200.3, pos0[1])
 	assert.Equal(t, 0.0, pos0[2])
@@ -536,8 +537,10 @@ func TestBuildWithEndMissionEvents(t *testing.T) {
 	evt := export.Events[0]
 	assert.Equal(t, 499, evt[0])            // internal 500 → v1 499
 	assert.Equal(t, "endMission", evt[1])
-	assert.Equal(t, "WEST", evt[2])
-	assert.Equal(t, "BLUFOR controlled all sectors!", evt[3])
+	inner, ok := evt[2].([]any)
+	require.True(t, ok, "endMission data should be inner array")
+	assert.Equal(t, "WEST", inner[0])
+	assert.Equal(t, "BLUFOR controlled all sectors!", inner[1])
 }
 
 func TestBuildEventsSortedByFrame(t *testing.T) {

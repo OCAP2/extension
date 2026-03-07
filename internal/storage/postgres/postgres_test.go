@@ -197,6 +197,7 @@ func TestRecordSectorEvent_QueuesToGeneralEvents(t *testing.T) {
 		Name:         "captured",
 		ObjectType:   "sector",
 		UnitName:     "Sector Alpha",
+		Side:         "WEST",
 		PosX:         100.5,
 		PosY:         200.3,
 	}

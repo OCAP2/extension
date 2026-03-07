@@ -324,7 +324,7 @@ func (b *Backend) RecordSectorEvent(e *core.SectorEvent) error {
 		Time:         e.Time,
 		CaptureFrame: e.CaptureFrame,
 		Name:         e.Name,
-		Message:      fmt.Sprintf("%s %s", e.ObjectType, e.UnitName),
+		Message:      fmt.Sprintf("%s,%s,%s", e.ObjectType, e.UnitName, e.Side),
 	})
 	b.queues.GeneralEvents.Push(gormObj)
 	return nil

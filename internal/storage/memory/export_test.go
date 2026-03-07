@@ -77,7 +77,7 @@ func TestIntegrationFullExport(t *testing.T) {
 		CaptureFrame: 15, Name: "connected", Message: "Player1 connected", ExtraData: map[string]any{"uid": "12345"},
 	}))
 	require.NoError(t, b.RecordSectorEvent(&core.SectorEvent{
-		CaptureFrame: 8, Name: "captured", ObjectType: "sector", UnitName: "Sector Alpha", PosX: 100.5, PosY: 200.3, PosZ: 0,
+		CaptureFrame: 8, Name: "captured", ObjectType: "sector", UnitName: "Sector Alpha", Side: "WEST", PosX: 100.5, PosY: 200.3, PosZ: 0,
 	}))
 	require.NoError(t, b.RecordEndMissionEvent(&core.EndMissionEvent{
 		CaptureFrame: 25, Side: "WEST", Message: "BLUFOR wins",
@@ -167,6 +167,7 @@ func TestIntegrationFullExport(t *testing.T) {
 	require.True(t, ok, "sector event payload should be []any")
 	assert.Equal(t, "sector", sectorPayload[0])
 	assert.Equal(t, "Sector Alpha", sectorPayload[1])
+	assert.Equal(t, "WEST", sectorPayload[2])
 
 	// General event at frame 15 (v1: 14)
 	assert.EqualValues(t, 14, export.Events[1][0])
@@ -176,8 +177,10 @@ func TestIntegrationFullExport(t *testing.T) {
 	// EndMission event at frame 25 (v1: 24)
 	assert.EqualValues(t, 24, export.Events[2][0])
 	assert.Equal(t, "endMission", export.Events[2][1])
-	assert.Equal(t, "WEST", export.Events[2][2])
-	assert.Equal(t, "BLUFOR wins", export.Events[2][3])
+	endInner, ok := export.Events[2][2].([]any)
+	require.True(t, ok, "endMission data should be inner array")
+	assert.Equal(t, "WEST", endInner[0])
+	assert.Equal(t, "BLUFOR wins", endInner[1])
 
 	// Verify markers (array format: [type, text, startFrame, endFrame, playerId, color, sideIndex, positions, size, shape, brush])
 	require.Len(t, export.Markers, 1)

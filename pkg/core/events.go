@@ -28,14 +28,15 @@ type GeneralEvent struct {
 	ExtraData    map[string]any
 }
 
-// SectorEvent represents a sector state change (captured, contested, capturedFlag).
+// SectorEvent represents a sector state change (captured, contested).
 type SectorEvent struct {
 	ID           uint
 	Time         time.Time
 	CaptureFrame Frame
-	Name         string  // "captured", "contested", "capturedFlag"
-	ObjectType   string  // "sector", "flag", etc.
-	UnitName     string  // name of the sector/flag
+	Name         string  // "captured", "contested"
+	ObjectType   string  // "sector", etc.
+	UnitName     string  // name of the sector
+	Side         string  // capturing side ("WEST", "EAST", etc.) or empty
 	PosX         float64
 	PosY         float64
 	PosZ         float64
