@@ -177,8 +177,10 @@ func TestIntegrationFullExport(t *testing.T) {
 	// EndMission event at frame 25 (v1: 24)
 	assert.EqualValues(t, 24, export.Events[2][0])
 	assert.Equal(t, "endMission", export.Events[2][1])
-	assert.Equal(t, "WEST", export.Events[2][2])
-	assert.Equal(t, "BLUFOR wins", export.Events[2][3])
+	endInner, ok := export.Events[2][2].([]any)
+	require.True(t, ok, "endMission data should be inner array")
+	assert.Equal(t, "WEST", endInner[0])
+	assert.Equal(t, "BLUFOR wins", endInner[1])
 
 	// Verify markers (array format: [type, text, startFrame, endFrame, playerId, color, sideIndex, positions, size, shape, brush])
 	require.Len(t, export.Markers, 1)

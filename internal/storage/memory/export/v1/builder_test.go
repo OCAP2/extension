@@ -537,8 +537,10 @@ func TestBuildWithEndMissionEvents(t *testing.T) {
 	evt := export.Events[0]
 	assert.Equal(t, 499, evt[0])            // internal 500 → v1 499
 	assert.Equal(t, "endMission", evt[1])
-	assert.Equal(t, "WEST", evt[2])
-	assert.Equal(t, "BLUFOR controlled all sectors!", evt[3])
+	inner, ok := evt[2].([]any)
+	require.True(t, ok, "endMission data should be inner array")
+	assert.Equal(t, "WEST", inner[0])
+	assert.Equal(t, "BLUFOR controlled all sectors!", inner[1])
 }
 
 func TestBuildEventsSortedByFrame(t *testing.T) {

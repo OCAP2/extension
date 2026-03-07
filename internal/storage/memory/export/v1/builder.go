@@ -290,13 +290,12 @@ func Build(data *MissionData) Export {
 	}
 
 	// Convert end mission events
-	// Format: [frameNum, "endMission", side, message]
+	// Format: [frameNum, "endMission", [side, message]]
 	for _, evt := range data.EndMissionEvents {
 		export.Events = append(export.Events, []any{
 			frameToV1(evt.CaptureFrame),
 			"endMission",
-			evt.Side,
-			evt.Message,
+			[]any{evt.Side, evt.Message},
 		})
 	}
 
