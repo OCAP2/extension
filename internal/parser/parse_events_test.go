@@ -563,6 +563,18 @@ func TestParseGeneralEvent(t *testing.T) {
 			input:   []string{"0", "evt", "msg", "not_json"},
 			wantErr: true,
 		},
+		{
+			name:    "error: bad position data in captured event",
+			input:   []string{"200", "captured", "sector", "Alpha", "not_a_number", "200", "0"},
+			wantErr: true,
+		},
+		{
+			name:  "captured with legacy 3-field format",
+			input: []string{"200", "captured", "Alpha,sector"},
+			check: func(t *testing.T, e core.GeneralEvent) {
+				assert.Equal(t, "Alpha,sector", e.Message)
+			},
+		},
 	}
 
 	for _, tt := range tests {

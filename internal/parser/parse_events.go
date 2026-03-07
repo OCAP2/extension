@@ -179,9 +179,12 @@ func (p *Parser) ParseGeneralEvent(data []string) (core.GeneralEvent, error) {
 			objectType := data[2]
 			unitName := data[3]
 			if len(data) >= 7 {
-				posX, _ := strconv.ParseFloat(data[4], 64)
-				posY, _ := strconv.ParseFloat(data[5], 64)
-				posZ, _ := strconv.ParseFloat(data[6], 64)
+				posX, errX := strconv.ParseFloat(data[4], 64)
+				posY, errY := strconv.ParseFloat(data[5], 64)
+				posZ, errZ := strconv.ParseFloat(data[6], 64)
+				if errX != nil || errY != nil || errZ != nil {
+					return thisEvent, fmt.Errorf("invalid position data for event %q", data[1])
+				}
 				thisEvent.Message = fmt.Sprintf("[%s,%s,[%g,%g,%g]]",
 					jsonString(objectType), jsonString(unitName), posX, posY, posZ)
 			} else {
@@ -189,11 +192,8 @@ func (p *Parser) ParseGeneralEvent(data []string) (core.GeneralEvent, error) {
 					jsonString(objectType), jsonString(unitName))
 			}
 		} else if len(data) >= 3 {
-			// Legacy format: [frame, type, "name,objectType", extraDataJSON?]
+			// Legacy format: [frame, type, "name,objectType"]
 			thisEvent.Message = data[2]
-			if len(data) > 3 {
-				_ = json.Unmarshal([]byte(data[3]), &thisEvent.ExtraData)
-			}
 		}
 
 	case "endMission":
@@ -224,7 +224,11 @@ func (p *Parser) ParseGeneralEvent(data []string) (core.GeneralEvent, error) {
 
 // jsonString returns a JSON-encoded string value (with quotes and escaping).
 func jsonString(s string) string {
-	b, _ := json.Marshal(s)
+	b, err := json.Marshal(s)
+	if err != nil {
+		// Fallback: manually quote the string
+		return `"` + s + `"`
+	}
 	return string(b)
 }
 
