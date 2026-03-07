@@ -537,50 +537,49 @@ func TestParseSectorEvent(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name:  "captured with side, color and position",
-			input: []string{"200", "captured", "sector", "Sector Alpha", "WEST", "#0000FF", "100.5", "200.3", "0"},
+			name:  "captured with side and position",
+			input: []string{"200", "captured", "sector", "Sector Alpha", "WEST", "100.5", "200.3", "0"},
 			check: func(t *testing.T, e core.SectorEvent) {
 				assert.Equal(t, core.Frame(200), e.CaptureFrame)
 				assert.Equal(t, "captured", e.Name)
 				assert.Equal(t, "sector", e.ObjectType)
 				assert.Equal(t, "Sector Alpha", e.UnitName)
 				assert.Equal(t, "WEST", e.Side)
-				assert.Equal(t, "#0000FF", e.Color)
 				assert.InDelta(t, 100.5, e.PosX, 0.001)
 				assert.InDelta(t, 200.3, e.PosY, 0.001)
 				assert.InDelta(t, 0.0, e.PosZ, 0.001)
 			},
 		},
 		{
-			name:  "contested with empty side and color",
-			input: []string{"300", "contested", "sector", "Sector,With,Commas", "", "", "50", "60", "0"},
+			name:  "contested with empty side and position",
+			input: []string{"300", "contested", "sector", "Sector,With,Commas", "", "50", "60", "0"},
 			check: func(t *testing.T, e core.SectorEvent) {
 				assert.Equal(t, "contested", e.Name)
 				assert.Equal(t, "Sector,With,Commas", e.UnitName)
 				assert.Equal(t, "", e.Side)
-				assert.Equal(t, "", e.Color)
+				assert.InDelta(t, 50.0, e.PosX, 0.001)
+				assert.InDelta(t, 60.0, e.PosY, 0.001)
+				assert.InDelta(t, 0.0, e.PosZ, 0.001)
 			},
 		},
 		{
 			name:  "captured without position",
-			input: []string{"200", "captured", "sector", "Sector Alpha", "WEST", ""},
+			input: []string{"200", "captured", "sector", "Sector Alpha", "WEST"},
 			check: func(t *testing.T, e core.SectorEvent) {
 				assert.Equal(t, "captured", e.Name)
 				assert.Equal(t, "Sector Alpha", e.UnitName)
 				assert.Equal(t, "WEST", e.Side)
-				assert.Equal(t, "", e.Color)
 				assert.Equal(t, 0.0, e.PosX)
 				assert.Equal(t, 0.0, e.PosY)
 				assert.Equal(t, 0.0, e.PosZ)
 			},
 		},
 		{
-			name:  "minimal without side, color or position",
+			name:  "minimal without side or position",
 			input: []string{"200", "captured", "sector", "Alpha"},
 			check: func(t *testing.T, e core.SectorEvent) {
 				assert.Equal(t, "captured", e.Name)
 				assert.Equal(t, "", e.Side)
-				assert.Equal(t, "", e.Color)
 			},
 		},
 		{
@@ -595,17 +594,17 @@ func TestParseSectorEvent(t *testing.T) {
 		},
 		{
 			name:    "error: bad position X",
-			input:   []string{"200", "captured", "sector", "Alpha", "WEST", "#FF0000", "not_a_number", "200", "0"},
+			input:   []string{"200", "captured", "sector", "Alpha", "WEST", "not_a_number", "200", "0"},
 			wantErr: true,
 		},
 		{
 			name:    "error: bad position Y",
-			input:   []string{"200", "captured", "sector", "Alpha", "WEST", "#FF0000", "100", "not_a_number", "0"},
+			input:   []string{"200", "captured", "sector", "Alpha", "WEST", "100", "not_a_number", "0"},
 			wantErr: true,
 		},
 		{
 			name:    "error: bad position Z",
-			input:   []string{"200", "captured", "sector", "Alpha", "WEST", "#FF0000", "100", "200", "not_a_number"},
+			input:   []string{"200", "captured", "sector", "Alpha", "WEST", "100", "200", "not_a_number"},
 			wantErr: true,
 		},
 	}
