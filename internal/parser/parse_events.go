@@ -224,12 +224,7 @@ func (p *Parser) ParseGeneralEvent(data []string) (core.GeneralEvent, error) {
 
 // jsonString returns a JSON-encoded string value (with quotes and escaping).
 func jsonString(s string) string {
-	b, err := json.Marshal(s)
-	if err != nil {
-		// Fallback: manually quote the string
-		return `"` + s + `"`
-	}
-	return string(b)
+	return strconv.Quote(s)
 }
 
 // ParseKillEvent parses kill event data into a KillEvent.
