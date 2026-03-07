@@ -186,10 +186,10 @@ func (p *Parser) ParseGeneralEvent(data []string) (core.GeneralEvent, error) {
 					return thisEvent, fmt.Errorf("invalid position data for event %q", data[1])
 				}
 				thisEvent.Message = fmt.Sprintf("[%s,%s,[%g,%g,%g]]",
-					jsonString(objectType), jsonString(unitName), posX, posY, posZ)
+					strconv.Quote(objectType), strconv.Quote(unitName), posX, posY, posZ)
 			} else {
 				thisEvent.Message = fmt.Sprintf("[%s,%s]",
-					jsonString(objectType), jsonString(unitName))
+					strconv.Quote(objectType), strconv.Quote(unitName))
 			}
 		} else if len(data) >= 3 {
 			// Legacy format: [frame, type, "name,objectType"]
@@ -201,7 +201,7 @@ func (p *Parser) ParseGeneralEvent(data []string) (core.GeneralEvent, error) {
 		if len(data) >= 4 {
 			side := data[2]
 			message := data[3]
-			thisEvent.Message = fmt.Sprintf("[%s,%s]", jsonString(side), jsonString(message))
+			thisEvent.Message = fmt.Sprintf("[%s,%s]", strconv.Quote(side), strconv.Quote(message))
 		} else if len(data) >= 3 {
 			thisEvent.Message = data[2]
 		}
@@ -222,10 +222,6 @@ func (p *Parser) ParseGeneralEvent(data []string) (core.GeneralEvent, error) {
 	return thisEvent, nil
 }
 
-// jsonString returns a JSON-encoded string value (with quotes and escaping).
-func jsonString(s string) string {
-	return strconv.Quote(s)
-}
 
 // ParseKillEvent parses kill event data into a KillEvent.
 // Raw victim/killer IDs are returned for the worker to classify as soldier vs vehicle.
