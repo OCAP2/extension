@@ -168,6 +168,7 @@ func TestIntegrationFullExport(t *testing.T) {
 	assert.Equal(t, "sector", sectorPayload[0])
 	assert.Equal(t, "Sector Alpha", sectorPayload[1])
 	assert.Equal(t, "WEST", sectorPayload[2])
+	assert.Equal(t, "", sectorPayload[3]) // color (not captured, always empty)
 
 	// General event at frame 15 (v1: 14)
 	assert.EqualValues(t, 14, export.Events[1][0])
