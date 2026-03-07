@@ -60,8 +60,10 @@ type mockBackend struct {
 	vehicleStates  []*core.VehicleState
 	markerStates   []*core.MarkerState
 	firedEvents    []*core.FiredEvent
-	generalEvents  []*core.GeneralEvent
-	hitEvents      []*core.HitEvent
+	generalEvents    []*core.GeneralEvent
+	sectorEvents     []*core.SectorEvent
+	endMissionEvents []*core.EndMissionEvent
+	hitEvents        []*core.HitEvent
 	killEvents     []*core.KillEvent
 	chatEvents        []*core.ChatEvent
 	radioEvents       []*core.RadioEvent
@@ -189,6 +191,20 @@ func (b *mockBackend) RecordGeneralEvent(e *core.GeneralEvent) error {
 	return nil
 }
 
+func (b *mockBackend) RecordSectorEvent(e *core.SectorEvent) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.sectorEvents = append(b.sectorEvents, e)
+	return nil
+}
+
+func (b *mockBackend) RecordEndMissionEvent(e *core.EndMissionEvent) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.endMissionEvents = append(b.endMissionEvents, e)
+	return nil
+}
+
 func (b *mockBackend) RecordHitEvent(e *core.HitEvent) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -294,8 +310,10 @@ type mockParserService struct {
 	soldierState  core.SoldierState
 	vehicleState  core.VehicleState
 	projectile    parser.ProjectileEvent
-	generalEvent  core.GeneralEvent
-	killEvent     parser.KillEvent
+	generalEvent     core.GeneralEvent
+	sectorEvent      core.SectorEvent
+	endMissionEvent  core.EndMissionEvent
+	killEvent        parser.KillEvent
 	chatEvent     core.ChatEvent
 	radioEvent    core.RadioEvent
 	telemetryEvent core.TelemetryEvent
@@ -390,6 +408,26 @@ func (h *mockParserService) ParseGeneralEvent(args []string) (core.GeneralEvent,
 		return core.GeneralEvent{}, errors.New(h.errorMsg)
 	}
 	return h.generalEvent, nil
+}
+
+func (h *mockParserService) ParseSectorEvent(args []string) (core.SectorEvent, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.calls = append(h.calls, "ParseSectorEvent")
+	if h.returnError {
+		return core.SectorEvent{}, errors.New(h.errorMsg)
+	}
+	return h.sectorEvent, nil
+}
+
+func (h *mockParserService) ParseEndMissionEvent(args []string) (core.EndMissionEvent, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.calls = append(h.calls, "ParseEndMissionEvent")
+	if h.returnError {
+		return core.EndMissionEvent{}, errors.New(h.errorMsg)
+	}
+	return h.endMissionEvent, nil
 }
 
 func (h *mockParserService) ParseKillEvent(args []string) (parser.KillEvent, error) {
@@ -610,6 +648,8 @@ func TestRegisterHandlers_RegistersAllCommands(t *testing.T) {
 		":EVENT:PROJECTILE:",
 		":EVENT:KILL:",
 		":EVENT:GENERAL:",
+		":EVENT:SECTOR:",
+		":EVENT:ENDMISSION:",
 		":EVENT:CHAT:",
 		":EVENT:RADIO:",
 		":TELEMETRY:FRAME:",

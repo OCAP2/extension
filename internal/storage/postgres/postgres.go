@@ -316,6 +316,33 @@ func (b *Backend) RecordGeneralEvent(e *core.GeneralEvent) error {
 	return nil
 }
 
+// RecordSectorEvent stores sector events as general events in postgres.
+// The structured data is flattened to the general event format for DB compatibility.
+func (b *Backend) RecordSectorEvent(e *core.SectorEvent) error {
+	gormObj := convert.CoreToGeneralEvent(core.GeneralEvent{
+		ID:           e.ID,
+		Time:         e.Time,
+		CaptureFrame: e.CaptureFrame,
+		Name:         e.Name,
+		Message:      fmt.Sprintf("%s %s", e.ObjectType, e.UnitName),
+	})
+	b.queues.GeneralEvents.Push(gormObj)
+	return nil
+}
+
+// RecordEndMissionEvent stores end mission events as general events in postgres.
+func (b *Backend) RecordEndMissionEvent(e *core.EndMissionEvent) error {
+	gormObj := convert.CoreToGeneralEvent(core.GeneralEvent{
+		ID:           e.ID,
+		Time:         e.Time,
+		CaptureFrame: e.CaptureFrame,
+		Name:         "endMission",
+		Message:      fmt.Sprintf("%s %s", e.Side, e.Message),
+	})
+	b.queues.GeneralEvents.Push(gormObj)
+	return nil
+}
+
 // RecordHitEvent is a no-op — replaced by ProjectileEvent.
 func (b *Backend) RecordHitEvent(e *core.HitEvent) error {
 	return nil

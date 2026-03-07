@@ -18,7 +18,7 @@ type FiredEvent struct {
 	EndPos       Position3D
 }
 
-// GeneralEvent is a generic event
+// GeneralEvent is a generic event (connected, disconnected, generalEvent, respawnTickets, etc.)
 type GeneralEvent struct {
 	ID           uint
 	Time         time.Time
@@ -26,6 +26,28 @@ type GeneralEvent struct {
 	Name         string
 	Message      string
 	ExtraData    map[string]any
+}
+
+// SectorEvent represents a sector state change (captured, contested, capturedFlag).
+type SectorEvent struct {
+	ID           uint
+	Time         time.Time
+	CaptureFrame Frame
+	Name         string  // "captured", "contested", "capturedFlag"
+	ObjectType   string  // "sector", "flag", etc.
+	UnitName     string  // name of the sector/flag
+	PosX         float64
+	PosY         float64
+	PosZ         float64
+}
+
+// EndMissionEvent represents the end of a mission.
+type EndMissionEvent struct {
+	ID           uint
+	Time         time.Time
+	CaptureFrame Frame
+	Side         string // winning side ("WEST", "EAST", etc.) or empty
+	Message      string // victory description
 }
 
 // HitEvent represents something being hit

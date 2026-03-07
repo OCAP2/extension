@@ -60,6 +60,8 @@ type Service interface {
 	ParseVehicleState(args []string) (core.VehicleState, error)
 	ParseProjectileEvent(args []string) (ProjectileEvent, error)
 	ParseGeneralEvent(args []string) (core.GeneralEvent, error)
+	ParseSectorEvent(args []string) (core.SectorEvent, error)
+	ParseEndMissionEvent(args []string) (core.EndMissionEvent, error)
 	ParseKillEvent(args []string) (KillEvent, error)
 	ParseChatEvent(args []string) (core.ChatEvent, error)
 	ParseRadioEvent(args []string) (core.RadioEvent, error)

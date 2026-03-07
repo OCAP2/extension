@@ -157,6 +157,14 @@ func (b *Backend) RecordGeneralEvent(e *core.GeneralEvent) error {
 	return b.sendEnvelope(streaming.TypeGeneralEvent, e)
 }
 
+func (b *Backend) RecordSectorEvent(e *core.SectorEvent) error {
+	return b.sendEnvelope(streaming.TypeSectorEvent, e)
+}
+
+func (b *Backend) RecordEndMissionEvent(e *core.EndMissionEvent) error {
+	return b.sendEnvelope(streaming.TypeEndMissionEvent, e)
+}
+
 func (b *Backend) RecordHitEvent(e *core.HitEvent) error {
 	return b.sendEnvelope(streaming.TypeHitEvent, e)
 }

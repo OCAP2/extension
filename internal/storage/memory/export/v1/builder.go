@@ -20,6 +20,8 @@ type MissionData struct {
 	PlacedObjects map[uint16]*PlacedObjectRecord
 
 	GeneralEvents    []core.GeneralEvent
+	SectorEvents     []core.SectorEvent
+	EndMissionEvents []core.EndMissionEvent
 	HitEvents        []core.HitEvent
 	KillEvents       []core.KillEvent
 	TimeStates       []core.TimeState
@@ -273,6 +275,27 @@ func Build(data *MissionData) Export {
 			frameToV1(evt.CaptureFrame),
 			evt.Name,
 			message,
+		})
+	}
+
+	// Convert sector events
+	// Format: [frameNum, "captured"|"contested"|"capturedFlag", [objectType, unitName, [x, y, z]]]
+	for _, evt := range data.SectorEvents {
+		export.Events = append(export.Events, []any{
+			frameToV1(evt.CaptureFrame),
+			evt.Name,
+			[]any{evt.ObjectType, evt.UnitName, []float64{evt.PosX, evt.PosY, evt.PosZ}},
+		})
+	}
+
+	// Convert end mission events
+	// Format: [frameNum, "endMission", side, message]
+	for _, evt := range data.EndMissionEvents {
+		export.Events = append(export.Events, []any{
+			frameToV1(evt.CaptureFrame),
+			"endMission",
+			evt.Side,
+			evt.Message,
 		})
 	}
 
