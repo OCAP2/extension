@@ -445,6 +445,43 @@ func TestBuildWithGeneralEvents(t *testing.T) {
 	assert.Equal(t, "[1,2,3", export.Events[3][2])
 }
 
+func TestBuildWithCapturedEventJSONArray(t *testing.T) {
+	data := &MissionData{
+		Mission:  &core.Mission{MissionName: "Test"},
+		World:    &core.World{WorldName: "Altis"},
+		Soldiers: make(map[uint16]*SoldierRecord),
+		Vehicles: make(map[uint16]*VehicleRecord),
+		Markers:  make(map[string]*MarkerRecord),
+		GeneralEvents: []core.GeneralEvent{
+			{CaptureFrame: 15, Name: "captured", Message: `["sector","Sector Alpha",[100.5,200.3,0]]`},
+		},
+	}
+
+	export := Build(data)
+
+	require.Len(t, export.Events, 1)
+
+	evt := export.Events[0]
+	assert.Equal(t, 14, evt[0])          // internal frame 15 → v1 frame 14
+	assert.Equal(t, "captured", evt[1])  // event name
+
+	// Message must be a parsed JSON array, not a raw string
+	arr, ok := evt[2].([]any)
+	require.True(t, ok, "expected evt[2] to be []any (parsed JSON array), got %T", evt[2])
+	require.Len(t, arr, 3)
+
+	assert.Equal(t, "sector", arr[0])
+	assert.Equal(t, "Sector Alpha", arr[1])
+
+	// Nested array: JSON numbers decode as float64
+	nested, ok := arr[2].([]any)
+	require.True(t, ok, "expected arr[2] to be []any (nested array), got %T", arr[2])
+	require.Len(t, nested, 3)
+	assert.Equal(t, 100.5, nested[0])
+	assert.Equal(t, 200.3, nested[1])
+	assert.Equal(t, float64(0), nested[2])
+}
+
 func TestBuildWithHitEvents(t *testing.T) {
 	soldierVictim := uint(5)
 	soldierShooter := uint(10)
