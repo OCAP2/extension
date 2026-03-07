@@ -481,14 +481,12 @@ func TestParseGeneralEvent(t *testing.T) {
 			},
 		},
 		{
-			name:  "end mission with extraData",
-			input: []string{"1043", "endMission", "", `{"message":"BLUFOR wins","winner":"WEST"}`},
+			name:  "endMission with empty side",
+			input: []string{"1043", "endMission", "", "Recording ended due to server being empty"},
 			check: func(t *testing.T, e core.GeneralEvent) {
 				assert.Equal(t, core.Frame(1043), e.CaptureFrame)
 				assert.Equal(t, "endMission", e.Name)
-				assert.Equal(t, "", e.Message)
-				assert.Equal(t, "BLUFOR wins", e.ExtraData["message"])
-				assert.Equal(t, "WEST", e.ExtraData["winner"])
+				assert.Equal(t, `["","Recording ended due to server being empty"]`, e.Message)
 			},
 		},
 		{

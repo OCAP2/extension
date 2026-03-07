@@ -197,12 +197,8 @@ func (p *Parser) ParseGeneralEvent(data []string) (core.GeneralEvent, error) {
 		}
 
 	case "endMission":
-		if len(data) >= 4 && data[2] == "" {
-			// Legacy format: [frame, "endMission", "", extraDataJSON]
-			thisEvent.Message = data[2]
-			_ = json.Unmarshal([]byte(data[3]), &thisEvent.ExtraData)
-		} else if len(data) >= 4 {
-			// Typed args: [frame, "endMission", side, message]
+		// Typed args: [frame, "endMission", side, message]
+		if len(data) >= 4 {
 			side := data[2]
 			message := data[3]
 			thisEvent.Message = fmt.Sprintf("[%s,%s]", jsonString(side), jsonString(message))
