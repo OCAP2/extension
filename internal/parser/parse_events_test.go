@@ -551,12 +551,15 @@ func TestParseSectorEvent(t *testing.T) {
 			},
 		},
 		{
-			name:  "contested with empty side",
+			name:  "contested with empty side and position",
 			input: []string{"300", "contested", "sector", "Sector,With,Commas", "", "50", "60", "0"},
 			check: func(t *testing.T, e core.SectorEvent) {
 				assert.Equal(t, "contested", e.Name)
 				assert.Equal(t, "Sector,With,Commas", e.UnitName)
 				assert.Equal(t, "", e.Side)
+				assert.InDelta(t, 50.0, e.PosX, 0.001)
+				assert.InDelta(t, 60.0, e.PosY, 0.001)
+				assert.InDelta(t, 0.0, e.PosZ, 0.001)
 			},
 		},
 		{
