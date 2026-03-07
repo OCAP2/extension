@@ -554,6 +554,19 @@ func TestParseGeneralEvent(t *testing.T) {
 			},
 		},
 		{
+			name:  "endMission with side only (3 fields)",
+			input: []string{"500", "endMission", "WEST"},
+			check: func(t *testing.T, e core.GeneralEvent) {
+				assert.Equal(t, "endMission", e.Name)
+				assert.Equal(t, "WEST", e.Message)
+			},
+		},
+		{
+			name:    "error: insufficient data",
+			input:   []string{"0"},
+			wantErr: true,
+		},
+		{
 			name:    "error: bad frame",
 			input:   []string{"abc", "evt", "msg", "{}"},
 			wantErr: true,
