@@ -8,7 +8,6 @@ package main
 import "C" // This is required to import the C code
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -375,35 +374,7 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 	d.Register(":MISSION:START:", handleNewMission, dispatcher.Buffered(1), dispatcher.Blocking(), dispatcher.Gated(storageReady))
 
 	d.Register(":MISSION:SAVE:", func(e dispatcher.Event) (any, error) {
-		Logger.Info("Received :MISSION:SAVE: command, ending mission recording")
-		if storageBackend != nil {
-			if err := storageBackend.EndMission(); err != nil {
-				Logger.Error("Failed to end mission in storage backend", "error", err)
-				return nil, err
-			}
-			Logger.Info("Mission recording saved to storage backend")
-
-			// Upload if backend supports it and API client is configured
-			if u, ok := storageBackend.(storage.Uploadable); ok && apiClient != nil {
-				if path := u.GetExportedFilePath(); path != "" {
-					meta := u.GetExportMetadata()
-					if err := apiClient.Upload(path, meta); err != nil {
-						Logger.Error("Failed to upload to OCAP web", "error", err, "path", path)
-						// Don't return error - file is saved locally
-					} else {
-						Logger.Info("Mission uploaded to OCAP web", "path", path)
-					}
-				}
-			}
-		}
-		// Flush OTel data if provider is available
-		if OTelProvider != nil {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			if err := OTelProvider.Flush(ctx); err != nil {
-				Logger.Warn("Failed to flush OTel data", "error", err)
-			}
-		}
-		return nil, nil
+		Logger.Info("Received :MISSION:SAVE: command, queuing async save")
+		return triggerMissionSave(saveState, storageBackend, apiClient)
 	})
 }
