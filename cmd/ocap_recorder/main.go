@@ -30,6 +30,7 @@ import (
 	"github.com/OCAP2/extension/v5/pkg/a3interface"
 
 	"github.com/spf13/viper"
+	"go.uber.org/automaxprocs/maxprocs"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 )
 
@@ -215,16 +216,37 @@ func init() {
 		Logger.Info("Set up a3interfaces")
 	}
 
-	// get count of cpus available
-	// set GOMAXPROCS to n - 2, minimum 2
-	// this is to ensure we're using all available cores
+	// Respect cgroup CPU quotas so GOMAXPROCS matches the container's
+	// actual CPU allowance instead of the host's total core count.
+	// Falls back to runtime.NumCPU() when there is no cgroup quota
+	// (bare-metal, macOS, Windows).
+	undo, err := maxprocs.Set(maxprocs.Logger(func(format string, args ...any) {
+		Logger.Info(fmt.Sprintf("automaxprocs: "+format, args...))
+	}))
+	if err != nil {
+		Logger.Warn("automaxprocs failed, falling back to default GOMAXPROCS", "error", err)
+	}
+	_ = undo // ArmA unloads the DLL at process exit; restoring GOMAXPROCS is not needed.
 
-	// get number of CPUs
-	numCPUs := runtime.NumCPU()
-	Logger.Debug("Number of CPUs", "numCPUs", numCPUs)
+	// On hosts with plenty of CPUs available to Go (bare-metal or a generous
+	// container), reserve 2 cores for the ArmA main thread and the host OS so
+	// a CPU-heavy burst in the extension (e.g. mission save) cannot starve the
+	// game. On constrained environments (containers with a small CPU quota),
+	// trust whatever automaxprocs gave us and don't subtract — halving the
+	// allowance on a 2-core container would make the save unusably slow.
+	const hostCoreReserve = 2
+	const minCoresBeforeReserve = hostCoreReserve + 3 // only subtract when >= 5 cores
+	if current := runtime.GOMAXPROCS(0); current >= minCoresBeforeReserve {
+		adjusted := current - hostCoreReserve
+		runtime.GOMAXPROCS(adjusted)
+		Logger.Info("reserved CPU cores for host",
+			"gomaxprocs", adjusted,
+			"reserved", hostCoreReserve,
+			"previous", current,
+		)
+	}
 
-	// set GOMAXPROCS
-	runtime.GOMAXPROCS(max(numCPUs-2, 1))
+	Logger.Debug("Final GOMAXPROCS", "gomaxprocs", runtime.GOMAXPROCS(0), "numCPUs", runtime.NumCPU())
 
 	// Initialize parser (no DB dependency)
 	parserService = parser.NewParser(Logger)
