@@ -16,10 +16,28 @@ import "C"
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"unsafe"
 )
 
 var extensionCallbackFnc C.extensionCallback
+
+// callbackSink is an optional hook used by tests. When non-nil,
+// WriteArmaCallback diverts its output here instead of invoking the
+// real C callback function. Protected by callbackSinkMu.
+var (
+	callbackSinkMu sync.Mutex
+	callbackSink   func(name, function string, data ...string)
+)
+
+// SetCallbackSinkForTest installs a hook that receives WriteArmaCallback
+// invocations instead of forwarding them to the registered C callback.
+// Pass nil to restore the C callback path. Intended for tests only.
+func SetCallbackSinkForTest(sink func(name, function string, data ...string)) {
+	callbackSinkMu.Lock()
+	defer callbackSinkMu.Unlock()
+	callbackSink = sink
+}
 
 // RVExtensionRegisterCallback registers the callback function that will be called when WriteArmaCallback is called
 //
@@ -56,6 +74,15 @@ func WriteArmaCallback(
 	}
 	// format the data into a string
 	a3Message := fmt.Sprintf(`[%s]`, strings.Join(data, ","))
+
+	// Test hook: divert to an in-process sink if one was installed.
+	callbackSinkMu.Lock()
+	sink := callbackSink
+	callbackSinkMu.Unlock()
+	if sink != nil {
+		sink(extensionName, functionName, data...)
+		return nil
+	}
 
 	// check if the callback function is set
 	if extensionCallbackFnc != nil {
