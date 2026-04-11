@@ -228,7 +228,25 @@ func init() {
 	}
 	_ = undo // ArmA unloads the DLL at process exit; restoring GOMAXPROCS is not needed.
 
-	Logger.Debug("GOMAXPROCS after automaxprocs", "gomaxprocs", runtime.GOMAXPROCS(0), "numCPUs", runtime.NumCPU())
+	// On hosts with plenty of CPUs available to Go (bare-metal or a generous
+	// container), reserve 2 cores for the ArmA main thread and the host OS so
+	// a CPU-heavy burst in the extension (e.g. mission save) cannot starve the
+	// game. On constrained environments (containers with a small CPU quota),
+	// trust whatever automaxprocs gave us and don't subtract — halving the
+	// allowance on a 2-core container would make the save unusably slow.
+	const hostCoreReserve = 2
+	const minCoresBeforeReserve = hostCoreReserve + 3 // only subtract when >= 5 cores
+	if current := runtime.GOMAXPROCS(0); current >= minCoresBeforeReserve {
+		adjusted := current - hostCoreReserve
+		runtime.GOMAXPROCS(adjusted)
+		Logger.Info("reserved CPU cores for host",
+			"gomaxprocs", adjusted,
+			"reserved", hostCoreReserve,
+			"previous", current,
+		)
+	}
+
+	Logger.Debug("Final GOMAXPROCS", "gomaxprocs", runtime.GOMAXPROCS(0), "numCPUs", runtime.NumCPU())
 
 	// Initialize parser (no DB dependency)
 	parserService = parser.NewParser(Logger)
