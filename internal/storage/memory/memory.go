@@ -4,6 +4,7 @@ package memory
 import (
 	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"sync"
 
 	"github.com/OCAP2/extension/v5/internal/config"
@@ -111,10 +112,27 @@ func (b *Backend) StartMission(mission *core.Mission, world *core.World) error {
 	return nil
 }
 
-// EndMission finalizes and exports the mission data
-func (b *Backend) EndMission() error {
+// EndMission finalizes and exports the mission data.
+//
+// Recovers from panics in the builder or encoder and converts them
+// into an error return so the calling save worker can report them
+// via :MISSION:SAVED: instead of crashing the host process.
+func (b *Backend) EndMission() (retErr error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	defer func() {
+		if r := recover(); r != nil {
+			stack := debug.Stack()
+			if b.logger != nil {
+				b.logger.Error("panic during mission export (recovered)",
+					"panic", r,
+					"stack", string(stack),
+				)
+			}
+			retErr = fmt.Errorf("panic during mission export: %v", r)
+		}
+	}()
 
 	if b.mission == nil {
 		return fmt.Errorf("no mission to end: mission was never started")
