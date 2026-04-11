@@ -112,10 +112,10 @@ func runMissionSaveWorker(state *missionSaveState, backend storage.Backend, clie
 	// Flush OTel data if provider is available.
 	if OTelProvider != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 		if err := OTelProvider.Flush(ctx); err != nil && Logger != nil {
 			Logger.Warn("Failed to flush OTel data", "error", err)
 		}
-		cancel()
 	}
 
 	// Build callback payload.
