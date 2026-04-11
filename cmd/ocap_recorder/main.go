@@ -289,14 +289,15 @@ func loadConfig() (err error) {
 }
 
 func initAPIClient() {
-	serverURL := viper.GetString("api.serverUrl")
-	if serverURL == "" {
+	apiCfg := config.GetAPIConfig()
+	if apiCfg.ServerURL == "" {
 		Logger.Info("API server URL not configured, upload disabled")
 		return
 	}
 
-	apiKey := viper.GetString("api.apiKey")
-	apiClient = api.New(serverURL, apiKey)
+	apiClient = api.NewWithConfig(apiCfg.ServerURL, apiCfg.APIKey, api.ClientConfig{
+		UploadTimeout: apiCfg.UploadTimeout,
+	})
 
 	if err := apiClient.Healthcheck(); err != nil {
 		Logger.Info("OCAP Frontend is offline", "error", err)

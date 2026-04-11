@@ -4,7 +4,8 @@
   "defaultTag": "TvT",
   "api": {
     "serverUrl": "http://127.0.0.1:5000",
-    "apiKey": "same-secret"
+    "apiKey": "same-secret",
+    "uploadTimeout": "10m"
   },
   "db": {
     "host": "127.0.0.1",

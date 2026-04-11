@@ -28,6 +28,10 @@ func Load(configDir string) error {
 
 	viper.SetDefault("api.serverUrl", "http://localhost:5000")
 	viper.SetDefault("api.apiKey", "")
+	// 10 minute default — generous enough for multi-hundred-MB uploads across
+	// a reverse proxy without being so long that a dead backend hangs the save
+	// worker forever.
+	viper.SetDefault("api.uploadTimeout", "10m")
 
 	viper.SetDefault("db.host", "localhost")
 	viper.SetDefault("db.port", "5432")
@@ -111,5 +115,19 @@ type OTelConfig struct {
 func GetOTelConfig() OTelConfig {
 	var cfg OTelConfig
 	_ = viper.UnmarshalKey("otel", &cfg)
+	return cfg
+}
+
+// APIConfig holds HTTP client configuration for the OCAP web API.
+type APIConfig struct {
+	ServerURL     string        `json:"serverUrl" mapstructure:"serverUrl"`
+	APIKey        string        `json:"apiKey" mapstructure:"apiKey"`
+	UploadTimeout time.Duration `json:"uploadTimeout" mapstructure:"uploadTimeout"`
+}
+
+// GetAPIConfig returns the HTTP API client configuration.
+func GetAPIConfig() APIConfig {
+	var cfg APIConfig
+	_ = viper.UnmarshalKey("api", &cfg)
 	return cfg
 }
