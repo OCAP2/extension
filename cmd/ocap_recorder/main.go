@@ -30,6 +30,7 @@ import (
 	"github.com/OCAP2/extension/v5/pkg/a3interface"
 
 	"github.com/spf13/viper"
+	"go.uber.org/automaxprocs/maxprocs"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 )
 
@@ -215,16 +216,19 @@ func init() {
 		Logger.Info("Set up a3interfaces")
 	}
 
-	// get count of cpus available
-	// set GOMAXPROCS to n - 2, minimum 2
-	// this is to ensure we're using all available cores
+	// Respect cgroup CPU quotas so GOMAXPROCS matches the container's
+	// actual CPU allowance instead of the host's total core count.
+	// Falls back to runtime.NumCPU() when there is no cgroup quota
+	// (bare-metal, macOS, Windows).
+	undo, err := maxprocs.Set(maxprocs.Logger(func(format string, args ...any) {
+		Logger.Info(fmt.Sprintf("automaxprocs: "+format, args...))
+	}))
+	if err != nil {
+		Logger.Warn("automaxprocs failed, falling back to default GOMAXPROCS", "error", err)
+	}
+	_ = undo // ArmA unloads the DLL at process exit; restoring GOMAXPROCS is not needed.
 
-	// get number of CPUs
-	numCPUs := runtime.NumCPU()
-	Logger.Debug("Number of CPUs", "numCPUs", numCPUs)
-
-	// set GOMAXPROCS
-	runtime.GOMAXPROCS(max(numCPUs-2, 1))
+	Logger.Debug("GOMAXPROCS after automaxprocs", "gomaxprocs", runtime.GOMAXPROCS(0), "numCPUs", runtime.NumCPU())
 
 	// Initialize parser (no DB dependency)
 	parserService = parser.NewParser(Logger)
