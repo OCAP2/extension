@@ -1131,6 +1131,9 @@ func TestFocusRange_UserScenario(t *testing.T) {
 // the export build/encode is converted to an error rather than
 // propagating out of EndMission. This protects the async save worker
 // (and, historically, the ArmA host) from recoverable panics.
+//
+// Also verifies that the backend state is reset after a panic so the
+// poisoned data cannot cause a repeat panic on a subsequent call.
 func TestEndMission_RecoversFromBuildPanic(t *testing.T) {
 	tmpDir := t.TempDir()
 	b := New(config.MemoryConfig{OutputDir: tmpDir, CompressOutput: true}, nil)
@@ -1151,4 +1154,12 @@ func TestEndMission_RecoversFromBuildPanic(t *testing.T) {
 	err := b.EndMission()
 	require.Error(t, err, "expected EndMission to return an error, not panic")
 	assert.Contains(t, err.Error(), "panic")
+
+	// State must be reset after the panic so the poisoned data is gone
+	// and the backend is ready for the next mission.
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	assert.Nil(t, b.mission, "mission should be cleared after panic")
+	assert.Nil(t, b.world, "world should be cleared after panic")
+	assert.Empty(t, b.soldiers, "soldiers should be cleared after panic")
 }

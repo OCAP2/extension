@@ -117,10 +117,24 @@ func (b *Backend) StartMission(mission *core.Mission, world *core.World) error {
 // Recovers from panics in the builder or encoder and converts them
 // into an error return so the calling save worker can report them
 // via :MISSION:SAVED: instead of crashing the host process.
+//
+// Regardless of outcome (success, error return, or recovered panic),
+// the backend state is always reset so the next mission starts fresh
+// and poisoned data from a failed export cannot cause a repeat panic
+// on a subsequent call.
 func (b *Backend) EndMission() (retErr error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	// Guard against "no mission" case up front so we don't run cleanup
+	// when the caller hasn't started anything yet.
+	if b.mission == nil {
+		return fmt.Errorf("no mission to end: mission was never started")
+	}
+
+	// Single defer handles both panic recovery and state cleanup. The
+	// cleanup runs unconditionally (success, error, or panic) so the
+	// backend is always ready for the next mission.
 	defer func() {
 		if r := recover(); r != nil {
 			stack := debug.Stack()
@@ -132,11 +146,14 @@ func (b *Backend) EndMission() (retErr error) {
 			}
 			retErr = fmt.Errorf("panic during mission export: %v", r)
 		}
-	}()
 
-	if b.mission == nil {
-		return fmt.Errorf("no mission to end: mission was never started")
-	}
+		// Clear all recorded data so subsequent recordings within the same
+		// mission start fresh (e.g. manual start/stop recording in Liberation),
+		// and so poisoned data from a panic is not retained for the next call.
+		b.mission = nil
+		b.world = nil
+		b.resetCollections()
+	}()
 
 	// Cache export metadata before clearing data (needed for upload after export)
 	b.lastExportMetadata = b.computeExportMetadata()
@@ -144,12 +161,6 @@ func (b *Backend) EndMission() (retErr error) {
 	if err := b.exportJSON(); err != nil {
 		return err
 	}
-
-	// Clear all recorded data so subsequent recordings within the same
-	// mission start fresh (e.g. manual start/stop recording in Liberation).
-	b.mission = nil
-	b.world = nil
-	b.resetCollections()
 
 	return nil
 }
