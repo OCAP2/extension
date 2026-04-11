@@ -1126,3 +1126,40 @@ func TestFocusRange_UserScenario(t *testing.T) {
 	assert.Equal(t, core.Frame(100), meta.FocusRanges[2].Start)
 	assert.Equal(t, core.Frame(200), meta.FocusRanges[2].End)
 }
+
+// TestEndMission_RecoversFromBuildPanic verifies that a panic during
+// the export build/encode is converted to an error rather than
+// propagating out of EndMission. This protects the async save worker
+// (and, historically, the ArmA host) from recoverable panics.
+//
+// Also verifies that the backend state is reset after a panic so the
+// poisoned data cannot cause a repeat panic on a subsequent call.
+func TestEndMission_RecoversFromBuildPanic(t *testing.T) {
+	tmpDir := t.TempDir()
+	b := New(config.MemoryConfig{OutputDir: tmpDir, CompressOutput: true}, nil)
+
+	// Start a minimal mission so EndMission has something to export.
+	mission := &core.Mission{MissionName: "PanicMission", CaptureDelay: 0.1}
+	world := &core.World{WorldName: "Altis"}
+	require.NoError(t, b.StartMission(mission, world))
+
+	// Poison a soldier record so the builder panics when it walks it.
+	// Inject a nil record directly into the internal map — the builder
+	// unconditionally dereferences record fields when iterating, which
+	// makes a nil entry guaranteed to panic.
+	b.mu.Lock()
+	b.soldiers[1] = nil // nil record — builder will panic on access
+	b.mu.Unlock()
+
+	err := b.EndMission()
+	require.Error(t, err, "expected EndMission to return an error, not panic")
+	assert.Contains(t, err.Error(), "panic")
+
+	// State must be reset after the panic so the poisoned data is gone
+	// and the backend is ready for the next mission.
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	assert.Nil(t, b.mission, "mission should be cleared after panic")
+	assert.Nil(t, b.world, "world should be cleared after panic")
+	assert.Empty(t, b.soldiers, "soldiers should be cleared after panic")
+}
