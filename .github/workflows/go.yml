@@ -92,7 +92,7 @@ jobs:
 
       - name: Build x64 DLL
         run: |
-          docker run --rm -v "${{ github.workspace }}:/go/work" -w /go/work x1unix/go-mingw:1.24 \
+          docker run --rm -v "${{ github.workspace }}:/go/work" -w /go/work x1unix/go-mingw:1.25 \
             go build -buildvcs=false \
               -ldflags "-X main.BuildDate=$(date -u +'%Y-%m-%dT%H:%M:%SZ') -X main.BuildCommit=${{ github.sha }}" \
               -o dist/ocap_recorder_x64.dll -buildmode=c-shared ./cmd/ocap_recorder
