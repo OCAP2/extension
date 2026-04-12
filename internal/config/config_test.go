@@ -45,6 +45,7 @@ func TestLoad_DefaultValues(t *testing.T) {
 	assert.Equal(t, "./ocaplogs", viper.GetString("logsDir"))
 	assert.Equal(t, "http://localhost:5000", viper.GetString("api.serverUrl"))
 	assert.Equal(t, "", viper.GetString("api.apiKey"))
+	assert.Equal(t, "10m", viper.GetString("api.uploadTimeout"))
 	assert.Equal(t, "localhost", viper.GetString("db.host"))
 	assert.Equal(t, "5432", viper.GetString("db.port"))
 	assert.Equal(t, "postgres", viper.GetString("db.username"))
@@ -125,6 +126,39 @@ func TestGetStorageConfig_Override(t *testing.T) {
 	assert.Equal(t, "/tmp/out", sc.Memory.OutputDir)
 	assert.Equal(t, false, sc.Memory.CompressOutput)
 	assert.Equal(t, 10*time.Minute, sc.SQLite.DumpInterval)
+}
+
+func TestGetAPIConfig_Defaults(t *testing.T) {
+	t.Cleanup(viper.Reset)
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ocap_recorder.cfg.json"), []byte(`{}`), 0644))
+	require.NoError(t, Load(dir))
+
+	cfg := GetAPIConfig()
+	assert.Equal(t, "http://localhost:5000", cfg.ServerURL)
+	assert.Equal(t, "", cfg.APIKey)
+	assert.Equal(t, 10*time.Minute, cfg.UploadTimeout)
+}
+
+func TestGetAPIConfig_Override(t *testing.T) {
+	t.Cleanup(viper.Reset)
+
+	dir := t.TempDir()
+	cfgJSON := `{
+		"api": {
+			"serverUrl": "http://example.com:8080",
+			"apiKey": "mykey",
+			"uploadTimeout": "5m"
+		}
+	}`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ocap_recorder.cfg.json"), []byte(cfgJSON), 0644))
+	require.NoError(t, Load(dir))
+
+	cfg := GetAPIConfig()
+	assert.Equal(t, "http://example.com:8080", cfg.ServerURL)
+	assert.Equal(t, "mykey", cfg.APIKey)
+	assert.Equal(t, 5*time.Minute, cfg.UploadTimeout)
 }
 
 func TestGetOTelConfig_Defaults(t *testing.T) {

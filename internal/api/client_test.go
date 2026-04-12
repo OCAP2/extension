@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/OCAP2/extension/v5/pkg/core"
 	"github.com/stretchr/testify/assert"
@@ -191,6 +192,27 @@ func TestUpload_InvalidURL(t *testing.T) {
 	err := c.Upload(testFile, core.UploadMetadata{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to create request")
+}
+
+func TestNew_DefaultTimeouts(t *testing.T) {
+	c := New("http://localhost:5000", "secret")
+	require.NotNil(t, c)
+	assert.NotNil(t, c.httpClient)
+	// Backwards-compat default preserved: 10 minutes.
+	assert.Equal(t, 10*time.Minute, c.httpClient.Timeout)
+}
+
+func TestNewWithConfig_CustomTimeout(t *testing.T) {
+	c := NewWithConfig("http://localhost:5000", "secret", ClientConfig{
+		UploadTimeout: 2 * time.Minute,
+	})
+	require.NotNil(t, c)
+	assert.Equal(t, 2*time.Minute, c.httpClient.Timeout)
+}
+
+func TestNewWithConfig_ZeroTimeoutUsesDefault(t *testing.T) {
+	c := NewWithConfig("http://localhost:5000", "secret", ClientConfig{UploadTimeout: 0})
+	assert.Equal(t, 10*time.Minute, c.httpClient.Timeout)
 }
 
 func writeTestFile(path string, content []byte) error {

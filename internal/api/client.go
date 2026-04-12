@@ -18,6 +18,20 @@ import (
 // PathPrefix is the API path prefix appended to the base server URL.
 const PathPrefix = "/api"
 
+// DefaultUploadTimeout is the default upload timeout when the caller
+// does not provide one. It covers the full request (including body
+// streaming), so it must be generous enough for tens-of-MB uploads
+// across a slow reverse proxy.
+const DefaultUploadTimeout = 10 * time.Minute
+
+// ClientConfig configures the API client. All fields are optional —
+// zero values resolve to sensible defaults.
+type ClientConfig struct {
+	// UploadTimeout is the maximum duration for the total upload request
+	// (including streaming the body). Defaults to DefaultUploadTimeout.
+	UploadTimeout time.Duration
+}
+
 // Client handles communication with the OCAP web frontend.
 type Client struct {
 	baseURL    string
@@ -25,12 +39,21 @@ type Client struct {
 	httpClient *http.Client
 }
 
-// New creates a new API client.
+// New creates a new API client with default configuration.
 func New(baseURL, apiKey string) *Client {
+	return NewWithConfig(baseURL, apiKey, ClientConfig{})
+}
+
+// NewWithConfig creates a new API client with custom configuration.
+func NewWithConfig(baseURL, apiKey string, cfg ClientConfig) *Client {
+	timeout := cfg.UploadTimeout
+	if timeout <= 0 {
+		timeout = DefaultUploadTimeout
+	}
 	return &Client{
 		baseURL:    strings.TrimRight(baseURL, "/") + PathPrefix,
 		apiKey:     apiKey,
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		httpClient: &http.Client{Timeout: timeout},
 	}
 }
 
