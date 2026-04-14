@@ -46,21 +46,20 @@ func parseIntFromFloat(s string) (int64, error) {
 // AN/PRC-77 send the channel as [knobA, knobB]; we take the last element as
 // the channel number since it typically represents the selected channel.
 func parseRadioChannel(s string) (int64, error) {
+	s = strings.TrimSpace(s)
+
 	// Fast path: plain scalar
 	if v, err := parseIntFromFloat(s); err == nil {
 		return v, nil
 	}
 
 	// Slow path: SQF array "[0,11]"
-	s = strings.TrimSpace(s)
-	if len(s) >= 2 && s[0] == '[' && s[len(s)-1] == ']' {
+	if strings.HasPrefix(s, "[") && strings.HasSuffix(s, "]") {
 		inner := s[1 : len(s)-1]
 		parts := strings.Split(inner, ",")
-		if len(parts) > 0 {
-			last := strings.TrimSpace(parts[len(parts)-1])
-			if v, err := parseIntFromFloat(last); err == nil {
-				return v, nil
-			}
+		last := strings.TrimSpace(parts[len(parts)-1])
+		if v, err := parseIntFromFloat(last); err == nil {
+			return v, nil
 		}
 	}
 
