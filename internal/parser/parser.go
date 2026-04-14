@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 
 	"github.com/OCAP2/extension/v5/pkg/core"
 )
@@ -39,6 +40,32 @@ func parseIntFromFloat(s string) (int64, error) {
 	return int64(f), nil
 }
 
+
+// parseRadioChannel parses a radio channel value that may be either a plain
+// number ("1") or an SQF array ("[0,11]"). ACRE multi-knob radios like the
+// AN/PRC-77 send the channel as [knobA, knobB]; we take the last element as
+// the channel number since it typically represents the selected channel.
+func parseRadioChannel(s string) (int64, error) {
+	// Fast path: plain scalar
+	if v, err := parseIntFromFloat(s); err == nil {
+		return v, nil
+	}
+
+	// Slow path: SQF array "[0,11]"
+	s = strings.TrimSpace(s)
+	if len(s) >= 2 && s[0] == '[' && s[len(s)-1] == ']' {
+		inner := s[1 : len(s)-1]
+		parts := strings.Split(inner, ",")
+		if len(parts) > 0 {
+			last := strings.TrimSpace(parts[len(parts)-1])
+			if v, err := parseIntFromFloat(last); err == nil {
+				return v, nil
+			}
+		}
+	}
+
+	return 0, fmt.Errorf("parseRadioChannel: %q is not a valid channel (expected int or [int,...,int])", s)
+}
 
 // ChatChannels maps ArmA 3 channel numbers to human-readable names.
 var ChatChannels = map[int]string{
