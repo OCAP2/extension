@@ -99,7 +99,7 @@ func (p *Parser) ParseRadioEvent(data []string) (core.RadioEvent, error) {
 	radioEvent.RadioType = data[3]
 	radioEvent.StartEnd = data[4]
 
-	channelInt, err := parseIntFromFloat(data[5])
+	channelInt, err := parseRadioChannel(data[5])
 	if err != nil {
 		return radioEvent, fmt.Errorf("error converting channel to int: %w", err)
 	}
@@ -111,9 +111,14 @@ func (p *Parser) ParseRadioEvent(data []string) (core.RadioEvent, error) {
 	}
 	radioEvent.IsAdditional = isAddtl
 
-	freq, err := strconv.ParseFloat(data[7], 64)
-	if err != nil {
-		return radioEvent, fmt.Errorf("error converting freq to float: %w", err)
+	// ACRE multi-knob radios (e.g. AN/PRC-77) may send an empty frequency
+	// when the channel is an array that getPresetChannelField can't resolve.
+	var freq float64
+	if data[7] != "" {
+		freq, err = strconv.ParseFloat(data[7], 64)
+		if err != nil {
+			return radioEvent, fmt.Errorf("error converting freq to float: %w", err)
+		}
 	}
 	radioEvent.Frequency = float32(freq)
 

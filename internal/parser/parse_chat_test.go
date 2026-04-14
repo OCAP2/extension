@@ -179,6 +179,28 @@ func TestParseRadioEvent(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:  "ACRE array channel [0,11]",
+			input: []string{"50", "33", "AN/PRC-77", "LR", "Start", "[0,11]", "false", "30.000", "0"},
+			check: func(t *testing.T, e core.RadioEvent) {
+				assert.Equal(t, int8(11), e.Channel, "should extract last element from array channel")
+				assert.Equal(t, "AN/PRC-77", e.Radio)
+			},
+		},
+		{
+			name:  "ACRE single-element array channel [5]",
+			input: []string{"50", "10", "ACRE_PRC343", "SR", "Start", "[5]", "false", "61.500", "0"},
+			check: func(t *testing.T, e core.RadioEvent) {
+				assert.Equal(t, int8(5), e.Channel)
+			},
+		},
+		{
+			name:  "empty frequency defaults to 0",
+			input: []string{"50", "33", "AN/PRC-77", "LR", "Start", "1", "false", "", "0"},
+			check: func(t *testing.T, e core.RadioEvent) {
+				assert.InDelta(t, float32(0), e.Frequency, 0.01)
+			},
+		},
+		{
 			name:    "error: bad channel",
 			input:   []string{"50", "5", "radio", "LR", "START", "abc", "false", "87.5", "code"},
 			wantErr: true,
