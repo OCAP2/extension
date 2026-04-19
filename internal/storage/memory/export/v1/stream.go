@@ -25,8 +25,7 @@ import (
 func Stream(w io.Writer, data *MissionData) error {
 	bw := bufio.NewWriterSize(w, 64*1024)
 
-	maxFrame := computeMaxFrame(data)
-	maxEntityID, hasEntities := computeMaxEntityID(data)
+	maxFrame, maxEntityID, hasEntities := computeMetadata(data)
 	times := buildTimes(data)
 	events, markers, firelines := buildAggregates(data)
 
@@ -164,11 +163,18 @@ func writeJSON(bw *bufio.Writer, v any) error {
 	return err
 }
 
-// computeMaxFrame returns the maximum capture frame across all entity
-// states. Falls back to 0 (FrameForever) if no state was recorded.
-func computeMaxFrame(data *MissionData) core.Frame {
-	var maxFrame core.Frame
+// computeMetadata walks all soldier/vehicle records once to return:
+//   - maxFrame:    the maximum capture frame across all entity states
+//                  (falls back to 0 / FrameForever when none were recorded).
+//   - maxEntityID: the largest soldier/vehicle ID, used to size the
+//                  entities array so array[ID] lookups work.
+//   - hasEntities: false when neither map holds any entity.
+func computeMetadata(data *MissionData) (maxFrame core.Frame, maxEntityID uint16, hasEntities bool) {
+	hasEntities = len(data.Soldiers) > 0 || len(data.Vehicles) > 0
 	for _, record := range data.Soldiers {
+		if record.Soldier.ID > maxEntityID {
+			maxEntityID = record.Soldier.ID
+		}
 		for _, state := range record.States {
 			if state.CaptureFrame > maxFrame {
 				maxFrame = state.CaptureFrame
@@ -176,32 +182,16 @@ func computeMaxFrame(data *MissionData) core.Frame {
 		}
 	}
 	for _, record := range data.Vehicles {
+		if record.Vehicle.ID > maxEntityID {
+			maxEntityID = record.Vehicle.ID
+		}
 		for _, state := range record.States {
 			if state.CaptureFrame > maxFrame {
 				maxFrame = state.CaptureFrame
 			}
 		}
 	}
-	return maxFrame
-}
-
-// computeMaxEntityID returns the largest soldier/vehicle ID so the
-// entities array can be sized to maxID+1 and the frontend can use
-// array[ID] lookups. The bool is false when no entities exist.
-func computeMaxEntityID(data *MissionData) (uint16, bool) {
-	var maxID uint16
-	hasEntities := len(data.Soldiers) > 0 || len(data.Vehicles) > 0
-	for _, record := range data.Soldiers {
-		if record.Soldier.ID > maxID {
-			maxID = record.Soldier.ID
-		}
-	}
-	for _, record := range data.Vehicles {
-		if record.Vehicle.ID > maxID {
-			maxID = record.Vehicle.ID
-		}
-	}
-	return maxID, hasEntities
+	return maxFrame, maxEntityID, hasEntities
 }
 
 // buildTimes converts core TimeStates into v1 Time entries.

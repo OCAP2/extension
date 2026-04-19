@@ -661,15 +661,11 @@ func buildVehicleEntity(record *VehicleRecord, maxFrame core.Frame) Entity {
 	}
 
 	for i, state := range record.States {
-		// Parse crew JSON string into actual JSON array
-		var crew any
-		if state.Crew != "" {
-			if err := json.Unmarshal([]byte(state.Crew), &crew); err != nil {
-				crew = []any{} // Fallback to empty array on parse error
-			}
-		} else {
-			crew = []any{}
-		}
+		// Parse crew JSON string into actual JSON array. json.Unmarshal
+		// leaves crew unchanged on error (including empty input), so the
+		// default [] falls through for both empty and malformed strings.
+		var crew any = []any{}
+		_ = json.Unmarshal([]byte(state.Crew), &crew)
 
 		// Gap-fill: extend frame range to next state change (or entity end)
 		startF := frameToV1(state.CaptureFrame)
