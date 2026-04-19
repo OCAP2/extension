@@ -129,133 +129,12 @@ func Build(data *MissionData) Export {
 
 	// Convert soldiers - place at index matching their ID
 	for _, record := range data.Soldiers {
-		// Derive IsPlayer and Name from states (source of truth for time-varying fields).
-		// "Ever-a-player": once a player takes over an AI unit, the entity stays a player.
-		isPlayer := record.Soldier.IsPlayer
-		name := record.Soldier.UnitName
-		for _, state := range record.States {
-			if state.IsPlayer {
-				isPlayer = true
-				name = state.UnitName
-			}
-		}
-
-		entity := Entity{
-			ID:            record.Soldier.ID,
-			Name:          name,
-			Group:         record.Soldier.GroupID,
-			Side:          record.Soldier.Side,
-			IsPlayer:      boolToInt(isPlayer),
-			Type:          "unit",
-			Role:          record.Soldier.RoleDescription,
-			StartFrameNum: frameToV1(record.Soldier.JoinFrame),
-			Positions:     make([][]any, 0, len(record.States)),
-			FramesFired:   make([][]any, 0, len(record.FiredEvents)),
-		}
-
-		for i, state := range record.States {
-			// Convert nil InVehicleObjectID to 0 (old C++ extension uses 0 for "not in vehicle")
-			var inVehicleID any = 0
-			if state.InVehicleObjectID != nil {
-				inVehicleID = *state.InVehicleObjectID
-			}
-
-			pos := []any{
-				[]float64{state.Position.X, state.Position.Y, state.Position.Z},
-				state.Bearing,
-				state.Lifestate,
-				inVehicleID,
-				state.UnitName,
-				boolToInt(state.IsPlayer),
-				state.CurrentRole,
-				state.GroupID,
-				state.Side,
-			}
-
-			// Gap-fill: emit one position entry per frame (dense output)
-			startF := frameToV1(state.CaptureFrame)
-			var endF int
-			if i+1 < len(record.States) {
-				endF = frameToV1(record.States[i+1].CaptureFrame) - 1
-			} else {
-				// Last state: extend to entity's delete frame (or maxFrame if still active)
-				if record.Soldier.DeleteFrame > 0 {
-					endF = frameToV1(record.Soldier.DeleteFrame)
-				} else {
-					endF = frameToV1(maxFrame)
-				}
-			}
-			for f := startF; f <= endF; f++ {
-				entity.Positions = append(entity.Positions, pos)
-			}
-		}
-
-		for _, fired := range record.FiredEvents {
-			// v1 format: [frameNum, [x, y, z]] - matches old C++ extension
-			ff := []any{
-				frameToV1(fired.CaptureFrame),
-				[]float64{fired.EndPos.X, fired.EndPos.Y, fired.EndPos.Z},
-			}
-			entity.FramesFired = append(entity.FramesFired, ff)
-		}
-
-		export.Entities[record.Soldier.ID] = entity
+		export.Entities[record.Soldier.ID] = buildSoldierEntity(record, maxFrame, nil)
 	}
 
 	// Convert vehicles - place at index matching their ID
 	for _, record := range data.Vehicles {
-		vehicleSide := record.Vehicle.Side
-		if vehicleSide == "" {
-			vehicleSide = "UNKNOWN"
-		}
-		entity := Entity{
-			ID:            record.Vehicle.ID,
-			Name:          record.Vehicle.DisplayName,
-			Side:          vehicleSide,
-			IsPlayer:      0,
-			Type:          "vehicle",
-			Class:         record.Vehicle.OcapType,
-			StartFrameNum: frameToV1(record.Vehicle.JoinFrame),
-			Positions:     make([][]any, 0, len(record.States)),
-			FramesFired:   [][]any{},
-		}
-
-		for i, state := range record.States {
-			// Parse crew JSON string into actual JSON array
-			var crew any
-			if state.Crew != "" {
-				if err := json.Unmarshal([]byte(state.Crew), &crew); err != nil {
-					crew = []any{} // Fallback to empty array on parse error
-				}
-			} else {
-				crew = []any{}
-			}
-
-			// Gap-fill: extend frame range to next state change (or entity end)
-			startF := frameToV1(state.CaptureFrame)
-			var endF int
-			if i+1 < len(record.States) {
-				endF = frameToV1(record.States[i+1].CaptureFrame) - 1
-			} else {
-				// Last state: extend to entity's delete frame (or maxFrame if still active)
-				if record.Vehicle.DeleteFrame > 0 {
-					endF = frameToV1(record.Vehicle.DeleteFrame)
-				} else {
-					endF = frameToV1(maxFrame)
-				}
-			}
-
-			pos := []any{
-				[]float64{state.Position.X, state.Position.Y, state.Position.Z},
-				state.Bearing,
-				boolToInt(state.IsAlive),
-				crew,
-				[]int{startF, endF},
-			}
-			entity.Positions = append(entity.Positions, pos)
-		}
-
-		export.Entities[record.Vehicle.ID] = entity
+		export.Entities[record.Vehicle.ID] = buildVehicleEntity(record, maxFrame)
 	}
 
 	export.EndFrame = frameToV1(maxFrame)
@@ -673,4 +552,148 @@ func extractFilename(path string) string {
 		return path[lastSep+1:]
 	}
 	return path
+}
+
+// buildSoldierEntity builds a single soldier's v1 Entity, gap-filling
+// positions across frames and appending any projectile-derived
+// firelines (from bullets fired by this soldier).
+//
+// maxFrame is the overall mission maxFrame, used as the fallback end
+// for soldiers with no explicit DeleteFrame.
+//
+// extraFirelines are [frameNum, [x,y,z]] entries appended to the
+// entity's FramesFired after the soldier's own FiredEvents, matching
+// the order used when Build() post-processes projectile events.
+func buildSoldierEntity(record *SoldierRecord, maxFrame core.Frame, extraFirelines [][]any) Entity {
+	// Derive IsPlayer and Name from states (source of truth for time-varying fields).
+	// "Ever-a-player": once a player takes over an AI unit, the entity stays a player.
+	isPlayer := record.Soldier.IsPlayer
+	name := record.Soldier.UnitName
+	for _, state := range record.States {
+		if state.IsPlayer {
+			isPlayer = true
+			name = state.UnitName
+		}
+	}
+
+	entity := Entity{
+		ID:            record.Soldier.ID,
+		Name:          name,
+		Group:         record.Soldier.GroupID,
+		Side:          record.Soldier.Side,
+		IsPlayer:      boolToInt(isPlayer),
+		Type:          "unit",
+		Role:          record.Soldier.RoleDescription,
+		StartFrameNum: frameToV1(record.Soldier.JoinFrame),
+		Positions:     make([][]any, 0, len(record.States)),
+		FramesFired:   make([][]any, 0, len(record.FiredEvents)+len(extraFirelines)),
+	}
+
+	for i, state := range record.States {
+		// Convert nil InVehicleObjectID to 0 (old C++ extension uses 0 for "not in vehicle")
+		var inVehicleID any = 0
+		if state.InVehicleObjectID != nil {
+			inVehicleID = *state.InVehicleObjectID
+		}
+
+		pos := []any{
+			[]float64{state.Position.X, state.Position.Y, state.Position.Z},
+			state.Bearing,
+			state.Lifestate,
+			inVehicleID,
+			state.UnitName,
+			boolToInt(state.IsPlayer),
+			state.CurrentRole,
+			state.GroupID,
+			state.Side,
+		}
+
+		// Gap-fill: emit one position entry per frame (dense output)
+		startF := frameToV1(state.CaptureFrame)
+		var endF int
+		if i+1 < len(record.States) {
+			endF = frameToV1(record.States[i+1].CaptureFrame) - 1
+		} else {
+			// Last state: extend to entity's delete frame (or maxFrame if still active)
+			if record.Soldier.DeleteFrame > 0 {
+				endF = frameToV1(record.Soldier.DeleteFrame)
+			} else {
+				endF = frameToV1(maxFrame)
+			}
+		}
+		for f := startF; f <= endF; f++ {
+			entity.Positions = append(entity.Positions, pos)
+		}
+	}
+
+	for _, fired := range record.FiredEvents {
+		// v1 format: [frameNum, [x, y, z]] - matches old C++ extension
+		ff := []any{
+			frameToV1(fired.CaptureFrame),
+			[]float64{fired.EndPos.X, fired.EndPos.Y, fired.EndPos.Z},
+		}
+		entity.FramesFired = append(entity.FramesFired, ff)
+	}
+
+	entity.FramesFired = append(entity.FramesFired, extraFirelines...)
+
+	return entity
+}
+
+// buildVehicleEntity builds a single vehicle's v1 Entity, gap-filling
+// positions across frames. maxFrame is the overall mission maxFrame,
+// used as the fallback end for vehicles with no explicit DeleteFrame.
+func buildVehicleEntity(record *VehicleRecord, maxFrame core.Frame) Entity {
+	vehicleSide := record.Vehicle.Side
+	if vehicleSide == "" {
+		vehicleSide = "UNKNOWN"
+	}
+	entity := Entity{
+		ID:            record.Vehicle.ID,
+		Name:          record.Vehicle.DisplayName,
+		Side:          vehicleSide,
+		IsPlayer:      0,
+		Type:          "vehicle",
+		Class:         record.Vehicle.OcapType,
+		StartFrameNum: frameToV1(record.Vehicle.JoinFrame),
+		Positions:     make([][]any, 0, len(record.States)),
+		FramesFired:   [][]any{},
+	}
+
+	for i, state := range record.States {
+		// Parse crew JSON string into actual JSON array
+		var crew any
+		if state.Crew != "" {
+			if err := json.Unmarshal([]byte(state.Crew), &crew); err != nil {
+				crew = []any{} // Fallback to empty array on parse error
+			}
+		} else {
+			crew = []any{}
+		}
+
+		// Gap-fill: extend frame range to next state change (or entity end)
+		startF := frameToV1(state.CaptureFrame)
+		var endF int
+		if i+1 < len(record.States) {
+			endF = frameToV1(record.States[i+1].CaptureFrame) - 1
+		} else {
+			// Last state: extend to entity's delete frame (or maxFrame if still active)
+			if record.Vehicle.DeleteFrame > 0 {
+				endF = frameToV1(record.Vehicle.DeleteFrame)
+			} else {
+				endF = frameToV1(maxFrame)
+			}
+		}
+
+		pos := []any{
+			[]float64{state.Position.X, state.Position.Y, state.Position.Z},
+			state.Bearing,
+			boolToInt(state.IsAlive),
+			crew,
+			[]int{startF, endF},
+		}
+		entity.Positions = append(entity.Positions, pos)
+	}
+
+	return entity
 }
