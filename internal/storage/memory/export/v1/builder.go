@@ -235,7 +235,8 @@ func Build(data *MissionData) Export {
 	// positions is always: [[frameNum, pos, direction, alpha, text, color, size, type, brush, shape], ...]
 	// For POLYLINE: pos is [[x1,y1],[x2,y2],...] (array of coordinates)
 	// For other shapes: pos is [x, y] (single coordinate)
-	for _, record := range data.Markers {
+	// Iterate in sorted order by MarkerName so output is deterministic.
+	for _, record := range sortedMarkers(data.Markers) {
 		// Strip "#" prefix from hex colors (e.g., "#800000" -> "800000") for URL compatibility
 		// The web UI constructs URLs like: /images/markers/${type}/${color}.png
 		// With "#" prefix, browsers interpret the fragment as an anchor, causing 404s
@@ -310,8 +311,10 @@ func Build(data *MissionData) Export {
 		export.Markers = append(export.Markers, marker)
 	}
 
-	// Convert placed objects into markers
-	for id, record := range data.PlacedObjects {
+	// Convert placed objects into markers. Iterate in sorted order by
+	// ID so output is deterministic regardless of map iteration order.
+	for _, record := range sortedPlacedObjects(data.PlacedObjects) {
+		id := record.PlacedObject.ID
 		// Determine marker icon
 		iconFilename := extractFilename(record.PlacedObject.MagazineIcon)
 		var markerType string
@@ -536,6 +539,38 @@ func boolToInt(b bool) int {
 // else (grenades, rockets, missiles, shells, etc.) becomes a marker.
 func isProjectileMarker(sim string) bool {
 	return sim != "shotBullet"
+}
+
+// sortedMarkers returns the marker records from m in ascending
+// MarkerName order so map-sourced iteration produces deterministic
+// output.
+func sortedMarkers(m map[string]*MarkerRecord) []*MarkerRecord {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	out := make([]*MarkerRecord, 0, len(m))
+	for _, k := range keys {
+		out = append(out, m[k])
+	}
+	return out
+}
+
+// sortedPlacedObjects returns the placed-object records from m in
+// ascending ID order so map-sourced iteration produces deterministic
+// output.
+func sortedPlacedObjects(m map[uint16]*PlacedObjectRecord) []*PlacedObjectRecord {
+	keys := make([]uint16, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+	out := make([]*PlacedObjectRecord, 0, len(m))
+	for _, k := range keys {
+		out = append(out, m[k])
+	}
+	return out
 }
 
 // extractFilename returns the last path component from a file path.

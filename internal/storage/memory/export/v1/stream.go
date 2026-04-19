@@ -294,8 +294,9 @@ func buildAggregates(data *MissionData) (events [][]any, markers [][]any, fireli
 		})
 	}
 
-	// Static markers.
-	for _, record := range data.Markers {
+	// Static markers. Iterate in sorted order by MarkerName so output
+	// is deterministic regardless of map iteration order.
+	for _, record := range sortedMarkers(data.Markers) {
 		markerColor := strings.TrimPrefix(record.Marker.Color, "#")
 		posArray := make([][]any, 0)
 
@@ -362,7 +363,8 @@ func buildAggregates(data *MissionData) (events [][]any, markers [][]any, fireli
 	}
 
 	// Placed objects become markers, and their "hit" events become event rows.
-	for _, record := range data.PlacedObjects {
+	// Iterate in sorted order by ID so output is deterministic.
+	for _, record := range sortedPlacedObjects(data.PlacedObjects) {
 		iconFilename := extractFilename(record.PlacedObject.MagazineIcon)
 		var markerType string
 		if iconFilename != "" {
