@@ -570,8 +570,17 @@ func (b *Backend) BuildExport() v1.Export {
 }
 
 // buildExportUnlocked creates a v1 export from the current mission data.
-// Caller must hold at least b.mu.RLock.
+// Caller must hold at least b.mu.RLock. Materializes the full v1.Export
+// in memory; callers that only need to write JSON should use
+// buildMissionDataUnlocked with v1.Stream instead to bound peak memory.
 func (b *Backend) buildExportUnlocked() v1.Export {
+	return v1.Build(b.buildMissionDataUnlocked())
+}
+
+// buildMissionDataUnlocked returns the MissionData that describes the
+// current mission, suitable for passing to v1.Stream or v1.Build.
+// Caller must hold at least b.mu.RLock.
+func (b *Backend) buildMissionDataUnlocked() *v1.MissionData {
 	data := &v1.MissionData{
 		Mission:          b.mission,
 		World:            b.world,
@@ -617,5 +626,5 @@ func (b *Backend) buildExportUnlocked() v1.Export {
 		}
 	}
 
-	return v1.Build(data)
+	return data
 }

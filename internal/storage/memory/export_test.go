@@ -1322,7 +1322,7 @@ func TestWriteJSON_CreateError(t *testing.T) {
 	require.NoError(t, os.Chmod(dir, 0555))
 	t.Cleanup(func() { os.Chmod(dir, 0755) })
 
-	err := writeJSON(filepath.Join(dir, "test.json"), v1.Export{})
+	err := writeJSON(filepath.Join(dir, "test.json"), minimalMissionData())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to create file")
 }
@@ -1332,7 +1332,7 @@ func TestWriteGzipJSON_CreateError(t *testing.T) {
 	require.NoError(t, os.Chmod(dir, 0555))
 	t.Cleanup(func() { os.Chmod(dir, 0755) })
 
-	err := writeGzipJSON(filepath.Join(dir, "test.json.gz"), v1.Export{})
+	err := writeGzipJSON(filepath.Join(dir, "test.json.gz"), minimalMissionData())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to create file")
 }
@@ -1493,4 +1493,18 @@ func TestPlacedObjectHitEventExport(t *testing.T) {
 	assert.Equal(t, uint(5), causedBy[0])       // owner
 	assert.Equal(t, "APERS Mine", causedBy[1])  // weapon text
 	assert.InDelta(t, 5.0, float64(evt[4].(float32)), 0.01)
+}
+
+// minimalMissionData returns a v1.MissionData value safe to pass to
+// writeJSON / writeGzipJSON in tests that only exercise the file
+// creation path.
+func minimalMissionData() *v1.MissionData {
+	return &v1.MissionData{
+		Mission:       &core.Mission{},
+		World:         &core.World{},
+		Soldiers:      map[uint16]*v1.SoldierRecord{},
+		Vehicles:      map[uint16]*v1.VehicleRecord{},
+		Markers:       map[string]*v1.MarkerRecord{},
+		PlacedObjects: map[uint16]*v1.PlacedObjectRecord{},
+	}
 }
