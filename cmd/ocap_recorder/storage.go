@@ -56,38 +56,21 @@ func initStorage() error {
 
 func createStorageBackend(storageCfg config.StorageConfig) (storage.Backend, error) {
 	switch storageCfg.Type {
-	case "postgres":
-		Logger.Info("Postgres storage backend initialized")
-		return pgstorage.New(pgstorage.Dependencies{
-			EntityCache: EntityCache,
-			MarkerCache: MarkerCache,
-			LogManager:  SlogManager,
-		}), nil
-
-	case "sqlite":
-		sqliteDBFilePath := filepath.Join(AddonFolder, fmt.Sprintf("%s_%s.db", ExtensionName, SessionStartTime.Format("20060102_150405")))
-		backend, err := sqlitestorage.New(sqlitestorage.Config{
-			DumpInterval: storageCfg.SQLite.DumpInterval,
-			DumpPath:     sqliteDBFilePath,
-		}, EntityCache, MarkerCache, SlogManager)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create SQLite backend: %w", err)
-		}
-		Logger.Info("SQLite storage backend initialized")
-		return backend, nil
-
-	case "websocket":
-		wsURL := httpToWS(viper.GetString("api.serverUrl")) + api.PathPrefix + "/v1/stream"
-		secret := viper.GetString("api.apiKey")
-		Logger.Info("WebSocket storage backend initialized", "url", wsURL)
-		return wsstorage.New(wsstorage.Config{
-			URL:    wsURL,
-			Secret: secret,
-		}), nil
-
-	default:
+	case "memory":
 		Logger.Info("Memory storage backend initialized")
 		return memory.New(storageCfg.Memory, Logger), nil
+
+	case "postgres":
+		return nil, fmt.Errorf("postgres storage type not fully supported yet")
+
+	case "sqlite":
+		return nil, fmt.Errorf("sqlite storage type not fully supported yet")
+
+	case "websocket":
+		return nil, fmt.Errorf("websocket storage type not fully supported yet")
+
+	default:
+		return nil, fmt.Errorf("unknown storage type %q", storageCfg.Type)
 	}
 }
 
