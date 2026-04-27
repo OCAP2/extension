@@ -6,12 +6,13 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
 	"github.com/OCAP2/extension/v5/internal/config"
-	"github.com/OCAP2/extension/v5/pkg/core"
 	v1 "github.com/OCAP2/extension/v5/internal/storage/memory/export/v1"
+	"github.com/OCAP2/extension/v5/pkg/core"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -385,7 +386,7 @@ func TestFiredEventFormat(t *testing.T) {
 	export := b.BuildExport()
 
 	// Sparse array: entity at index 1 (its ID)
-	require.Len(t, export.Entities, 2)        // indices 0 and 1
+	require.Len(t, export.Entities, 2) // indices 0 and 1
 	require.Len(t, export.Entities[1].FramesFired, 1)
 
 	ff := export.Entities[1].FramesFired[0]
@@ -423,14 +424,14 @@ func TestMarkerPositionFormat(t *testing.T) {
 
 	// Position format: [frameNum, [x, y, z], direction, alpha]
 	initialPos := positions[0]
-	assert.Equal(t, 0, initialPos[0])             // frameNum
+	assert.Equal(t, 0, initialPos[0]) // frameNum
 	coords := initialPos[1].([]float64)
 	require.Len(t, coords, 3)
-	assert.Equal(t, 1000.0, coords[0])           // posX
-	assert.Equal(t, 2000.0, coords[1])           // posY
-	assert.Equal(t, 0.0, coords[2])              // posZ
+	assert.Equal(t, 1000.0, coords[0]) // posX
+	assert.Equal(t, 2000.0, coords[1]) // posY
+	assert.Equal(t, 0.0, coords[2])    // posZ
 
-	assert.Equal(t, 49, positions[1][0])         // second position frameNum (input 50 → v1 output 49)
+	assert.Equal(t, 49, positions[1][0]) // second position frameNum (input 50 → v1 output 49)
 }
 
 func TestEmptyExport(t *testing.T) {
@@ -555,9 +556,9 @@ func TestEventWithoutExtraData(t *testing.T) {
 	export := b.BuildExport()
 
 	require.Len(t, export.Events, 1)
-	assert.Equal(t, "endMission", export.Events[0][1])       // type at index 1
-	assert.Equal(t, 99, export.Events[0][0])                 // frameNum at index 0 (input 100 → v1 output 99)
-	assert.Equal(t, "Mission ended", export.Events[0][2])    // message at index 2
+	assert.Equal(t, "endMission", export.Events[0][1])    // type at index 1
+	assert.Equal(t, 99, export.Events[0][0])              // frameNum at index 0 (input 100 → v1 output 99)
+	assert.Equal(t, "Mission ended", export.Events[0][2]) // message at index 2
 }
 
 func TestGeneralEventJSONMessageParsing(t *testing.T) {
@@ -745,11 +746,11 @@ func TestJSONFormatValidation(t *testing.T) {
 
 	// Add events in correct format: [frameNum, type, victimId, [killerId, weapon], distance]
 	require.NoError(t, b.RecordKillEvent(&core.KillEvent{
-		CaptureFrame:      100,
-		VictimSoldierID:   ptrUint(5),
-		KillerSoldierID:   ptrUint(10),
-		EventText:         "Tank Gun",
-		Distance:          50,
+		CaptureFrame:    100,
+		VictimSoldierID: ptrUint(5),
+		KillerSoldierID: ptrUint(10),
+		EventText:       "Tank Gun",
+		Distance:        50,
 	}))
 
 	// Add marker (OwnerID: -1 indicates system/mission marker, not player-drawn)
@@ -814,13 +815,13 @@ func TestJSONFormatValidation(t *testing.T) {
 	events := raw["events"].([]any)
 	require.Len(t, events, 1)
 	killEvent := events[0].([]any)
-	assert.Equal(t, float64(99), killEvent[0])    // frameNum (input 100 → v1 output 99)
-	assert.Equal(t, "killed", killEvent[1])        // type
-	assert.Equal(t, float64(5), killEvent[2])      // victimId
+	assert.Equal(t, float64(99), killEvent[0]) // frameNum (input 100 → v1 output 99)
+	assert.Equal(t, "killed", killEvent[1])    // type
+	assert.Equal(t, float64(5), killEvent[2])  // victimId
 	causedBy := killEvent[3].([]any)
-	assert.Equal(t, float64(10), causedBy[0])      // killerId
-	assert.Equal(t, "Tank Gun", causedBy[1])       // weapon
-	assert.Equal(t, float64(50), killEvent[4])     // distance
+	assert.Equal(t, float64(10), causedBy[0])  // killerId
+	assert.Equal(t, "Tank Gun", causedBy[1])   // weapon
+	assert.Equal(t, float64(50), killEvent[4]) // distance
 
 	// Validate marker format: [type, text, startFrame, endFrame, playerId, color, side, positions, size, shape, brush]
 	markers := raw["Markers"].([]any)
@@ -838,11 +839,11 @@ func TestJSONFormatValidation(t *testing.T) {
 	markerPositions := marker[7].([]any)
 	require.Len(t, markerPositions, 1)
 	mPos := markerPositions[0].([]any)
-	assert.EqualValues(t, 0, mPos[0])           // frameNum
+	assert.EqualValues(t, 0, mPos[0]) // frameNum
 	mCoords := mPos[1].([]any)
-	assert.Equal(t, float64(5000), mCoords[0])  // x
-	assert.Equal(t, float64(6000), mCoords[1])  // y
-	assert.Len(t, mCoords, 3)                   // should be [x, y, z]
+	assert.Equal(t, float64(5000), mCoords[0]) // x
+	assert.Equal(t, float64(6000), mCoords[1]) // y
+	assert.Len(t, mCoords, 3)                  // should be [x, y, z]
 }
 
 func ptrUint(v uint) *uint {
@@ -1161,9 +1162,9 @@ func TestPolylineMarkerExport(t *testing.T) {
 	require.Len(t, positions, 1) // Single frame entry for polylines
 
 	frameEntry := positions[0]
-	assert.EqualValues(t, 70, frameEntry[0])   // frameNum (input 71 → v1 output 70)
-	assert.EqualValues(t, 0, frameEntry[2])    // direction
-	assert.EqualValues(t, 1.0, frameEntry[3])  // alpha
+	assert.EqualValues(t, 70, frameEntry[0])  // frameNum (input 71 → v1 output 70)
+	assert.EqualValues(t, 0, frameEntry[2])   // direction
+	assert.EqualValues(t, 1.0, frameEntry[3]) // alpha
 
 	// frameEntry[1] contains the coordinate array
 	coords, ok := frameEntry[1].([][]float64)
@@ -1305,8 +1306,14 @@ func TestPlayerTakeoverUpdatesEntityMetadata(t *testing.T) {
 
 func TestExportJSON_MkdirAllError(t *testing.T) {
 	// /dev/null is a file, not a directory — MkdirAll for a subdir will fail
+	outputDir := "/dev/null/subdir"
+	// on windows set equivalent
+	if runtime.GOOS == "windows" {
+		outputDir = "nul/subdir"
+	}
+
 	b := New(config.MemoryConfig{
-		OutputDir:      "/dev/null/subdir",
+		OutputDir:      outputDir,
 		CompressOutput: false,
 	}, nil)
 
@@ -1318,6 +1325,12 @@ func TestExportJSON_MkdirAllError(t *testing.T) {
 }
 
 func TestWriteJSON_CreateError(t *testing.T) {
+	// windows has no chown equivalent, so skip
+	if runtime.GOOS == "windows" {
+		assert.True(t, true)
+		return
+	}
+
 	dir := t.TempDir()
 	require.NoError(t, os.Chmod(dir, 0555))
 	t.Cleanup(func() { os.Chmod(dir, 0755) })
@@ -1328,6 +1341,12 @@ func TestWriteJSON_CreateError(t *testing.T) {
 }
 
 func TestWriteGzipJSON_CreateError(t *testing.T) {
+	// windows has no chown equivalent, so skip
+	if runtime.GOOS == "windows" {
+		assert.True(t, true)
+		return
+	}
+
 	dir := t.TempDir()
 	require.NoError(t, os.Chmod(dir, 0555))
 	t.Cleanup(func() { os.Chmod(dir, 0755) })
@@ -1338,8 +1357,14 @@ func TestWriteGzipJSON_CreateError(t *testing.T) {
 }
 
 func TestEndMission_ExportError(t *testing.T) {
+	outputDir := "/dev/null/subdir"
+	// on windows set equivalent
+	if runtime.GOOS == "windows" {
+		outputDir = "nul/subdir"
+	}
+
 	b := New(config.MemoryConfig{
-		OutputDir:      "/dev/null/subdir",
+		OutputDir:      outputDir,
 		CompressOutput: true,
 	}, nil)
 
@@ -1393,8 +1418,8 @@ func TestPlacedObjectExport(t *testing.T) {
 
 	// Mine with icon: magIcons type, detonated endFrame
 	assert.Equal(t, "magIcons/gear_mine_AP_ca.paa", mineMarker[0])
-	assert.Equal(t, 499, mineMarker[3])    // endFrame from detonation (internal 500 → v1 499)
-	assert.Equal(t, -1, mineMarker[6])     // GLOBAL (placed objects always visible)
+	assert.Equal(t, 499, mineMarker[3]) // endFrame from detonation (internal 500 → v1 499)
+	assert.Equal(t, -1, mineMarker[6])  // GLOBAL (placed objects always visible)
 
 	// Unknown without icon: Minefield fallback, persists
 	assert.Equal(t, "Minefield", unknownMarker[0])
@@ -1470,7 +1495,7 @@ func TestPlacedObjectHitEventExport(t *testing.T) {
 	// Record hit event then detonation
 	require.NoError(t, b.RecordPlacedObjectEvent(&core.PlacedObjectEvent{
 		CaptureFrame: 499, PlacedID: 50, EventType: "hit",
-		Position: core.Position3D{X: 1003, Y: 2004, Z: 0},
+		Position:    core.Position3D{X: 1003, Y: 2004, Z: 0},
 		HitEntityID: ptrUint16(7),
 	}))
 	require.NoError(t, b.RecordPlacedObjectEvent(&core.PlacedObjectEvent{
@@ -1486,12 +1511,12 @@ func TestPlacedObjectHitEventExport(t *testing.T) {
 	// Should have hit event from placed object
 	require.Len(t, export.Events, 1)
 	evt := export.Events[0]
-	assert.Equal(t, 498, evt[0])    // frame (internal 499 → v1 498)
+	assert.Equal(t, 498, evt[0]) // frame (internal 499 → v1 498)
 	assert.Equal(t, "hit", evt[1])
 	assert.Equal(t, uint(7), evt[2]) // victim
 	causedBy := evt[3].([]any)
-	assert.Equal(t, uint(5), causedBy[0])       // owner
-	assert.Equal(t, "APERS Mine", causedBy[1])  // weapon text
+	assert.Equal(t, uint(5), causedBy[0])      // owner
+	assert.Equal(t, "APERS Mine", causedBy[1]) // weapon text
 	assert.InDelta(t, 5.0, float64(evt[4].(float32)), 0.01)
 }
 

@@ -2,19 +2,13 @@ package main
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 
-	"github.com/OCAP2/extension/v5/internal/api"
 	"github.com/OCAP2/extension/v5/internal/config"
 	"github.com/OCAP2/extension/v5/internal/storage"
 	"github.com/OCAP2/extension/v5/internal/storage/memory"
-	pgstorage "github.com/OCAP2/extension/v5/internal/storage/postgres"
-	sqlitestorage "github.com/OCAP2/extension/v5/internal/storage/sqlite"
-	wsstorage "github.com/OCAP2/extension/v5/internal/storage/websocket"
 	"github.com/OCAP2/extension/v5/internal/worker"
 	"github.com/OCAP2/extension/v5/pkg/a3interface"
-	"github.com/spf13/viper"
 )
 
 func initStorage() error {
