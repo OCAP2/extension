@@ -295,17 +295,17 @@ func Build(data *MissionData) Export {
 		}
 
 		marker := []any{
-			record.Marker.MarkerType,               // [0] type
-			record.Marker.Text,                     // [1] text
-			frameToV1(record.Marker.CaptureFrame),  // [2] startFrame
-			frameToV1(record.Marker.EndFrame),      // [3] endFrame (FrameForever(0) → -1, otherwise 0-based frame)
-			record.Marker.OwnerID,               // [4] playerId (entity ID of creating player, -1 for system markers)
-			markerColor,                         // [5] color (# prefix stripped for URL compatibility)
-			sideToIndex(record.Marker.Side),     // [6] sideIndex
-			posArray,                            // [7] positions
-			parseMarkerSize(record.Marker.Size), // [8] size
-			record.Marker.Shape,                 // [9] shape
-			record.Marker.Brush,                 // [10] brush
+			record.Marker.MarkerType,              // [0] type
+			record.Marker.Text,                    // [1] text
+			frameToV1(record.Marker.CaptureFrame), // [2] startFrame
+			frameToV1(record.Marker.EndFrame),     // [3] endFrame (FrameForever(0) → -1, otherwise 0-based frame)
+			record.Marker.OwnerID,                 // [4] playerId (entity ID of creating player, -1 for system markers)
+			markerColor,                           // [5] color (# prefix stripped for URL compatibility)
+			sideToIndex(record.Marker.Side),       // [6] sideIndex
+			posArray,                              // [7] positions
+			parseMarkerSize(record.Marker.Size),   // [8] size
+			record.Marker.Shape,                   // [9] shape
+			record.Marker.Brush,                   // [10] brush
 		}
 
 		export.Markers = append(export.Markers, marker)
@@ -343,17 +343,17 @@ func Build(data *MissionData) Export {
 		}
 
 		marker := []any{
-			markerType,                                  // [0] type
-			record.PlacedObject.DisplayName,             // [1] text
-			frameToV1(record.PlacedObject.JoinFrame),    // [2] startFrame
-			placedEndFrame,                         // [3] endFrame
-			int(record.PlacedObject.OwnerID),       // [4] playerId
-			"D96600",                               // [5] color (orange hex)
-			-1,                                     // [6] sideIndex (GLOBAL — visible to all sides)
-			posArray,                               // [7] positions
-			[]float64{1, 1},                        // [8] size
-			"ICON",                                 // [9] shape
-			"Solid",                                // [10] brush
+			markerType,                               // [0] type
+			record.PlacedObject.DisplayName,          // [1] text
+			frameToV1(record.PlacedObject.JoinFrame), // [2] startFrame
+			placedEndFrame,                           // [3] endFrame
+			int(record.PlacedObject.OwnerID),         // [4] playerId
+			"D96600",                                 // [5] color (orange hex)
+			-1,                                       // [6] sideIndex (GLOBAL — visible to all sides)
+			posArray,                                 // [7] positions
+			[]float64{1, 1},                          // [8] size
+			"ICON",                                   // [9] shape
+			"Solid",                                  // [10] brush
 		}
 
 		_ = id // keyed by ID in the map, used for uniqueness
@@ -437,17 +437,17 @@ func Build(data *MissionData) Export {
 			}
 
 			marker := []any{
-				markerType,                   // [0] type
-				text,                         // [1] text
-				frameToV1(pe.CaptureFrame),   // [2] startFrame
-				projEndFrame,                 // [3] endFrame
-				int(pe.FirerObjectID),        // [4] playerId
-				color,                        // [5] color
-				-1,                           // [6] sideIndex (GLOBAL)
-				posArray,                     // [7] positions
-				[]float64{1, 1},              // [8] size
-				"ICON",                       // [9] shape
-				"Solid",                      // [10] brush
+				markerType,                 // [0] type
+				text,                       // [1] text
+				frameToV1(pe.CaptureFrame), // [2] startFrame
+				projEndFrame,               // [3] endFrame
+				int(pe.FirerObjectID),      // [4] playerId
+				color,                      // [5] color
+				-1,                         // [6] sideIndex (GLOBAL)
+				posArray,                   // [7] positions
+				[]float64{1, 1},            // [8] size
+				"ICON",                     // [9] shape
+				"Solid",                    // [10] brush
 			}
 
 			export.Markers = append(export.Markers, marker)
@@ -607,7 +607,9 @@ func buildSoldierEntity(record *SoldierRecord, maxFrame core.Frame, extraFirelin
 	for _, state := range record.States {
 		if state.IsPlayer {
 			isPlayer = true
-			name = state.UnitName
+			if state.UnitName != "" {
+				name = state.UnitName
+			}
 		}
 	}
 
