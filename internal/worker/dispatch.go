@@ -137,7 +137,7 @@ func (m *Manager) handleSoldierState(e dispatcher.Event) (any, error) {
 	}
 
 	// Player takeover: update cached entity when isPlayer escalates or player name changes and non-empty
-	if obj.IsPlayer && (!soldier.IsPlayer || soldier.UnitName != obj.UnitName) {
+	if obj.IsPlayer && (!soldier.IsPlayer || (obj.UnitName != "" && soldier.UnitName != obj.UnitName)) {
 		soldier.IsPlayer = true
 		if obj.UnitName != "" {
 			soldier.UnitName = obj.UnitName
