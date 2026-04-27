@@ -1305,12 +1305,9 @@ func TestPlayerTakeoverUpdatesEntityMetadata(t *testing.T) {
 }
 
 func TestExportJSON_MkdirAllError(t *testing.T) {
-	// /dev/null is a file, not a directory — MkdirAll for a subdir will fail
-	outputDir := "/dev/null/subdir"
-	// on windows set equivalent
-	if runtime.GOOS == "windows" {
-		outputDir = "nul/subdir"
-	}
+	tmpFile := filepath.Join(t.TempDir(), "dummy")
+	require.NoError(t, os.WriteFile(tmpFile, []byte(""), 0644))
+	outputDir := filepath.Join(tmpFile, "subdir")
 
 	b := New(config.MemoryConfig{
 		OutputDir:      outputDir,
@@ -1325,10 +1322,9 @@ func TestExportJSON_MkdirAllError(t *testing.T) {
 }
 
 func TestWriteJSON_CreateError(t *testing.T) {
-	// windows has no chown equivalent, so skip
+	// Windows permissions work differently for directories, making it hard to trigger this error via Chmod.
 	if runtime.GOOS == "windows" {
-		assert.True(t, true)
-		return
+		t.Skip("skipping test on windows: directory permissions behave differently")
 	}
 
 	dir := t.TempDir()
@@ -1341,10 +1337,9 @@ func TestWriteJSON_CreateError(t *testing.T) {
 }
 
 func TestWriteGzipJSON_CreateError(t *testing.T) {
-	// windows has no chown equivalent, so skip
+	// Windows permissions work differently for directories, making it hard to trigger this error via Chmod.
 	if runtime.GOOS == "windows" {
-		assert.True(t, true)
-		return
+		t.Skip("skipping test on windows: directory permissions behave differently")
 	}
 
 	dir := t.TempDir()
@@ -1357,11 +1352,9 @@ func TestWriteGzipJSON_CreateError(t *testing.T) {
 }
 
 func TestEndMission_ExportError(t *testing.T) {
-	outputDir := "/dev/null/subdir"
-	// on windows set equivalent
-	if runtime.GOOS == "windows" {
-		outputDir = "nul/subdir"
-	}
+	tmpFile := filepath.Join(t.TempDir(), "dummy")
+	require.NoError(t, os.WriteFile(tmpFile, []byte(""), 0644))
+	outputDir := filepath.Join(tmpFile, "subdir")
 
 	b := New(config.MemoryConfig{
 		OutputDir:      outputDir,
