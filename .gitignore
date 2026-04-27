@@ -6,4 +6,6 @@ vendor/
 dist/
 docs/plans/
 cover.out
+cover.out.raw
 .worktrees/
+cmd/ocap_recorder/ocaplogs
