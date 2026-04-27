@@ -1303,6 +1303,62 @@ func TestPlayerTakeoverUpdatesEntityMetadata(t *testing.T) {
 	assert.Equal(t, 1, entity.Positions[19][5])
 }
 
+func TestPlayerTakeoverIgnoresMissingNameEntityMetadata(t *testing.T) {
+	b := New(config.MemoryConfig{}, nil)
+
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
+
+	// Register as AI unit initially
+	require.NoError(t, b.AddSoldier(&core.Soldier{
+		ID: 5, UnitName: "Habibzai", GroupID: "Alpha", Side: "EAST", IsPlayer: false, JoinFrame: 1,
+	}))
+
+	// First few frames: AI walking around
+	require.NoError(t, b.RecordSoldierState(&core.SoldierState{
+		SoldierID: 5, CaptureFrame: 1, Position: core.Position3D{X: 100, Y: 200, Z: 10},
+		Bearing: 45, Lifestate: 1, UnitName: "Habibzai", IsPlayer: false, CurrentRole: "Rifleman",
+		GroupID: "Alpha", Side: "EAST",
+	}))
+	require.NoError(t, b.RecordSoldierState(&core.SoldierState{
+		SoldierID: 5, CaptureFrame: 10, Position: core.Position3D{X: 110, Y: 210, Z: 10},
+		Bearing: 50, Lifestate: 1, UnitName: "Habibzai", IsPlayer: false, CurrentRole: "Rifleman",
+		GroupID: "Alpha", Side: "EAST",
+	}))
+
+	// Player takes over the AI unit mid-game and latest state without name (player died)
+	require.NoError(t, b.RecordSoldierState(&core.SoldierState{
+		SoldierID: 5, CaptureFrame: 20, Position: core.Position3D{X: 120, Y: 220, Z: 10},
+		Bearing: 55, Lifestate: 1, UnitName: "zigster", IsPlayer: true, CurrentRole: "Rifleman",
+		GroupID: "Alpha", Side: "EAST",
+	}))
+	require.NoError(t, b.RecordSoldierState(&core.SoldierState{
+		SoldierID: 5, CaptureFrame: 30, Position: core.Position3D{X: 130, Y: 230, Z: 10},
+		Bearing: 60, Lifestate: 0, UnitName: "", IsPlayer: true, CurrentRole: "Rifleman",
+		GroupID: "Alpha", Side: "EAST",
+	}))
+
+	export := b.BuildExport()
+
+	// Entity metadata should reflect the player takeover
+	require.Len(t, export.Entities, 6) // indices 0-5
+	entity := export.Entities[5]
+
+	assert.Equal(t, 1, entity.IsPlayer, "entity should be marked as player after takeover")
+	assert.Equal(t, "zigster", entity.Name, "entity name should be the player's name")
+
+	// Per-frame data should still be correct (dense gap-fill: 30 entries total)
+	require.Len(t, entity.Positions, 30)
+	// Frame 0: AI (state@1, covers v1 0-8)
+	assert.Equal(t, "Habibzai", entity.Positions[0][4])
+	assert.Equal(t, 0, entity.Positions[0][5])
+	// Frame 19: player took over (state@20, covers v1 19-28)
+	assert.Equal(t, "zigster", entity.Positions[19][4])
+	assert.Equal(t, 1, entity.Positions[19][5])
+	// Frame 29
+	assert.Equal(t, "", entity.Positions[29][4])
+	assert.Equal(t, 1, entity.Positions[29][5])
+}
+
 func TestExportJSON_MkdirAllError(t *testing.T) {
 	// /dev/null is a file, not a directory — MkdirAll for a subdir will fail
 	b := New(config.MemoryConfig{

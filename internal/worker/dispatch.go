@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	"github.com/OCAP2/extension/v5/internal/dispatcher"
-	"github.com/OCAP2/extension/v5/pkg/core"
 	"github.com/OCAP2/extension/v5/internal/parser"
+	"github.com/OCAP2/extension/v5/pkg/core"
 )
 
 // RegisterHandlers registers all event handlers with the dispatcher.
@@ -136,10 +136,12 @@ func (m *Manager) handleSoldierState(e dispatcher.Event) (any, error) {
 		obj.Side = soldier.Side
 	}
 
-	// Player takeover: update cached entity when isPlayer escalates or player name changes
+	// Player takeover: update cached entity when isPlayer escalates or player name changes and non-empty
 	if obj.IsPlayer && (!soldier.IsPlayer || soldier.UnitName != obj.UnitName) {
 		soldier.IsPlayer = true
-		soldier.UnitName = obj.UnitName
+		if obj.UnitName != "" {
+			soldier.UnitName = obj.UnitName
+		}
 		m.deps.EntityCache.UpdateSoldier(soldier)
 	}
 
