@@ -5,37 +5,9 @@ import (
 	"os"
 
 	"github.com/glebarez/sqlite"
-	"github.com/spf13/viper"
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
-
-// Standalone functions for direct usage without Manager
-
-// GetPostgresDBStandalone returns a connection to the Postgres database using viper config.
-func GetPostgresDBStandalone() (*gorm.DB, error) {
-	dsn := fmt.Sprintf(`host=%s port=%s user=%s password=%s dbname=%s sslmode=disable`,
-		viper.GetString("db.host"),
-		viper.GetString("db.port"),
-		viper.GetString("db.username"),
-		viper.GetString("db.password"),
-		viper.GetString("db.database"),
-	)
-
-	db, err := gorm.Open(postgres.New(postgres.Config{
-		DSN:                  dsn,
-		PreferSimpleProtocol: true,
-	}), &gorm.Config{
-		SkipDefaultTransaction: true,
-		CreateBatchSize:        10000,
-		Logger:                 logger.Default.LogMode(logger.Silent),
-	})
-	if err != nil {
-		return nil, err
-	}
-	return db, nil
-}
 
 // GetSqliteDBStandalone returns a connection to a SQLite database.
 // If path is empty, uses an in-memory database.

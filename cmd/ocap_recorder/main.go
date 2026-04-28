@@ -43,6 +43,10 @@ var (
 	ExtensionName string = "ocap_recorder"
 )
 
+// main is required for buildmode=c-shared. The DLL is driven entirely by
+// RVExtension* exports in pkg/a3interface; this entrypoint is never invoked.
+func main() {}
+
 // file paths
 var (
 	// ArmaDir is the path to the Arma 3 root directory. This is checked in init().
