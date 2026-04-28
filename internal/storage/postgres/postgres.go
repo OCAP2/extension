@@ -22,11 +22,10 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-// Connect opens a Postgres connection using the supplied storage.postgres.* config.
-// Returns a configured *gorm.DB suitable for injection into Dependencies.DB.
-func Connect(cfg config.PostgresConfig) (*gorm.DB, error) {
-	// URL form so passwords with spaces or special characters are encoded
-	// correctly — the keyword/value form trips on those.
+// buildDSN renders a postgres:// URL DSN from cfg. URL form so passwords
+// with spaces or special characters are encoded correctly — the keyword/value
+// form trips on those.
+func buildDSN(cfg config.PostgresConfig) string {
 	u := url.URL{
 		Scheme:   "postgres",
 		User:     url.UserPassword(cfg.Username, cfg.Password),
@@ -34,8 +33,14 @@ func Connect(cfg config.PostgresConfig) (*gorm.DB, error) {
 		Path:     cfg.Database,
 		RawQuery: "sslmode=disable",
 	}
+	return u.String()
+}
+
+// Connect opens a Postgres connection using the supplied storage.postgres.* config.
+// Returns a configured *gorm.DB suitable for injection into Dependencies.DB.
+func Connect(cfg config.PostgresConfig) (*gorm.DB, error) {
 	db, err := gorm.Open(postgres.New(postgres.Config{
-		DSN:                  u.String(),
+		DSN:                  buildDSN(cfg),
 		PreferSimpleProtocol: true,
 	}), &gorm.Config{
 		SkipDefaultTransaction: true,
