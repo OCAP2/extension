@@ -4,6 +4,8 @@ package postgres
 
 import (
 	"fmt"
+	"net"
+	"net/url"
 	"sync/atomic"
 	"time"
 
@@ -23,11 +25,17 @@ import (
 // Connect opens a Postgres connection using the supplied storage.postgres.* config.
 // Returns a configured *gorm.DB suitable for injection into Dependencies.DB.
 func Connect(cfg config.PostgresConfig) (*gorm.DB, error) {
-	dsn := fmt.Sprintf(`host=%s port=%s user=%s password=%s dbname=%s sslmode=disable`,
-		cfg.Host, cfg.Port, cfg.Username, cfg.Password, cfg.Database,
-	)
+	// URL form so passwords with spaces or special characters are encoded
+	// correctly — the keyword/value form trips on those.
+	u := url.URL{
+		Scheme:   "postgres",
+		User:     url.UserPassword(cfg.Username, cfg.Password),
+		Host:     net.JoinHostPort(cfg.Host, cfg.Port),
+		Path:     cfg.Database,
+		RawQuery: "sslmode=disable",
+	}
 	db, err := gorm.Open(postgres.New(postgres.Config{
-		DSN:                  dsn,
+		DSN:                  u.String(),
 		PreferSimpleProtocol: true,
 	}), &gorm.Config{
 		SkipDefaultTransaction: true,
