@@ -17,8 +17,7 @@ func TestLoad_WithValidConfigFile(t *testing.T) {
 	dir := t.TempDir()
 	cfg := `{
 		"logLevel": "debug",
-		"defaultTag": "PvP",
-		"db": { "host": "10.0.0.1", "port": "5433" }
+		"defaultTag": "PvP"
 	}`
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "ocap_recorder.cfg.json"), []byte(cfg), 0644))
 
@@ -27,8 +26,6 @@ func TestLoad_WithValidConfigFile(t *testing.T) {
 
 	assert.Equal(t, "debug", viper.GetString("logLevel"))
 	assert.Equal(t, "PvP", viper.GetString("defaultTag"))
-	assert.Equal(t, "10.0.0.1", viper.GetString("db.host"))
-	assert.Equal(t, "5433", viper.GetString("db.port"))
 }
 
 func TestLoad_DefaultValues(t *testing.T) {
@@ -46,11 +43,6 @@ func TestLoad_DefaultValues(t *testing.T) {
 	assert.Equal(t, "http://localhost:5000", viper.GetString("api.serverUrl"))
 	assert.Equal(t, "", viper.GetString("api.apiKey"))
 	assert.Equal(t, "10m", viper.GetString("api.uploadTimeout"))
-	assert.Equal(t, "localhost", viper.GetString("db.host"))
-	assert.Equal(t, "5432", viper.GetString("db.port"))
-	assert.Equal(t, "postgres", viper.GetString("db.username"))
-	assert.Equal(t, "postgres", viper.GetString("db.password"))
-	assert.Equal(t, "ocap", viper.GetString("db.database"))
 	assert.Equal(t, true, viper.GetBool("graylog.enabled"))
 	assert.Equal(t, "localhost:12201", viper.GetString("graylog.address"))
 	assert.Equal(t, true, viper.GetBool("logio.enabled"))
@@ -105,6 +97,11 @@ func TestGetStorageConfig_Defaults(t *testing.T) {
 	assert.Equal(t, "./recordings", cfg.Memory.OutputDir)
 	assert.Equal(t, true, cfg.Memory.CompressOutput)
 	assert.Equal(t, 3*time.Minute, cfg.SQLite.DumpInterval)
+	assert.Equal(t, "localhost", cfg.Postgres.Host)
+	assert.Equal(t, "5432", cfg.Postgres.Port)
+	assert.Equal(t, "postgres", cfg.Postgres.Username)
+	assert.Equal(t, "postgres", cfg.Postgres.Password)
+	assert.Equal(t, "ocap", cfg.Postgres.Database)
 }
 
 func TestGetStorageConfig_Override(t *testing.T) {
@@ -115,7 +112,14 @@ func TestGetStorageConfig_Override(t *testing.T) {
 		"storage": {
 			"type": "sqlite",
 			"memory": { "outputDir": "/tmp/out", "compressOutput": false },
-			"sqlite": { "dumpInterval": "10m" }
+			"sqlite": { "dumpInterval": "10m" },
+			"postgres": {
+				"host": "10.0.0.1",
+				"port": "5433",
+				"username": "user",
+				"password": "pass",
+				"database": "ocap_test"
+			}
 		}
 	}`
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "ocap_recorder.cfg.json"), []byte(cfg), 0644))
@@ -126,6 +130,11 @@ func TestGetStorageConfig_Override(t *testing.T) {
 	assert.Equal(t, "/tmp/out", sc.Memory.OutputDir)
 	assert.Equal(t, false, sc.Memory.CompressOutput)
 	assert.Equal(t, 10*time.Minute, sc.SQLite.DumpInterval)
+	assert.Equal(t, "10.0.0.1", sc.Postgres.Host)
+	assert.Equal(t, "5433", sc.Postgres.Port)
+	assert.Equal(t, "user", sc.Postgres.Username)
+	assert.Equal(t, "pass", sc.Postgres.Password)
+	assert.Equal(t, "ocap_test", sc.Postgres.Database)
 }
 
 func TestGetAPIConfig_Defaults(t *testing.T) {

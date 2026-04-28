@@ -18,6 +18,15 @@ type SQLiteConfig struct {
 	DumpInterval time.Duration `json:"dumpInterval" mapstructure:"dumpInterval"`
 }
 
+// PostgresConfig holds PostgreSQL storage backend connection settings.
+type PostgresConfig struct {
+	Host     string `json:"host" mapstructure:"host"`
+	Port     string `json:"port" mapstructure:"port"`
+	Username string `json:"username" mapstructure:"username"`
+	Password string `json:"password" mapstructure:"password"`
+	Database string `json:"database" mapstructure:"database"`
+}
+
 // Load reads configuration from JSON file and sets default values.
 // configDir is the directory containing the config file.
 func Load(configDir string) error {
@@ -33,12 +42,6 @@ func Load(configDir string) error {
 	// worker forever.
 	viper.SetDefault("api.uploadTimeout", "10m")
 
-	viper.SetDefault("db.host", "localhost")
-	viper.SetDefault("db.port", "5432")
-	viper.SetDefault("db.username", "postgres")
-	viper.SetDefault("db.password", "postgres")
-	viper.SetDefault("db.database", "ocap")
-
 	viper.SetDefault("graylog.enabled", true)
 	viper.SetDefault("graylog.address", "localhost:12201")
 
@@ -51,6 +54,11 @@ func Load(configDir string) error {
 	viper.SetDefault("storage.memory.outputDir", "./recordings")
 	viper.SetDefault("storage.memory.compressOutput", true)
 	viper.SetDefault("storage.sqlite.dumpInterval", "3m")
+	viper.SetDefault("storage.postgres.host", "localhost")
+	viper.SetDefault("storage.postgres.port", "5432")
+	viper.SetDefault("storage.postgres.username", "postgres")
+	viper.SetDefault("storage.postgres.password", "postgres")
+	viper.SetDefault("storage.postgres.database", "ocap")
 
 	// OpenTelemetry defaults
 	viper.SetDefault("otel.enabled", false)
@@ -88,9 +96,10 @@ func GetBool(key string) bool {
 
 // StorageConfig holds storage backend configuration
 type StorageConfig struct {
-	Type   string       `json:"type" mapstructure:"type"`
-	Memory MemoryConfig `json:"memory" mapstructure:"memory"`
-	SQLite SQLiteConfig `json:"sqlite" mapstructure:"sqlite"`
+	Type     string         `json:"type" mapstructure:"type"`
+	Memory   MemoryConfig   `json:"memory" mapstructure:"memory"`
+	SQLite   SQLiteConfig   `json:"sqlite" mapstructure:"sqlite"`
+	Postgres PostgresConfig `json:"postgres" mapstructure:"postgres"`
 }
 
 // GetStorageConfig returns the storage backend configuration

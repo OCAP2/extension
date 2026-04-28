@@ -7,13 +7,6 @@
     "apiKey": "same-secret",
     "uploadTimeout": "10m"
   },
-  "db": {
-    "host": "127.0.0.1",
-    "port": "5432",
-    "username": "postgres",
-    "password": "postgres",
-    "database": "ocap"
-  },
   "storage": {
     "type": "memory",
     "memory": {
@@ -22,6 +15,13 @@
     },
     "sqlite": {
       "dumpInterval": "3m"
+    },
+    "postgres": {
+      "host": "127.0.0.1",
+      "port": "5432",
+      "username": "postgres",
+      "password": "postgres",
+      "database": "ocap"
     }
   }
 }

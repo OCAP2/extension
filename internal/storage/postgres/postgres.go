@@ -4,19 +4,62 @@ package postgres
 
 import (
 	"fmt"
+	"net"
+	"net/url"
 	"sync/atomic"
 	"time"
 
 	"github.com/OCAP2/extension/v5/internal/cache"
-	"github.com/OCAP2/extension/v5/internal/database"
+	"github.com/OCAP2/extension/v5/internal/config"
 	"github.com/OCAP2/extension/v5/internal/logging"
 	"github.com/OCAP2/extension/v5/internal/model"
 	"github.com/OCAP2/extension/v5/internal/model/convert"
 	"github.com/OCAP2/extension/v5/pkg/core"
 	"github.com/OCAP2/extension/v5/internal/queue"
 
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
+
+// buildDSN renders a postgres:// URL DSN from cfg. URL form so passwords
+// with spaces or special characters are encoded correctly — the keyword/value
+// form trips on those.
+func buildDSN(cfg config.PostgresConfig) string {
+	u := url.URL{
+		Scheme:   "postgres",
+		User:     url.UserPassword(cfg.Username, cfg.Password),
+		Host:     net.JoinHostPort(cfg.Host, cfg.Port),
+		Path:     cfg.Database,
+		RawQuery: "sslmode=disable",
+	}
+	return u.String()
+}
+
+// Connect opens a Postgres connection using the supplied storage.postgres.* config.
+// Returns a configured *gorm.DB suitable for injection into Dependencies.DB.
+func Connect(cfg config.PostgresConfig) (*gorm.DB, error) {
+	db, err := gorm.Open(postgres.New(postgres.Config{
+		DSN:                  buildDSN(cfg),
+		PreferSimpleProtocol: true,
+	}), &gorm.Config{
+		SkipDefaultTransaction: true,
+		CreateBatchSize:        10000,
+		Logger:                 logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		return nil, err
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		return nil, fmt.Errorf("failed to access sql interface: %w", err)
+	}
+	if err := sqlDB.Ping(); err != nil {
+		return nil, fmt.Errorf("failed to validate connection: %w", err)
+	}
+	sqlDB.SetMaxOpenConns(10)
+	return db, nil
+}
 
 // Dependencies holds all dependencies for the GORM storage backend.
 type Dependencies struct {
@@ -90,18 +133,10 @@ func (b *Backend) Init() error {
 	b.stopChan = make(chan struct{})
 
 	if b.deps.DB == nil {
-		db, err := database.GetPostgresDBStandalone()
+		db, err := Connect(config.GetStorageConfig().Postgres)
 		if err != nil {
 			return fmt.Errorf("failed to connect to postgres: %w", err)
 		}
-		sqlDB, err := db.DB()
-		if err != nil {
-			return fmt.Errorf("failed to access sql interface: %w", err)
-		}
-		if err = sqlDB.Ping(); err != nil {
-			return fmt.Errorf("failed to validate connection: %w", err)
-		}
-		sqlDB.SetMaxOpenConns(10)
 		b.deps.DB = db
 	}
 
