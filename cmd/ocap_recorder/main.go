@@ -325,6 +325,11 @@ func handleNewMission(e dispatcher.Event) (any, error) {
 	coreMission.AddonVersion = addonVersion
 	coreMission.ExtensionVersion = BuildVersion
 
+	// Fall back to configured defaultTag when the addon does not supply one.
+	if coreMission.Tag == "" {
+		coreMission.Tag = config.GetString("defaultTag")
+	}
+
 	// 2. Reset caches
 	MarkerCache.Reset()
 	EntityCache.Reset()

@@ -61,6 +61,29 @@ func TestParseMission_EmptyAddons(t *testing.T) {
 	assert.Len(t, mission.Addons, 0)
 }
 
+func TestParseMission_TagOptional(t *testing.T) {
+	p := newTestParser()
+
+	worldData := `{"worldName":"Altis","displayName":"Altis","worldSize":30720,"latitude":-40.0,"longitude":30.0}`
+	missionData := `{
+		"missionName":"No Tag",
+		"missionNameSource":"file",
+		"briefingName":"Brief",
+		"serverName":"Server",
+		"serverProfile":"Profile",
+		"onLoadName":"Loading",
+		"author":"Author",
+		"captureDelay":1.0,
+		"addons":[],
+		"playableSlots":[10,10,5,0,2],
+		"sideFriendly":[false,false,false]
+	}`
+
+	mission, _, err := p.ParseMission([]string{worldData, missionData})
+	require.NoError(t, err)
+	assert.Empty(t, mission.Tag, "missing tag should yield empty Tag, leaving caller to apply defaultTag fallback")
+}
+
 func TestParseMission_AddonsWithMixedTypes(t *testing.T) {
 	p := newTestParser()
 
@@ -206,11 +229,6 @@ func TestParseMission_Errors(t *testing.T) {
 			name:  "bad author",
 			world: validWorld,
 			miss:  validMission(map[string]string{"author": `123`}),
-		},
-		{
-			name:  "bad tag",
-			world: validWorld,
-			miss:  validMission(map[string]string{"tag": `123`}),
 		},
 		{
 			name:  "playableSlots too short",

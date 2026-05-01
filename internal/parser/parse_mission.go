@@ -78,6 +78,10 @@ func (p *Parser) ParseMission(data []string) (core.Mission, core.World, error) {
 		}
 		return v, nil
 	}
+	getOptionalString := func(key string) string {
+		v, _ := missionTemp[key].(string)
+		return v
+	}
 	getFloat := func(key string) (float64, error) {
 		v, ok := missionTemp[key].(float64)
 		if !ok {
@@ -120,9 +124,7 @@ func (p *Parser) ParseMission(data []string) (core.Mission, core.World, error) {
 	if mission.Author, err = getString("author"); err != nil {
 		return mission, world, err
 	}
-	if mission.Tag, err = getString("tag"); err != nil {
-		return mission, world, err
-	}
+	mission.Tag = getOptionalString("tag")
 
 	// playableSlots
 	playableSlotsJSON, err := getSlice("playableSlots")
