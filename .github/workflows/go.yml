@@ -32,16 +32,14 @@ jobs:
         run: go vet ./internal/...
 
       - name: Run tests
-        run: go test -coverprofile=cover.out.raw -coverpkg=./internal/... ./internal/...
-
-      - name: Deduplicate coverage blocks
-        # Workaround for fgrosse/go-coverage-report#61: when using -coverpkg,
-        # different test packages instrument the same file with slightly
-        # different block boundaries (Go's per-package coverage rewriter is
-        # non-deterministic across compilations). A pure key-by-range dedup
-        # leaves overlapping count=0 phantoms behind. Drop count=0 blocks
-        # whose range overlaps any covered block in the same file.
-        run: python3 .github/scripts/dedup-coverage.py cover.out.raw cover.out
+        # Use Go 1.20+ binary coverage format via GOCOVERDIR. Unlike the legacy
+        # text -coverprofile output, covdata produces canonical, deterministic
+        # block ranges and proper per-statement merging across packages
+        # instrumented by -coverpkg — no dedup workaround needed.
+        run: |
+          mkdir -p covdata
+          go test -cover -coverpkg=./internal/... ./internal/... -args -test.gocoverdir="$PWD/covdata"
+          go tool covdata textfmt -i=covdata -o=cover.out
 
       - name: Archive code coverage results
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4
