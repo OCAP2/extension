@@ -35,19 +35,13 @@ jobs:
         run: go test -coverprofile=cover.out.raw -coverpkg=./internal/... ./internal/...
 
       - name: Deduplicate coverage blocks
-        # Workaround for fgrosse/go-coverage-report#61: merge duplicate coverage blocks
-        # When using -coverpkg, Go creates duplicate entries for each test package
-        run: |
-          head -1 cover.out.raw > cover.out
-          tail -n +2 cover.out.raw | awk '{
-            key = $1
-            stmt = $2
-            count = $3 + 0
-            if (count > counts[key]) counts[key] = count
-            stmts[key] = stmt
-          } END {
-            for (key in stmts) print key, stmts[key], counts[key] + 0
-          }' | sort >> cover.out
+        # Workaround for fgrosse/go-coverage-report#61: when using -coverpkg,
+        # different test packages instrument the same file with slightly
+        # different block boundaries (Go's per-package coverage rewriter is
+        # non-deterministic across compilations). A pure key-by-range dedup
+        # leaves overlapping count=0 phantoms behind. Drop count=0 blocks
+        # whose range overlaps any covered block in the same file.
+        run: python3 .github/scripts/dedup-coverage.py cover.out.raw cover.out
 
       - name: Archive code coverage results
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4
