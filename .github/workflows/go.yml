@@ -59,7 +59,7 @@ jobs:
 
       - name: Check test coverage
         id: coverage
-        uses: vladopajic/go-test-coverage/action/source@f190f667e23b4441202d0bab0f8c2e7bce8925b6 # v2
+        uses: vladopajic/go-test-coverage/action/source@8cfd056d3bc5cc2bc64a840ded0c907aaae3dc46 # v2
         env:
           GOTOOLCHAIN: auto # v2.18.4 requires Go 1.26; let it auto-download
         with:
