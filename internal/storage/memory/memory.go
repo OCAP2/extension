@@ -535,7 +535,8 @@ func (b *Backend) computeExportMetadata() core.UploadMetadata {
 		}
 	}
 
-	duration := float64(endFrame) * float64(b.mission.CaptureDelay) / 1000.0
+	// CaptureDelay is the per-frame interval in seconds, not milliseconds.
+	duration := float64(endFrame) * float64(b.mission.CaptureDelay)
 
 	meta := core.UploadMetadata{
 		WorldName:       b.world.WorldName,

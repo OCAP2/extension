@@ -760,8 +760,51 @@ func TestGetExportMetadata(t *testing.T) {
 	assert.Equal(t, "Altis", meta.WorldName)
 	assert.Equal(t, "Test Mission", meta.MissionName)
 	assert.Equal(t, "TvT", meta.Tag)
-	// Duration = endFrame * captureDelay / 1000 = 100 * 1.0 / 1000 = 0.1
-	assert.Equal(t, 0.1, meta.MissionDuration)
+	assert.Equal(t, 100.0, meta.MissionDuration)
+}
+
+// Regression: captureDelay is in seconds, so a short recording must not
+// report a near-zero duration ("0m 0s" in the web viewer).
+func TestGetExportMetadata_DurationUsesCaptureDelaySeconds(t *testing.T) {
+	b := New(config.MemoryConfig{}, nil)
+
+	require.NoError(t, b.StartMission(&core.Mission{
+		MissionName:  "Short Recording",
+		CaptureDelay: 1.0, // seconds per frame
+	}, &core.World{WorldName: "Altis"}))
+
+	s := &core.Soldier{ID: 1}
+	require.NoError(t, b.AddSoldier(s))
+	require.NoError(t, b.RecordSoldierState(&core.SoldierState{
+		SoldierID:    s.ID,
+		CaptureFrame: 71,
+	}))
+
+	meta := b.GetExportMetadata()
+
+	assert.Equal(t, 71.0, meta.MissionDuration)
+}
+
+// Sub-second capture intervals (e.g. 10 fps) must scale correctly.
+func TestGetExportMetadata_DurationFractionalCaptureDelay(t *testing.T) {
+	b := New(config.MemoryConfig{}, nil)
+
+	require.NoError(t, b.StartMission(&core.Mission{
+		MissionName:  "High Frequency",
+		CaptureDelay: 0.1, // 10 frames per second
+	}, &core.World{WorldName: "Altis"}))
+
+	s := &core.Soldier{ID: 1}
+	require.NoError(t, b.AddSoldier(s))
+	require.NoError(t, b.RecordSoldierState(&core.SoldierState{
+		SoldierID:    s.ID,
+		CaptureFrame: 3937,
+	}))
+
+	meta := b.GetExportMetadata()
+
+	// 3937 × 0.1s = 393.7s; InDelta absorbs float32 rounding.
+	assert.InDelta(t, 393.7, meta.MissionDuration, 0.001)
 }
 
 func TestGetExportMetadata_VehicleEndFrame(t *testing.T) {
@@ -794,8 +837,8 @@ func TestGetExportMetadata_VehicleEndFrame(t *testing.T) {
 
 	meta := b.GetExportMetadata()
 
-	// Duration should be based on vehicle's higher frame: 200 * 1.0 / 1000 = 0.2
-	assert.Equal(t, 0.2, meta.MissionDuration)
+	// endFrame is the highest frame across entities: the vehicle's 200, not the soldier's 50.
+	assert.Equal(t, 200.0, meta.MissionDuration)
 }
 
 func TestGetExportMetadata_EmptyMission(t *testing.T) {
@@ -895,8 +938,8 @@ func TestGetExportMetadata_PlacedEventEndFrame(t *testing.T) {
 
 	meta := b.GetExportMetadata()
 
-	// Duration should be based on placed event's higher frame: 300 * 1.0 / 1000 = 0.3
-	assert.Equal(t, 0.3, meta.MissionDuration)
+	// endFrame is the highest frame across entities: the placed object's event at 300.
+	assert.Equal(t, 300.0, meta.MissionDuration)
 }
 
 func TestComputeExportMetadata_NilMission(t *testing.T) {
