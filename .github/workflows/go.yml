@@ -21,7 +21,7 @@ jobs:
       contents: write
 
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v5
         with:
@@ -59,7 +59,7 @@ jobs:
 
       - name: Check test coverage
         id: coverage
-        uses: vladopajic/go-test-coverage/action/source@a93b868a4cbcbf18dc3781650fad241f0020e609 # v2
+        uses: vladopajic/go-test-coverage/action/source@5f3508324fc185e82048a2861f8bdd3d83db133b # v2
         env:
           GOTOOLCHAIN: auto # v2.18.4 requires Go 1.26; let it auto-download
         with:
@@ -82,7 +82,7 @@ jobs:
     if: github.event_name != 'pull_request' || (!github.event.pull_request.draft && !contains(github.event.pull_request.title, 'WIP'))
 
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Build x64 DLL
         run: |
@@ -109,7 +109,7 @@ jobs:
       pull-requests: write
 
     steps:
-      - uses: fgrosse/go-coverage-report@cbeb2ab2e32591d690337146ba02a911cc566f3f # v1.3.0
+      - uses: fgrosse/go-coverage-report@e432de98ee94a276e8f666d25bfd76347665f75b # v1.3.1
         with:
           coverage-artifact-name: "code-coverage"
           coverage-file-name: "cover.out"
