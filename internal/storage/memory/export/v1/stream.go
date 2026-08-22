@@ -165,9 +165,9 @@ func writeJSON(bw *bufio.Writer, v any) error {
 
 // computeMetadata walks all soldier/vehicle records once to return:
 //   - maxFrame:    the maximum capture frame across all entity states
-//                  (falls back to 0 / FrameForever when none were recorded).
+//     (falls back to 0 / FrameForever when none were recorded).
 //   - maxEntityID: the largest soldier/vehicle ID, used to size the
-//                  entities array so array[ID] lookups work.
+//     entities array so array[ID] lookups work.
 //   - hasEntities: false when neither map holds any entity.
 func computeMetadata(data *MissionData) (maxFrame core.Frame, maxEntityID uint16, hasEntities bool) {
 	hasEntities = len(data.Soldiers) > 0 || len(data.Vehicles) > 0
@@ -218,16 +218,9 @@ func buildAggregates(data *MissionData) (events [][]any, markers [][]any, fireli
 	markers = make([][]any, 0)
 	firelines = make(map[uint16][][]any)
 
-	// General events: [frameNum, "type", message]
+	// General events, with playerUid appended to connection events when available.
 	for _, evt := range data.GeneralEvents {
-		var message any = evt.Message
-		if len(evt.Message) > 0 && (evt.Message[0] == '[' || evt.Message[0] == '{') {
-			var parsed any
-			if err := json.Unmarshal([]byte(evt.Message), &parsed); err == nil {
-				message = parsed
-			}
-		}
-		events = append(events, []any{frameToV1(evt.CaptureFrame), evt.Name, message})
+		events = append(events, buildGeneralEvent(evt))
 	}
 
 	// Sector events: [frameNum, "captured"|"contested", [...]]
