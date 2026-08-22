@@ -4,8 +4,54 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      actions:
+        patterns:
+          - "*"
 
   - package-ecosystem: "gomod"
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      gorm-and-database:
+        patterns:
+          - "gorm.io/*"
+          - "github.com/glebarez/*"
+          - "github.com/jackc/*"
+          - "github.com/jinzhu/*"
+          - "github.com/go-sql-driver/*"
+          - "modernc.org/*"
+          - "github.com/dustin/go-humanize"
+          - "github.com/remyoudompheng/bigfft"
+      opentelemetry:
+        patterns:
+          - "go.opentelemetry.io/*"
+      core-dependencies:
+        patterns:
+          - "github.com/gorilla/*"
+          - "github.com/peterstace/*"
+          - "github.com/spf13/*"
+          - "github.com/stretchr/*"
+          - "github.com/go-viper/*"
+          - "go.uber.org/*"
+          - "github.com/sagikazarmark/*"
+          - "github.com/sourcegraph/*"
+          - "github.com/fsnotify/*"
+          - "github.com/pelletier/*"
+          - "github.com/subosito/*"
+          - "github.com/google/uuid"
+          - "github.com/cenkalti/*"
+          - "github.com/cespare/*"
+          - "github.com/davecgh/*"
+          - "github.com/pmezard/*"
+          - "github.com/mattn/*"
+          - "github.com/grpc-ecosystem/*"
+          - "github.com/go-logr/*"
+      golang-tooling:
+        patterns:
+          - "golang.org/*"
+          - "google.golang.org/*"
+          - "gopkg.in/*"
+          - "go.yaml.in/*"
+          - "filippo.io/*"
