@@ -445,6 +445,60 @@ func TestBuildWithGeneralEvents(t *testing.T) {
 	assert.Equal(t, "[1,2,3", export.Events[3][2])
 }
 
+func TestBuildGeneralEventPlayerUID(t *testing.T) {
+	tests := []struct {
+		name     string
+		event    core.GeneralEvent
+		expected []any
+	}{
+		{
+			name: "connected with UID",
+			event: core.GeneralEvent{
+				CaptureFrame: 10,
+				Name:         "connected",
+				Message:      "Alice",
+				ExtraData:    map[string]any{"playerUid": "76561198000000001"},
+			},
+			expected: []any{9, "connected", "Alice", "76561198000000001"},
+		},
+		{
+			name: "disconnected with UID",
+			event: core.GeneralEvent{
+				CaptureFrame: 20,
+				Name:         "disconnected",
+				Message:      "Bob",
+				ExtraData:    map[string]any{"playerUid": "76561198000000002"},
+			},
+			expected: []any{19, "disconnected", "Bob", "76561198000000002"},
+		},
+		{
+			name: "connection without UID keeps legacy shape",
+			event: core.GeneralEvent{
+				CaptureFrame: 30,
+				Name:         "connected",
+				Message:      "Charlie",
+			},
+			expected: []any{29, "connected", "Charlie"},
+		},
+		{
+			name: "non-connection event ignores UID",
+			event: core.GeneralEvent{
+				CaptureFrame: 40,
+				Name:         "custom",
+				Message:      "payload",
+				ExtraData:    map[string]any{"playerUid": "76561198000000003"},
+			},
+			expected: []any{39, "custom", "payload"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, buildGeneralEvent(tt.event))
+		})
+	}
+}
+
 func TestBuildWithCapturedEventJSONArray(t *testing.T) {
 	data := &MissionData{
 		Mission:  &core.Mission{MissionName: "Test"},
