@@ -316,6 +316,8 @@ func CoreToPlacedObject(p core.PlacedObject) model.PlacedObject {
 		Side:         p.Side,
 		Weapon:       p.Weapon,
 		MagazineIcon: p.MagazineIcon,
+		Direction:    p.Direction,
+		MarkerIcon:   p.MarkerIcon,
 	}
 }
 

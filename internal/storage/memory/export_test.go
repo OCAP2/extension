@@ -109,7 +109,9 @@ func TestIntegrationFullExport(t *testing.T) {
 	assert.Equal(t, "2.0.0", export.ExtensionVersion)
 	assert.Equal(t, "Mon Jan 15 10:00:00 2024", export.ExtensionBuild)
 	assert.Equal(t, "PvP", export.Tags)
-	assert.Equal(t, 9, export.EndFrame, "EndFrame should be max state frame")
+	// The endMission event sits at frame 25 (v1 24), past the last soldier state at
+	// frame 10. endFrame has to cover it or the event falls off the timeline.
+	assert.Equal(t, 24, export.EndFrame, "EndFrame should cover events past the last state")
 
 	// Verify times
 	require.Len(t, export.Times, 1)
@@ -131,7 +133,8 @@ func TestIntegrationFullExport(t *testing.T) {
 	assert.Equal(t, "Alpha", soldierEntity.Group)
 	assert.Equal(t, "WEST", soldierEntity.Side)
 	assert.Equal(t, 1, soldierEntity.IsPlayer)
-	require.Len(t, soldierEntity.Positions, 10) // dense gap-fill: state@1 covers v1 0-8 (9), state@10 covers v1 9 (1)
+	// dense gap-fill: state@1 covers v1 0-8 (9), state@10 covers v1 9-24 (16)
+	require.Len(t, soldierEntity.Positions, 25)
 	require.Len(t, soldierEntity.FramesFired, 1)
 
 	// Verify soldier position coordinates after JSON round-trip
@@ -808,8 +811,10 @@ func TestJSONFormatValidation(t *testing.T) {
 	crewEntry := crew[0].([]any)
 	assert.Equal(t, float64(5), crewEntry[0]) // driver ID
 	// Frame range
+	// Ranged gap-fill: the single state at frame 1 holds until the entity ends, and
+	// the kill event at frame 100 (v1 99) is what the mission's last frame is.
 	frameRange := vehPos[4].([]any)
-	assert.Equal(t, []any{float64(0), float64(0)}, frameRange)
+	assert.Equal(t, []any{float64(0), float64(99)}, frameRange)
 
 	// Validate event format: [frameNum, "killed", victimId, [killerId, weapon], distance]
 	events := raw["events"].([]any)

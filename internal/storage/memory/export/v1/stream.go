@@ -171,24 +171,15 @@ func writeJSON(bw *bufio.Writer, v any) error {
 //   - hasEntities: false when neither map holds any entity.
 func computeMetadata(data *MissionData) (maxFrame core.Frame, maxEntityID uint16, hasEntities bool) {
 	hasEntities = len(data.Soldiers) > 0 || len(data.Vehicles) > 0
+	maxFrame = missionMaxFrame(data)
 	for _, record := range data.Soldiers {
 		if record.Soldier.ID > maxEntityID {
 			maxEntityID = record.Soldier.ID
-		}
-		for _, state := range record.States {
-			if state.CaptureFrame > maxFrame {
-				maxFrame = state.CaptureFrame
-			}
 		}
 	}
 	for _, record := range data.Vehicles {
 		if record.Vehicle.ID > maxEntityID {
 			maxEntityID = record.Vehicle.ID
-		}
-		for _, state := range record.States {
-			if state.CaptureFrame > maxFrame {
-				maxFrame = state.CaptureFrame
-			}
 		}
 	}
 	return maxFrame, maxEntityID, hasEntities
@@ -221,6 +212,11 @@ func buildAggregates(data *MissionData) (events [][]any, markers [][]any, fireli
 	// General events, with playerUid appended to connection events when available.
 	for _, evt := range data.GeneralEvents {
 		events = append(events, buildGeneralEvent(evt))
+	}
+
+	// Radio transmissions: [frameNum, "radioTransmission", {...}]
+	for _, evt := range data.RadioEvents {
+		events = append(events, buildRadioEvent(evt))
 	}
 
 	// Sector events: [frameNum, "captured"|"contested", [...]]
@@ -358,11 +354,17 @@ func buildAggregates(data *MissionData) (events [][]any, markers [][]any, fireli
 	// Placed objects become markers, and their "hit" events become event rows.
 	// Iterate in sorted order by ID so output is deterministic.
 	for _, record := range sortedPlacedObjects(data.PlacedObjects) {
-		iconFilename := extractFilename(record.PlacedObject.MagazineIcon)
+		// An explicit MarkerIcon (trenches) wins over the MagazineIcon-derived
+		// magIcons path (mines, explosives). Both are absent on older records,
+		// which fall through to Minefield exactly as before.
 		var markerType string
-		if iconFilename != "" {
+		iconFilename := extractFilename(record.PlacedObject.MagazineIcon)
+		switch {
+		case record.PlacedObject.MarkerIcon != "":
+			markerType = record.PlacedObject.MarkerIcon
+		case iconFilename != "":
 			markerType = "magIcons/" + iconFilename
-		} else {
+		default:
 			markerType = "Minefield"
 		}
 
@@ -378,7 +380,7 @@ func buildAggregates(data *MissionData) (events [][]any, markers [][]any, fireli
 			{
 				frameToV1(record.PlacedObject.JoinFrame),
 				[]float64{record.PlacedObject.Position.X, record.PlacedObject.Position.Y, record.PlacedObject.Position.Z},
-				0,
+				record.PlacedObject.Direction,
 				1.0,
 			},
 		}

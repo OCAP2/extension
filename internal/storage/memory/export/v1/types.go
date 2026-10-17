@@ -33,6 +33,7 @@ type Time struct {
 type Entity struct {
 	ID            uint16  `json:"id"`
 	Name          string  `json:"name"`
+	PlayerUID     string  `json:"playerUid,omitempty"`
 	Group         string  `json:"group,omitempty"`
 	Side          string  `json:"side"`
 	IsPlayer      int     `json:"isPlayer"`

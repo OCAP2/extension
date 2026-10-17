@@ -31,6 +31,10 @@ func (m *Manager) RegisterHandlers(d *dispatcher.Dispatcher) {
 	d.Register(":EVENT:ENDMISSION:", m.handleEndMissionEvent, dispatcher.Buffered(100), dispatcher.Logged())
 	d.Register(":EVENT:CHAT:", m.handleChatEvent, dispatcher.Buffered(1000), dispatcher.Logged())
 	d.Register(":EVENT:RADIO:", m.handleRadioEvent, dispatcher.Buffered(1000), dispatcher.Logged())
+	d.Register(":PLAYER:INVENTORY:", m.handleGeneralEvent, dispatcher.Buffered(1000), dispatcher.Logged())
+	d.Register(":PLAYER:MEDICAL:", m.handleGeneralEvent, dispatcher.Buffered(2000), dispatcher.Logged())
+	d.Register(":PLAYER:STAMINA:", m.handleGeneralEvent, dispatcher.Buffered(2000), dispatcher.Logged())
+	d.Register(":PLAYER:RADIO:", m.handleGeneralEvent, dispatcher.Buffered(2000), dispatcher.Logged())
 	d.Register(":TELEMETRY:FRAME:", m.handleTelemetryEvent, dispatcher.Buffered(100), dispatcher.Logged())
 
 	// ACE3 events - buffered

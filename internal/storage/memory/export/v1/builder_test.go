@@ -154,7 +154,7 @@ func TestBuildWithSoldier(t *testing.T) {
 		Soldiers: map[uint16]*SoldierRecord{
 			5: {
 				Soldier: core.Soldier{
-					ID: 5, UnitName: "Player1", GroupID: "Alpha", Side: "WEST", IsPlayer: true, JoinFrame: 10, RoleDescription: "Rifleman",
+					ID: 5, UnitName: "Player1", PlayerUID: "76561198000000005", GroupID: "Alpha", Side: "WEST", IsPlayer: true, JoinFrame: 10, RoleDescription: "Rifleman",
 				},
 				States: []core.SoldierState{
 					{SoldierID: 5, CaptureFrame: 10, Position: core.Position3D{X: 1000, Y: 2000}, Bearing: 90, Lifestate: 1, UnitName: "Player1", IsPlayer: true, CurrentRole: "Rifleman", GroupID: "Alpha", Side: "WEST"},
@@ -177,6 +177,7 @@ func TestBuildWithSoldier(t *testing.T) {
 
 	assert.Equal(t, uint16(5), entity.ID)
 	assert.Equal(t, "Player1", entity.Name)
+	assert.Equal(t, "76561198000000005", entity.PlayerUID)
 	assert.Equal(t, "Alpha", entity.Group)
 	assert.Equal(t, "WEST", entity.Side)
 	assert.Equal(t, 1, entity.IsPlayer)
@@ -192,18 +193,18 @@ func TestBuildWithSoldier(t *testing.T) {
 	assert.Equal(t, 1000.0, coords[0])
 	assert.Equal(t, 2000.0, coords[1])
 	assert.Equal(t, 0.0, coords[2])
-	assert.Equal(t, uint16(90), pos[1])  // bearing
-	assert.Equal(t, uint8(1), pos[2])    // lifestate
-	assert.Equal(t, 0, pos[3])           // inVehicleID (nil -> 0)
-	assert.Equal(t, "Player1", pos[4])   // unitName
-	assert.Equal(t, 1, pos[5])           // isPlayer
-	assert.Equal(t, "Rifleman", pos[6])  // currentRole
+	assert.Equal(t, uint16(90), pos[1]) // bearing
+	assert.Equal(t, uint8(1), pos[2])   // lifestate
+	assert.Equal(t, 0, pos[3])          // inVehicleID (nil -> 0)
+	assert.Equal(t, "Player1", pos[4])  // unitName
+	assert.Equal(t, 1, pos[5])          // isPlayer
+	assert.Equal(t, "Rifleman", pos[6]) // currentRole
 	assert.Equal(t, "Alpha", pos[7])    // groupID
 	assert.Equal(t, "WEST", pos[8])     // side
 
 	// Last position has different group (from second state)
 	pos2 := entity.Positions[10]
-	assert.Equal(t, "Bravo", pos2[7])   // groupID changed mid-mission
+	assert.Equal(t, "Bravo", pos2[7]) // groupID changed mid-mission
 
 	// Check fired events - v1 format: [frameNum, [x, y, z]]
 	require.Len(t, entity.FramesFired, 1)
@@ -408,6 +409,50 @@ func TestBuildWithDeadVehicle(t *testing.T) {
 	assert.Equal(t, 0, pos[2]) // isAlive = false -> 0
 }
 
+func TestBuildRewritesSnapshotDiffOfToV1Frame(t *testing.T) {
+	data := &MissionData{
+		Mission:  &core.Mission{MissionName: "Test"},
+		World:    &core.World{WorldName: "Altis"},
+		Soldiers: make(map[uint16]*SoldierRecord),
+		Vehicles: make(map[uint16]*VehicleRecord),
+		Markers:  make(map[string]*MarkerRecord),
+		GeneralEvents: []core.GeneralEvent{
+			{CaptureFrame: 7, Name: "inventorySnapshot", Message: `{"unitId":0,"reason":"periodic"}`},
+			{CaptureFrame: 66, Name: "inventorySnapshot", Message: `{"unitId":0,"diffOf":7,"set":{"load":0.6}}`},
+		},
+	}
+
+	export := Build(data)
+	require.Len(t, export.Events, 2)
+	assert.Equal(t, 6, export.Events[0][0])
+	assert.Equal(t, 65, export.Events[1][0])
+	payload := export.Events[1][2].(map[string]any)
+	assert.Equal(t, 6, payload["diffOf"])
+}
+
+func TestBuildEndFrameIncludesEventsAfterLastEntityState(t *testing.T) {
+	data := &MissionData{
+		Mission: &core.Mission{MissionName: "Test"},
+		World:   &core.World{WorldName: "Altis"},
+		Soldiers: map[uint16]*SoldierRecord{
+			0: {
+				Soldier: core.Soldier{ID: 0, UnitName: "Player", JoinFrame: 1},
+				States:  []core.SoldierState{{CaptureFrame: 10, Position: core.Position3D{X: 1}}},
+			},
+		},
+		Vehicles: make(map[uint16]*VehicleRecord),
+		Markers:  make(map[string]*MarkerRecord),
+		GeneralEvents: []core.GeneralEvent{
+			{CaptureFrame: 40, Name: "medicalSnapshot", Message: `{"unitId":0,"reason":"death"}`},
+		},
+		TimeStates: []core.TimeState{{CaptureFrame: 40, SystemTimeUTC: "2026-08-23T00:00:00Z"}},
+	}
+
+	export := Build(data)
+	assert.Equal(t, 39, export.EndFrame)
+	assert.Equal(t, 39, export.Events[0][0])
+}
+
 func TestBuildWithGeneralEvents(t *testing.T) {
 	data := &MissionData{
 		Mission:  &core.Mission{MissionName: "Test"},
@@ -417,9 +462,9 @@ func TestBuildWithGeneralEvents(t *testing.T) {
 		Markers:  make(map[string]*MarkerRecord),
 		GeneralEvents: []core.GeneralEvent{
 			{CaptureFrame: 10, Name: "connected", Message: "Player joined"},
-			{CaptureFrame: 20, Name: "custom", Message: "[-1,-1,-1,-1]"},      // JSON array
-			{CaptureFrame: 30, Name: "data", Message: `{"key":"value"}`},       // JSON object
-			{CaptureFrame: 40, Name: "invalid", Message: "[1,2,3"},             // Invalid JSON
+			{CaptureFrame: 20, Name: "custom", Message: "[-1,-1,-1,-1]"}, // JSON array
+			{CaptureFrame: 30, Name: "data", Message: `{"key":"value"}`}, // JSON object
+			{CaptureFrame: 40, Name: "invalid", Message: "[1,2,3"},       // Invalid JSON
 		},
 	}
 
@@ -516,8 +561,8 @@ func TestBuildWithCapturedEventJSONArray(t *testing.T) {
 	require.Len(t, export.Events, 1)
 
 	evt := export.Events[0]
-	assert.Equal(t, 14, evt[0])          // internal frame 15 → v1 frame 14
-	assert.Equal(t, "captured", evt[1])  // event name
+	assert.Equal(t, 14, evt[0])         // internal frame 15 → v1 frame 14
+	assert.Equal(t, "captured", evt[1]) // event name
 
 	// Message must be a parsed JSON array, not a raw string
 	arr, ok := evt[2].([]any)
@@ -589,7 +634,7 @@ func TestBuildWithEndMissionEvents(t *testing.T) {
 	require.Len(t, export.Events, 1)
 
 	evt := export.Events[0]
-	assert.Equal(t, 499, evt[0])            // internal 500 → v1 499
+	assert.Equal(t, 499, evt[0]) // internal 500 → v1 499
 	assert.Equal(t, "endMission", evt[1])
 	inner, ok := evt[2].([]any)
 	require.True(t, ok, "endMission data should be inner array")
@@ -659,7 +704,7 @@ func TestBuildWithHitEvents(t *testing.T) {
 	evt1 := export.Events[0]
 	assert.Equal(t, 9, evt1[0])
 	assert.Equal(t, "hit", evt1[1])
-	assert.Equal(t, uint(5), evt1[2])  // victimID
+	assert.Equal(t, uint(5), evt1[2]) // victimID
 	causedBy1 := evt1[3].([]any)
 	assert.Equal(t, uint(10), causedBy1[0]) // shooterID
 	assert.Equal(t, "rifle", causedBy1[1])
@@ -726,35 +771,35 @@ func TestBuildWithMarker(t *testing.T) {
 	require.Len(t, export.Markers, 1)
 	marker := export.Markers[0]
 
-	assert.Equal(t, "mil_objective", marker[0])  // type
-	assert.Equal(t, "Objective", marker[1])      // text
-	assert.Equal(t, 0, marker[2])                // startFrame (internal 1 → v1 0)
-	assert.Equal(t, -1, marker[3])               // endFrame (FrameForever → -1)
-	assert.Equal(t, 42, marker[4])               // playerId
-	assert.Equal(t, "800000", marker[5])         // color (# stripped)
-	assert.Equal(t, 1, marker[6])                // sideIndex (WEST = 1)
+	assert.Equal(t, "mil_objective", marker[0]) // type
+	assert.Equal(t, "Objective", marker[1])     // text
+	assert.Equal(t, 0, marker[2])               // startFrame (internal 1 → v1 0)
+	assert.Equal(t, -1, marker[3])              // endFrame (FrameForever → -1)
+	assert.Equal(t, 42, marker[4])              // playerId
+	assert.Equal(t, "800000", marker[5])        // color (# stripped)
+	assert.Equal(t, 1, marker[6])               // sideIndex (WEST = 1)
 
 	// Positions
 	positions := marker[7].([][]any)
 	require.Len(t, positions, 2)
 
 	// Initial position entry
-	assert.Equal(t, 0, positions[0][0])          // initial frame (internal 1 → v1 0)
-	assert.Equal(t, "Objective", positions[0][4])           // text
-	assert.Equal(t, "800000", positions[0][5])              // color (# stripped)
-	assert.Equal(t, []float64{2.0, 3.0}, positions[0][6])  // size
-	assert.Equal(t, "mil_objective", positions[0][7])       // type
-	assert.Equal(t, "Solid", positions[0][8])               // brush
-	assert.Equal(t, "ICON", positions[0][9])                // shape
+	assert.Equal(t, 0, positions[0][0])                   // initial frame (internal 1 → v1 0)
+	assert.Equal(t, "Objective", positions[0][4])         // text
+	assert.Equal(t, "800000", positions[0][5])            // color (# stripped)
+	assert.Equal(t, []float64{2.0, 3.0}, positions[0][6]) // size
+	assert.Equal(t, "mil_objective", positions[0][7])     // type
+	assert.Equal(t, "Solid", positions[0][8])             // brush
+	assert.Equal(t, "ICON", positions[0][9])              // shape
 
 	// State change position entry
-	assert.Equal(t, 49, positions[1][0])         // state change frame (internal 50 → v1 49)
-	assert.Equal(t, "Objective Updated", positions[1][4])   // text
-	assert.Equal(t, "900000", positions[1][5])              // color (# stripped)
-	assert.Equal(t, []float64{3.0, 4.0}, positions[1][6])  // size
-	assert.Equal(t, "mil_objective", positions[1][7])       // type
-	assert.Equal(t, "Solid", positions[1][8])               // brush
-	assert.Equal(t, "ICON", positions[1][9])                // shape
+	assert.Equal(t, 49, positions[1][0])                  // state change frame (internal 50 → v1 49)
+	assert.Equal(t, "Objective Updated", positions[1][4]) // text
+	assert.Equal(t, "900000", positions[1][5])            // color (# stripped)
+	assert.Equal(t, []float64{3.0, 4.0}, positions[1][6]) // size
+	assert.Equal(t, "mil_objective", positions[1][7])     // type
+	assert.Equal(t, "Solid", positions[1][8])             // brush
+	assert.Equal(t, "ICON", positions[1][9])              // shape
 
 	assert.Equal(t, []float64{2.0, 3.0}, marker[8]) // size
 	assert.Equal(t, "ICON", marker[9])              // shape
@@ -786,8 +831,8 @@ func TestBuildWithDeletedMarker(t *testing.T) {
 	require.Len(t, export.Markers, 1)
 	marker := export.Markers[0]
 
-	assert.Equal(t, 99, marker[2]) // startFrame (internal 100 → v1 99)
-	assert.Equal(t, 105, marker[3])      // endFrame (internal 106 → v1 105, should NOT be -1)
+	assert.Equal(t, 99, marker[2])  // startFrame (internal 100 → v1 99)
+	assert.Equal(t, 105, marker[3]) // endFrame (internal 106 → v1 105, should NOT be -1)
 }
 
 func TestBuildWithPolylineMarker(t *testing.T) {
@@ -999,8 +1044,8 @@ func TestBuildWithBulletProjectile(t *testing.T) {
 				FirerObjectID:  5,
 				SimulationType: "shotBullet",
 				Trajectory: []core.TrajectoryPoint{
-					{Position: core.Position3D{X: 1000, Y: 2000, Z: 1.5}, FrameNum:15},
-					{Position: core.Position3D{X: 1200, Y: 2200, Z: 1.0}, FrameNum:16},
+					{Position: core.Position3D{X: 1000, Y: 2000, Z: 1.5}, FrameNum: 15},
+					{Position: core.Position3D{X: 1200, Y: 2200, Z: 1.0}, FrameNum: 16},
 				},
 			},
 		},
@@ -1040,8 +1085,8 @@ func TestBuildWithThrownGrenade(t *testing.T) {
 				MagazineDisplay: "Smoke Grenade (White)",
 				MagazineIcon:    `\A3\Weapons_F\Data\UI\gear_smokegrenade_white_ca.paa`,
 				Trajectory: []core.TrajectoryPoint{
-					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, FrameNum:100},
-					{Position: core.Position3D{X: 150, Y: 250, Z: 5}, FrameNum:105},
+					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, FrameNum: 100},
+					{Position: core.Position3D{X: 150, Y: 250, Z: 5}, FrameNum: 105},
 				},
 			},
 		},
@@ -1073,8 +1118,8 @@ func TestBuildWithThrownGrenade(t *testing.T) {
 func TestBuildWithVehicleProjectile(t *testing.T) {
 	vehicleID := uint16(20)
 	data := &MissionData{
-		Mission:  &core.Mission{MissionName: "Test"},
-		World:    &core.World{WorldName: "Altis"},
+		Mission: &core.Mission{MissionName: "Test"},
+		World:   &core.World{WorldName: "Altis"},
 		Soldiers: map[uint16]*SoldierRecord{
 			5: {Soldier: core.Soldier{ID: 5, UnitName: "Gunner"}},
 		},
@@ -1093,8 +1138,8 @@ func TestBuildWithVehicleProjectile(t *testing.T) {
 				MagazineDisplay: ".50 BMG 200Rnd",
 				MagazineIcon:    `\A3\weapons_f\data\ui\icon_mg_ca.paa`,
 				Trajectory: []core.TrajectoryPoint{
-					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, FrameNum:50},
-					{Position: core.Position3D{X: 200, Y: 300, Z: 5}, FrameNum:55},
+					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, FrameNum: 50},
+					{Position: core.Position3D{X: 200, Y: 300, Z: 5}, FrameNum: 55},
 				},
 			},
 		},
@@ -1111,8 +1156,8 @@ func TestBuildWithVehicleProjectile(t *testing.T) {
 
 func TestBuildWithOnFootLauncher(t *testing.T) {
 	data := &MissionData{
-		Mission:  &core.Mission{MissionName: "Test"},
-		World:    &core.World{WorldName: "Altis"},
+		Mission: &core.Mission{MissionName: "Test"},
+		World:   &core.World{WorldName: "Altis"},
 		Soldiers: map[uint16]*SoldierRecord{
 			7: {Soldier: core.Soldier{ID: 7}},
 		},
@@ -1128,8 +1173,8 @@ func TestBuildWithOnFootLauncher(t *testing.T) {
 				MagazineDisplay: "HEAT Rocket",
 				MagazineIcon:    `\A3\weapons_f\data\ui\icon_at_ca.paa`,
 				Trajectory: []core.TrajectoryPoint{
-					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, FrameNum:80},
-					{Position: core.Position3D{X: 300, Y: 400, Z: 0}, FrameNum:85},
+					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, FrameNum: 80},
+					{Position: core.Position3D{X: 300, Y: 400, Z: 0}, FrameNum: 85},
 				},
 			},
 		},
@@ -1144,8 +1189,8 @@ func TestBuildWithOnFootLauncher(t *testing.T) {
 
 func TestBuildWithShotGrenade(t *testing.T) {
 	data := &MissionData{
-		Mission:  &core.Mission{MissionName: "Test"},
-		World:    &core.World{WorldName: "Altis"},
+		Mission: &core.Mission{MissionName: "Test"},
+		World:   &core.World{WorldName: "Altis"},
 		Soldiers: map[uint16]*SoldierRecord{
 			3: {Soldier: core.Soldier{ID: 3}},
 		},
@@ -1160,7 +1205,7 @@ func TestBuildWithShotGrenade(t *testing.T) {
 				MuzzleDisplay:   "3GL",
 				MagazineDisplay: "40mm HE",
 				Trajectory: []core.TrajectoryPoint{
-					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, FrameNum:60},
+					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, FrameNum: 60},
 				},
 			},
 		},
@@ -1177,8 +1222,8 @@ func TestBuildWithShotGrenade(t *testing.T) {
 func TestBuildWithProjectileHitEvents(t *testing.T) {
 	soldierVictim := uint16(10)
 	data := &MissionData{
-		Mission:  &core.Mission{MissionName: "Test"},
-		World:    &core.World{WorldName: "Altis"},
+		Mission: &core.Mission{MissionName: "Test"},
+		World:   &core.World{WorldName: "Altis"},
 		Soldiers: map[uint16]*SoldierRecord{
 			5: {Soldier: core.Soldier{ID: 5}},
 		},
@@ -1193,8 +1238,8 @@ func TestBuildWithProjectileHitEvents(t *testing.T) {
 				MuzzleDisplay:   "MX 6.5 mm",
 				MagazineDisplay: "6.5 mm 30Rnd",
 				Trajectory: []core.TrajectoryPoint{
-					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, FrameNum:50},
-					{Position: core.Position3D{X: 300, Y: 400, Z: 5}, FrameNum:52},
+					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, FrameNum: 50},
+					{Position: core.Position3D{X: 300, Y: 400, Z: 5}, FrameNum: 52},
 				},
 				Hits: []core.ProjectileHit{
 					{CaptureFrame: 52, Position: core.Position3D{X: 300, Y: 400, Z: 5}, SoldierID: &soldierVictim},
@@ -1221,8 +1266,8 @@ func TestBuildWithProjectileHitEvents(t *testing.T) {
 
 func TestBuildWithEmptyMagazineIcon(t *testing.T) {
 	data := &MissionData{
-		Mission:  &core.Mission{MissionName: "Test"},
-		World:    &core.World{WorldName: "Altis"},
+		Mission: &core.Mission{MissionName: "Test"},
+		World:   &core.World{WorldName: "Altis"},
 		Soldiers: map[uint16]*SoldierRecord{
 			5: {Soldier: core.Soldier{ID: 5}},
 		},
@@ -1236,7 +1281,7 @@ func TestBuildWithEmptyMagazineIcon(t *testing.T) {
 				MagazineDisplay: "Unknown",
 				MagazineIcon:    "", // empty → fallback
 				Trajectory: []core.TrajectoryPoint{
-					{Position: core.Position3D{X: 100, Y: 200}, FrameNum:50},
+					{Position: core.Position3D{X: 100, Y: 200}, FrameNum: 50},
 				},
 			},
 		},
@@ -1253,8 +1298,8 @@ func TestBuildWithEmptyMagazineIcon(t *testing.T) {
 func TestBuildWithProjectileHitOnVehicle(t *testing.T) {
 	vehicleVictim := uint16(20)
 	data := &MissionData{
-		Mission:  &core.Mission{MissionName: "Test"},
-		World:    &core.World{WorldName: "Altis"},
+		Mission: &core.Mission{MissionName: "Test"},
+		World:   &core.World{WorldName: "Altis"},
 		Soldiers: map[uint16]*SoldierRecord{
 			5: {Soldier: core.Soldier{ID: 5}},
 		},
@@ -1269,8 +1314,8 @@ func TestBuildWithProjectileHitOnVehicle(t *testing.T) {
 				MuzzleDisplay:   "PCML",
 				MagazineDisplay: "PCML Missile",
 				Trajectory: []core.TrajectoryPoint{
-					{Position: core.Position3D{X: 0, Y: 0, Z: 10}, FrameNum:60},
-					{Position: core.Position3D{X: 300, Y: 400, Z: 5}, FrameNum:65},
+					{Position: core.Position3D{X: 0, Y: 0, Z: 10}, FrameNum: 60},
+					{Position: core.Position3D{X: 300, Y: 400, Z: 5}, FrameNum: 65},
 				},
 				Hits: []core.ProjectileHit{
 					{CaptureFrame: 65, Position: core.Position3D{X: 300, Y: 400, Z: 5}, VehicleID: &vehicleVictim},
@@ -1293,8 +1338,8 @@ func TestBuildWithProjectileHitOnVehicle(t *testing.T) {
 func TestBuildWithProjectileHitEmptyMuzzleDisplay(t *testing.T) {
 	soldierVictim := uint16(10)
 	data := &MissionData{
-		Mission:  &core.Mission{MissionName: "Test"},
-		World:    &core.World{WorldName: "Altis"},
+		Mission: &core.Mission{MissionName: "Test"},
+		World:   &core.World{WorldName: "Altis"},
 		Soldiers: map[uint16]*SoldierRecord{
 			5: {Soldier: core.Soldier{ID: 5}},
 		},
@@ -1310,8 +1355,8 @@ func TestBuildWithProjectileHitEmptyMuzzleDisplay(t *testing.T) {
 				MuzzleDisplay:   "", // empty → falls back to WeaponDisplay
 				MagazineDisplay: "6.5 mm 30Rnd",
 				Trajectory: []core.TrajectoryPoint{
-					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, FrameNum:50},
-					{Position: core.Position3D{X: 300, Y: 400, Z: 5}, FrameNum:52},
+					{Position: core.Position3D{X: 100, Y: 200, Z: 10}, FrameNum: 50},
+					{Position: core.Position3D{X: 300, Y: 400, Z: 5}, FrameNum: 52},
 				},
 				Hits: []core.ProjectileHit{
 					{CaptureFrame: 52, Position: core.Position3D{X: 300, Y: 400, Z: 5}, SoldierID: &soldierVictim},
@@ -1359,14 +1404,14 @@ func TestBuildWithPlacedObjectMarker(t *testing.T) {
 
 	// With MagazineIcon → magIcons/ prefix
 	assert.Equal(t, "magIcons/gear_mine_AP_ca.paa", marker[0]) // type
-	assert.Equal(t, "APERS Mine", marker[1])                    // text
-	assert.Equal(t, 199, marker[2])                              // startFrame (internal 200 → v1 199)
-	assert.Equal(t, 499, marker[3])                              // endFrame (internal 500 → v1 499)
-	assert.Equal(t, int(5), marker[4])                          // playerId (ownerID)
-	assert.Equal(t, "D96600", marker[5])                        // color (orange hex)
-	assert.Equal(t, -1, marker[6])                              // sideIndex (GLOBAL)
-	assert.Equal(t, "ICON", marker[9])                          // shape
-	assert.Equal(t, "Solid", marker[10])                        // brush
+	assert.Equal(t, "APERS Mine", marker[1])                   // text
+	assert.Equal(t, 199, marker[2])                            // startFrame (internal 200 → v1 199)
+	assert.Equal(t, 499, marker[3])                            // endFrame (internal 500 → v1 499)
+	assert.Equal(t, int(5), marker[4])                         // playerId (ownerID)
+	assert.Equal(t, "D96600", marker[5])                       // color (orange hex)
+	assert.Equal(t, -1, marker[6])                             // sideIndex (GLOBAL)
+	assert.Equal(t, "ICON", marker[9])                         // shape
+	assert.Equal(t, "Solid", marker[10])                       // brush
 
 	// Check positions array
 	posArray := marker[7].([][]any)
@@ -1375,6 +1420,80 @@ func TestBuildWithPlacedObjectMarker(t *testing.T) {
 	pos0 := posArray[0][1].([]float64)
 	assert.Equal(t, 1000.0, pos0[0])
 	assert.Equal(t, 2000.0, pos0[1])
+}
+
+func TestBuildWithTrenchMarker(t *testing.T) {
+	data := &MissionData{
+		Mission:  &core.Mission{MissionName: "Test"},
+		World:    &core.World{WorldName: "Altis"},
+		Soldiers: make(map[uint16]*SoldierRecord),
+		Vehicles: make(map[uint16]*VehicleRecord),
+		Markers:  make(map[string]*MarkerRecord),
+		PlacedObjects: map[uint16]*PlacedObjectRecord{
+			70: {
+				PlacedObject: core.PlacedObject{
+					ID: 70, JoinFrame: 300, DisplayName: "Trench - Long - Novak - 12:34",
+					Position:   core.Position3D{X: 1200, Y: 900, Z: 15},
+					OwnerID:    42,
+					Side:       "WEST",
+					Weapon:     "trench",
+					Direction:  137.5,
+					MarkerIcon: "trench_long",
+				},
+				// Trench removal is not recorded, so a trench has no lifecycle events.
+				Events: nil,
+			},
+		},
+	}
+
+	export := Build(data)
+
+	require.Len(t, export.Markers, 1)
+	marker := export.Markers[0]
+
+	// An explicit MarkerIcon wins over the magIcons path, so the type is a plain
+	// icon name the web resolves out of assets/markers/**.
+	assert.Equal(t, "trench_long", marker[0])
+	assert.Equal(t, "Trench - Long - Novak - 12:34", marker[1]) // text
+	assert.Equal(t, 299, marker[2])                             // startFrame
+	assert.Equal(t, -1, marker[3])                              // endFrame: stays for the whole recording
+	assert.Equal(t, int(42), marker[4])                         // playerId
+	assert.Equal(t, "ICON", marker[9])
+
+	// Direction rides in the position entry and rotates the icon in playback.
+	posArray := marker[7].([][]any)
+	require.Len(t, posArray, 1)
+	assert.Equal(t, float32(137.5), posArray[0][2])
+}
+
+func TestBuildPlacedObjectWithoutDirectionKeepsLegacyZero(t *testing.T) {
+	data := &MissionData{
+		Mission:  &core.Mission{MissionName: "Test"},
+		World:    &core.World{WorldName: "Altis"},
+		Soldiers: make(map[uint16]*SoldierRecord),
+		Vehicles: make(map[uint16]*VehicleRecord),
+		Markers:  make(map[string]*MarkerRecord),
+		PlacedObjects: map[uint16]*PlacedObjectRecord{
+			80: {
+				PlacedObject: core.PlacedObject{
+					ID: 80, JoinFrame: 10, DisplayName: "APERS Mine",
+					Position:     core.Position3D{X: 1, Y: 2, Z: 3},
+					OwnerID:      1,
+					MagazineIcon: `\A3\icon_ca.paa`,
+					// Direction and MarkerIcon absent, as in every pre-trench recording.
+				},
+			},
+		},
+	}
+
+	export := Build(data)
+
+	require.Len(t, export.Markers, 1)
+	marker := export.Markers[0]
+
+	assert.Equal(t, "magIcons/icon_ca.paa", marker[0])
+	posArray := marker[7].([][]any)
+	assert.Equal(t, float32(0), posArray[0][2])
 }
 
 func TestBuildWithPlacedObjectNoIcon(t *testing.T) {
@@ -1493,13 +1612,13 @@ func TestBuildWithPlacedObjectHitEvents(t *testing.T) {
 	// Should have a hit event
 	require.Len(t, export.Events, 1)
 	evt := export.Events[0]
-	assert.Equal(t, 498, evt[0])    // frame (internal 499 → v1 498)
-	assert.Equal(t, "hit", evt[1])  // event type
+	assert.Equal(t, 498, evt[0])     // frame (internal 499 → v1 498)
+	assert.Equal(t, "hit", evt[1])   // event type
 	assert.Equal(t, uint(7), evt[2]) // victim ID
 
 	causedBy := evt[3].([]any)
-	assert.Equal(t, uint(5), causedBy[0])          // owner ID
-	assert.Equal(t, "APERS Mine", causedBy[1])     // weapon text (display name)
+	assert.Equal(t, uint(5), causedBy[0])      // owner ID
+	assert.Equal(t, "APERS Mine", causedBy[1]) // weapon text (display name)
 
 	// Distance: sqrt((1000-1003)^2 + (2000-2004)^2) = sqrt(9+16) = 5.0
 	assert.InDelta(t, 5.0, float64(evt[4].(float32)), 0.01)
@@ -1555,8 +1674,8 @@ func TestBuildWithVehicleDeleteFrame(t *testing.T) {
 	// Vehicle with DeleteFrame should use delete frame as gap-fill boundary
 	// instead of maxFrame.
 	data := &MissionData{
-		Mission:  &core.Mission{MissionName: "Test"},
-		World:    &core.World{WorldName: "Altis"},
+		Mission: &core.Mission{MissionName: "Test"},
+		World:   &core.World{WorldName: "Altis"},
 		Soldiers: map[uint16]*SoldierRecord{
 			0: {
 				Soldier: core.Soldier{ID: 0, JoinFrame: 1},
@@ -1592,4 +1711,85 @@ func TestBuildWithVehicleDeleteFrame(t *testing.T) {
 	assert.Equal(t, []int{0, 10}, frameRange)
 
 	// Without DeleteFrame it would extend to maxFrame=21 → v1 [0, 20]
+}
+
+// Radio transmissions were parsed and stored for years but never reached the
+// export, so a recording could show which nets a player monitored and never who
+// keyed up on them. These lock the export path in.
+func TestBuildWithRadioEvents(t *testing.T) {
+	soldierID := uint(7)
+	data := &MissionData{
+		Mission:  &core.Mission{MissionName: "Comms"},
+		World:    &core.World{WorldName: "Altis"},
+		Soldiers: make(map[uint16]*SoldierRecord),
+		Vehicles: make(map[uint16]*VehicleRecord),
+		Markers:  make(map[string]*MarkerRecord),
+		RadioEvents: []core.RadioEvent{
+			{
+				CaptureFrame: 31,
+				SoldierID:    &soldierID,
+				Radio:        "AN/PRC-152",
+				RadioType:    "SW",
+				StartEnd:     "Start",
+				Channel:      3,
+				IsAdditional: false,
+				Frequency:    69.9,
+				Code:         "0451",
+			},
+		},
+	}
+
+	export := Build(data)
+
+	require.Len(t, export.Events, 1)
+	event := export.Events[0]
+	assert.Equal(t, 30, event[0]) // internal 1-based frame 31 → v1 0-based 30
+	assert.Equal(t, "radioTransmission", event[1])
+
+	payload, ok := event[2].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, 7, payload["unitId"])
+	assert.Equal(t, "AN/PRC-152", payload["radio"])
+	assert.Equal(t, "SW", payload["type"])
+	assert.Equal(t, "Start", payload["action"])
+	assert.Equal(t, 3, payload["channel"])
+	assert.Equal(t, false, payload["additional"])
+	assert.InDelta(t, 69.9, payload["frequency"], 0.001)
+	assert.Equal(t, "0451", payload["code"])
+}
+
+// An unattributed transmission still describes the net, so it is exported with
+// unitId -1 rather than dropped or written as a bogus id 0.
+func TestBuildRadioEventWithoutSoldier(t *testing.T) {
+	data := &MissionData{
+		Mission:  &core.Mission{MissionName: "Comms"},
+		World:    &core.World{WorldName: "Altis"},
+		Soldiers: make(map[uint16]*SoldierRecord),
+		Vehicles: make(map[uint16]*VehicleRecord),
+		Markers:  make(map[string]*MarkerRecord),
+		RadioEvents: []core.RadioEvent{
+			{CaptureFrame: 5, Radio: "Bergen", RadioType: "LR", StartEnd: "Stop", Frequency: 30.5},
+		},
+	}
+
+	export := Build(data)
+
+	require.Len(t, export.Events, 1)
+	payload, ok := export.Events[0][2].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, -1, payload["unitId"])
+}
+
+// A transmission after the last position tick still belongs on the timeline.
+func TestRadioEventRaisesEndFrame(t *testing.T) {
+	data := &MissionData{
+		Mission:     &core.Mission{MissionName: "Comms"},
+		World:       &core.World{WorldName: "Altis"},
+		Soldiers:    make(map[uint16]*SoldierRecord),
+		Vehicles:    make(map[uint16]*VehicleRecord),
+		Markers:     make(map[string]*MarkerRecord),
+		RadioEvents: []core.RadioEvent{{CaptureFrame: 120, Radio: "Bergen", RadioType: "LR", StartEnd: "Start"}},
+	}
+
+	assert.Equal(t, 119, Build(data).EndFrame)
 }

@@ -661,6 +661,21 @@ func TestCoreToPlacedObject(t *testing.T) {
 	assert.Equal(t, "WEST", result.Side)
 	assert.Equal(t, "put", result.Weapon)
 	assert.Equal(t, `\A3\Weapons_F\Data\UI\gear_mine_AP_ca.paa`, result.MagazineIcon)
+	assert.Equal(t, float32(0), result.Direction)
+	assert.Equal(t, "", result.MarkerIcon)
+}
+
+// Direction and MarkerIcon are additive trench fields. PostgreSQL and SQLite
+// both persist a placed object through this converter, so dropping either
+// writes a heading of 0 and an empty icon.
+func TestCoreToPlacedObjectCopiesDirectionAndMarkerIcon(t *testing.T) {
+	result := CoreToPlacedObject(core.PlacedObject{
+		Direction:  137.5,
+		MarkerIcon: "trench_long",
+	})
+
+	assert.Equal(t, float32(137.5), result.Direction)
+	assert.Equal(t, "trench_long", result.MarkerIcon)
 }
 
 func TestCoreToPlacedObjectEvent(t *testing.T) {

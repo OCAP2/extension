@@ -68,6 +68,19 @@ func (p *Parser) ParsePlacedObject(data []string) (core.PlacedObject, error) {
 	// [8] magazineIcon
 	result.MagazineIcon = data[8]
 
+	// [9] direction (optional, additive). Older senders stop at index 8.
+	if len(data) >= 10 {
+		if dir, err := strconv.ParseFloat(data[9], 32); err == nil {
+			result.Direction = float32(dir)
+		}
+	}
+
+	// [10] markerIcon (optional, additive). Overrides the MagazineIcon-derived
+	// marker type at export time.
+	if len(data) >= 11 {
+		result.MarkerIcon = data[10]
+	}
+
 	return result, nil
 }
 
