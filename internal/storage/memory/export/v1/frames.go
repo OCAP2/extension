@@ -7,7 +7,10 @@ import (
 // missionMaxFrame is the latest internal frame that should appear in a v1
 // export. Entity states are the usual source, but times and events can outlive
 // the last position tick (a corpse that stopped updating, a delayed death
-// snapshot, disconnect after pause). Those still have to sit on the timeline.
+// snapshot, disconnect after pause). Marker moves, placed-object lifecycle
+// frames and projectile trajectories are written by both exporters too, and
+// have to sit on the same timeline. FrameForever (0) never raises the result:
+// it is exported as the -1 "persists" sentinel, not as a playback frame.
 func missionMaxFrame(data *MissionData) core.Frame {
 	var max core.Frame
 	for _, record := range data.Soldiers {
@@ -40,6 +43,28 @@ func missionMaxFrame(data *MissionData) core.Frame {
 	}
 	for _, evt := range data.KillEvents {
 		max = raiseFrame(max, evt.CaptureFrame)
+	}
+	for _, record := range data.Markers {
+		max = raiseFrame(max, record.Marker.CaptureFrame)
+		max = raiseFrame(max, record.Marker.EndFrame)
+		for _, state := range record.States {
+			max = raiseFrame(max, state.CaptureFrame)
+		}
+	}
+	for _, record := range data.PlacedObjects {
+		max = raiseFrame(max, record.PlacedObject.JoinFrame)
+		for _, evt := range record.Events {
+			max = raiseFrame(max, evt.CaptureFrame)
+		}
+	}
+	for _, pe := range data.ProjectileEvents {
+		max = raiseFrame(max, pe.CaptureFrame)
+		for _, tp := range pe.Trajectory {
+			max = raiseFrame(max, tp.FrameNum)
+		}
+		for _, hit := range pe.Hits {
+			max = raiseFrame(max, hit.CaptureFrame)
+		}
 	}
 	return max
 }

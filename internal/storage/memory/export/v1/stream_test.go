@@ -489,3 +489,203 @@ func TestStream_EquivalentToBuild_RadioEvents(t *testing.T) {
 
 	require.JSONEq(t, string(want), string(got))
 }
+
+// Nested timestamps are written by both exporters but do not live on the
+// top-level hit list. A placed-object hit, projectile sample or marker move
+// after the last soldier state has to extend playback, or the row sits past
+// endFrame. FrameForever stays the -1 sentinel and does not count.
+func TestLateNestedTimestampsStayInsidePlayback(t *testing.T) {
+	hitVictim := uint16(7)
+
+	tests := []struct {
+		name  string
+		apply func(data *MissionData)
+		check func(t *testing.T, export Export)
+	}{
+		{
+			name: "placed object hit",
+			apply: func(data *MissionData) {
+				data.PlacedObjects = map[uint16]*PlacedObjectRecord{
+					50: {
+						PlacedObject: core.PlacedObject{
+							ID: 50, JoinFrame: 2, DisplayName: "APERS Mine",
+							Position: core.Position3D{X: 1000, Y: 2000}, OwnerID: 5,
+						},
+						Events: []core.PlacedObjectEvent{{
+							CaptureFrame: 40, PlacedID: 50, EventType: "hit",
+							Position:    core.Position3D{X: 1003, Y: 2004},
+							HitEntityID: &hitVictim,
+						}},
+					},
+				}
+			},
+			check: func(t *testing.T, export Export) {
+				require.Len(t, export.Events, 1)
+				require.Equal(t, 39, export.Events[0][0])
+				require.Equal(t, "hit", export.Events[0][1])
+			},
+		},
+		{
+			name: "projectile hit",
+			apply: func(data *MissionData) {
+				data.ProjectileEvents = []core.ProjectileEvent{{
+					CaptureFrame: 10, FirerObjectID: 0, SimulationType: "shotRocket",
+					MuzzleDisplay: "RPG", MagazineDisplay: "PG-7",
+					Trajectory: []core.TrajectoryPoint{
+						{Position: core.Position3D{X: 1, Y: 1}, FrameNum: 10},
+					},
+					Hits: []core.ProjectileHit{{
+						CaptureFrame: 40, Position: core.Position3D{X: 50, Y: 50}, SoldierID: &hitVictim,
+					}},
+				}}
+			},
+			check: func(t *testing.T, export Export) {
+				require.Len(t, export.Events, 1)
+				require.Equal(t, 39, export.Events[0][0])
+				require.Equal(t, "hit", export.Events[0][1])
+			},
+		},
+		{
+			name: "projectile trajectory",
+			apply: func(data *MissionData) {
+				data.ProjectileEvents = []core.ProjectileEvent{{
+					CaptureFrame: 10, FirerObjectID: 0, SimulationType: "shotRocket",
+					MuzzleDisplay: "RPG", MagazineDisplay: "PG-7",
+					Trajectory: []core.TrajectoryPoint{
+						{Position: core.Position3D{X: 1, Y: 1}, FrameNum: 10},
+						{Position: core.Position3D{X: 80, Y: 80}, FrameNum: 40},
+					},
+				}}
+			},
+			check: func(t *testing.T, export Export) {
+				require.Len(t, export.Markers, 1)
+				require.Equal(t, 39, export.Markers[0][3])
+				positions := export.Markers[0][7].([][]any)
+				require.Equal(t, 39, positions[len(positions)-1][0])
+			},
+		},
+		{
+			name: "marker change",
+			apply: func(data *MissionData) {
+				data.Markers["obj"] = &MarkerRecord{
+					Marker: core.Marker{
+						MarkerName: "obj", MarkerType: "mil_dot", Text: "Obj",
+						Shape: "ICON", Color: "ColorRed", Size: "[1,1]", Brush: "Solid",
+						CaptureFrame: 1, EndFrame: core.FrameForever,
+						Position: core.Position3D{X: 10, Y: 10},
+					},
+					States: []core.MarkerState{{
+						CaptureFrame: 40, Position: core.Position3D{X: 20, Y: 20},
+						Alpha: 1, Color: "ColorRed", Size: "[1,1]", Shape: "ICON", Brush: "Solid",
+					}},
+				}
+			},
+			check: func(t *testing.T, export Export) {
+				require.Len(t, export.Markers, 1)
+				positions := export.Markers[0][7].([][]any)
+				require.Equal(t, 39, positions[len(positions)-1][0])
+			},
+		},
+		{
+			name: "marker deletion",
+			apply: func(data *MissionData) {
+				data.Markers["gone"] = &MarkerRecord{
+					Marker: core.Marker{
+						MarkerName: "gone", MarkerType: "mil_dot", Shape: "ICON",
+						Color: "ColorRed", Size: "[1,1]", Brush: "Solid",
+						CaptureFrame: 1, EndFrame: 40,
+						Position: core.Position3D{X: 10, Y: 10},
+					},
+				}
+			},
+			check: func(t *testing.T, export Export) {
+				require.Len(t, export.Markers, 1)
+				require.Equal(t, 39, export.Markers[0][3])
+			},
+		},
+		{
+			name: "placed object detonation",
+			apply: func(data *MissionData) {
+				data.PlacedObjects = map[uint16]*PlacedObjectRecord{
+					50: {
+						PlacedObject: core.PlacedObject{
+							ID: 50, JoinFrame: 2, DisplayName: "Charge",
+							Position: core.Position3D{X: 1, Y: 1},
+						},
+						Events: []core.PlacedObjectEvent{{
+							CaptureFrame: 40, PlacedID: 50, EventType: "detonated",
+						}},
+					},
+				}
+			},
+			check: func(t *testing.T, export Export) {
+				require.Len(t, export.Markers, 1)
+				require.Equal(t, 39, export.Markers[0][3])
+			},
+		},
+		{
+			name: "bullet fireline",
+			apply: func(data *MissionData) {
+				data.ProjectileEvents = []core.ProjectileEvent{{
+					CaptureFrame: 40, FirerObjectID: 0, SimulationType: "shotBullet",
+					Trajectory: []core.TrajectoryPoint{
+						{Position: core.Position3D{X: 1, Y: 1}, FrameNum: 10},
+						{Position: core.Position3D{X: 2, Y: 2}, FrameNum: 10},
+					},
+				}}
+			},
+			check: func(t *testing.T, export Export) {
+				require.Len(t, export.Entities[0].FramesFired, 1)
+				require.Equal(t, 39, export.Entities[0].FramesFired[0][0])
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data := missionEndingAtSoldierFrame(10)
+			tt.apply(data)
+
+			export := Build(data)
+			require.Equal(t, 39, export.EndFrame)
+			tt.check(t, export)
+
+			var streamed Export
+			require.NoError(t, json.Unmarshal(streamBytes(t, data), &streamed))
+			require.Equal(t, 39, streamed.EndFrame)
+			require.JSONEq(t, string(buildThenEncode(t, data)), string(streamBytes(t, data)))
+		})
+	}
+
+	t.Run("forever marker does not extend playback", func(t *testing.T) {
+		data := missionEndingAtSoldierFrame(10)
+		data.Markers["stay"] = &MarkerRecord{
+			Marker: core.Marker{
+				MarkerName: "stay", MarkerType: "mil_dot", Shape: "ICON",
+				Color: "ColorRed", Size: "[1,1]", Brush: "Solid",
+				CaptureFrame: 1, EndFrame: core.FrameForever,
+				Position: core.Position3D{X: 10, Y: 10},
+			},
+		}
+
+		require.Equal(t, 9, Build(data).EndFrame)
+		var streamed Export
+		require.NoError(t, json.Unmarshal(streamBytes(t, data), &streamed))
+		require.Equal(t, 9, streamed.EndFrame)
+	})
+}
+
+func missionEndingAtSoldierFrame(frame core.Frame) *MissionData {
+	return &MissionData{
+		Mission: &core.Mission{MissionName: "Test"},
+		World:   &core.World{WorldName: "Altis"},
+		Soldiers: map[uint16]*SoldierRecord{
+			0: {
+				Soldier: core.Soldier{ID: 0, UnitName: "Player", JoinFrame: 1},
+				States:  []core.SoldierState{{CaptureFrame: frame, Position: core.Position3D{X: 1}}},
+			},
+		},
+		Vehicles: make(map[uint16]*VehicleRecord),
+		Markers:  make(map[string]*MarkerRecord),
+	}
+}
