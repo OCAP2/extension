@@ -621,6 +621,8 @@ type PlacedObject struct {
 	Side         string    `json:"side" gorm:"size:16"`
 	Weapon       string    `json:"weapon" gorm:"size:64"`
 	MagazineIcon string    `json:"magazineIcon" gorm:"size:128"`
+	Direction    float32   `json:"direction"`                          // Heading in degrees; rotates the exported marker
+	MarkerIcon   string    `json:"markerIcon" gorm:"size:64"`          // Explicit marker icon name, overrides MagazineIcon
 }
 
 func (*PlacedObject) TableName() string {

@@ -21,6 +21,7 @@ type MissionData struct {
 	PlacedObjects map[uint16]*PlacedObjectRecord
 
 	GeneralEvents    []core.GeneralEvent
+	RadioEvents      []core.RadioEvent
 	SectorEvents     []core.SectorEvent
 	EndMissionEvents []core.EndMissionEvent
 	HitEvents        []core.HitEvent
@@ -72,6 +73,7 @@ func buildGeneralEvent(evt core.GeneralEvent) []any {
 			message = parsed
 		}
 	}
+	message = rewriteSnapshotDiffOf(evt.Name, message)
 
 	event := []any{frameToV1(evt.CaptureFrame), evt.Name, message}
 	if evt.Name == "connected" || evt.Name == "disconnected" {
@@ -81,6 +83,38 @@ func buildGeneralEvent(evt core.GeneralEvent) []any {
 	}
 
 	return event
+}
+
+// buildRadioEvent converts one TFAR/ACRE push-to-talk into the v1 JSON array.
+//
+// The payload rides as a JSON object in the message slot, the same additive
+// shape every event type added after v1 was frozen uses, so an older reader
+// skips it by name and never has to understand the fields.
+//
+// Deliberately absent: the radio range and which mod it came from. A
+// transmission says only who keyed up on what net; the range that decides who
+// could hear it lives on the radio itself and is recorded by the player radio
+// snapshots, which is where a reader has to join anyway.
+func buildRadioEvent(evt core.RadioEvent) []any {
+	unitID := -1
+	if evt.SoldierID != nil {
+		unitID = int(*evt.SoldierID)
+	}
+
+	return []any{
+		frameToV1(evt.CaptureFrame),
+		"radioTransmission",
+		map[string]any{
+			"unitId":     unitID,
+			"radio":      evt.Radio,
+			"type":       evt.RadioType,
+			"action":     evt.StartEnd,
+			"channel":    int(evt.Channel),
+			"additional": evt.IsAdditional,
+			"frequency":  float64(evt.Frequency),
+			"code":       evt.Code,
+		},
+	}
 }
 
 // Build creates an Export from the mission data
@@ -111,22 +145,10 @@ func Build(data *MissionData) Export {
 		})
 	}
 
-	// Pre-compute maxFrame across all entities (needed for gap-filling sparse states)
-	var maxFrame core.Frame = 0
-	for _, record := range data.Soldiers {
-		for _, state := range record.States {
-			if state.CaptureFrame > maxFrame {
-				maxFrame = state.CaptureFrame
-			}
-		}
-	}
-	for _, record := range data.Vehicles {
-		for _, state := range record.States {
-			if state.CaptureFrame > maxFrame {
-				maxFrame = state.CaptureFrame
-			}
-		}
-	}
+	// Gap-fill sparse entity states out to the latest frame that actually
+	// appears in the recording, including times and events after the last
+	// position tick.
+	maxFrame := missionMaxFrame(data)
 
 	// Find max entity ID to size the entities array correctly
 	// The JS frontend uses entities[id] to look up entities, so array index must equal entity ID
@@ -166,6 +188,12 @@ func Build(data *MissionData) Export {
 	// Other format: [frameNum, "type", message]
 	for _, evt := range data.GeneralEvents {
 		export.Events = append(export.Events, buildGeneralEvent(evt))
+	}
+
+	// Convert radio transmissions
+	// Format: [frameNum, "radioTransmission", {unitId, radio, type, action, ...}]
+	for _, evt := range data.RadioEvents {
+		export.Events = append(export.Events, buildRadioEvent(evt))
 	}
 
 	// Convert sector events
@@ -326,11 +354,17 @@ func Build(data *MissionData) Export {
 	for _, record := range sortedPlacedObjects(data.PlacedObjects) {
 		id := record.PlacedObject.ID
 		// Determine marker icon
-		iconFilename := extractFilename(record.PlacedObject.MagazineIcon)
+		// An explicit MarkerIcon (trenches) wins over the MagazineIcon-derived
+		// magIcons path (mines, explosives). Both are absent on older records,
+		// which fall through to Minefield exactly as before.
 		var markerType string
-		if iconFilename != "" {
+		iconFilename := extractFilename(record.PlacedObject.MagazineIcon)
+		switch {
+		case record.PlacedObject.MarkerIcon != "":
+			markerType = record.PlacedObject.MarkerIcon
+		case iconFilename != "":
 			markerType = "magIcons/" + iconFilename
-		} else {
+		default:
 			markerType = "Minefield"
 		}
 
@@ -347,7 +381,7 @@ func Build(data *MissionData) Export {
 			{
 				frameToV1(record.PlacedObject.JoinFrame),
 				[]float64{record.PlacedObject.Position.X, record.PlacedObject.Position.Y, record.PlacedObject.Position.Z},
-				0,
+				record.PlacedObject.Direction,
 				1.0,
 			},
 		}
@@ -626,6 +660,7 @@ func buildSoldierEntity(record *SoldierRecord, maxFrame core.Frame, extraFirelin
 	entity := Entity{
 		ID:            record.Soldier.ID,
 		Name:          name,
+		PlayerUID:     record.Soldier.PlayerUID,
 		Group:         record.Soldier.GroupID,
 		Side:          record.Soldier.Side,
 		IsPlayer:      boolToInt(isPlayer),

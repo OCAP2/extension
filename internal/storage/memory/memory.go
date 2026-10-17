@@ -590,6 +590,7 @@ func (b *Backend) buildMissionDataUnlocked() *v1.MissionData {
 		Markers:          make(map[string]*v1.MarkerRecord),
 		PlacedObjects:    make(map[uint16]*v1.PlacedObjectRecord),
 		GeneralEvents:    b.generalEvents,
+		RadioEvents:      b.radioEvents,
 		SectorEvents:     b.sectorEvents,
 		EndMissionEvents: b.endMissionEvents,
 		HitEvents:        b.hitEvents,

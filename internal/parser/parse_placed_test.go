@@ -23,12 +23,12 @@ func TestParsePlacedObject(t *testing.T) {
 				"100",              // 0: frame
 				"50",               // 1: placedId
 				"APERSMine_Range",  // 2: className
-				"APERS Mine",      // 3: displayName
+				"APERS Mine",       // 3: displayName
 				"5000.5,3000.2,10", // 4: position
 				"12",               // 5: firerOcapId
 				"WEST",             // 6: side
 				"put",              // 7: weapon
-				`\A3\icon.paa`,    // 8: magazineIcon
+				`\A3\icon.paa`,     // 8: magazineIcon
 			},
 			check: func(t *testing.T, obj core.PlacedObject) {
 				assert.Equal(t, core.Frame(100), obj.JoinFrame)
@@ -54,6 +54,54 @@ func TestParsePlacedObject(t *testing.T) {
 				assert.Equal(t, core.Frame(200), obj.JoinFrame)
 				assert.Equal(t, uint16(25), obj.ID)
 				assert.Equal(t, uint16(8), obj.OwnerID)
+			},
+		},
+		{
+			// Trenches add direction and an explicit marker icon at indices 9 and 10.
+			name: "trench with direction and marker icon",
+			input: []string{
+				"300",                           // 0: frame
+				"7",                             // 1: placedId
+				"GRAD_envelope_long",            // 2: className
+				"Trench - Long - Novak - 12:34", // 3: displayName
+				"1200.5,900.25,15",              // 4: position
+				"42",                            // 5: firerOcapId
+				"WEST",                          // 6: side
+				"trench",                        // 7: weapon
+				"",                              // 8: magazineIcon (unused)
+				"137.5",                         // 9: direction
+				"trench_long",                   // 10: markerIcon
+			},
+			check: func(t *testing.T, obj core.PlacedObject) {
+				assert.Equal(t, "GRAD_envelope_long", obj.ClassName)
+				assert.Equal(t, "trench", obj.Weapon)
+				assert.InDelta(t, 137.5, obj.Direction, 0.01)
+				assert.Equal(t, "trench_long", obj.MarkerIcon)
+			},
+		},
+		{
+			// The pre-trench 9-argument shape must keep parsing, with the two
+			// additive fields left at their zero values.
+			name: "legacy 9-arg call leaves additive fields zeroed",
+			input: []string{
+				"100", "50", "APERSMine_Range", "APERS Mine",
+				"1,2,3", "12", "WEST", "put", "icon.paa",
+			},
+			check: func(t *testing.T, obj core.PlacedObject) {
+				assert.Equal(t, float32(0), obj.Direction)
+				assert.Equal(t, "", obj.MarkerIcon)
+			},
+		},
+		{
+			// A direction that is not a number must not fail the whole record.
+			name: "bad direction is ignored, not fatal",
+			input: []string{
+				"100", "50", "ACE_envelope_big", "Trench - Big",
+				"1,2,3", "12", "WEST", "trench", "", "notanumber", "trench_big",
+			},
+			check: func(t *testing.T, obj core.PlacedObject) {
+				assert.Equal(t, float32(0), obj.Direction)
+				assert.Equal(t, "trench_big", obj.MarkerIcon)
 			},
 		},
 		{

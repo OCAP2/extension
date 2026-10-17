@@ -50,11 +50,18 @@ func TestStream_EquivalentToBuild_EmptyMission(t *testing.T) {
 	require.JSONEq(t, string(want), string(got))
 }
 
-func TestStream_IncludesPlayerUIDInConnectionEvent(t *testing.T) {
+func TestStream_IncludesPlayerUIDs(t *testing.T) {
 	data := &MissionData{
-		Mission:  &core.Mission{MissionName: "Connection"},
-		World:    &core.World{WorldName: "Altis"},
-		Soldiers: make(map[uint16]*SoldierRecord),
+		Mission: &core.Mission{MissionName: "Connection"},
+		World:   &core.World{WorldName: "Altis"},
+		Soldiers: map[uint16]*SoldierRecord{
+			1: {
+				Soldier: core.Soldier{
+					ID: 1, UnitName: "Alice", PlayerUID: "76561198000000001",
+					Side: "WEST", IsPlayer: true, JoinFrame: 1,
+				},
+			},
+		},
 		Vehicles: make(map[uint16]*VehicleRecord),
 		Markers:  make(map[string]*MarkerRecord),
 		GeneralEvents: []core.GeneralEvent{
@@ -64,13 +71,22 @@ func TestStream_IncludesPlayerUIDInConnectionEvent(t *testing.T) {
 				Message:      "Alice",
 				ExtraData:    map[string]any{"playerUid": "76561198000000001"},
 			},
+			{
+				CaptureFrame: 20,
+				Name:         "disconnected",
+				Message:      "Alice",
+				ExtraData:    map[string]any{"playerUid": "76561198000000001"},
+			},
 		},
 	}
 
 	var export Export
 	require.NoError(t, json.Unmarshal(streamBytes(t, data), &export))
-	require.Len(t, export.Events, 1)
+	require.Len(t, export.Entities, 2)
+	require.Equal(t, "76561198000000001", export.Entities[1].PlayerUID)
+	require.Len(t, export.Events, 2)
 	require.Equal(t, []any{float64(9), "connected", "Alice", "76561198000000001"}, export.Events[0])
+	require.Equal(t, []any{float64(19), "disconnected", "Alice", "76561198000000001"}, export.Events[1])
 }
 
 func TestStream_EquivalentToBuild_MinimalSoldier(t *testing.T) {
@@ -266,6 +282,15 @@ func TestStream_EquivalentToBuild_AllFeatures(t *testing.T) {
 					{CaptureFrame: 9, PlacedID: 11, EventType: "deleted", Position: core.Position3D{X: 320, Y: 420}},
 				},
 			},
+			// A trench: explicit marker icon, a direction, and no lifecycle events.
+			// Keeps the streaming exporter honest about the two additive fields.
+			12: {
+				PlacedObject: core.PlacedObject{
+					ID: 12, DisplayName: "Trench - Big - Novak - 09:15",
+					Position: core.Position3D{X: 340, Y: 440}, JoinFrame: 3, OwnerID: 1,
+					Weapon: "trench", Direction: 275.25, MarkerIcon: "trench_big",
+				},
+			},
 		},
 		GeneralEvents: []core.GeneralEvent{
 			{CaptureFrame: 1, Name: "mission", Message: "start"},
@@ -305,7 +330,7 @@ func TestStream_EquivalentToBuild_AllFeatures(t *testing.T) {
 			{
 				CaptureFrame: 5, FirerObjectID: soldier1, SimulationType: "shotRocket",
 				WeaponDisplay: "RPG", MagazineDisplay: "PG-7", MuzzleDisplay: "RPG",
-				MagazineIcon:  `\ca\weapons\rpg_icon.paa`,
+				MagazineIcon: `\ca\weapons\rpg_icon.paa`,
 				Trajectory: []core.TrajectoryPoint{
 					{Position: core.Position3D{X: 10, Y: 20}, FrameNum: 5},
 					{Position: core.Position3D{X: 70, Y: 40}, FrameNum: 6},
@@ -441,4 +466,26 @@ func TestStream_LargeMissionPeakMemory(t *testing.T) {
 	if delta > ceiling {
 		t.Fatalf("HeapInuse grew by %d bytes during Stream; expected < %d (streaming regression?)", delta, ceiling)
 	}
+}
+
+// The streaming writer is the path large recordings take, so it has to emit
+// transmissions identically to the in-memory build.
+func TestStream_EquivalentToBuild_RadioEvents(t *testing.T) {
+	soldierID := uint(7)
+	data := &MissionData{
+		Mission:  &core.Mission{MissionName: "Comms"},
+		World:    &core.World{WorldName: "Altis"},
+		Soldiers: make(map[uint16]*SoldierRecord),
+		Vehicles: make(map[uint16]*VehicleRecord),
+		Markers:  make(map[string]*MarkerRecord),
+		RadioEvents: []core.RadioEvent{
+			{CaptureFrame: 31, SoldierID: &soldierID, Radio: "AN/PRC-152", RadioType: "SW", StartEnd: "Start", Channel: 3, Frequency: 69.9, Code: "0451"},
+			{CaptureFrame: 36, SoldierID: &soldierID, Radio: "AN/PRC-152", RadioType: "SW", StartEnd: "Stop", Channel: 3, Frequency: 69.9, Code: "0451"},
+		},
+	}
+
+	want := buildThenEncode(t, data)
+	got := streamBytes(t, data)
+
+	require.JSONEq(t, string(want), string(got))
 }

@@ -15,6 +15,12 @@ type PlacedObject struct {
 	Side         string
 	Weapon       string
 	MagazineIcon string
+
+	// Additive, optional. Absent in recordings made before trench tracking:
+	// Direction stays 0 and MarkerIcon stays empty, which reproduces the old
+	// export byte-for-byte.
+	Direction  float32 // Object heading in degrees, used to rotate the exported marker
+	MarkerIcon string  // Explicit marker icon name; overrides the MagazineIcon-derived type
 }
 
 // PlacedObjectEvent represents a lifecycle event (detonation or deletion) for a placed object.
