@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/OCAP2/extension/v5/pkg/core"
 	"github.com/OCAP2/extension/v5/pkg/streaming"
@@ -12,13 +14,17 @@ import (
 
 // Config holds WebSocket backend configuration.
 type Config struct {
-	URL    string
-	Secret string
+	URL         string
+	Secret      string
+	SaveTimeout time.Duration
 }
 
 // Backend streams mission data over WebSocket to the OCAP2 web server.
 // It implements storage.Backend but not storage.Uploadable.
 type Backend struct {
+	missionMu    sync.Mutex
+	mu           sync.Mutex
+	restart      bool
 	conn         *connection
 	cfg          Config
 	nextMarkerID atomic.Uint64
@@ -34,12 +40,17 @@ func New(cfg Config) *Backend {
 
 // Init connects to the WebSocket server.
 func (b *Backend) Init() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	return b.conn.dial(b.cfg.URL, b.cfg.Secret)
 }
 
 // Close disconnects from the WebSocket server.
 func (b *Backend) Close() error {
-	return b.conn.close()
+	b.mu.Lock()
+	conn := b.conn
+	b.mu.Unlock()
+	return conn.close()
 }
 
 // marshalEnvelope builds a JSON-encoded Envelope from a message type and payload.
@@ -59,47 +70,86 @@ func marshalEnvelope(msgType string, payload any) ([]byte, error) {
 // sendEnvelope marshals the payload into an Envelope and pushes it
 // to the write loop (fire-and-forget).
 func (b *Backend) sendEnvelope(msgType string, payload any) error {
+	b.missionMu.Lock()
+	defer b.missionMu.Unlock()
 	data, err := marshalEnvelope(msgType, payload)
 	if err != nil {
 		return err
 	}
-	b.conn.send(data)
-	return nil
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.restart {
+		return fmt.Errorf("mission already ended")
+	}
+	return b.conn.send(data)
 }
 
 // sendEnvelopeAndWait marshals the payload and waits for a server ack.
 func (b *Backend) sendEnvelopeAndWait(msgType string, payload any) error {
+	b.missionMu.Lock()
+	defer b.missionMu.Unlock()
+	b.mu.Lock()
+	conn := b.conn
+	b.mu.Unlock()
 	data, err := marshalEnvelope(msgType, payload)
 	if err != nil {
 		return err
 	}
-	return b.conn.sendAndWait(data, msgType, ackTimeout)
+	return conn.sendAndWait(data, msgType, ackTimeout)
 }
 
 // StartMission sends mission and world data and waits for server ack.
 func (b *Backend) StartMission(mission *core.Mission, world *core.World) error {
-	data, err := marshalEnvelope(streaming.TypeStartMission, streaming.StartMissionPayload{Mission: mission, World: world})
+	b.missionMu.Lock()
+	defer b.missionMu.Unlock()
+	b.mu.Lock()
+	// A completed mission's server closes its socket. Dial a fresh connection
+	// before accepting the next mission instead of racing the reconnect loop.
+	if b.restart {
+		b.conn.close()
+		b.conn = newConnection(slog.Default())
+		if err := b.conn.dial(b.cfg.URL, b.cfg.Secret); err != nil {
+			b.mu.Unlock()
+			return err
+		}
+		b.restart = false
+	}
+	conn := b.conn
+	b.mu.Unlock()
+	base := uint8(1)
+	data, err := marshalEnvelope(streaming.TypeStartMission, streaming.StartMissionPayload{Mission: mission, World: world, FrameBase: &base})
 	if err != nil {
 		return err
 	}
 
-	// Cache for reconnect replay.
-	b.conn.mu.Lock()
-	b.conn.cachedStartMsg = data
-	b.conn.mu.Unlock()
-
-	return b.conn.sendAndWait(data, streaming.TypeStartMission, ackTimeout)
+	return conn.sendAndWait(data, streaming.TypeStartMission, ackTimeout)
 }
 
 // EndMission sends end_mission and waits for server ack.
 func (b *Backend) EndMission() error {
-	err := b.sendEnvelopeAndWait(streaming.TypeEndMission, nil)
+	b.missionMu.Lock()
+	defer b.missionMu.Unlock()
+	b.mu.Lock()
+	conn := b.conn
+	b.mu.Unlock()
+	data, err := marshalEnvelope(streaming.TypeEndMission, nil)
+	if err != nil {
+		return err
+	}
+	timeout := b.cfg.SaveTimeout
+	if timeout <= 0 {
+		timeout = 10 * time.Minute
+	}
+	err = conn.sendAndWait(data, streaming.TypeEndMission, timeout)
 
 	// Clear cached state regardless of error.
-	b.conn.mu.Lock()
-	b.conn.cachedStartMsg = nil
-	b.conn.mu.Unlock()
+	conn.mu.Lock()
+	conn.cachedStartMsg = nil
+	conn.mu.Unlock()
 	b.nextMarkerID.Store(0)
+	b.mu.Lock()
+	b.restart = true
+	b.mu.Unlock()
 
 	return err
 }

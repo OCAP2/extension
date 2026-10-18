@@ -98,6 +98,40 @@ Uses Debian Bullseye (glibc 2.31) for broad compatibility with Linux game server
 
 ## Configuration
 
+### WebSocket proxy recording
+
+To move mission processing and recording storage to the web service, use:
+
+```json
+{
+  "api": {
+    "serverUrl": "https://ocap.example/ocap",
+    "apiKey": "same-secret",
+    "uploadTimeout": "10m"
+  },
+  "storage": { "type": "websocket" }
+}
+```
+
+Enable `streaming.enabled` on the web service and match its `secret`. The proxy
+connects to the server URL plus `/api/v1/stream`, preserving any deployment prefix.
+It forwards the shared protocol without a local recording database, JSON export,
+or separate upload. `uploadTimeout` controls the final save acknowledgement wait.
+The existing `memory` default and file-upload path remain available.
+
+Queue saturation and a closed proxy are returned as recording errors. Reconnect
+replays mission metadata, not the entire entity history; received segments are
+saved as partial recordings by the web service. This is not lossless replay of
+messages sent during an outage.
+
+An integration test can exercise the real proxy against a disposable local web
+server with streaming enabled:
+
+```sh
+OCAP_TEST_WEB_URL=http://127.0.0.1:5000 OCAP_TEST_WEB_SECRET=same-secret \
+  go test ./internal/storage/websocket -run TestWebIngestionIntegration -count=1 -v
+```
+
 Copy `ocap_recorder.cfg.json.example` to `ocap_recorder.cfg.json` alongside the DLL and edit as needed.
 
 ## Supported Commands

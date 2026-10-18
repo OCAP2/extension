@@ -8,34 +8,34 @@ import (
 
 // Message type constants matching the streaming protocol.
 const (
-	TypeStartMission    = "start_mission"
-	TypeEndMission      = "end_mission"
-	TypeAddSoldier      = "add_soldier"
-	TypeAddVehicle      = "add_vehicle"
-	TypeAddMarker       = "add_marker"
-	TypeSoldierState    = "soldier_state"
-	TypeVehicleState    = "vehicle_state"
-	TypeMarkerState     = "marker_state"
-	TypeDeleteMarker    = "delete_marker"
-	TypeDeleteSoldier   = "delete_soldier"
-	TypeDeleteVehicle   = "delete_vehicle"
-	TypeFiredEvent      = "fired_event"
-	TypeProjectileEvent = "projectile_event"
+	TypeStartMission      = "start_mission"
+	TypeEndMission        = "end_mission"
+	TypeAddSoldier        = "add_soldier"
+	TypeAddVehicle        = "add_vehicle"
+	TypeAddMarker         = "add_marker"
+	TypeSoldierState      = "soldier_state"
+	TypeVehicleState      = "vehicle_state"
+	TypeMarkerState       = "marker_state"
+	TypeDeleteMarker      = "delete_marker"
+	TypeDeleteSoldier     = "delete_soldier"
+	TypeDeleteVehicle     = "delete_vehicle"
+	TypeFiredEvent        = "fired_event"
+	TypeProjectileEvent   = "projectile_event"
 	TypeGeneralEvent      = "general_event"
 	TypeSectorEvent       = "sector_event"
 	TypeEndMissionEvent   = "end_mission_event"
 	TypeHitEvent          = "hit_event"
-	TypeKillEvent       = "kill_event"
-	TypeChatEvent       = "chat_event"
-	TypeRadioEvent      = "radio_event"
-	TypeTelemetry       = "telemetry"
-	TypeTimeState       = "time_state"
-	TypeAce3Death       = "ace3_death"
-	TypeAce3Unconscious = "ace3_unconscious"
-	TypeAddPlaced          = "add_placed"
-	TypePlacedEvent        = "placed_event"
-	TypeMissionFocusStart  = "mission_focus_start"
-	TypeMissionFocusEnd    = "mission_focus_end"
+	TypeKillEvent         = "kill_event"
+	TypeChatEvent         = "chat_event"
+	TypeRadioEvent        = "radio_event"
+	TypeTelemetry         = "telemetry"
+	TypeTimeState         = "time_state"
+	TypeAce3Death         = "ace3_death"
+	TypeAce3Unconscious   = "ace3_unconscious"
+	TypeAddPlaced         = "add_placed"
+	TypePlacedEvent       = "placed_event"
+	TypeMissionFocusStart = "mission_focus_start"
+	TypeMissionFocusEnd   = "mission_focus_end"
 )
 
 // AllMessageTypes lists every streaming message type.
@@ -66,4 +66,6 @@ type AckMessage struct {
 type StartMissionPayload struct {
 	Mission *core.Mission `json:"mission"`
 	World   *core.World   `json:"world"`
+	// Omitted by older zero-based streaming clients. Current core.Frame is one-based.
+	FrameBase *uint8 `json:"frameBase,omitempty"`
 }

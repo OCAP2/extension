@@ -400,7 +400,7 @@ func TestSendChannelFullDropsMessage(t *testing.T) {
 	c := newConnection(slog.Default())
 
 	for i := range sendChSize {
-		c.sendCh <- []byte("{}")
+		c.sendCh <- outboundMessage{data: []byte("{}")}
 		_ = i
 	}
 
@@ -632,7 +632,7 @@ func TestWriteLoopReconnectsOnError(t *testing.T) {
 
 	// Start writeLoop and push a message — it should fail and trigger reconnect.
 	go c.writeLoop()
-	c.sendCh <- []byte(`{"type":"test"}`)
+	c.sendCh <- outboundMessage{data: []byte(`{"type":"test"}`)}
 
 	// Wait for reconnect to complete (1s backoff + margin).
 	time.Sleep(1800 * time.Millisecond)
@@ -686,7 +686,7 @@ func TestWriteLoopSkipsNilConn(t *testing.T) {
 	}()
 
 	// Push a message — writeLoop will see conn == nil and continue.
-	c.sendCh <- []byte(`{"type":"test"}`)
+	c.sendCh <- outboundMessage{data: []byte(`{"type":"test"}`)}
 
 	// Give it a moment to process, then shut down.
 	time.Sleep(50 * time.Millisecond)

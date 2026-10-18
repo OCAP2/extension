@@ -7,6 +7,7 @@ import (
 	"github.com/OCAP2/extension/v5/internal/config"
 	"github.com/OCAP2/extension/v5/internal/storage"
 	"github.com/OCAP2/extension/v5/internal/storage/memory"
+	"github.com/OCAP2/extension/v5/internal/storage/websocket"
 	"github.com/OCAP2/extension/v5/internal/worker"
 	"github.com/OCAP2/extension/v5/pkg/a3interface"
 )
@@ -61,7 +62,11 @@ func createStorageBackend(storageCfg config.StorageConfig) (storage.Backend, err
 		return nil, fmt.Errorf("sqlite storage type not fully supported yet")
 
 	case "websocket":
-		return nil, fmt.Errorf("websocket storage type not fully supported yet")
+		api := config.GetAPIConfig()
+		if strings.TrimSpace(api.APIKey) == "" {
+			return nil, fmt.Errorf("websocket storage requires api.apiKey")
+		}
+		return websocket.New(websocket.Config{URL: httpToWS(api.ServerURL) + "/api/v1/stream", Secret: api.APIKey, SaveTimeout: api.UploadTimeout}), nil
 
 	default:
 		return nil, fmt.Errorf("unknown storage type %q", storageCfg.Type)

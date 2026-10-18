@@ -23,12 +23,19 @@ const (
 	ackTimeout   = 10 * time.Second
 )
 
+type outboundMessage struct {
+	data    []byte
+	isStart bool
+}
+
 // connection manages a WebSocket connection with a single write goroutine.
 type connection struct {
-	mu     sync.Mutex
-	conn   *ws.Conn
-	sendCh chan []byte
-	ackCh  chan streaming.AckMessage
+	writerOnce   sync.Once
+	startMu      sync.Mutex // coordinates initial start registration with reconnect replay
+	mu           sync.Mutex
+	conn         *ws.Conn
+	sendCh       chan outboundMessage
+	ackCh        chan streaming.AckMessage
 	done         chan struct{} // closed on shutdown
 	closed       bool
 	reconnecting atomic.Bool
@@ -38,13 +45,14 @@ type connection struct {
 
 	// Cached start_mission message for reconnect replay.
 	cachedStartMsg []byte
+	startSentOn    *ws.Conn // socket that has already received this mission's start
 
 	logger *slog.Logger
 }
 
 func newConnection(logger *slog.Logger) *connection {
 	return &connection{
-		sendCh: make(chan []byte, sendChSize),
+		sendCh: make(chan outboundMessage, sendChSize),
 		ackCh:  make(chan streaming.AckMessage, ackChSize),
 		done:   make(chan struct{}),
 		logger: logger,
@@ -65,7 +73,7 @@ func (c *connection) dial(rawURL, secret string) error {
 	c.conn = conn
 	c.mu.Unlock()
 
-	go c.writeLoop()
+	c.writerOnce.Do(func() { go c.writeLoop() })
 	go c.readLoop()
 
 	return nil
@@ -89,33 +97,62 @@ func (c *connection) dialOnce() (*ws.Conn, error) {
 }
 
 // writeLoop drains sendCh and writes messages to the WebSocket.
-// Only one writeLoop runs at a time; it returns on error or shutdown.
+// One writer stays alive across reconnects and exits on shutdown.
 func (c *connection) writeLoop() {
 	for {
 		select {
 		case <-c.done:
 			return
-		case data := <-c.sendCh:
+		case message := <-c.sendCh:
 			c.mu.Lock()
 			conn := c.conn
 			c.mu.Unlock()
 
-			if conn == nil {
-				continue
+			for conn == nil {
+				select {
+				case <-c.done:
+					return
+				case <-time.After(50 * time.Millisecond):
+				}
+				c.mu.Lock()
+				conn = c.conn
+				c.mu.Unlock()
+			}
+
+			if message.isStart {
+				c.mu.Lock()
+				alreadySent := c.startSentOn == conn
+				if !alreadySent {
+					c.startSentOn = conn
+				}
+				c.mu.Unlock()
+				if alreadySent {
+					continue // reconnect delivered the cached copy on this socket
+				}
 			}
 
 			if err := conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
 				c.logger.Warn("WebSocket SetWriteDeadline error", "error", err)
-				go c.reconnect()
-				return
+				c.disconnected(conn)
+				continue
 			}
-			if err := conn.WriteMessage(ws.TextMessage, data); err != nil {
+			if err := conn.WriteMessage(ws.TextMessage, message.data); err != nil {
 				c.logger.Warn("WebSocket write error", "error", err)
-				go c.reconnect()
-				return
+				c.disconnected(conn)
+				continue
 			}
 		}
 	}
+}
+
+func (c *connection) disconnected(conn *ws.Conn) {
+	c.mu.Lock()
+	if c.conn == conn {
+		c.conn = nil
+	}
+	c.mu.Unlock()
+	conn.Close()
+	go c.reconnect()
 }
 
 // readLoop reads ack messages from the server and routes them to ackCh.
@@ -186,7 +223,11 @@ func (c *connection) reconnect() {
 		}
 
 		c.logger.Info("Reconnecting to WebSocket", "attempt", attempt, "backoff", backoff)
-		time.Sleep(backoff)
+		select {
+		case <-time.After(backoff):
+		case <-c.done:
+			return
+		}
 
 		conn, err := c.dialOnce()
 		if err != nil {
@@ -198,27 +239,13 @@ func (c *connection) reconnect() {
 			continue
 		}
 
-		c.mu.Lock()
-		c.conn = conn
-		cached := c.cachedStartMsg
-		c.mu.Unlock()
-
-		// Replay start_mission so the server knows which mission we're recording.
-		if cached != nil {
-			if err := conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
-				c.logger.Warn("Failed to set deadline for start_mission replay", "error", err)
-				_ = conn.Close()
-				continue
-			}
-			if err := conn.WriteMessage(ws.TextMessage, cached); err != nil {
-				c.logger.Warn("Failed to replay start_mission after reconnect", "error", err)
-				_ = conn.Close()
-				continue
-			}
+		if err := c.restore(conn); err != nil {
+			c.logger.Warn("Failed to restore WebSocket mission", "error", err)
+			_ = conn.Close()
+			continue
 		}
-
 		c.logger.Info("WebSocket reconnected", "attempt", attempt)
-		go c.writeLoop()
+		c.writerOnce.Do(func() { go c.writeLoop() })
 		go c.readLoop()
 		return
 	}
@@ -226,19 +253,75 @@ func (c *connection) reconnect() {
 	c.logger.Error("WebSocket reconnect failed after max attempts", "maxAttempts", maxReconnect)
 }
 
-// send pushes data to the write loop. Non-blocking; drops if channel full.
-func (c *connection) send(data []byte) {
+// restore replays a cached start before publishing the replacement socket.
+// Registration of an initial start cannot race between the cache read and
+// publication. The persistent writer skips its queued copy if we replayed it.
+func (c *connection) restore(conn *ws.Conn) error {
+	c.startMu.Lock()
+	defer c.startMu.Unlock()
+	c.mu.Lock()
+	cached := c.cachedStartMsg
+	c.mu.Unlock()
+	if cached != nil {
+		if err := conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
+			return err
+		}
+		if err := conn.WriteMessage(ws.TextMessage, cached); err != nil {
+			return err
+		}
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return fmt.Errorf("websocket connection closed")
+	}
+	if cached != nil {
+		c.startSentOn = conn
+	}
+	c.conn = conn
+	return nil
+}
+
+// send queues data without blocking, returning an error if full or closed.
+func (c *connection) send(data []byte) error {
+	return c.enqueue(outboundMessage{data: data})
+}
+
+func (c *connection) enqueue(message outboundMessage) error {
 	select {
-	case c.sendCh <- data:
+	case <-c.done:
+		return fmt.Errorf("websocket connection closed")
 	default:
-		c.logger.Warn("WebSocket send channel full, dropping message")
+	}
+	select {
+	case <-c.done:
+		return fmt.Errorf("websocket connection closed")
+	case c.sendCh <- message:
+		return nil
+	default:
+		return fmt.Errorf("websocket send queue full")
 	}
 }
 
 // sendAndWait sends data and blocks until the server acknowledges with a
 // matching ack message or the timeout expires.
 func (c *connection) sendAndWait(data []byte, ackFor string, timeout time.Duration) error {
-	c.send(data)
+	var err error
+	if ackFor == streaming.TypeStartMission {
+		c.startMu.Lock()
+		c.mu.Lock()
+		err = c.enqueue(outboundMessage{data: data, isStart: true})
+		if err == nil {
+			c.cachedStartMsg = data
+		}
+		c.mu.Unlock()
+		c.startMu.Unlock()
+	} else {
+		err = c.send(data)
+	}
+	if err != nil {
+		return err
+	}
 
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
