@@ -1,5 +1,5 @@
 # build Golang app for Linux
-FROM golang:1.24
+FROM golang:1.26
 
 WORKDIR /app
 
