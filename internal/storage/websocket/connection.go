@@ -25,10 +25,11 @@ const (
 
 // connection manages a WebSocket connection with a single write goroutine.
 type connection struct {
-	mu     sync.Mutex
-	conn   *ws.Conn
-	sendCh chan []byte
-	ackCh  chan streaming.AckMessage
+	writerOnce   sync.Once
+	mu           sync.Mutex
+	conn         *ws.Conn
+	sendCh       chan []byte
+	ackCh        chan streaming.AckMessage
 	done         chan struct{} // closed on shutdown
 	closed       bool
 	reconnecting atomic.Bool
@@ -65,7 +66,7 @@ func (c *connection) dial(rawURL, secret string) error {
 	c.conn = conn
 	c.mu.Unlock()
 
-	go c.writeLoop()
+	c.writerOnce.Do(func() { go c.writeLoop() })
 	go c.readLoop()
 
 	return nil
@@ -89,7 +90,7 @@ func (c *connection) dialOnce() (*ws.Conn, error) {
 }
 
 // writeLoop drains sendCh and writes messages to the WebSocket.
-// Only one writeLoop runs at a time; it returns on error or shutdown.
+// One writer stays alive across reconnects and exits on shutdown.
 func (c *connection) writeLoop() {
 	for {
 		select {
@@ -100,22 +101,39 @@ func (c *connection) writeLoop() {
 			conn := c.conn
 			c.mu.Unlock()
 
-			if conn == nil {
-				continue
+			for conn == nil {
+				select {
+				case <-c.done:
+					return
+				case <-time.After(50 * time.Millisecond):
+				}
+				c.mu.Lock()
+				conn = c.conn
+				c.mu.Unlock()
 			}
 
 			if err := conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
 				c.logger.Warn("WebSocket SetWriteDeadline error", "error", err)
-				go c.reconnect()
-				return
+				c.disconnected(conn)
+				continue
 			}
 			if err := conn.WriteMessage(ws.TextMessage, data); err != nil {
 				c.logger.Warn("WebSocket write error", "error", err)
-				go c.reconnect()
-				return
+				c.disconnected(conn)
+				continue
 			}
 		}
 	}
+}
+
+func (c *connection) disconnected(conn *ws.Conn) {
+	c.mu.Lock()
+	if c.conn == conn {
+		c.conn = nil
+	}
+	c.mu.Unlock()
+	conn.Close()
+	go c.reconnect()
 }
 
 // readLoop reads ack messages from the server and routes them to ackCh.
@@ -186,7 +204,11 @@ func (c *connection) reconnect() {
 		}
 
 		c.logger.Info("Reconnecting to WebSocket", "attempt", attempt, "backoff", backoff)
-		time.Sleep(backoff)
+		select {
+		case <-time.After(backoff):
+		case <-c.done:
+			return
+		}
 
 		conn, err := c.dialOnce()
 		if err != nil {
@@ -199,7 +221,6 @@ func (c *connection) reconnect() {
 		}
 
 		c.mu.Lock()
-		c.conn = conn
 		cached := c.cachedStartMsg
 		c.mu.Unlock()
 
@@ -218,7 +239,17 @@ func (c *connection) reconnect() {
 		}
 
 		c.logger.Info("WebSocket reconnected", "attempt", attempt)
-		go c.writeLoop()
+		// Publish only after start_mission was replayed. Keep exactly one writer
+		// for the connection's lifetime, so reconnect cannot create competing writers.
+		c.mu.Lock()
+		if c.closed {
+			c.mu.Unlock()
+			conn.Close()
+			return
+		}
+		c.conn = conn
+		c.mu.Unlock()
+		c.writerOnce.Do(func() { go c.writeLoop() })
 		go c.readLoop()
 		return
 	}
@@ -226,19 +257,29 @@ func (c *connection) reconnect() {
 	c.logger.Error("WebSocket reconnect failed after max attempts", "maxAttempts", maxReconnect)
 }
 
-// send pushes data to the write loop. Non-blocking; drops if channel full.
-func (c *connection) send(data []byte) {
+// send queues data without blocking, returning an error if full or closed.
+func (c *connection) send(data []byte) error {
 	select {
-	case c.sendCh <- data:
+	case <-c.done:
+		return fmt.Errorf("websocket connection closed")
 	default:
-		c.logger.Warn("WebSocket send channel full, dropping message")
+	}
+	select {
+	case <-c.done:
+		return fmt.Errorf("websocket connection closed")
+	case c.sendCh <- data:
+		return nil
+	default:
+		return fmt.Errorf("websocket send queue full")
 	}
 }
 
 // sendAndWait sends data and blocks until the server acknowledges with a
 // matching ack message or the timeout expires.
 func (c *connection) sendAndWait(data []byte, ackFor string, timeout time.Duration) error {
-	c.send(data)
+	if err := c.send(data); err != nil {
+		return err
+	}
 
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
