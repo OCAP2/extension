@@ -120,12 +120,51 @@ func TestStartAndEndMission(t *testing.T) {
 	world := &core.World{WorldName: "Altis"}
 	require.NoError(t, b.StartMission(mission, world))
 
-	require.NoError(t, b.EndMission())
+	require.NoError(t, b.EndMission(""))
 
 	msgs := ml.all()
 	require.GreaterOrEqual(t, len(msgs), 2)
 	assert.Equal(t, streaming.TypeStartMission, msgs[0].Type)
 	assert.Equal(t, streaming.TypeEndMission, msgs[len(msgs)-1].Type)
+}
+
+func TestEndMissionTagPayload(t *testing.T) {
+	srv, ml := testServer(t)
+	defer srv.Close()
+
+	b := New(Config{URL: wsURL(srv), Secret: "test", SaveTimeout: 5 * time.Second})
+	require.NoError(t, b.Init())
+	defer b.Close()
+
+	mission := &core.Mission{MissionName: "TaggedMission", Tag: "TvT"}
+	world := &core.World{WorldName: "Altis"}
+
+	lastEnd := func() *streaming.Envelope {
+		var env *streaming.Envelope
+		for _, m := range ml.all() {
+			if m.Type == streaming.TypeEndMission {
+				c := m
+				env = &c
+			}
+		}
+		return env
+	}
+
+	// Empty tag → null payload (byte-identical to the previous wire format).
+	require.NoError(t, b.StartMission(mission, world))
+	require.NoError(t, b.EndMission(""))
+	env := lastEnd()
+	require.NotNil(t, env)
+	assert.Equal(t, "null", string(env.Payload))
+
+	// Non-empty tag → {"tag":"..."} payload.
+	require.NoError(t, b.StartMission(mission, world))
+	require.NoError(t, b.EndMission("SnatchAndGrab"))
+	env = lastEnd()
+	require.NotNil(t, env)
+	var payload streaming.EndMissionPayload
+	require.NoError(t, json.Unmarshal(env.Payload, &payload))
+	assert.Equal(t, "SnatchAndGrab", payload.Tag)
 }
 
 func TestAllMessageTypes(t *testing.T) {
@@ -171,7 +210,7 @@ func TestAllMessageTypes(t *testing.T) {
 	require.NoError(t, b.SetFocusStart(core.Frame(100)))
 	require.NoError(t, b.SetFocusEnd(core.Frame(200)))
 
-	require.NoError(t, b.EndMission())
+	require.NoError(t, b.EndMission(""))
 
 	// Give a moment for all messages to arrive at server.
 	time.Sleep(50 * time.Millisecond)
@@ -240,7 +279,7 @@ func TestMarkerIDResetsAfterEndMission(t *testing.T) {
 	id1, err := b.AddMarker(m1)
 	require.NoError(t, err)
 	assert.Equal(t, uint(1), id1)
-	require.NoError(t, b.EndMission())
+	require.NoError(t, b.EndMission(""))
 
 	// After EndMission, marker IDs should reset.
 	require.NoError(t, b.StartMission(&core.Mission{}, &core.World{}))
@@ -248,7 +287,7 @@ func TestMarkerIDResetsAfterEndMission(t *testing.T) {
 	id2, err := b.AddMarker(m2)
 	require.NoError(t, err)
 	assert.Equal(t, uint(1), id2)
-	require.NoError(t, b.EndMission())
+	require.NoError(t, b.EndMission(""))
 }
 
 // --- Dial / close edge cases ---
@@ -384,7 +423,7 @@ func TestStartMissionMarshalError(t *testing.T) {
 	b.conn.mu.Unlock()
 	assert.NotNil(t, cached, "StartMission should cache the serialized message")
 
-	require.NoError(t, b.EndMission())
+	require.NoError(t, b.EndMission(""))
 
 	b.conn.mu.Lock()
 	cached = b.conn.cachedStartMsg

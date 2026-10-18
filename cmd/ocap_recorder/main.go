@@ -406,7 +406,14 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 	d.Register(":MISSION:START:", handleNewMission, dispatcher.Buffered(1), dispatcher.Blocking(), dispatcher.Gated(storageReady))
 
 	d.Register(":MISSION:SAVE:", func(e dispatcher.Event) (any, error) {
-		Logger.Info("Received :MISSION:SAVE: command, queuing async save")
-		return triggerMissionSave(saveState, storageBackend, apiClient)
+		// Optional save-time tag override (addon exportData _tag). Sent as a
+		// single SQF-escaped string arg; empty/absent means keep the
+		// mission-start tag.
+		tag := ""
+		if len(e.Args) > 0 {
+			tag = util.FixEscapeQuotes(util.TrimQuotes(e.Args[0]))
+		}
+		Logger.Info("Received :MISSION:SAVE: command, queuing async save", "tag", tag)
+		return triggerMissionSave(saveState, storageBackend, apiClient, tag)
 	})
 }

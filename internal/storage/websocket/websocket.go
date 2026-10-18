@@ -126,13 +126,21 @@ func (b *Backend) StartMission(mission *core.Mission, world *core.World) error {
 }
 
 // EndMission sends end_mission and waits for server ack.
-func (b *Backend) EndMission() error {
+// tag is the save-time override from :MISSION:SAVE:; empty keeps the
+// mission-start tag on the web side and sends a null payload for byte
+// compatibility with the previous wire format.
+func (b *Backend) EndMission(tag string) error {
 	b.missionMu.Lock()
 	defer b.missionMu.Unlock()
 	b.mu.Lock()
 	conn := b.conn
 	b.mu.Unlock()
-	data, err := marshalEnvelope(streaming.TypeEndMission, nil)
+
+	var payload any
+	if tag != "" {
+		payload = streaming.EndMissionPayload{Tag: tag}
+	}
+	data, err := marshalEnvelope(streaming.TypeEndMission, payload)
 	if err != nil {
 		return err
 	}

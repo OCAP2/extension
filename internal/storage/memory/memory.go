@@ -114,6 +114,10 @@ func (b *Backend) StartMission(mission *core.Mission, world *core.World) error {
 
 // EndMission finalizes and exports the mission data.
 //
+// tag is the optional save-time override from :MISSION:SAVE:; when non-empty
+// it replaces the mission-start tag in both the upload metadata and the
+// exported v1 JSON. Empty keeps the start_mission tag.
+//
 // Recovers from panics in the builder or encoder and converts them
 // into an error return so the calling save worker can report them
 // via :MISSION:SAVED: instead of crashing the host process.
@@ -122,7 +126,7 @@ func (b *Backend) StartMission(mission *core.Mission, world *core.World) error {
 // the backend state is always reset so the next mission starts fresh
 // and poisoned data from a failed export cannot cause a repeat panic
 // on a subsequent call.
-func (b *Backend) EndMission() (retErr error) {
+func (b *Backend) EndMission(tag string) (retErr error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -130,6 +134,12 @@ func (b *Backend) EndMission() (retErr error) {
 	// when the caller hasn't started anything yet.
 	if b.mission == nil {
 		return fmt.Errorf("no mission to end: mission was never started")
+	}
+
+	// Apply the save-time tag override before metadata/export are computed
+	// so both the upload metadata and the v1 export pick it up.
+	if tag != "" {
+		b.mission.Tag = tag
 	}
 
 	// Single defer handles both panic recovery and state cleanup. The

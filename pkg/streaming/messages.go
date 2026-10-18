@@ -69,3 +69,10 @@ type StartMissionPayload struct {
 	// Omitted by older zero-based streaming clients. Current core.Frame is one-based.
 	FrameBase *uint8 `json:"frameBase,omitempty"`
 }
+
+// EndMissionPayload carries finalization hints for end_mission.
+// Tag overrides the mission-start tag when non-empty. Older senders send no
+// payload at all (null); the receiver falls back to the start_mission tag.
+type EndMissionPayload struct {
+	Tag string `json:"tag,omitempty"`
+}

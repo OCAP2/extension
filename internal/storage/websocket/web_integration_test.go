@@ -52,12 +52,12 @@ func TestWebIngestionIntegration(t *testing.T) {
 	require.NoError(t, b.RecordEndMissionEvent(&core.EndMissionEvent{CaptureFrame: 606, Side: "WEST", Message: "Complete"}))
 	require.NoError(t, b.DeleteSoldier(1, 606))
 	require.NoError(t, b.DeleteVehicle(10, 606))
-	require.NoError(t, b.EndMission())
+	require.NoError(t, b.EndMission(""))
 	// A persistent extension instance must support the next mission immediately,
 	// even while the previous server-side WebSocket is being closed.
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: name + " second", CaptureDelay: 1}, &core.World{WorldName: "altis"}))
 	require.NoError(t, b.RecordTelemetryEvent(&core.TelemetryEvent{CaptureFrame: 1, FpsAverage: 50}))
-	require.NoError(t, b.EndMission())
+	require.NoError(t, b.EndMission(""))
 	resp, err := http.Get(base + "/api/v1/operations")
 	require.NoError(t, err)
 	defer resp.Body.Close()

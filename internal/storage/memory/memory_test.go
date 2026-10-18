@@ -703,7 +703,7 @@ func TestGetExportedFilePath_AfterExport(t *testing.T) {
 	world := &core.World{WorldName: "Altis"}
 
 	require.NoError(t, b.StartMission(mission, world))
-	require.NoError(t, b.EndMission())
+	require.NoError(t, b.EndMission(""))
 
 	path := b.GetExportedFilePath()
 	require.NotEmpty(t, path)
@@ -725,7 +725,7 @@ func TestGetExportedFilePath_UncompressedExport(t *testing.T) {
 	world := &core.World{WorldName: "Altis"}
 
 	require.NoError(t, b.StartMission(mission, world))
-	require.NoError(t, b.EndMission())
+	require.NoError(t, b.EndMission(""))
 
 	path := b.GetExportedFilePath()
 	require.NotEmpty(t, path)
@@ -876,7 +876,7 @@ func TestStartMissionResetsExportPath(t *testing.T) {
 	world := &core.World{WorldName: "Altis"}
 
 	require.NoError(t, b.StartMission(mission, world))
-	require.NoError(t, b.EndMission())
+	require.NoError(t, b.EndMission(""))
 
 	firstPath := b.GetExportedFilePath()
 	require.NotEmpty(t, firstPath)
@@ -891,7 +891,7 @@ func TestEndMissionWithoutStartMission(t *testing.T) {
 	b := New(config.MemoryConfig{}, nil)
 
 	// EndMission without StartMission should return an error, not panic
-	err := b.EndMission()
+	err := b.EndMission("")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "no mission to end")
 }
@@ -1194,7 +1194,7 @@ func TestEndMission_RecoversFromBuildPanic(t *testing.T) {
 	b.soldiers[1] = nil // nil record — builder will panic on access
 	b.mu.Unlock()
 
-	err := b.EndMission()
+	err := b.EndMission("")
 	require.Error(t, err, "expected EndMission to return an error, not panic")
 	assert.Contains(t, err.Error(), "panic")
 

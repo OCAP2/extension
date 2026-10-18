@@ -86,7 +86,7 @@ func TestIntegrationFullExport(t *testing.T) {
 	require.NoError(t, b.RecordTimeState(&core.TimeState{
 		CaptureFrame: 1, SystemTimeUTC: "2024-01-15T10:30:00.000", MissionDate: "2035-06-24T06:00:00", TimeMultiplier: 1.0, MissionTime: 0,
 	}))
-	require.NoError(t, b.EndMission())
+	require.NoError(t, b.EndMission(""))
 
 	// Find and read the exported JSON file
 	pattern := filepath.Join(tempDir, "Test_Mission_*.json")
@@ -198,6 +198,40 @@ func TestIntegrationFullExport(t *testing.T) {
 	assert.Len(t, positions, 2, "initial position + 1 state change")
 }
 
+func TestEndMission_TagOverrideFlowsToExportAndUploadMetadata(t *testing.T) {
+	outputDir := t.TempDir()
+	b := New(config.MemoryConfig{OutputDir: outputDir, CompressOutput: false}, nil)
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Tagged", Tag: "TvT", StartTime: time.Now()}, &core.World{WorldName: "Altis"}))
+
+	// Save-time override replaces the mission-start tag.
+	require.NoError(t, b.EndMission("SnatchAndGrab"))
+
+	meta := b.GetExportMetadata()
+	assert.Equal(t, "SnatchAndGrab", meta.Tag)
+
+	// The v1 JSON export carries the override in its tags field.
+	matches, err := filepath.Glob(filepath.Join(outputDir, "*.json"))
+	require.NoError(t, err)
+	require.NotEmpty(t, matches, "expected an exported JSON file")
+	data, err := os.ReadFile(matches[0])
+	require.NoError(t, err)
+
+	var export v1.Export
+	require.NoError(t, json.Unmarshal(data, &export))
+	assert.Equal(t, "SnatchAndGrab", export.Tags)
+}
+
+// TestEndMission_EmptyTagKeepsMissionStartTag verifies that an empty save-time
+// tag leaves the mission-start tag untouched.
+func TestEndMission_EmptyTagKeepsMissionStartTag(t *testing.T) {
+	b := New(config.MemoryConfig{OutputDir: t.TempDir(), CompressOutput: false}, nil)
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Tagged", Tag: "TvT", StartTime: time.Now()}, &core.World{WorldName: "Altis"}))
+
+	require.NoError(t, b.EndMission(""))
+
+	assert.Equal(t, "TvT", b.GetExportMetadata().Tag)
+}
+
 func TestExportJSON(t *testing.T) {
 	tempDir := t.TempDir()
 
@@ -210,7 +244,7 @@ func TestExportJSON(t *testing.T) {
 		MissionName: "Export Test", Author: "Author", StartTime: time.Date(2024, 3, 15, 14, 30, 0, 0, time.UTC),
 	}, &core.World{WorldName: "Tanoa"}))
 	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 1, UnitName: "Test", JoinFrame: 1}))
-	require.NoError(t, b.EndMission())
+	require.NoError(t, b.EndMission(""))
 
 	matches, err := filepath.Glob(filepath.Join(tempDir, "Export_Test_*.json"))
 	require.NoError(t, err)
@@ -233,7 +267,7 @@ func TestExportGzipJSON(t *testing.T) {
 		MissionName: "Gzip Test", Author: "Author", StartTime: time.Date(2024, 3, 15, 14, 30, 0, 0, time.UTC),
 	}, &core.World{WorldName: "Livonia"}))
 	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 1, UnitName: "Test", JoinFrame: 1}))
-	require.NoError(t, b.EndMission())
+	require.NoError(t, b.EndMission(""))
 
 	matches, err := filepath.Glob(filepath.Join(tempDir, "Gzip_Test_*.json.gz"))
 	require.NoError(t, err)
@@ -270,7 +304,7 @@ func TestFilenameGeneration(t *testing.T) {
 		b := New(config.MemoryConfig{OutputDir: tempDir, CompressOutput: tt.compress}, nil)
 
 		require.NoError(t, b.StartMission(&core.Mission{MissionName: tt.missionName, StartTime: time.Now()}, &core.World{WorldName: "Test"}))
-		require.NoError(t, b.EndMission())
+		require.NoError(t, b.EndMission(""))
 
 		matches, err := filepath.Glob(filepath.Join(tempDir, "*"+tt.expectedSuffix))
 		require.NoError(t, err)
@@ -298,7 +332,7 @@ func TestExportCreatesOutputDir(t *testing.T) {
 	world := &core.World{WorldName: "Test"}
 
 	require.NoError(t, b.StartMission(mission, world))
-	require.NoError(t, b.EndMission())
+	require.NoError(t, b.EndMission(""))
 
 	_, err := os.Stat(nonExistentDir)
 	require.NoError(t, err, "output directory should be created")
@@ -442,7 +476,7 @@ func TestEmptyExport(t *testing.T) {
 	b := New(config.MemoryConfig{OutputDir: tempDir, CompressOutput: false}, nil)
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Empty Mission", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
-	require.NoError(t, b.EndMission())
+	require.NoError(t, b.EndMission(""))
 
 	matches, err := filepath.Glob(filepath.Join(tempDir, "*.json"))
 	require.NoError(t, err)
@@ -764,7 +798,7 @@ func TestJSONFormatValidation(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, b.EndMission())
+	require.NoError(t, b.EndMission(""))
 
 	// Read and parse the JSON file
 	matches, err := filepath.Glob(filepath.Join(tempDir, "*.json"))
@@ -1103,7 +1137,7 @@ func TestTimesExportJSON(t *testing.T) {
 		MissionTime:    0,
 	}))
 
-	require.NoError(t, b.EndMission())
+	require.NoError(t, b.EndMission(""))
 
 	// Read and parse the JSON file
 	matches, err := filepath.Glob(filepath.Join(tempDir, "*.json"))
@@ -1219,7 +1253,7 @@ func TestVehicleCrewExportIntegration(t *testing.T) {
 		Position: core.Position3D{X: 1020, Y: 2020},
 	}))
 
-	require.NoError(t, b.EndMission())
+	require.NoError(t, b.EndMission(""))
 
 	// Read exported JSON and parse
 	matches, err := filepath.Glob(filepath.Join(tempDir, "*.json"))
@@ -1377,7 +1411,7 @@ func TestExportJSON_MkdirAllError(t *testing.T) {
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
 
-	err := b.EndMission()
+	err := b.EndMission("")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "create output directory")
 }
@@ -1424,7 +1458,7 @@ func TestEndMission_ExportError(t *testing.T) {
 
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Test", StartTime: time.Now()}, &core.World{WorldName: "Test"}))
 
-	err := b.EndMission()
+	err := b.EndMission("")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "create output directory")
 }

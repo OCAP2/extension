@@ -478,7 +478,7 @@ func TestEndMission_IsNoOp(t *testing.T) {
 	b.Init() //nolint:errcheck // Init fails (no postgres) but queues are created for testing
 	defer func() { require.NoError(t, b.Close()) }()
 
-	err := b.EndMission()
+	err := b.EndMission("")
 	require.NoError(t, err)
 }
 
