@@ -11,7 +11,10 @@ type Backend interface {
 
 	// Mission management
 	StartMission(mission *core.Mission, world *core.World) error
-	EndMission() error
+	// EndMission finalizes the current mission. tag is the optional save-time
+	// tag override supplied with :MISSION:SAVE: (from the addon's exportData);
+	// empty means "keep the mission-start tag".
+	EndMission(tag string) error
 
 	// Entity registration (assigns ID to the passed pointer)
 	AddSoldier(s *core.Soldier) error

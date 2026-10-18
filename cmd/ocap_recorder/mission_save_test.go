@@ -21,6 +21,7 @@ import (
 type fakeBackend struct {
 	endErr      error
 	endDuration time.Duration
+	endTag      string
 	path        string
 	meta        core.UploadMetadata
 }
@@ -30,7 +31,8 @@ func (f *fakeBackend) Close() error { return nil }
 func (f *fakeBackend) StartMission(*core.Mission, *core.World) error {
 	panic("unexpected StartMission")
 }
-func (f *fakeBackend) EndMission() error {
+func (f *fakeBackend) EndMission(tag string) error {
+	f.endTag = tag
 	if f.endDuration > 0 {
 		time.Sleep(f.endDuration)
 	}
@@ -132,7 +134,7 @@ func TestRunMissionSave_SuccessWithoutUpload(t *testing.T) {
 	backend := &fakeBackend{path: "recordings/test.json.gz"}
 
 	// apiClient = nil → no upload
-	result, err := triggerMissionSave(state, backend, nil)
+	result, err := triggerMissionSave(state, backend, nil, "")
 	require.NoError(t, err)
 	assert.Equal(t, "queued", result)
 
@@ -143,6 +145,38 @@ func TestRunMissionSave_SuccessWithoutUpload(t *testing.T) {
 	assert.False(t, state.inFlight.Load())
 }
 
+func TestRunMissionSave_ForwardsTagOverride(t *testing.T) {
+	rec := &callbackRecorder{}
+	a3interface.SetCallbackSinkForTest(rec.sink)
+	t.Cleanup(func() { a3interface.SetCallbackSinkForTest(nil) })
+
+	state := newTestSaveState()
+	backend := &fakeBackend{path: "recordings/tagged.json.gz"}
+
+	result, err := triggerMissionSave(state, backend, nil, "SnatchAndGrab")
+	require.NoError(t, err)
+	assert.Equal(t, "queued", result)
+
+	rec.wait(t, ":MISSION:SAVED:")
+	assert.Equal(t, "SnatchAndGrab", backend.endTag)
+}
+
+func TestRunMissionSave_EmptyTagKeepsMissionStart(t *testing.T) {
+	rec := &callbackRecorder{}
+	a3interface.SetCallbackSinkForTest(rec.sink)
+	t.Cleanup(func() { a3interface.SetCallbackSinkForTest(nil) })
+
+	state := newTestSaveState()
+	backend := &fakeBackend{path: "recordings/untagged.json.gz"}
+
+	result, err := triggerMissionSave(state, backend, nil, "")
+	require.NoError(t, err)
+	assert.Equal(t, "queued", result)
+
+	rec.wait(t, ":MISSION:SAVED:")
+	assert.Equal(t, "", backend.endTag)
+}
+
 func TestRunMissionSave_EndMissionError(t *testing.T) {
 	rec := &callbackRecorder{}
 	a3interface.SetCallbackSinkForTest(rec.sink)
@@ -151,7 +185,7 @@ func TestRunMissionSave_EndMissionError(t *testing.T) {
 	state := newTestSaveState()
 	backend := &fakeBackend{endErr: errors.New("disk full")}
 
-	result, err := triggerMissionSave(state, backend, nil)
+	result, err := triggerMissionSave(state, backend, nil, "")
 	require.NoError(t, err)
 	assert.Equal(t, "queued", result)
 
@@ -170,11 +204,11 @@ func TestRunMissionSave_RejectsConcurrent(t *testing.T) {
 	// Make the first save slow so the second call lands while it's still running.
 	backend := &fakeBackend{endDuration: 200 * time.Millisecond, path: "r.json.gz"}
 
-	result1, err1 := triggerMissionSave(state, backend, nil)
+	result1, err1 := triggerMissionSave(state, backend, nil, "")
 	require.NoError(t, err1)
 	assert.Equal(t, "queued", result1)
 
-	_, err2 := triggerMissionSave(state, backend, nil)
+	_, err2 := triggerMissionSave(state, backend, nil, "")
 	require.Error(t, err2)
 	assert.Contains(t, err2.Error(), "save already in progress")
 
@@ -190,7 +224,7 @@ func TestRunMissionSave_PanicIsRecovered(t *testing.T) {
 	// A backend whose EndMission panics.
 	panicBackend := &panickingBackend{fakeBackend: fakeBackend{path: "r.json.gz"}}
 
-	result, err := triggerMissionSave(state, panicBackend, nil)
+	result, err := triggerMissionSave(state, panicBackend, nil, "")
 	require.NoError(t, err)
 	assert.Equal(t, "queued", result)
 
@@ -203,6 +237,6 @@ func TestRunMissionSave_PanicIsRecovered(t *testing.T) {
 
 type panickingBackend struct{ fakeBackend }
 
-func (p *panickingBackend) EndMission() error {
+func (p *panickingBackend) EndMission(tag string) error {
 	panic(fmt.Errorf("boom"))
 }

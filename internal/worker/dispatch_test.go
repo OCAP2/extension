@@ -106,7 +106,7 @@ func (b *mockBackend) StartMission(mission *core.Mission, world *core.World) err
 	return nil
 }
 
-func (b *mockBackend) EndMission() error {
+func (b *mockBackend) EndMission(tag string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.missionEnded = true

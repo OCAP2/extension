@@ -200,7 +200,7 @@ func TestStartDuringReconnectIsDeliveredOnce(t *testing.T) {
 func TestCloseCancelsPendingMissionSave(t *testing.T) {
 	b := New(Config{SaveTimeout: time.Minute})
 	result := make(chan error, 1)
-	go func() { result <- b.EndMission() }()
+	go func() { result <- b.EndMission("") }()
 	require.Eventually(t, func() bool { return len(b.conn.sendCh) > 0 }, time.Second, time.Millisecond)
 	require.NoError(t, b.Close())
 	select {

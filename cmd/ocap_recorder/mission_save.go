@@ -25,13 +25,16 @@ var saveState = &missionSaveState{}
 // extracted so it can be exercised in tests with a fake backend and a fake
 // api client.
 //
+// tag is the optional save-time tag override from the addon; it is forwarded
+// to EndMission so streaming and export backends can apply it.
+//
 // Contract:
 //   - Returns "queued" + nil error when a goroutine was spawned.
 //   - Returns a non-nil error if another save is already in progress.
 //   - Never blocks on the save itself. The save runs asynchronously and
 //     reports completion via a3interface.WriteArmaCallback with function
 //     name ":MISSION:SAVED:".
-func triggerMissionSave(state *missionSaveState, backend storage.Backend, client *api.Client) (any, error) {
+func triggerMissionSave(state *missionSaveState, backend storage.Backend, client *api.Client, tag string) (any, error) {
 	if backend == nil {
 		return nil, fmt.Errorf("no storage backend configured")
 	}
@@ -39,13 +42,13 @@ func triggerMissionSave(state *missionSaveState, backend storage.Backend, client
 		return nil, fmt.Errorf("save already in progress")
 	}
 
-	go runMissionSaveWorker(state, backend, client)
+	go runMissionSaveWorker(state, backend, client, tag)
 	return "queued", nil
 }
 
 // runMissionSaveWorker performs EndMission + optional upload, recovers from
 // panics, flushes OTel, and dispatches the :MISSION:SAVED: callback.
-func runMissionSaveWorker(state *missionSaveState, backend storage.Backend, client *api.Client) {
+func runMissionSaveWorker(state *missionSaveState, backend storage.Backend, client *api.Client, tag string) {
 	// Always clear the in-flight flag before returning.
 	defer state.inFlight.Store(false)
 
@@ -71,7 +74,7 @@ func runMissionSaveWorker(state *missionSaveState, backend storage.Backend, clie
 			}
 		}()
 
-		if err := backend.EndMission(); err != nil {
+		if err := backend.EndMission(tag); err != nil {
 			endErr = err
 			if Logger != nil {
 				Logger.Error("Failed to end mission in storage backend", "error", err)

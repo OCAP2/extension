@@ -247,7 +247,8 @@ func (b *Backend) SetMissionID(id uint) {
 }
 
 // EndMission is a no-op — mission lifecycle is managed by main.go.
-func (b *Backend) EndMission() error {
+// tag (save-time override) is ignored by the database backend.
+func (b *Backend) EndMission(tag string) error {
 	return nil
 }
 
