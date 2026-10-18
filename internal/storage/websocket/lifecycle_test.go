@@ -95,6 +95,108 @@ func TestQueueSaturationReturnsError(t *testing.T) {
 	require.Error(t, c.send([]byte("overflow")))
 }
 
+func TestStartDuringReconnectIsDeliveredOnce(t *testing.T) {
+	for _, phase := range []string{"backoff", "dial"} {
+		t.Run(phase, func(t *testing.T) {
+			received := make(chan streaming.Envelope, 16)
+			initial := make(chan *ws.Conn, 1)
+			replacementDial := make(chan struct{})
+			releaseReplacement := make(chan struct{})
+			var generation atomic.Int32
+			upgrader := ws.Upgrader{}
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				g := generation.Add(1)
+				if g == 2 {
+					close(replacementDial)
+					<-releaseReplacement
+				}
+				conn, err := upgrader.Upgrade(w, r, nil)
+				if err != nil {
+					return
+				}
+				defer conn.Close()
+				if g == 1 {
+					initial <- conn
+				}
+				for {
+					var env streaming.Envelope
+					if conn.ReadJSON(&env) != nil {
+						return
+					}
+					received <- env
+					if env.Type == streaming.TypeStartMission {
+						_ = conn.WriteJSON(streaming.AckMessage{Type: "ack", For: env.Type})
+					}
+				}
+			}))
+			defer srv.Close()
+			b := New(Config{URL: "ws" + strings.TrimPrefix(srv.URL, "http")})
+			require.NoError(t, b.Init())
+			defer b.Close()
+			// Always release a blocked upgrade, including when an assertion fails.
+			defer func() {
+				select {
+				case <-releaseReplacement:
+				default:
+					close(releaseReplacement)
+				}
+			}()
+			require.NoError(t, (<-initial).Close())
+			require.Eventually(t, func() bool {
+				b.conn.mu.Lock()
+				defer b.conn.mu.Unlock()
+				return b.conn.conn == nil
+			}, time.Second, time.Millisecond)
+			if phase == "dial" {
+				select {
+				case <-replacementDial:
+				case <-time.After(5 * time.Second):
+					t.Fatal("replacement dial did not begin")
+				}
+			}
+			started := make(chan error, 1)
+			go func() {
+				started <- b.StartMission(&core.Mission{MissionName: "Reconnect", CaptureDelay: 1}, &core.World{WorldName: "altis"})
+			}()
+			require.Eventually(t, func() bool {
+				b.conn.mu.Lock()
+				defer b.conn.mu.Unlock()
+				return b.conn.cachedStartMsg != nil
+			}, time.Second, time.Millisecond)
+			close(releaseReplacement)
+			select {
+			case err := <-started:
+				require.NoError(t, err)
+			case <-time.After(5 * time.Second):
+				t.Fatal("StartMission did not receive its acknowledgement")
+			}
+			// A following state is a barrier: the queued initial start, if any,
+			// must have been processed before this state reaches the server.
+			require.NoError(t, b.RecordSoldierState(&core.SoldierState{SoldierID: 1, CaptureFrame: 1}))
+			starts := 0
+			for {
+				select {
+				case env := <-received:
+					switch env.Type {
+					case streaming.TypeStartMission:
+						starts++
+						var payload streaming.StartMissionPayload
+						require.NoError(t, json.Unmarshal(env.Payload, &payload))
+						require.Equal(t, "Reconnect", payload.Mission.MissionName)
+					case streaming.TypeSoldierState:
+						require.Equal(t, 1, starts, "replacement connection must receive exactly one start before states")
+						return
+					default:
+						t.Fatalf("unexpected message: %s", env.Type)
+					}
+				case <-time.After(5 * time.Second):
+					t.Fatal("replacement connection did not deliver the state")
+				}
+			}
+		})
+	}
+}
+
 func TestCloseCancelsPendingMissionSave(t *testing.T) {
 	b := New(Config{SaveTimeout: time.Minute})
 	result := make(chan error, 1)

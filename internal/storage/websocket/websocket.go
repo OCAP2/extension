@@ -122,11 +122,6 @@ func (b *Backend) StartMission(mission *core.Mission, world *core.World) error {
 		return err
 	}
 
-	// Cache for reconnect replay.
-	conn.mu.Lock()
-	conn.cachedStartMsg = data
-	conn.mu.Unlock()
-
 	return conn.sendAndWait(data, streaming.TypeStartMission, ackTimeout)
 }
 
