@@ -147,6 +147,27 @@ not confirmed.
 per mission (0 = unlimited). Once the limit is reached, spooling stops for that
 mission, and a later full resend is partial.
 
+The spool also survives the game server. If it crashes mid-mission, or a save
+is not confirmed, the mission stays in `spoolDir`. The next extension process
+checks `spoolDir` at startup and then every minute, resends such missions to
+the web service, and deletes each spool once the web service has saved its
+mission:
+- A mission cut short by a crash is ended on the crashed process' behalf and
+  saved as `partial`, with everything recorded up to the last flush (at most
+  about a second is lost).
+- A mission whose save was not confirmed is saved as recorded.
+
+Game servers can share one `spoolDir`, for example several instances started
+from the same directory:
+- A live mission refreshes a `live` file every second, and is left alone.
+- A crashed one is taken over two minutes after its `live` file stopped
+  changing.
+- A process recovering a mission holds an atomic `claim`, so two processes
+  never recover the same mission.
+
+Spools older than seven days are discarded. A web service without resume
+support cannot take recovered missions: their spools stay on disk.
+
 With an older web service, a reconnect replays mission metadata and the web
 service saves the received segments as partial recordings, as before. A full
 buffer and a closed proxy are returned as recording errors.

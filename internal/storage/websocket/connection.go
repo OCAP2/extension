@@ -25,8 +25,11 @@ const (
 	ackChSize           = 16
 	writeWait           = 10 * time.Second
 	ackTimeout          = 10 * time.Second
-	handshakeTimeout    = 10 * time.Second
 )
+
+// handshakeTimeout bounds waiting for the server's answer to resume; tests
+// lower it.
+var handshakeTimeout = 10 * time.Second
 
 var errConnectionClosed = errors.New("websocket connection closed")
 
@@ -528,6 +531,10 @@ func (c *connection) setResumable(v bool) {
 }
 
 // endMission forgets the mission so later sockets do not replay it.
+//
+// It also drops whatever the log still holds. An unconfirmed mission is then
+// resent only by spool recovery, never also by this connection's writer
+// after a reconnect, which would replay it without a handshake.
 func (c *connection) endMission() {
 	c.startMu.Lock()
 	defer c.startMu.Unlock()
@@ -536,6 +543,8 @@ func (c *connection) endMission() {
 	c.resumeData = nil
 	c.resumable = false
 	c.mu.Unlock()
+	c.log.reset(nil)
+	c.pendingSince.Store(0)
 }
 
 // send logs one envelope; build receives its sequence number.

@@ -121,4 +121,9 @@ type ResumePayload struct {
 // payload at all (null); the receiver falls back to the start_mission tag.
 type EndMissionPayload struct {
 	Tag string `json:"tag,omitempty"`
+	// Interrupted marks a mission that ended without :MISSION:SAVE:, for
+	// example because the game server crashed. A producer recovering such a
+	// mission from its spool sends it; the receiver saves the recording as
+	// partial. Older receivers ignore it.
+	Interrupted bool `json:"interrupted,omitempty"`
 }

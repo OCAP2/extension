@@ -31,6 +31,9 @@ type Config struct {
 	// server lost it. Empty disables spooling.
 	SpoolDir      string
 	SpoolMaxBytes int64 // disk limit per mission; <= 0 means unlimited
+	// RecoveryInterval is how often SpoolDir is checked for missions left
+	// behind by a crash or an unconfirmed save (1m).
+	RecoveryInterval time.Duration
 }
 
 func (cfg Config) connOptions() connOptions {
@@ -54,6 +57,9 @@ type Backend struct {
 	producerID   string // identifies this extension process to the server
 	missionID    string // identifies the current recording
 	nextMarkerID atomic.Uint64
+	done         chan struct{} // closed by Close; stops spool recovery
+	closeOnce    sync.Once
+	recovering   sync.WaitGroup // the spool recovery loop
 }
 
 // New creates a new WebSocket storage backend.
@@ -62,8 +68,11 @@ func New(cfg Config) *Backend {
 		conn:       newConnection(slog.Default(), cfg.connOptions()),
 		cfg:        cfg,
 		producerID: newID(),
+		done:       make(chan struct{}),
 	}
 }
+
+func (b *Backend) logger() *slog.Logger { return slog.Default() }
 
 // newID returns a random RFC 4122 version 4 UUID.
 func newID() string {
@@ -78,16 +87,28 @@ func newID() string {
 func (b *Backend) Init() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.conn.dial(b.cfg.URL, b.cfg.Secret)
+	if err := b.conn.dial(b.cfg.URL, b.cfg.Secret); err != nil {
+		return err
+	}
+	if b.cfg.SpoolDir != "" {
+		b.recovering.Add(1)
+		go func() {
+			defer b.recovering.Done()
+			b.recoveryLoop(b.done)
+		}()
+	}
+	return nil
 }
 
 // Close disconnects from the WebSocket server.
 func (b *Backend) Close() error {
+	b.closeOnce.Do(func() { close(b.done) })
+	b.recovering.Wait()
 	b.mu.Lock()
 	conn := b.conn
 	b.mu.Unlock()
 	if sp := conn.log.currentSpool(); sp != nil {
-		_ = sp.close() // an unfinished mission stays on disk
+		_ = sp.close() // an unfinished mission stays on disk for recovery
 	}
 	return conn.close()
 }
@@ -253,11 +274,12 @@ func (b *Backend) EndMission(tag string) error {
 	b.active = false
 	b.missionID = ""
 	b.mu.Unlock()
+	sp := conn.log.currentSpool()
 	conn.endMission()
 	b.nextMarkerID.Store(0)
 
 	// The spool is needed until the server has saved the mission.
-	if sp := conn.log.currentSpool(); sp != nil {
+	if sp != nil {
 		if err == nil {
 			if rerr := sp.remove(); rerr != nil {
 				slog.Default().Warn("WebSocket spool not removed", "dir", sp.dir, "error", rerr)

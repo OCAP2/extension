@@ -218,3 +218,95 @@ func TestWebRestartIntegration(t *testing.T) {
 	}
 	require.Equal(t, 1, found, "the interrupted segment is replaced by the complete recording")
 }
+
+// TestCrashingProducerHelper is the producer process TestWebCrashRecoveryIntegration
+// kills: it records a mission and exits without closing anything.
+func TestCrashingProducerHelper(t *testing.T) {
+	if os.Getenv("OCAP_TEST_CRASH_HELPER") == "" {
+		t.Skip("run by TestWebCrashRecoveryIntegration")
+	}
+	cfg := fastConfig(os.Getenv("OCAP_TEST_CRASH_URL"))
+	cfg.Secret = os.Getenv("OCAP_TEST_WEB_SECRET")
+	cfg.AckStallTimeout = 5 * time.Second
+	cfg.SpoolDir = os.Getenv("OCAP_TEST_CRASH_SPOOL")
+	b := New(cfg)
+	require.NoError(t, b.Init())
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: os.Getenv("OCAP_TEST_CRASH_NAME"), CaptureDelay: 1, Tag: "crash-test"}, &core.World{WorldName: "altis"}))
+	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 1, JoinFrame: 1, UnitName: "Crash Player", IsPlayer: true, Side: "WEST"}))
+	for f := 1; f <= 450; f++ {
+		require.NoError(t, b.RecordSoldierState(&core.SoldierState{SoldierID: 1, CaptureFrame: core.Frame(f), Lifestate: 1, IsPlayer: true, UnitName: "Crash Player", Side: "WEST", Position: core.Position3D{X: float64(f), Y: 200}}))
+	}
+	time.Sleep(2 * spoolFlushInterval) // let the spool reach the disk
+	os.Exit(3)                         // the game server crashes
+}
+
+// TestWebCrashRecoveryIntegration kills a producer process mid-mission. A new
+// producer recovers the mission from the spool, and the web server must end
+// up with one recording of everything the crashed process recorded, marked
+// partial.
+func TestWebCrashRecoveryIntegration(t *testing.T) {
+	base := os.Getenv("OCAP_TEST_WEB_URL")
+	if base == "" {
+		t.Skip("set OCAP_TEST_WEB_URL to a disposable local web server")
+	}
+	url := strings.Replace(base, "http", "ws", 1) + "/api/v1/stream"
+	spoolDir := t.TempDir()
+	name := fmt.Sprintf("Crash Integration %d", time.Now().UnixNano())
+
+	helper := exec.Command(os.Args[0], "-test.run=^TestCrashingProducerHelper$", "-test.count=1")
+	helper.Env = append(os.Environ(), "OCAP_TEST_CRASH_HELPER=1", "OCAP_TEST_CRASH_URL="+url,
+		"OCAP_TEST_CRASH_SPOOL="+spoolDir, "OCAP_TEST_CRASH_NAME="+name)
+	err := helper.Run()
+	var exit *exec.ExitError
+	require.ErrorAs(t, err, &exit)
+	require.Equal(t, 3, exit.ExitCode(), "the helper must crash, not fail")
+
+	// The crashed process' live file goes stale after spoolStaleAfter.
+	old := spoolStaleAfter
+	spoolStaleAfter = 3 * time.Second
+	t.Cleanup(func() { spoolStaleAfter = old })
+	cfg := fastConfig(url)
+	cfg.Secret = os.Getenv("OCAP_TEST_WEB_SECRET")
+	cfg.AckStallTimeout = 5 * time.Second
+	cfg.SpoolDir = spoolDir
+	cfg.RecoveryInterval = 200 * time.Millisecond
+	b := New(cfg)
+	require.NoError(t, b.Init())
+	defer b.Close()
+
+	type op struct {
+		Name     string  `json:"mission_name"`
+		Filename string  `json:"filename"`
+		Tag      string  `json:"tag"`
+		Status   string  `json:"conversionStatus"`
+		Chunks   int     `json:"chunkCount"`
+		Duration float64 `json:"mission_duration"`
+	}
+	var found []op
+	require.Eventually(t, func() bool {
+		resp, err := http.Get(base + "/api/v1/operations")
+		if err != nil {
+			return false
+		}
+		defer resp.Body.Close()
+		var ops []op
+		if json.NewDecoder(resp.Body).Decode(&ops) != nil {
+			return false
+		}
+		found = found[:0]
+		for _, o := range ops {
+			if o.Name == name {
+				found = append(found, o)
+			}
+		}
+		return len(found) == 1 && found[0].Status == "completed"
+	}, 30*time.Second, 200*time.Millisecond, "the recovered mission must be saved")
+	require.Equal(t, "crash-test,partial", found[0].Tag)
+	require.Equal(t, 2, found[0].Chunks, "450 frames in 300-frame chunks")
+	require.InDelta(t, 450, found[0].Duration, 1, "nothing the crashed process recorded is lost")
+	require.Eventually(t, func() bool {
+		entries, err := os.ReadDir(spoolDir)
+		return err == nil && len(entries) == 0
+	}, 5*time.Second, 50*time.Millisecond, "the recovered spool is deleted")
+	t.Logf("recovered recording %s", found[0].Filename)
+}

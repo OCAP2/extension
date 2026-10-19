@@ -14,10 +14,14 @@ import (
 )
 
 const (
-	spoolFlushInterval = time.Second
-	spoolReadBatch     = 4 << 20 // bytes returned by one read
-	spoolHeaderBytes   = 12      // seq (8) + length (4)
+	spoolReadBatch   = 4 << 20 // bytes returned by one read
+	spoolHeaderBytes = 12      // seq (8) + length (4)
 )
+
+// spoolFlushInterval is how often buffered records reach the disk and the
+// live file is refreshed. It must stay well below spoolStaleAfter; tests
+// lower both.
+var spoolFlushInterval = time.Second
 
 // spoolSegmentBytes is the size past which a segment file is rotated; tests
 // lower it.
@@ -54,26 +58,37 @@ type spool struct {
 	logger   *slog.Logger
 }
 
+// spoolLiveFile marks a spool its process is still writing. Its modification
+// time is refreshed every flush; recovery leaves the spool alone while it is
+// recent, so processes sharing a spool directory never recover each other's
+// live missions. Close removes it.
+const spoolLiveFile = "live"
+
 // openSpool creates the spool directory for one mission. maxBytes <= 0 means
 // no size limit.
 func openSpool(dir string, maxBytes int64, logger *slog.Logger) (*spool, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("create spool dir: %w", err)
 	}
+	if err := os.WriteFile(filepath.Join(dir, spoolLiveFile), nil, 0o644); err != nil {
+		return nil, fmt.Errorf("create spool dir: %w", err)
+	}
 	s := &spool{dir: dir, maxBytes: maxBytes, done: make(chan struct{}), logger: logger}
-	go s.flushLoop()
+	go s.flushLoop(spoolFlushInterval)
 	return s, nil
 }
 
-func (s *spool) flushLoop() {
-	ticker := time.NewTicker(spoolFlushInterval)
+func (s *spool) flushLoop(interval time.Duration) {
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	live := filepath.Join(s.dir, spoolLiveFile)
 	for {
 		select {
-		case <-ticker.C:
+		case now := <-ticker.C:
 			s.mu.Lock()
 			s.flushLocked()
 			s.mu.Unlock()
+			_ = os.Chtimes(live, now, now)
 		case <-s.done:
 			return
 		}
@@ -250,12 +265,16 @@ func (s *spool) close() error {
 	}
 	s.closed = true
 	close(s.done)
-	if s.file == nil {
-		return nil
+	var err error
+	if s.file != nil {
+		err = s.w.Flush()
+		if cerr := s.file.Close(); err == nil {
+			err = cerr
+		}
 	}
-	err := s.w.Flush()
-	if cerr := s.file.Close(); err == nil {
-		err = cerr
+	// The mission is complete on disk; recovery may take it from here.
+	if rerr := os.Remove(filepath.Join(s.dir, spoolLiveFile)); err == nil && !os.IsNotExist(rerr) {
+		err = rerr
 	}
 	return err
 }
