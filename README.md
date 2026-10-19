@@ -119,17 +119,87 @@ It forwards the shared protocol without a local recording database, JSON export,
 or separate upload. `uploadTimeout` controls the final save acknowledgement wait.
 The existing `memory` default and file-upload path remain available.
 
-Queue saturation and a closed proxy are returned as recording errors. Reconnect
-replays mission metadata, not the entire entity history; received segments are
-saved as partial recordings by the web service. This is not lossless replay of
-messages sent during an outage.
+With a web service that supports resume (protocol version 2), network failures
+are lossless. Every message is numbered and held in memory (up to 256 MiB) until
+the web service acknowledges it. When the connection drops, the proxy keeps
+recording, reconnects with backoff and jitter until it succeeds, resumes the
+mission, and resends what the web service did not receive. Resent messages keep
+their capture frames, so the timeline is unaffected. The proxy stops
+reconnecting only when the web service rejects the secret (HTTP 401/403).
 
-An integration test can exercise the real proxy against a disposable local web
-server with streaming enabled:
+Every message is also spooled to disk until the web service saves the mission.
+If the web service lost the mission (for example it restarted mid-mission),
+the proxy resends the whole mission from the spool, and the web service
+replaces the partial segment with the complete recording. During a long outage
+memory keeps the newest messages and the rest are resent from the spool. The
+spool is deleted once the mission is saved. It is kept on disk if the save is
+not confirmed.
+
+```json
+"storage": {
+  "type": "websocket",
+  "websocket": { "bufferMB": 256, "spoolDir": "./ocapspool", "spoolMaxMB": 4096, "resendMBps": 8 }
+}
+```
+
+`resendMBps` paces catch-up traffic: the backlog resent after a reconnect, a
+mission resent in full from the spool, and missions recovered after a crash.
+Without it, several game servers recovering at once after a web restart would
+all resend at full speed and overload the web service. Live traffic is never
+paced. `0` disables pacing.
+
+`spoolDir` is relative to the Arma server's working directory, like
+`memory.outputDir`; empty disables spooling. `spoolMaxMB` limits the disk used
+per mission (0 = unlimited). Once the limit is reached, spooling stops for that
+mission, and a later full resend is partial.
+
+The spool also survives the game server. If it crashes mid-mission, or a save
+is not confirmed, the mission stays in `spoolDir`. The next extension process
+checks `spoolDir` at startup and then every minute, resends such missions to
+the web service, and deletes each spool once the web service has saved its
+mission:
+- A mission cut short by a crash is ended on the crashed process' behalf and
+  saved as `partial`, with everything recorded up to the last flush (at most
+  about a second is lost).
+- A mission whose save was not confirmed is saved as recorded.
+
+Game servers can share one `spoolDir`, for example several instances started
+from the same directory. Each spool has an operating system file lock
+(`flock` on Linux, `LockFileEx` on Windows):
+- The process recording a mission holds its lock from start to end, so its
+  live mission is never taken.
+- A process recovering a mission holds the lock while it resends, so two
+  processes never recover the same mission.
+- The operating system releases the lock of a process that dies, so a
+  crashed mission is recovered about 15 seconds later, with no stale claim
+  to wait out.
+
+Spools older than seven days are discarded. A web service without resume
+support cannot take recovered missions: their spools stay on disk, and the
+proxy asks again only every 30 minutes instead of every minute. As soon as a
+mission start shows that the web service supports resume (it was upgraded),
+the waiting spools are recovered.
+
+While a mission records, the stream's state is logged every minute. The log
+line lists messages sent and acknowledged, the memory buffer, messages moved
+to the spool or refused, and the reconnects, resumes and restarts so far. A
+disconnected stream logs at warning level
+(`WebSocket stream disconnected, buffering`), so a struggling stream shows in
+the logs before the mission ends.
+
+With an older web service, a reconnect replays mission metadata and the web
+service saves the received segments as partial recordings, as before. A full
+buffer and a closed proxy are returned as recording errors.
+
+Integration tests exercise the real proxy against a disposable local web server
+with streaming enabled. `TestWebResumeIntegration` cuts the connection three
+times mid-mission and expects one complete recording. `TestWebRestartIntegration`
+also needs `OCAP_TEST_WEB_RESTART_CMD`, a shell command that restarts the web
+server; it restarts the server mid-mission and expects one complete recording:
 
 ```sh
 OCAP_TEST_WEB_URL=http://127.0.0.1:5000 OCAP_TEST_WEB_SECRET=same-secret \
-  go test ./internal/storage/websocket -run TestWebIngestionIntegration -count=1 -v
+  go test ./internal/storage/websocket -run 'TestWeb' -count=1 -v
 ```
 
 Copy `ocap_recorder.cfg.json.example` to `ocap_recorder.cfg.json` alongside the DLL and edit as needed.

@@ -2,7 +2,6 @@ package websocket
 
 import (
 	"encoding/json"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,14 +14,6 @@ import (
 	ws "github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 )
-
-func TestClosedProxyReturnsError(t *testing.T) {
-	c := newConnection(slog.Default())
-	require.NoError(t, c.close())
-	for i := 0; i < 20; i++ {
-		require.Error(t, c.send([]byte("data")))
-	}
-}
 
 func TestReconnectReplaysStartBeforeQueuedStates(t *testing.T) {
 	type observed struct {
@@ -61,7 +52,7 @@ func TestReconnectReplaysStartBeforeQueuedStates(t *testing.T) {
 	require.Equal(t, int32(1), first.generation)
 	old := <-sockets
 	require.NoError(t, old.Close())
-	require.Eventually(t, func() bool { b.conn.mu.Lock(); defer b.conn.mu.Unlock(); return b.conn.conn == nil }, time.Second, time.Millisecond)
+	require.Eventually(t, func() bool { b.conn.mu.Lock(); defer b.conn.mu.Unlock(); return b.conn.sock == nil }, time.Second, time.Millisecond)
 	for i := 1; i <= 100; i++ {
 		require.NoError(t, b.RecordSoldierState(&core.SoldierState{SoldierID: 1, CaptureFrame: core.Frame(i)}))
 	}
@@ -85,14 +76,6 @@ func TestReconnectReplaysStartBeforeQueuedStates(t *testing.T) {
 		require.NoError(t, json.Unmarshal(m.env.Payload, &state))
 		require.Equal(t, core.Frame(i), state.CaptureFrame)
 	}
-}
-
-func TestQueueSaturationReturnsError(t *testing.T) {
-	c := newConnection(slog.Default())
-	for i := 0; i < cap(c.sendCh); i++ {
-		require.NoError(t, c.send([]byte("data")))
-	}
-	require.Error(t, c.send([]byte("overflow")))
 }
 
 func TestStartDuringReconnectIsDeliveredOnce(t *testing.T) {
@@ -145,7 +128,7 @@ func TestStartDuringReconnectIsDeliveredOnce(t *testing.T) {
 			require.Eventually(t, func() bool {
 				b.conn.mu.Lock()
 				defer b.conn.mu.Unlock()
-				return b.conn.conn == nil
+				return b.conn.sock == nil
 			}, time.Second, time.Millisecond)
 			if phase == "dial" {
 				select {
@@ -161,7 +144,7 @@ func TestStartDuringReconnectIsDeliveredOnce(t *testing.T) {
 			require.Eventually(t, func() bool {
 				b.conn.mu.Lock()
 				defer b.conn.mu.Unlock()
-				return b.conn.cachedStartMsg != nil
+				return b.conn.startData != nil
 			}, time.Second, time.Millisecond)
 			close(releaseReplacement)
 			select {
@@ -201,7 +184,7 @@ func TestCloseCancelsPendingMissionSave(t *testing.T) {
 	b := New(Config{SaveTimeout: time.Minute})
 	result := make(chan error, 1)
 	go func() { result <- b.EndMission("") }()
-	require.Eventually(t, func() bool { return len(b.conn.sendCh) > 0 }, time.Second, time.Millisecond)
+	require.Eventually(t, func() bool { n, _, _ := b.conn.log.stats(); return n > 0 }, time.Second, time.Millisecond)
 	require.NoError(t, b.Close())
 	select {
 	case err := <-result:

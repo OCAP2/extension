@@ -102,6 +102,24 @@ func TestGetStorageConfig_Defaults(t *testing.T) {
 	assert.Equal(t, "postgres", cfg.Postgres.Username)
 	assert.Equal(t, "postgres", cfg.Postgres.Password)
 	assert.Equal(t, "ocap", cfg.Postgres.Database)
+	assert.Equal(t, 256, cfg.Websocket.BufferMB)
+	assert.Equal(t, "./ocapspool", cfg.Websocket.SpoolDir)
+	assert.Equal(t, 4096, cfg.Websocket.SpoolMaxMB)
+	assert.Equal(t, 8, cfg.Websocket.ResendMBps)
+}
+
+func TestGetStorageConfig_WebsocketOverride(t *testing.T) {
+	t.Cleanup(viper.Reset)
+
+	dir := t.TempDir()
+	cfgJSON := `{"storage":{"type":"websocket","websocket":{"bufferMB":64,"spoolDir":"","spoolMaxMB":0}}}`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ocap_recorder.cfg.json"), []byte(cfgJSON), 0644))
+	require.NoError(t, Load(dir))
+
+	cfg := GetStorageConfig()
+	assert.Equal(t, 64, cfg.Websocket.BufferMB)
+	assert.Empty(t, cfg.Websocket.SpoolDir, "an empty spoolDir disables spooling")
+	assert.Zero(t, cfg.Websocket.SpoolMaxMB)
 }
 
 func TestGetStorageConfig_Override(t *testing.T) {
