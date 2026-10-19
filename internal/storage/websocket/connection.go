@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"net/url"
 	"sync"
@@ -603,7 +604,10 @@ func (c *connection) close() error {
 
 	if s != nil {
 		s.lostOnce.Do(func() { close(s.dead) })
-		return s.conn.Close()
+		// The socket may already be closed by a loss being handled.
+		if err := s.conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			return err
+		}
 	}
 	return nil
 }

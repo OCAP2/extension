@@ -63,8 +63,8 @@ func (b *Backend) recoverSpools(done <-chan struct{}) {
 			return
 		default:
 		}
-		if !e.IsDir() {
-			continue
+		if !e.IsDir() || strings.Contains(e.Name(), spoolCreatingInfix) {
+			continue // not a spool, or one still being created
 		}
 		dir := filepath.Join(b.cfg.SpoolDir, e.Name())
 		if !recoverable(dir) || !claimSpool(dir) {

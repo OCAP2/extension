@@ -64,13 +64,29 @@ type spool struct {
 // live missions. Close removes it.
 const spoolLiveFile = "live"
 
+// spoolCreatingInfix marks a spool directory still being created; recovery
+// skips it.
+const spoolCreatingInfix = ".creating-"
+
 // openSpool creates the spool directory for one mission. maxBytes <= 0 means
 // no size limit.
 func openSpool(dir string, maxBytes int64, logger *slog.Logger) (*spool, error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	// The directory appears with its live file already inside: recovery must
+	// never see a live mission's directory without it.
+	parent := filepath.Dir(dir)
+	if err := os.MkdirAll(parent, 0o755); err != nil {
 		return nil, fmt.Errorf("create spool dir: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, spoolLiveFile), nil, 0o644); err != nil {
+	tmp, err := os.MkdirTemp(parent, filepath.Base(dir)+spoolCreatingInfix)
+	if err != nil {
+		return nil, fmt.Errorf("create spool dir: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, spoolLiveFile), nil, 0o644); err != nil {
+		_ = os.RemoveAll(tmp)
+		return nil, fmt.Errorf("create spool dir: %w", err)
+	}
+	if err := os.Rename(tmp, dir); err != nil {
+		_ = os.RemoveAll(tmp)
 		return nil, fmt.Errorf("create spool dir: %w", err)
 	}
 	s := &spool{dir: dir, maxBytes: maxBytes, done: make(chan struct{}), logger: logger}
