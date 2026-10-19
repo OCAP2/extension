@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -17,6 +18,21 @@ type Config struct {
 	URL         string
 	Secret      string
 	SaveTimeout time.Duration
+
+	// Recovery tuning. Zero values select the defaults.
+	BufferBytes     int           // unacknowledged envelopes held in memory (256 MiB)
+	AckStallTimeout time.Duration // written envelopes unacknowledged this long mean a dead socket (20s)
+	ReconnectMin    time.Duration // first reconnect delay (1s)
+	ReconnectMax    time.Duration // reconnect delay ceiling (30s)
+}
+
+func (cfg Config) connOptions() connOptions {
+	return connOptions{
+		bufferBytes:  cfg.BufferBytes,
+		ackStall:     cfg.AckStallTimeout,
+		reconnectMin: cfg.ReconnectMin,
+		reconnectMax: cfg.ReconnectMax,
+	}
 }
 
 // Backend streams mission data over WebSocket to the OCAP2 web server.
@@ -25,17 +41,30 @@ type Backend struct {
 	missionMu    sync.Mutex
 	mu           sync.Mutex
 	restart      bool
+	active       bool // a mission has started and not ended
 	conn         *connection
 	cfg          Config
+	producerID   string // identifies this extension process to the server
+	missionID    string // identifies the current recording
 	nextMarkerID atomic.Uint64
 }
 
 // New creates a new WebSocket storage backend.
 func New(cfg Config) *Backend {
 	return &Backend{
-		conn: newConnection(slog.Default()),
-		cfg:  cfg,
+		conn:       newConnection(slog.Default(), cfg.connOptions()),
+		cfg:        cfg,
+		producerID: newID(),
 	}
+}
+
+// newID returns a random RFC 4122 version 4 UUID.
+func newID() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	b[6] = b[6]&0x0f | 0x40
+	b[8] = b[8]&0x3f | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 
 // Init connects to the WebSocket server.
@@ -53,52 +82,75 @@ func (b *Backend) Close() error {
 	return conn.close()
 }
 
-// marshalEnvelope builds a JSON-encoded Envelope from a message type and payload.
-func marshalEnvelope(msgType string, payload any) ([]byte, error) {
+// marshalPayload encodes a payload for an envelope.
+func marshalPayload(msgType string, payload any) (json.RawMessage, error) {
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("marshal %s payload: %w", msgType, err)
 	}
-	env := streaming.Envelope{Type: msgType, Payload: raw}
-	data, err := json.Marshal(env)
+	return raw, nil
+}
+
+// marshalEnvelope builds a JSON-encoded Envelope from a message type,
+// payload and sequence number (0 omits it).
+func marshalEnvelope(msgType string, payload any, seq uint64) ([]byte, error) {
+	raw, err := marshalPayload(msgType, payload)
+	if err != nil {
+		return nil, err
+	}
+	return encodeEnvelope(msgType, raw, seq)
+}
+
+func encodeEnvelope(msgType string, raw json.RawMessage, seq uint64) ([]byte, error) {
+	data, err := json.Marshal(streaming.Envelope{Type: msgType, Payload: raw, Seq: seq})
 	if err != nil {
 		return nil, fmt.Errorf("marshal %s envelope: %w", msgType, err)
 	}
 	return data, nil
 }
 
-// sendEnvelope marshals the payload into an Envelope and pushes it
-// to the write loop (fire-and-forget).
+// sendEnvelope logs one mission envelope for delivery (fire-and-forget).
+// Envelopes recorded before any mission starts are discarded, as the server
+// ignores them.
 func (b *Backend) sendEnvelope(msgType string, payload any) error {
-	b.missionMu.Lock()
-	defer b.missionMu.Unlock()
-	data, err := marshalEnvelope(msgType, payload)
+	raw, err := marshalPayload(msgType, payload)
 	if err != nil {
 		return err
 	}
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if b.restart {
-		return fmt.Errorf("mission already ended")
-	}
-	return b.conn.send(data)
-}
-
-// sendEnvelopeAndWait marshals the payload and waits for a server ack.
-func (b *Backend) sendEnvelopeAndWait(msgType string, payload any) error {
 	b.missionMu.Lock()
 	defer b.missionMu.Unlock()
+	b.mu.Lock()
+	restart, active, conn := b.restart, b.active, b.conn
+	b.mu.Unlock()
+	if restart {
+		return fmt.Errorf("mission already ended")
+	}
+	if !active {
+		return nil
+	}
+	return conn.send(func(seq uint64) ([]byte, error) { return encodeEnvelope(msgType, raw, seq) })
+}
+
+// sendEnvelopeAndWait logs an envelope and waits for its server ack.
+func (b *Backend) sendEnvelopeAndWait(msgType string, payload any, timeout time.Duration) error {
+	raw, err := marshalPayload(msgType, payload)
+	if err != nil {
+		return err
+	}
 	b.mu.Lock()
 	conn := b.conn
 	b.mu.Unlock()
-	data, err := marshalEnvelope(msgType, payload)
-	if err != nil {
+	conn.drainAcks()
+	if err := conn.send(func(seq uint64) ([]byte, error) { return encodeEnvelope(msgType, raw, seq) }); err != nil {
 		return err
 	}
-	return conn.sendAndWait(data, msgType, ackTimeout)
+	_, err = conn.waitAck(msgType, timeout)
+	return err
 }
 
 // StartMission sends mission and world data and waits for server ack.
+// The ack tells whether the server supports resume; older servers keep the
+// original connection-scoped behavior.
 func (b *Backend) StartMission(mission *core.Mission, world *core.World) error {
 	b.missionMu.Lock()
 	defer b.missionMu.Unlock()
@@ -107,7 +159,7 @@ func (b *Backend) StartMission(mission *core.Mission, world *core.World) error {
 	// before accepting the next mission instead of racing the reconnect loop.
 	if b.restart {
 		b.conn.close()
-		b.conn = newConnection(slog.Default())
+		b.conn = newConnection(slog.Default(), b.cfg.connOptions())
 		if err := b.conn.dial(b.cfg.URL, b.cfg.Secret); err != nil {
 			b.mu.Unlock()
 			return err
@@ -115,14 +167,44 @@ func (b *Backend) StartMission(mission *core.Mission, world *core.World) error {
 		b.restart = false
 	}
 	conn := b.conn
+	b.missionID = newID()
+	missionID := b.missionID
 	b.mu.Unlock()
+
 	base := uint8(1)
-	data, err := marshalEnvelope(streaming.TypeStartMission, streaming.StartMissionPayload{Mission: mission, World: world, FrameBase: &base})
+	raw, err := marshalPayload(streaming.TypeStartMission, streaming.StartMissionPayload{
+		Mission: mission, World: world, FrameBase: &base,
+		MissionID: missionID, ProducerID: b.producerID, ProtocolVersion: streaming.ProtocolVersionResume,
+	})
+	if err != nil {
+		return err
+	}
+	resume, err := marshalEnvelope(streaming.TypeResume, streaming.ResumePayload{MissionID: missionID, ProducerID: b.producerID}, 0)
 	if err != nil {
 		return err
 	}
 
-	return conn.sendAndWait(data, streaming.TypeStartMission, ackTimeout)
+	conn.drainAcks()
+	if err := conn.beginMission(func(seq uint64) ([]byte, error) {
+		return encodeEnvelope(streaming.TypeStartMission, raw, seq)
+	}, resume); err != nil {
+		return err
+	}
+	b.mu.Lock()
+	b.active = true
+	b.mu.Unlock()
+
+	ack, err := conn.waitAck(streaming.TypeStartMission, ackTimeout)
+	if err != nil {
+		return err
+	}
+	resumable := ack.ProtocolVersion >= streaming.ProtocolVersionResume
+	conn.setResumable(resumable)
+	if resumable {
+		conn.ackUpTo(max(ack.Seq, 1))
+	}
+	slog.Default().Info("WebSocket mission started", "missionId", missionID, "resumable", resumable)
+	return nil
 }
 
 // EndMission sends end_mission and waits for server ack.
@@ -132,32 +214,26 @@ func (b *Backend) StartMission(mission *core.Mission, world *core.World) error {
 func (b *Backend) EndMission(tag string) error {
 	b.missionMu.Lock()
 	defer b.missionMu.Unlock()
-	b.mu.Lock()
-	conn := b.conn
-	b.mu.Unlock()
 
 	var payload any
 	if tag != "" {
 		payload = streaming.EndMissionPayload{Tag: tag}
 	}
-	data, err := marshalEnvelope(streaming.TypeEndMission, payload)
-	if err != nil {
-		return err
-	}
 	timeout := b.cfg.SaveTimeout
 	if timeout <= 0 {
 		timeout = 10 * time.Minute
 	}
-	err = conn.sendAndWait(data, streaming.TypeEndMission, timeout)
+	err := b.sendEnvelopeAndWait(streaming.TypeEndMission, payload, timeout)
 
-	// Clear cached state regardless of error.
-	conn.mu.Lock()
-	conn.cachedStartMsg = nil
-	conn.mu.Unlock()
-	b.nextMarkerID.Store(0)
+	// Clear mission state regardless of error.
 	b.mu.Lock()
+	conn := b.conn
 	b.restart = true
+	b.active = false
+	b.missionID = ""
 	b.mu.Unlock()
+	conn.endMission()
+	b.nextMarkerID.Store(0)
 
 	return err
 }

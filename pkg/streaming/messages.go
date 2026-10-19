@@ -54,12 +54,47 @@ var AllMessageTypes = []string{
 type Envelope struct {
 	Type    string          `json:"type"`
 	Payload json.RawMessage `json:"payload"`
+	// Seq numbers every envelope of a resumable mission, starting with 1 for
+	// start_mission. Zero (omitted) means the sender does not number messages.
+	Seq uint64 `json:"seq,omitempty"`
 }
 
-// AckMessage is the server's acknowledgement response.
+// ProtocolVersionResume is the first protocol version with numbered
+// envelopes, cumulative acknowledgements and mission resume.
+const ProtocolVersionResume = 2
+
+// Connection control messages. They are not mission data, so they are not
+// part of AllMessageTypes.
+const (
+	// TypeResume is the first envelope on a replacement connection of a
+	// resumable mission. Its payload is ResumePayload.
+	TypeResume = "resume"
+)
+
+// Server message types.
+const (
+	// ServerAck acknowledges a lifecycle message (For is set) or, when Seq is
+	// set, every envelope up to and including Seq.
+	ServerAck = "ack"
+	// ServerResumeOK answers resume; Seq is the last envelope the server holds.
+	ServerResumeOK = "resume_ok"
+	// ServerResumeUnknown answers resume when the server no longer holds the
+	// mission, for example after a web server restart.
+	ServerResumeUnknown = "resume_unknown"
+	// ServerResumeCompleted answers resume for a mission the server has
+	// already saved. It stands in for the end_mission acknowledgement.
+	ServerResumeCompleted = "resume_completed"
+)
+
+// AckMessage is a server message: an acknowledgement or a resume answer.
 type AckMessage struct {
-	Type string `json:"type"` // always "ack"
-	For  string `json:"for"`  // the message type being acknowledged
+	Type string `json:"type"`          // one of the Server* types
+	For  string `json:"for,omitempty"` // the message type being acknowledged
+	// Seq is the highest envelope the server has received (ack, resume_ok).
+	Seq uint64 `json:"seq,omitempty"`
+	// ProtocolVersion is set on the start_mission acknowledgement by servers
+	// that support resume. Older servers omit it.
+	ProtocolVersion uint8 `json:"protocolVersion,omitempty"`
 }
 
 // StartMissionPayload carries mission and world data.
@@ -68,6 +103,17 @@ type StartMissionPayload struct {
 	World   *core.World   `json:"world"`
 	// Omitted by older zero-based streaming clients. Current core.Frame is one-based.
 	FrameBase *uint8 `json:"frameBase,omitempty"`
+	// Resume support. Omitted by older clients, which get the original
+	// connection-scoped behavior.
+	MissionID       string `json:"missionId,omitempty"`  // unique per recording
+	ProducerID      string `json:"producerId,omitempty"` // unique per extension process
+	ProtocolVersion uint8  `json:"protocolVersion,omitempty"`
+}
+
+// ResumePayload identifies the mission a replacement connection continues.
+type ResumePayload struct {
+	MissionID  string `json:"missionId"`
+	ProducerID string `json:"producerId"`
 }
 
 // EndMissionPayload carries finalization hints for end_mission.

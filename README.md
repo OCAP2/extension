@@ -119,17 +119,25 @@ It forwards the shared protocol without a local recording database, JSON export,
 or separate upload. `uploadTimeout` controls the final save acknowledgement wait.
 The existing `memory` default and file-upload path remain available.
 
-Queue saturation and a closed proxy are returned as recording errors. Reconnect
-replays mission metadata, not the entire entity history; received segments are
-saved as partial recordings by the web service. This is not lossless replay of
-messages sent during an outage.
+With a web service that supports resume (protocol version 2), network failures
+are lossless. Every message is numbered and held in memory (up to 256 MiB) until
+the web service acknowledges it. When the connection drops, the proxy keeps
+recording, reconnects with backoff and jitter until it succeeds, resumes the
+mission, and resends what the web service did not receive. Resent messages keep
+their capture frames, so the timeline is unaffected. The proxy stops
+reconnecting only when the web service rejects the secret (HTTP 401/403).
 
-An integration test can exercise the real proxy against a disposable local web
-server with streaming enabled:
+With an older web service, a reconnect replays mission metadata and the web
+service saves the received segments as partial recordings, as before. A full
+buffer and a closed proxy are returned as recording errors.
+
+Integration tests exercise the real proxy against a disposable local web server
+with streaming enabled. `TestWebResumeIntegration` cuts the connection three
+times mid-mission and expects one complete recording:
 
 ```sh
 OCAP_TEST_WEB_URL=http://127.0.0.1:5000 OCAP_TEST_WEB_SECRET=same-secret \
-  go test ./internal/storage/websocket -run TestWebIngestionIntegration -count=1 -v
+  go test ./internal/storage/websocket -run 'TestWebIngestionIntegration|TestWebResumeIntegration' -count=1 -v
 ```
 
 Copy `ocap_recorder.cfg.json.example` to `ocap_recorder.cfg.json` alongside the DLL and edit as needed.
