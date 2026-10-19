@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -489,4 +490,55 @@ func TestLegacyServerReleasesWrittenEnvelopes(t *testing.T) {
 	for _, m := range ml.all() {
 		assert.NotEqual(t, streaming.TypeResume, m.Type, "a legacy server never receives resume")
 	}
+}
+
+func TestAckRacingWriterBookkeepingIsNotAStall(t *testing.T) {
+	c := newConnection(slog.Default(), connOptions{ackStall: 100 * time.Millisecond})
+	c.setResumable(true)
+	c.noteWritten(5)
+	c.ackUpTo(5)
+	later := func() time.Time { return time.Now().Add(time.Hour) }
+
+	// The acknowledgement of 6 is read before the writer records writing 6.
+	c.ackUpTo(6)
+	c.noteWritten(6)
+	assert.False(t, c.stalled(later()), "a fully acknowledged link is never stalled")
+
+	// A real stall is still detected...
+	c.noteWritten(7)
+	assert.False(t, c.stalled(time.Now()), "not yet past the timeout")
+	assert.True(t, c.stalled(later()))
+	// ...and ends with the acknowledgement.
+	c.ackUpTo(7)
+	assert.False(t, c.stalled(later()))
+
+	// An acknowledgement of an earlier envelope leaves the later one pending.
+	c.noteWritten(8)
+	c.noteWritten(9)
+	c.ackUpTo(8)
+	assert.True(t, c.stalled(later()), "9 is still outstanding")
+}
+
+func TestPromptlyAcknowledgedStreamNeverStalls(t *testing.T) {
+	rs := newResumeServer(t)
+	cfg := fastConfig(rs.url())
+	cfg.AckStallTimeout = 100 * time.Millisecond
+	b := New(cfg)
+	require.NoError(t, b.Init())
+	defer b.Close()
+
+	id := startResumable(t, b)
+	// One envelope at a time, each acknowledged at once: acknowledgements
+	// keep racing the writer's bookkeeping.
+	for i := 1; i <= 300; i++ {
+		require.NoError(t, b.RecordSoldierState(&core.SoldierState{SoldierID: 1, CaptureFrame: core.Frame(i)}))
+		seq := uint64(i + 1)
+		require.Eventually(t, func() bool { return b.conn.sent.Load() >= seq && b.conn.acked.Load() >= seq }, 2*time.Second, time.Millisecond)
+	}
+	time.Sleep(4 * cfg.AckStallTimeout) // the stream goes idle
+
+	assert.Zero(t, rs.resumes.Load(), "a healthy, fully acknowledged socket was abandoned")
+	assert.Zero(t, b.conn.reconnects.Load())
+	require.NoError(t, b.EndMission(""))
+	requireContiguous(t, rs.mission(id), 302)
 }

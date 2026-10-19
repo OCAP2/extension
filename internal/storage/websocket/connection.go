@@ -99,7 +99,11 @@ type connection struct {
 
 	acked        atomic.Uint64 // highest seq the server acknowledged
 	sent         atomic.Uint64 // highest seq written on the current socket
-	pendingSince atomic.Int64  // unix nanos since written envelopes await an ack; 0 if none
+	// progressAt (unix nanos) is when the link last made progress: an
+	// acknowledgement advanced, or a write went out with nothing outstanding.
+	// Whether anything is outstanding is read from sent and acked themselves,
+	// so an acknowledgement racing the writer cannot leave a stale state.
+	progressAt atomic.Int64
 	resumes      atomic.Uint64 // replacement connections that resumed the mission
 	reconnects   atomic.Uint64 // replacement connections attached
 	restarts     atomic.Uint64 // replacement connections that found the mission lost by the server
@@ -179,7 +183,7 @@ func (c *connection) attach(conn *ws.Conn) error {
 	c.mu.Unlock()
 
 	c.sent.Store(cursor)
-	c.pendingSince.Store(0)
+	c.progressAt.Store(time.Now().UnixNano())
 	// Everything recorded so far is a backlog this socket catches up on at
 	// the paced rate; what is recorded from now on goes out as it comes.
 	backlog := c.log.lastSeq()
@@ -262,7 +266,6 @@ func (c *connection) handshake(conn *ws.Conn) (uint64, uint64, error) {
 		}
 		// Acknowledgements now count from the new session's start.
 		c.acked.Store(1)
-		c.pendingSince.Store(0)
 		return 1, epoch, nil
 	}
 }
@@ -333,10 +336,8 @@ func (c *connection) writeLoop(s *socket, cursor, epoch, backlog uint64) {
 				return
 			}
 			cursor = e.seq
-			c.sent.Store(e.seq)
-			if c.isResumable() {
-				c.pendingSince.CompareAndSwap(0, time.Now().UnixNano())
-			} else {
+			c.noteWritten(e.seq)
+			if !c.isResumable() {
 				c.log.ack(e.seq) // a legacy server has no acknowledgement to wait for
 			}
 		}
@@ -389,9 +390,8 @@ func (c *connection) watchdog(s *socket) {
 			return
 		case <-c.done:
 			return
-		case <-ticker.C:
-			since := c.pendingSince.Load()
-			if since != 0 && c.isResumable() && time.Since(time.Unix(0, since)) > c.opts.ackStall {
+		case now := <-ticker.C:
+			if c.isResumable() && c.stalled(now) {
 				c.logger.Warn("WebSocket acknowledgements stalled, reconnecting",
 					"sent", c.sent.Load(), "acked", c.acked.Load(), "stall", c.opts.ackStall)
 				c.lost(s)
@@ -399,6 +399,25 @@ func (c *connection) watchdog(s *socket) {
 			}
 		}
 	}
+}
+
+// noteWritten records that envelope seq went out. A write into a link with
+// nothing outstanding starts the stall clock; one behind outstanding
+// envelopes does not reset it.
+func (c *connection) noteWritten(seq uint64) {
+	if c.acked.Load() >= c.sent.Load() {
+		c.progressAt.Store(time.Now().UnixNano())
+	}
+	c.sent.Store(seq)
+}
+
+// stalled reports whether written envelopes have waited longer than the
+// stall timeout without the server acknowledging anything.
+func (c *connection) stalled(now time.Time) bool {
+	if c.sent.Load() <= c.acked.Load() {
+		return false // nothing outstanding, however the writer and reader interleaved
+	}
+	return now.Sub(time.Unix(0, c.progressAt.Load())) > c.opts.ackStall
 }
 
 // ackUpTo releases every envelope the server holds.
@@ -413,11 +432,7 @@ func (c *connection) ackUpTo(seq uint64) {
 		}
 	}
 	c.log.ack(seq)
-	if seq >= c.sent.Load() {
-		c.pendingSince.Store(0)
-	} else {
-		c.pendingSince.Store(time.Now().UnixNano()) // progress restarts the stall clock
-	}
+	c.progressAt.Store(time.Now().UnixNano()) // progress restarts the stall clock
 }
 
 func (c *connection) deliverAck(m streaming.AckMessage) {
@@ -526,7 +541,7 @@ func (c *connection) beginMission(build func(seq uint64) ([]byte, error), resume
 	c.log.reset(sp)
 	c.acked.Store(0)
 	c.sent.Store(0)
-	c.pendingSince.Store(0)
+	c.progressAt.Store(time.Now().UnixNano())
 	var start []byte
 	if _, err := c.log.append(func(seq uint64) ([]byte, error) {
 		data, err := build(seq)
@@ -564,7 +579,7 @@ func (c *connection) endMission() {
 	c.resumable = false
 	c.mu.Unlock()
 	c.log.reset(nil)
-	c.pendingSince.Store(0)
+	c.progressAt.Store(time.Now().UnixNano())
 }
 
 // send logs one envelope; build receives its sequence number.
