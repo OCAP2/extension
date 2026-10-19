@@ -127,17 +127,39 @@ mission, and resends what the web service did not receive. Resent messages keep
 their capture frames, so the timeline is unaffected. The proxy stops
 reconnecting only when the web service rejects the secret (HTTP 401/403).
 
+Every message is also spooled to disk until the web service saves the mission.
+If the web service lost the mission (for example it restarted mid-mission),
+the proxy resends the whole mission from the spool, and the web service
+replaces the partial segment with the complete recording. During a long outage
+memory keeps the newest messages and the rest are resent from the spool. The
+spool is deleted once the mission is saved. It is kept on disk if the save is
+not confirmed.
+
+```json
+"storage": {
+  "type": "websocket",
+  "websocket": { "bufferMB": 256, "spoolDir": "./ocapspool", "spoolMaxMB": 4096 }
+}
+```
+
+`spoolDir` is relative to the Arma server's working directory, like
+`memory.outputDir`; empty disables spooling. `spoolMaxMB` limits the disk used
+per mission (0 = unlimited). Once the limit is reached, spooling stops for that
+mission, and a later full resend is partial.
+
 With an older web service, a reconnect replays mission metadata and the web
 service saves the received segments as partial recordings, as before. A full
 buffer and a closed proxy are returned as recording errors.
 
 Integration tests exercise the real proxy against a disposable local web server
 with streaming enabled. `TestWebResumeIntegration` cuts the connection three
-times mid-mission and expects one complete recording:
+times mid-mission and expects one complete recording. `TestWebRestartIntegration`
+also needs `OCAP_TEST_WEB_RESTART_CMD`, a shell command that restarts the web
+server; it restarts the server mid-mission and expects one complete recording:
 
 ```sh
 OCAP_TEST_WEB_URL=http://127.0.0.1:5000 OCAP_TEST_WEB_SECRET=same-secret \
-  go test ./internal/storage/websocket -run 'TestWebIngestionIntegration|TestWebResumeIntegration' -count=1 -v
+  go test ./internal/storage/websocket -run 'TestWeb' -count=1 -v
 ```
 
 Copy `ocap_recorder.cfg.json.example` to `ocap_recorder.cfg.json` alongside the DLL and edit as needed.

@@ -27,7 +27,7 @@ type resumeServer struct {
 	missions map[string]*fakeMission
 	conns    map[*ws.Conn]string // live connection → mission id ("" before start/resume)
 
-	discard   atomic.Bool // read envelopes but drop them, as if lost in transit
+	discard   atomic.Bool // drop envelopes as if lost in transit; the link stays dead
 	noAck     atomic.Bool // never send cumulative acks
 	dropEnd   atomic.Bool // save end_mission, then close without acknowledging it
 	resumes   atomic.Int32
@@ -73,6 +73,7 @@ func (rs *resumeServer) serve(c *ws.Conn) {
 	}()
 
 	var m *fakeMission
+	dead := false // a link that started losing data never delivers again, as with TCP
 	for {
 		_, raw, err := c.ReadMessage()
 		if err != nil {
@@ -82,8 +83,13 @@ func (rs *resumeServer) serve(c *ws.Conn) {
 		if json.Unmarshal(raw, &env) != nil {
 			continue
 		}
-		if rs.discard.Load() && env.Type != streaming.TypeResume && env.Type != streaming.TypeStartMission {
-			continue
+		if env.Type != streaming.TypeResume && env.Type != streaming.TypeStartMission {
+			if rs.discard.Load() {
+				dead = true
+			}
+			if dead {
+				continue
+			}
 		}
 
 		switch env.Type {

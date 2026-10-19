@@ -23,6 +23,11 @@ type logEntry struct {
 //
 // Each socket's writer keeps its own cursor into the log, so a replacement
 // connection can resend whatever the server did not acknowledge.
+//
+// With a spool, every envelope is also kept on disk for the whole mission.
+// Memory then holds the newest envelopes only: when it is full the oldest are
+// dropped from memory instead of refusing new ones, and a writer whose cursor
+// is behind memory reads from the spool.
 type outboundLog struct {
 	mu       sync.Mutex
 	entries  []logEntry // ascending seq; holes where an append was rejected
@@ -32,21 +37,33 @@ type outboundLog struct {
 	epoch    uint64        // bumped by reset so writers drop stale cursors
 	changed  chan struct{} // closed and replaced by every append and reset
 	rejected uint64        // envelopes refused because the log was full
+	evicted  uint64        // envelopes dropped from memory, kept in the spool
+	spool    *spool        // nil without spooling
 }
 
 func newOutboundLog(maxBytes int) *outboundLog {
 	return &outboundLog{maxBytes: maxBytes, nextSeq: 1, changed: make(chan struct{})}
 }
 
-// reset discards everything held and numbers the next envelope 1.
-func (l *outboundLog) reset() {
+// reset discards everything held and numbers the next envelope 1. sp, when
+// not nil, spools the new mission.
+func (l *outboundLog) reset(sp *spool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.entries = nil
 	l.bytes = 0
 	l.nextSeq = 1
 	l.epoch++
+	l.evicted = 0
+	l.spool = sp
 	l.notifyLocked()
+}
+
+// currentSpool returns the mission's spool, or nil.
+func (l *outboundLog) currentSpool() *spool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.spool
 }
 
 // append numbers one envelope and stores it. build receives the sequence
@@ -60,14 +77,30 @@ func (l *outboundLog) append(build func(seq uint64) ([]byte, error)) (uint64, er
 		return 0, err
 	}
 	l.nextSeq++
+	spooled := l.spool != nil && l.spool.append(seq, data) == nil
 	if l.maxBytes > 0 && l.bytes+len(data) > l.maxBytes {
-		l.rejected++
-		return seq, errBufferFull
+		if !spooled {
+			l.rejected++
+			return seq, errBufferFull
+		}
+		l.evictLocked(len(data))
 	}
 	l.entries = append(l.entries, logEntry{seq: seq, data: data})
 	l.bytes += len(data)
 	l.notifyLocked()
 	return seq, nil
+}
+
+// evictLocked drops the oldest entries from memory until need more bytes fit.
+// They stay in the spool.
+func (l *outboundLog) evictLocked(need int) {
+	i := 0
+	for i < len(l.entries) && l.bytes+need > l.maxBytes {
+		l.bytes -= len(l.entries[i].data)
+		i++
+	}
+	l.evicted += uint64(i)
+	l.entries = append([]logEntry(nil), l.entries[i:]...)
 }
 
 // ack discards every entry numbered seq or lower.
@@ -92,10 +125,28 @@ func (l *outboundLog) ack(seq uint64) {
 // after returns the entries numbered above seq, the current epoch, and a
 // channel that is closed by the next append or reset. The returned entries
 // are never modified, so the caller may read them without the lock.
+//
+// Entries no longer in memory come from the spool, a batch at a time. If the
+// spool cannot provide them, the entries still in memory follow and the
+// server sees the gap.
 func (l *outboundLog) after(seq uint64) ([]logEntry, uint64, <-chan struct{}) {
 	l.mu.Lock()
-	defer l.mu.Unlock()
 	i := sort.Search(len(l.entries), func(i int) bool { return l.entries[i].seq > seq })
+	first := l.nextSeq // the first entry held in memory above seq
+	if i < len(l.entries) {
+		first = l.entries[i].seq
+	}
+	if sp := l.spool; sp != nil && seq+1 < first {
+		epoch, changed := l.epoch, l.changed
+		l.mu.Unlock()
+		disk, err := sp.read(seq+1, first-1, spoolReadBatch)
+		if err == nil && len(disk) > 0 {
+			return disk, epoch, changed
+		}
+		l.mu.Lock()
+		i = sort.Search(len(l.entries), func(i int) bool { return l.entries[i].seq > seq })
+	}
+	defer l.mu.Unlock()
 	return l.entries[i:len(l.entries):len(l.entries)], l.epoch, l.changed
 }
 
@@ -118,6 +169,13 @@ func (l *outboundLog) stats() (entries, bytes int, rejected uint64) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return len(l.entries), l.bytes, l.rejected
+}
+
+// evictedCount reports how many envelopes were dropped from memory into the spool.
+func (l *outboundLog) evictedCount() uint64 {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.evicted
 }
 
 func (l *outboundLog) notifyLocked() {

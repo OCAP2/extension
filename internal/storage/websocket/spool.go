@@ -1,0 +1,267 @@
+package websocket
+
+import (
+	"bufio"
+	"encoding/binary"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
+)
+
+const (
+	spoolFlushInterval = time.Second
+	spoolReadBatch     = 4 << 20 // bytes returned by one read
+	spoolHeaderBytes   = 12      // seq (8) + length (4)
+)
+
+// spoolSegmentBytes is the size past which a segment file is rotated; tests
+// lower it.
+var spoolSegmentBytes int64 = 64 << 20
+
+var errSpoolFull = errors.New("websocket spool full")
+
+// spoolSegment is one append-only file of consecutive records.
+type spoolSegment struct {
+	firstSeq uint64
+	path     string
+}
+
+// spool keeps every envelope of a mission on disk until the server has saved
+// the mission. The outbound log holds envelopes in memory only until they are
+// acknowledged; the spool lets a producer resend the whole mission when the
+// server lost it, and holds what does not fit in memory during long outages.
+//
+// A record is the envelope's sequence number (8 bytes, big endian), its
+// length (4 bytes, big endian) and the envelope.
+type spool struct {
+	mu       sync.Mutex
+	dir      string
+	segments []spoolSegment
+	file     *os.File
+	w        *bufio.Writer
+	segBytes int64
+	total    int64
+	maxBytes int64
+	lastSeq  uint64
+	failed   error // set once a write fails; nothing more is spooled
+	done     chan struct{}
+	closed   bool
+	logger   *slog.Logger
+}
+
+// openSpool creates the spool directory for one mission. maxBytes <= 0 means
+// no size limit.
+func openSpool(dir string, maxBytes int64, logger *slog.Logger) (*spool, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, fmt.Errorf("create spool dir: %w", err)
+	}
+	s := &spool{dir: dir, maxBytes: maxBytes, done: make(chan struct{}), logger: logger}
+	go s.flushLoop()
+	return s, nil
+}
+
+func (s *spool) flushLoop() {
+	ticker := time.NewTicker(spoolFlushInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			s.mu.Lock()
+			s.flushLocked()
+			s.mu.Unlock()
+		case <-s.done:
+			return
+		}
+	}
+}
+
+// healthy reports whether every appended record is on disk (or will be).
+func (s *spool) healthy() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.failed == nil && !s.closed
+}
+
+// append stores one record. After the first failure it keeps returning that
+// failure: the spool then misses records and cannot be used for a replay.
+func (s *spool) append(seq uint64, data []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return errConnectionClosed
+	}
+	if s.failed != nil {
+		return s.failed
+	}
+	size := int64(spoolHeaderBytes + len(data))
+	if s.maxBytes > 0 && s.total+size > s.maxBytes {
+		return s.failLocked(errSpoolFull)
+	}
+	if s.file == nil || s.segBytes+size > spoolSegmentBytes {
+		if err := s.rotateLocked(seq); err != nil {
+			return s.failLocked(err)
+		}
+	}
+	var header [spoolHeaderBytes]byte
+	binary.BigEndian.PutUint64(header[:8], seq)
+	binary.BigEndian.PutUint32(header[8:], uint32(len(data)))
+	if _, err := s.w.Write(header[:]); err != nil {
+		return s.failLocked(err)
+	}
+	if _, err := s.w.Write(data); err != nil {
+		return s.failLocked(err)
+	}
+	s.segBytes += size
+	s.total += size
+	s.lastSeq = seq
+	return nil
+}
+
+func (s *spool) failLocked(err error) error {
+	s.failed = err
+	s.logger.Error("WebSocket spool stopped; a full resend of this mission is no longer possible", "dir", s.dir, "error", err)
+	return err
+}
+
+func (s *spool) rotateLocked(firstSeq uint64) error {
+	if s.file != nil {
+		if err := s.w.Flush(); err != nil {
+			return err
+		}
+		if err := s.file.Close(); err != nil {
+			return err
+		}
+	}
+	path := filepath.Join(s.dir, fmt.Sprintf("%020d.seg", firstSeq))
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	s.file = f
+	s.w = bufio.NewWriterSize(f, 256<<10)
+	s.segBytes = 0
+	s.segments = append(s.segments, spoolSegment{firstSeq: firstSeq, path: path})
+	return nil
+}
+
+func (s *spool) flushLocked() {
+	if s.w == nil || s.failed != nil || s.closed {
+		return
+	}
+	if err := s.w.Flush(); err != nil {
+		s.failLocked(err)
+	}
+}
+
+// read returns the records numbered from..to, up to about maxBytes of
+// envelopes. It fails if the spool cannot provide them.
+func (s *spool) read(from, to uint64, maxBytes int) ([]logEntry, error) {
+	s.mu.Lock()
+	if s.failed != nil {
+		err := s.failed
+		s.mu.Unlock()
+		return nil, err
+	}
+	s.flushLocked()
+	if to > s.lastSeq {
+		to = s.lastSeq
+	}
+	var paths []string
+	for i, seg := range s.segments {
+		next := uint64(0)
+		if i+1 < len(s.segments) {
+			next = s.segments[i+1].firstSeq
+		}
+		if next != 0 && next <= from {
+			continue // the whole segment precedes the range
+		}
+		if seg.firstSeq > to {
+			break
+		}
+		paths = append(paths, seg.path)
+	}
+	s.mu.Unlock()
+
+	var out []logEntry
+	bytes := 0
+	for _, path := range paths {
+		done, err := readSegment(path, from, to, maxBytes, &out, &bytes)
+		if err != nil {
+			return nil, fmt.Errorf("read spool %s: %w", filepath.Base(path), err)
+		}
+		if done {
+			break
+		}
+	}
+	return out, nil
+}
+
+// readSegment appends the segment's records numbered from..to to out. It
+// reports true once to is reached or maxBytes is exceeded.
+func readSegment(path string, from, to uint64, maxBytes int, out *[]logEntry, bytes *int) (bool, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+	r := bufio.NewReaderSize(f, 256<<10)
+	var header [spoolHeaderBytes]byte
+	for {
+		if _, err := io.ReadFull(r, header[:]); err != nil {
+			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+				return false, nil // end of what has been flushed
+			}
+			return false, err
+		}
+		seq := binary.BigEndian.Uint64(header[:8])
+		n := binary.BigEndian.Uint32(header[8:])
+		if seq > to {
+			return true, nil
+		}
+		if seq < from {
+			if _, err := r.Discard(int(n)); err != nil {
+				return false, nil
+			}
+			continue
+		}
+		data := make([]byte, n)
+		if _, err := io.ReadFull(r, data); err != nil {
+			return false, nil // a record still being flushed
+		}
+		*out = append(*out, logEntry{seq: seq, data: data})
+		*bytes += int(n)
+		if seq == to || *bytes >= maxBytes {
+			return true, nil
+		}
+	}
+}
+
+// close flushes and closes the spool, keeping its files.
+func (s *spool) close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return nil
+	}
+	s.closed = true
+	close(s.done)
+	if s.file == nil {
+		return nil
+	}
+	err := s.w.Flush()
+	if cerr := s.file.Close(); err == nil {
+		err = cerr
+	}
+	return err
+}
+
+// remove closes the spool and deletes its files.
+func (s *spool) remove() error {
+	_ = s.close()
+	return os.RemoveAll(s.dir)
+}

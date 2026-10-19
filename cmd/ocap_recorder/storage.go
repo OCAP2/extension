@@ -66,7 +66,15 @@ func createStorageBackend(storageCfg config.StorageConfig) (storage.Backend, err
 		if strings.TrimSpace(api.APIKey) == "" {
 			return nil, fmt.Errorf("websocket storage requires api.apiKey")
 		}
-		return websocket.New(websocket.Config{URL: httpToWS(api.ServerURL) + "/api/v1/stream", Secret: api.APIKey, SaveTimeout: api.UploadTimeout}), nil
+		ws := storageCfg.Websocket
+		return websocket.New(websocket.Config{
+			URL:           httpToWS(api.ServerURL) + "/api/v1/stream",
+			Secret:        api.APIKey,
+			SaveTimeout:   api.UploadTimeout,
+			BufferBytes:   ws.BufferMB << 20,
+			SpoolDir:      ws.SpoolDir,
+			SpoolMaxBytes: int64(ws.SpoolMaxMB) << 20,
+		}), nil
 
 	default:
 		return nil, fmt.Errorf("unknown storage type %q", storageCfg.Type)

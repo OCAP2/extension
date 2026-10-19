@@ -13,6 +13,17 @@ type MemoryConfig struct {
 	CompressOutput bool   `json:"compressOutput" mapstructure:"compressOutput"`
 }
 
+// WebsocketConfig holds WebSocket streaming backend settings
+type WebsocketConfig struct {
+	// BufferMB is the memory for messages the web server has not acknowledged.
+	BufferMB int `json:"bufferMB" mapstructure:"bufferMB"`
+	// SpoolDir keeps each mission on disk until the web server saves it, so it
+	// can be resent in full if the server lost it. Empty disables spooling.
+	SpoolDir string `json:"spoolDir" mapstructure:"spoolDir"`
+	// SpoolMaxMB limits the disk used per mission; 0 means unlimited.
+	SpoolMaxMB int `json:"spoolMaxMB" mapstructure:"spoolMaxMB"`
+}
+
 // SQLiteConfig holds SQLite storage backend settings
 type SQLiteConfig struct {
 	DumpInterval time.Duration `json:"dumpInterval" mapstructure:"dumpInterval"`
@@ -53,6 +64,9 @@ func Load(configDir string) error {
 	viper.SetDefault("storage.type", "memory")
 	viper.SetDefault("storage.memory.outputDir", "./recordings")
 	viper.SetDefault("storage.memory.compressOutput", true)
+	viper.SetDefault("storage.websocket.bufferMB", 256)
+	viper.SetDefault("storage.websocket.spoolDir", "./ocapspool")
+	viper.SetDefault("storage.websocket.spoolMaxMB", 4096)
 	viper.SetDefault("storage.sqlite.dumpInterval", "3m")
 	viper.SetDefault("storage.postgres.host", "localhost")
 	viper.SetDefault("storage.postgres.port", "5432")
@@ -96,8 +110,9 @@ func GetBool(key string) bool {
 
 // StorageConfig holds storage backend configuration
 type StorageConfig struct {
-	Type     string         `json:"type" mapstructure:"type"`
-	Memory   MemoryConfig   `json:"memory" mapstructure:"memory"`
+	Type      string          `json:"type" mapstructure:"type"`
+	Memory    MemoryConfig    `json:"memory" mapstructure:"memory"`
+	Websocket WebsocketConfig `json:"websocket" mapstructure:"websocket"`
 	SQLite   SQLiteConfig   `json:"sqlite" mapstructure:"sqlite"`
 	Postgres PostgresConfig `json:"postgres" mapstructure:"postgres"`
 }

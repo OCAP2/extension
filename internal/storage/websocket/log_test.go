@@ -86,7 +86,7 @@ func TestOutboundLogResetStartsNewEpoch(t *testing.T) {
 	l := newOutboundLog(0)
 	appendN(t, l, 3)
 	_, epoch, _ := l.after(0)
-	l.reset()
+	l.reset(nil)
 	appendN(t, l, 1)
 	entries, epoch2, _ := l.after(0)
 	assert.NotEqual(t, epoch, epoch2)

@@ -522,7 +522,7 @@ func TestBufferFullRejectsEnvelope(t *testing.T) {
 	// Start without an ack: mark the mission active by hand.
 	require.NoError(t, b.conn.beginMission(func(seq uint64) ([]byte, error) {
 		return marshalEnvelope(streaming.TypeStartMission, streaming.StartMissionPayload{Mission: &core.Mission{}, World: &core.World{}}, seq)
-	}, nil))
+	}, nil, nil))
 	b.conn.setResumable(true) // retain everything until acknowledged
 	b.mu.Lock()
 	b.active = true

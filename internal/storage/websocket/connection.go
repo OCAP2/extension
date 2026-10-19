@@ -228,10 +228,16 @@ func (c *connection) handshake(conn *ws.Conn) (uint64, uint64, error) {
 		return c.log.lastSeq(), epoch, nil
 
 	default: // resume_unknown
-		// The server lost the mission (for example it restarted). Start a new
-		// segment; envelopes it never acknowledged follow, and the server marks
-		// the numbering gap as partial.
-		c.logger.Warn("WebSocket server lost the mission, starting a new segment")
+		// The server lost the mission (for example it restarted or the grace
+		// period expired). Start it again. With a healthy spool every envelope
+		// is resent and the server replaces the partial segments it saved;
+		// without one, only the envelopes it never acknowledged follow, and the
+		// numbering gap marks the new recording partial.
+		if sp := c.log.currentSpool(); sp != nil && sp.healthy() {
+			c.logger.Warn("WebSocket server lost the mission, resending it in full from the spool")
+		} else {
+			c.logger.Warn("WebSocket server lost the mission, starting a new segment")
+		}
 		if err := writeData(conn, start); err != nil {
 			return 0, 0, err
 		}
@@ -240,7 +246,9 @@ func (c *connection) handshake(conn *ws.Conn) (uint64, uint64, error) {
 		}); err != nil {
 			return 0, 0, fmt.Errorf("restart mission: %w", err)
 		}
-		c.ackUpTo(1)
+		// Acknowledgements now count from the new session's start.
+		c.acked.Store(1)
+		c.pendingSince.Store(0)
 		return 1, epoch, nil
 	}
 }
@@ -487,11 +495,12 @@ func jitter(d time.Duration) time.Duration {
 }
 
 // beginMission resets the log for a new mission and logs its start_mission
-// envelope as seq 1. resume is the envelope a replacement connection sends.
-func (c *connection) beginMission(build func(seq uint64) ([]byte, error), resume []byte) error {
+// envelope as seq 1. resume is the envelope a replacement connection sends;
+// sp, when not nil, keeps the mission on disk.
+func (c *connection) beginMission(build func(seq uint64) ([]byte, error), resume []byte, sp *spool) error {
 	c.startMu.Lock()
 	defer c.startMu.Unlock()
-	c.log.reset()
+	c.log.reset(sp)
 	c.acked.Store(0)
 	c.sent.Store(0)
 	c.pendingSince.Store(0)

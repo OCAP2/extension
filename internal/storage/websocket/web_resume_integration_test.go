@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"testing"
@@ -148,4 +149,72 @@ func TestWebResumeIntegration(t *testing.T) {
 		t.Logf("stored recording %s", op.Filename)
 	}
 	require.Equal(t, 1, found, "the outages must not split the recording")
+}
+
+// TestWebRestartIntegration restarts the web server mid-mission with
+// OCAP_TEST_WEB_RESTART_CMD (run through the shell). The server loses the
+// session; the extension resends the mission in full from its spool and the
+// web server must end up with one complete recording.
+func TestWebRestartIntegration(t *testing.T) {
+	base := os.Getenv("OCAP_TEST_WEB_URL")
+	restart := os.Getenv("OCAP_TEST_WEB_RESTART_CMD")
+	if base == "" || restart == "" {
+		t.Skip("set OCAP_TEST_WEB_URL and OCAP_TEST_WEB_RESTART_CMD to restart a disposable local web server")
+	}
+	cfg := fastConfig(strings.Replace(base, "http", "ws", 1) + "/api/v1/stream")
+	cfg.Secret = os.Getenv("OCAP_TEST_WEB_SECRET")
+	cfg.SaveTimeout = time.Minute
+	cfg.ReconnectMax = 500 * time.Millisecond
+	cfg.AckStallTimeout = 5 * time.Second // the web server acknowledges every second
+	cfg.SpoolDir = t.TempDir()
+	b := New(cfg)
+	require.NoError(t, b.Init())
+	defer b.Close()
+
+	name := fmt.Sprintf("Restart Integration %d", time.Now().UnixNano())
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: name, CaptureDelay: 1, Tag: "restart-test"}, &core.World{WorldName: "altis"}))
+	require.True(t, b.conn.isResumable())
+	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 1, JoinFrame: 1, UnitName: "Restart Player", IsPlayer: true, Side: "WEST"}))
+	state := func(frame int) {
+		require.NoError(t, b.RecordSoldierState(&core.SoldierState{SoldierID: 1, CaptureFrame: core.Frame(frame), Lifestate: 1, IsPlayer: true, UnitName: "Restart Player", Side: "WEST", Position: core.Position3D{X: float64(frame), Y: 200}}))
+	}
+	for f := 1; f <= 300; f++ {
+		state(f)
+	}
+	// Everything so far is acknowledged, so it lives only in the spool.
+	require.Eventually(t, func() bool { return b.conn.acked.Load() == 302 }, 10*time.Second, 10*time.Millisecond)
+
+	// No output capture: the restarted server would inherit the pipe and keep
+	// the test's I/O open. A failing command still fails the test.
+	require.NoError(t, exec.Command("sh", "-c", restart).Run(), "restart command")
+	for f := 301; f <= 600; f++ {
+		state(f)
+	}
+	require.NoError(t, b.EndMission(""))
+
+	resp, err := http.Get(base + "/api/v1/operations")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	var ops []struct {
+		Name     string  `json:"mission_name"`
+		Filename string  `json:"filename"`
+		Tag      string  `json:"tag"`
+		Status   string  `json:"conversionStatus"`
+		Chunks   int     `json:"chunkCount"`
+		Duration float64 `json:"mission_duration"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&ops))
+	var found int
+	for _, op := range ops {
+		if op.Name != name {
+			continue
+		}
+		found++
+		require.Equal(t, "restart-test", op.Tag, "the resent recording is complete")
+		require.Equal(t, "completed", op.Status)
+		require.Equal(t, 2, op.Chunks, "600 frames in 300-frame chunks")
+		require.InDelta(t, 600, op.Duration, 1)
+		t.Logf("stored recording %s", op.Filename)
+	}
+	require.Equal(t, 1, found, "the interrupted segment is replaced by the complete recording")
 }

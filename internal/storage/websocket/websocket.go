@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -24,6 +25,12 @@ type Config struct {
 	AckStallTimeout time.Duration // written envelopes unacknowledged this long mean a dead socket (20s)
 	ReconnectMin    time.Duration // first reconnect delay (1s)
 	ReconnectMax    time.Duration // reconnect delay ceiling (30s)
+
+	// SpoolDir keeps each mission on disk under SpoolDir/<missionId> until
+	// the server saves it, so the mission can be resent in full when the
+	// server lost it. Empty disables spooling.
+	SpoolDir      string
+	SpoolMaxBytes int64 // disk limit per mission; <= 0 means unlimited
 }
 
 func (cfg Config) connOptions() connOptions {
@@ -79,6 +86,9 @@ func (b *Backend) Close() error {
 	b.mu.Lock()
 	conn := b.conn
 	b.mu.Unlock()
+	if sp := conn.log.currentSpool(); sp != nil {
+		_ = sp.close() // an unfinished mission stays on disk
+	}
 	return conn.close()
 }
 
@@ -184,10 +194,21 @@ func (b *Backend) StartMission(mission *core.Mission, world *core.World) error {
 		return err
 	}
 
+	var sp *spool
+	if b.cfg.SpoolDir != "" {
+		sp, err = openSpool(filepath.Join(b.cfg.SpoolDir, missionID), b.cfg.SpoolMaxBytes, slog.Default())
+		if err != nil {
+			slog.Default().Warn("WebSocket spool unavailable; recording without it", "error", err)
+		}
+	}
+
 	conn.drainAcks()
 	if err := conn.beginMission(func(seq uint64) ([]byte, error) {
 		return encodeEnvelope(streaming.TypeStartMission, raw, seq)
-	}, resume); err != nil {
+	}, resume, sp); err != nil {
+		if sp != nil {
+			_ = sp.remove()
+		}
 		return err
 	}
 	b.mu.Lock()
@@ -234,6 +255,18 @@ func (b *Backend) EndMission(tag string) error {
 	b.mu.Unlock()
 	conn.endMission()
 	b.nextMarkerID.Store(0)
+
+	// The spool is needed until the server has saved the mission.
+	if sp := conn.log.currentSpool(); sp != nil {
+		if err == nil {
+			if rerr := sp.remove(); rerr != nil {
+				slog.Default().Warn("WebSocket spool not removed", "dir", sp.dir, "error", rerr)
+			}
+		} else {
+			_ = sp.close()
+			slog.Default().Warn("WebSocket mission not confirmed by the server; spool kept", "dir", sp.dir, "error", err)
+		}
+	}
 
 	return err
 }

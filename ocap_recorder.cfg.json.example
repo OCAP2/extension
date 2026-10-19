@@ -13,6 +13,11 @@
       "outputDir": "./recordings",
       "compressOutput": true
     },
+    "websocket": {
+      "bufferMB": 256,
+      "spoolDir": "./ocapspool",
+      "spoolMaxMB": 4096
+    },
     "sqlite": {
       "dumpInterval": "3m"
     },
