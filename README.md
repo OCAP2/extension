@@ -172,7 +172,10 @@ from the same directory:
   never recover the same mission.
 
 Spools older than seven days are discarded. A web service without resume
-support cannot take recovered missions: their spools stay on disk.
+support cannot take recovered missions: their spools stay on disk, and the
+proxy asks again only every 30 minutes instead of every minute. As soon as a
+mission start shows that the web service supports resume (it was upgraded),
+the waiting spools are recovered.
 
 While a mission records, the stream's state is logged every minute. The log
 line lists messages sent and acknowledged, the memory buffer, messages moved

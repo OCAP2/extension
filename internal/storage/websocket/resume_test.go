@@ -30,6 +30,7 @@ type resumeServer struct {
 	discard   atomic.Bool // drop envelopes as if lost in transit; the link stays dead
 	noAck     atomic.Bool // never send cumulative acks
 	dropEnd   atomic.Bool // save end_mission, then close without acknowledging it
+	legacy    atomic.Bool // behave like a web server without resume support
 	resumes   atomic.Int32
 	starts    atomic.Int32
 	conns2ndP atomic.Int32 // connections that began with resume
@@ -108,7 +109,11 @@ func (rs *resumeServer) serve(c *ws.Conn) {
 			m.received = append(m.received, env)
 			rs.conns[c] = p.MissionID
 			rs.mu.Unlock()
-			if c.WriteJSON(streaming.AckMessage{Type: streaming.ServerAck, For: env.Type, Seq: env.Seq, ProtocolVersion: streaming.ProtocolVersionResume}) != nil {
+			ack := streaming.AckMessage{Type: streaming.ServerAck, For: env.Type, Seq: env.Seq, ProtocolVersion: streaming.ProtocolVersionResume}
+			if rs.legacy.Load() {
+				ack = streaming.AckMessage{Type: streaming.ServerAck, For: env.Type}
+			}
+			if c.WriteJSON(ack) != nil {
 				return
 			}
 
@@ -116,6 +121,9 @@ func (rs *resumeServer) serve(c *ws.Conn) {
 			var p streaming.ResumePayload
 			require.NoError(rs.t, json.Unmarshal(env.Payload, &p))
 			rs.resumes.Add(1)
+			if rs.legacy.Load() {
+				continue // an older server ignores resume
+			}
 			rs.conns2ndP.Add(1)
 			rs.mu.Lock()
 			m = rs.missions[p.MissionID]

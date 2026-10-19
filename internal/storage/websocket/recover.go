@@ -26,6 +26,9 @@ var (
 	// spoolStaleAfter is how long a spool's live file may go untouched before
 	// its process is presumed dead; tests lower it.
 	spoolStaleAfter = 2 * time.Minute
+	// recoveryUnsupportedPause is how long recovery waits after a server that
+	// does not answer resume; a resumable mission start ends it sooner.
+	recoveryUnsupportedPause = 30 * time.Minute
 	// errRecoveryUnsupported means the server does not answer resume.
 	errRecoveryUnsupported = errors.New("server does not support mission recovery")
 	// errSpoolDiscarded means the spool holds nothing recoverable and is deleted.
@@ -44,12 +47,28 @@ func (b *Backend) recoveryLoop(done <-chan struct{}) {
 		interval = defaultRecoveryInterval
 	}
 	for {
-		b.recoverSpools(done)
+		if paused := b.recoveryPausedUntil.Load(); paused == 0 || time.Now().UnixNano() >= paused {
+			b.recoverSpools(done)
+		}
 		select {
 		case <-done:
 			return
+		case <-b.recoveryWake:
 		case <-time.After(interval):
 		}
+	}
+}
+
+// resumeRecovery lifts a pause set because the server could not take
+// recovered missions, once a mission start shows it now can.
+func (b *Backend) resumeRecovery() {
+	if b.recoveryPausedUntil.Swap(0) == 0 {
+		return
+	}
+	b.logger().Info("WebSocket server supports mission recovery; recovering spooled missions")
+	select {
+	case b.recoveryWake <- struct{}{}:
+	default:
 	}
 }
 
@@ -88,7 +107,10 @@ func (b *Backend) recoverSpools(done <-chan struct{}) {
 			_ = os.RemoveAll(dir)
 		case errors.Is(err, errRecoveryUnsupported):
 			releaseSpool(dir)
-			b.logger().Warn("WebSocket server cannot recover missions; spool kept", "dir", dir)
+			// Asking an older server every minute only fills both logs.
+			b.recoveryPausedUntil.Store(time.Now().Add(recoveryUnsupportedPause).UnixNano())
+			b.logger().Warn("WebSocket server cannot recover missions; spools kept until it is upgraded",
+				"dir", dir, "retryIn", recoveryUnsupportedPause)
 			return // the same server cannot take the others either
 		default:
 			releaseSpool(dir)

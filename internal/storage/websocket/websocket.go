@@ -73,6 +73,11 @@ type Backend struct {
 	// Totals of connections replaced between missions; see Stats.
 	reconnects, resumes, restarts atomic.Uint64
 	recovered                     atomic.Uint64 // missions recovered from the spool
+
+	// recoveryPausedUntil (unix nanos, 0 = not paused) holds off recovery
+	// after a server without resume support; recoveryWake ends it early.
+	recoveryPausedUntil atomic.Int64
+	recoveryWake        chan struct{}
 }
 
 // New creates a new WebSocket storage backend.
@@ -82,6 +87,8 @@ func New(cfg Config) *Backend {
 		cfg:        cfg,
 		producerID: newID(),
 		done:       make(chan struct{}),
+
+		recoveryWake: make(chan struct{}, 1),
 	}
 }
 
@@ -265,6 +272,7 @@ func (b *Backend) StartMission(mission *core.Mission, world *core.World) error {
 	conn.setResumable(resumable)
 	if resumable {
 		conn.ackUpTo(max(ack.Seq, 1))
+		b.resumeRecovery()
 	}
 	slog.Default().Info("WebSocket mission started", "missionId", missionID, "resumable", resumable)
 	return nil

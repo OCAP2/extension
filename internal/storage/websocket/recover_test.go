@@ -307,3 +307,49 @@ func writeTestSpool(t *testing.T, dir, missionID, producerID string, n int) {
 	}
 	require.NoError(t, sp.close())
 }
+
+func TestRecoveryPausesForServerWithoutResume(t *testing.T) {
+	fastRecovery(t)
+	oldHandshake, oldPause := handshakeTimeout, recoveryUnsupportedPause
+	handshakeTimeout, recoveryUnsupportedPause = 100*time.Millisecond, time.Hour
+	t.Cleanup(func() { handshakeTimeout, recoveryUnsupportedPause = oldHandshake, oldPause })
+
+	rs := newResumeServer(t)
+	rs.legacy.Store(true)
+	spoolDir := t.TempDir()
+	writeTestSpool(t, filepath.Join(spoolDir, "m-left"), "m-left", "p-old", 3)
+
+	b := New(recoveryConfig(rs.url(), spoolDir)) // checks every 50ms
+	require.NoError(t, b.Init())
+	defer b.Close()
+
+	require.Eventually(t, func() bool { return rs.resumes.Load() == 1 }, 2*time.Second, 10*time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
+	assert.Equal(t, int32(1), rs.resumes.Load(), "an older server is not asked again every interval")
+	assert.DirExists(t, filepath.Join(spoolDir, "m-left"))
+
+	// The web server is upgraded; the next mission start shows it.
+	rs.legacy.Store(false)
+	startResumable(t, b)
+	require.Eventually(t, func() bool { return rs.mission("m-left").completed }, 5*time.Second, 10*time.Millisecond,
+		"recovery resumes as soon as the server supports it")
+	require.Eventually(t, func() bool { _, err := os.Stat(filepath.Join(spoolDir, "m-left")); return os.IsNotExist(err) }, 2*time.Second, 10*time.Millisecond)
+	require.NoError(t, b.EndMission(""))
+}
+
+func TestRecoveryPauseExpires(t *testing.T) {
+	fastRecovery(t)
+	oldHandshake, oldPause := handshakeTimeout, recoveryUnsupportedPause
+	handshakeTimeout, recoveryUnsupportedPause = 100*time.Millisecond, 400*time.Millisecond
+	t.Cleanup(func() { handshakeTimeout, recoveryUnsupportedPause = oldHandshake, oldPause })
+
+	rs := newResumeServer(t)
+	rs.legacy.Store(true)
+	spoolDir := t.TempDir()
+	writeTestSpool(t, filepath.Join(spoolDir, "m-left"), "m-left", "p-old", 3)
+
+	b := New(recoveryConfig(rs.url(), spoolDir))
+	require.NoError(t, b.Init())
+	defer b.Close()
+	require.Eventually(t, func() bool { return rs.resumes.Load() >= 2 }, 3*time.Second, 10*time.Millisecond, "asked again once the pause is over")
+}
