@@ -97,11 +97,11 @@ type connection struct {
 	resumeData []byte // resume envelope for this mission
 	resumable  bool   // the server acknowledged start with resume support
 
-	acked        atomic.Uint64 // highest seq the server acknowledged
-	sent         atomic.Uint64 // highest seq written on the current socket
-	resumes      atomic.Uint64 // replacement connections that resumed the mission
-	reconnects   atomic.Uint64 // replacement connections attached
-	restarts     atomic.Uint64 // replacement connections that found the mission lost by the server
+	acked      atomic.Uint64 // highest seq the server acknowledged
+	sent       atomic.Uint64 // highest seq written on the current socket
+	resumes    atomic.Uint64 // replacement connections that resumed the mission
+	reconnects atomic.Uint64 // replacement connections attached
+	restarts   atomic.Uint64 // replacement connections that found the mission lost by the server
 
 	// progressAt (unix nanos) is when the link last made progress: an
 	// acknowledgement advanced, or a write went out with nothing outstanding.
