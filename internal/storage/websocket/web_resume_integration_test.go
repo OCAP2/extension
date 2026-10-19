@@ -126,12 +126,12 @@ func TestWebResumeIntegration(t *testing.T) {
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	var ops []struct {
-		Name     string `json:"mission_name"`
-		Filename string `json:"filename"`
-		Tag      string `json:"tag"`
-		Format   string `json:"storageFormat"`
-		Status   string `json:"conversionStatus"`
-		Chunks   int    `json:"chunkCount"`
+		Name     string  `json:"mission_name"`
+		Filename string  `json:"filename"`
+		Tag      string  `json:"tag"`
+		Format   string  `json:"storageFormat"`
+		Status   string  `json:"conversionStatus"`
+		Chunks   int     `json:"chunkCount"`
 		Duration float64 `json:"mission_duration"`
 	}
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&ops))

@@ -88,6 +88,7 @@ func (m *messageLog) all() []streaming.Envelope {
 func wsURL(srv *httptest.Server) string {
 	return "ws" + strings.TrimPrefix(srv.URL, "http")
 }
+
 // --- Backend lifecycle tests ---
 
 func TestStartAndEndMission(t *testing.T) {
@@ -303,7 +304,6 @@ func TestCloseNeverDialed(t *testing.T) {
 	c := newConnection(slog.Default(), connOptions{})
 	require.NoError(t, c.close()) // conn is nil, should still succeed
 }
-
 
 // --- ack waiting edge cases ---
 
