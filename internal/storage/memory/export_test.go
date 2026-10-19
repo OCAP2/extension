@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 
@@ -1417,31 +1416,23 @@ func TestExportJSON_MkdirAllError(t *testing.T) {
 }
 
 func TestWriteJSON_CreateError(t *testing.T) {
-	// Windows permissions work differently for directories, making it hard to trigger this error via Chmod.
-	if runtime.GOOS == "windows" {
-		t.Skip("skipping test on windows: directory permissions behave differently")
-	}
+	// A directory where the file belongs makes creating it fail on every OS,
+	// unlike permission bits (ignored on Windows directories and by root).
+	path := filepath.Join(t.TempDir(), "test.json")
+	require.NoError(t, os.Mkdir(path, 0755))
 
-	dir := t.TempDir()
-	require.NoError(t, os.Chmod(dir, 0555))
-	t.Cleanup(func() { os.Chmod(dir, 0755) })
-
-	err := writeJSON(filepath.Join(dir, "test.json"), minimalMissionData())
+	err := writeJSON(path, minimalMissionData())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to create file")
 }
 
 func TestWriteGzipJSON_CreateError(t *testing.T) {
-	// Windows permissions work differently for directories, making it hard to trigger this error via Chmod.
-	if runtime.GOOS == "windows" {
-		t.Skip("skipping test on windows: directory permissions behave differently")
-	}
+	// A directory where the file belongs makes creating it fail on every OS,
+	// unlike permission bits (ignored on Windows directories and by root).
+	path := filepath.Join(t.TempDir(), "test.json.gz")
+	require.NoError(t, os.Mkdir(path, 0755))
 
-	dir := t.TempDir()
-	require.NoError(t, os.Chmod(dir, 0555))
-	t.Cleanup(func() { os.Chmod(dir, 0755) })
-
-	err := writeGzipJSON(filepath.Join(dir, "test.json.gz"), minimalMissionData())
+	err := writeGzipJSON(path, minimalMissionData())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to create file")
 }
