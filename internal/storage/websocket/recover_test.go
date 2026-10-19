@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -36,6 +39,7 @@ func crash(t *testing.T, b *Backend) {
 	require.NoError(t, sp.file.Close())
 	close(sp.done)
 	sp.closed = true
+	sp.lock.release() // what the operating system does for a dead process
 	sp.mu.Unlock()
 	b.closeOnce.Do(func() { close(b.done) })
 	b.loops.Wait()
@@ -176,13 +180,18 @@ func TestRecoveryLeavesLiveSpoolAlone(t *testing.T) {
 	defer a.Close()
 	id := startResumable(t, a)
 
-	// Another game server sharing the spool directory scans it repeatedly.
+	// Another game server sharing the spool directory scans it repeatedly,
+	// even after the live file went stale (a stalled disk, a paused VM): the
+	// writer's lock alone keeps it out.
 	b := New(recoveryConfig(rs.url(), spoolDir))
+	stale := time.Now().Add(-2 * spoolStaleAfter)
 	for range 5 {
+		require.NoError(t, os.Chtimes(filepath.Join(spoolDir, id, spoolLiveFile), stale, stale))
 		b.recoverSpools(b.done)
-		time.Sleep(spoolStaleAfter / 2)
+		time.Sleep(spoolStaleAfter / 4)
 	}
-	assert.NoDirExists(t, filepath.Join(spoolDir, id, spoolClaimDir))
+	_, err := tryLockSpool(filepath.Join(spoolDir, id))
+	assert.ErrorIs(t, err, errSpoolLocked, "the writer holds its spool")
 	assert.Equal(t, int32(0), rs.resumes.Load(), "a live mission is never recovered")
 	recordStates(t, a, 1, 3)
 	require.NoError(t, a.EndMission(""))
@@ -204,7 +213,9 @@ func TestRecoveryUnsupportedServerKeepsSpool(t *testing.T) {
 	b := New(recoveryConfig(wsURL(srv), spoolDir))
 	b.recoverSpools(b.done)
 	assert.DirExists(t, dir)
-	assert.NoDirExists(t, filepath.Join(dir, spoolClaimDir), "the claim is released for a later attempt")
+	lock, err := tryLockSpool(dir)
+	require.NoError(t, err, "the lock is released for a later attempt")
+	lock.release()
 }
 
 func TestRecoveryDiscardsUnusableSpools(t *testing.T) {
@@ -238,17 +249,100 @@ func TestRecoveryDiscardsUnusableSpools(t *testing.T) {
 	assert.Zero(t, rs.resumes.Load())
 }
 
-func TestClaimSpool(t *testing.T) {
-	fastRecovery(t)
+func TestSpoolLockIsExclusive(t *testing.T) {
 	dir := t.TempDir()
-	require.True(t, claimSpool(dir))
-	require.False(t, claimSpool(dir), "a fresh claim is respected")
+	lock, err := tryLockSpool(dir)
+	require.NoError(t, err)
+	_, err = tryLockSpool(dir)
+	require.ErrorIs(t, err, errSpoolLocked, "a held lock is respected")
+	lock.release()
+	lock.release() // idempotent
 
-	stale := time.Now().Add(-2 * spoolStaleAfter)
-	require.NoError(t, os.Chtimes(filepath.Join(dir, spoolClaimDir), stale, stale))
-	require.True(t, claimSpool(dir), "a claim left by a dead process is broken")
-	releaseSpool(dir)
-	require.True(t, claimSpool(dir))
+	lock, err = tryLockSpool(dir)
+	require.NoError(t, err, "a released lock can be taken again")
+	lock.release()
+}
+
+func TestSpoolLockConcurrentContenders(t *testing.T) {
+	// Many recoverers race for the same abandoned spool: exactly one wins,
+	// every round.
+	for round := range 20 {
+		dir := t.TempDir()
+		const contenders = 64
+		var wg sync.WaitGroup
+		var winners atomic.Int32
+		locks := make(chan *spoolLock, contenders)
+		start := make(chan struct{})
+		for range contenders {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				if l, err := tryLockSpool(dir); err == nil {
+					winners.Add(1)
+					locks <- l
+				}
+			}()
+		}
+		close(start)
+		wg.Wait()
+		close(locks)
+		require.Equal(t, int32(1), winners.Load(), "round %d", round)
+		for l := range locks {
+			l.release()
+		}
+	}
+}
+
+// TestSpoolLockHolderHelper holds a spool lock in a separate process until
+// it is killed, for TestSpoolLockReleasedWhenHolderDies.
+func TestSpoolLockHolderHelper(t *testing.T) {
+	dir := os.Getenv("OCAP_TEST_LOCK_DIR")
+	if dir == "" {
+		t.Skip("run by TestSpoolLockReleasedWhenHolderDies")
+	}
+	_, err := tryLockSpool(dir)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "held"), nil, 0o644))
+	time.Sleep(time.Minute) // killed long before
+}
+
+func TestSpoolLockReleasedWhenHolderDies(t *testing.T) {
+	dir := t.TempDir()
+	holder := exec.Command(os.Args[0], "-test.run=^TestSpoolLockHolderHelper$", "-test.count=1")
+	holder.Env = append(os.Environ(), "OCAP_TEST_LOCK_DIR="+dir)
+	require.NoError(t, holder.Start())
+	t.Cleanup(func() { _ = holder.Process.Kill(); _ = holder.Wait() })
+	require.Eventually(t, func() bool { _, err := os.Stat(filepath.Join(dir, "held")); return err == nil }, 30*time.Second, 20*time.Millisecond)
+
+	_, err := tryLockSpool(dir)
+	require.ErrorIs(t, err, errSpoolLocked, "the other process holds it")
+
+	require.NoError(t, holder.Process.Kill()) // the holder crashes
+	_ = holder.Wait()
+	lock, err := tryLockSpool(dir)
+	require.NoError(t, err, "the operating system releases a dead holder's lock")
+	lock.release()
+}
+
+func TestRecoverySkipsSpoolHeldByAnotherRecoverer(t *testing.T) {
+	fastRecovery(t)
+	rs := newResumeServer(t)
+	spoolDir := t.TempDir()
+	dir := filepath.Join(spoolDir, "m-held")
+	writeTestSpool(t, dir, "m-held", "p-old", 3)
+
+	other, err := tryLockSpool(dir) // another process is recovering it
+	require.NoError(t, err)
+	b := New(recoveryConfig(rs.url(), spoolDir))
+	b.recoverSpools(b.done)
+	assert.Zero(t, rs.resumes.Load())
+	assert.DirExists(t, dir)
+
+	other.release() // the other recoverer gave up
+	b.recoverSpools(b.done)
+	assert.True(t, rs.mission("m-held").completed)
+	assert.NoDirExists(t, dir)
 }
 
 func TestRecoverableHonorsLiveFile(t *testing.T) {

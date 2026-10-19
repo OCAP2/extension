@@ -164,12 +164,15 @@ mission:
 - A mission whose save was not confirmed is saved as recorded.
 
 Game servers can share one `spoolDir`, for example several instances started
-from the same directory:
-- A live mission refreshes a `live` file every second, and is left alone.
-- A crashed one is taken over two minutes after its `live` file stopped
-  changing.
-- A process recovering a mission holds an atomic `claim`, so two processes
-  never recover the same mission.
+from the same directory. Each spool has an operating system file lock
+(`flock` on Linux, `LockFileEx` on Windows):
+- The process recording a mission holds its lock from start to end, so its
+  live mission is never taken.
+- A process recovering a mission holds the lock while it resends, so two
+  processes never recover the same mission.
+- The operating system releases the lock of a process that dies, so a
+  crashed mission is recovered about 15 seconds later, with no stale claim
+  to wait out.
 
 Spools older than seven days are discarded. A web service without resume
 support cannot take recovered missions: their spools stay on disk, and the

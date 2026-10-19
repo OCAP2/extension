@@ -88,8 +88,10 @@ func TestSpoolLimitStopsSpooling(t *testing.T) {
 	require.ErrorIs(t, err, errSpoolFull)
 	assert.False(t, sp.healthy())
 	require.ErrorIs(t, sp.append(1000, []byte("x")), errSpoolFull, "a spool with a hole stays failed")
-	_, err = sp.read(1, 10, spoolReadBatch)
-	require.Error(t, err, "a spool that missed records cannot serve a replay")
+	// The records spooled before the limit stay readable.
+	entries, err := sp.read(1, 10, spoolReadBatch)
+	require.NoError(t, err)
+	assert.Equal(t, []uint64{1, 2, 3, 4}, seqs(entries))
 }
 
 func TestSpoolCloseKeepsAndRemoveDeletes(t *testing.T) {
@@ -99,12 +101,16 @@ func TestSpoolCloseKeepsAndRemoveDeletes(t *testing.T) {
 	spoolN(t, sp, 1, 3)
 	require.NoError(t, sp.close())
 	require.NoError(t, sp.close(), "close is idempotent")
-	files, err := os.ReadDir(dir)
+	segs, _, err := spoolSegments(dir)
 	require.NoError(t, err)
-	require.Len(t, files, 1)
-	info, err := files[0].Info()
+	require.Len(t, segs, 1)
+	info, err := os.Stat(segs[0])
 	require.NoError(t, err)
 	assert.Positive(t, info.Size(), "close flushes")
+	assert.NoFileExists(t, filepath.Join(dir, spoolLiveFile))
+	lock, err := tryLockSpool(dir)
+	require.NoError(t, err, "close releases the spool lock")
+	lock.release()
 	require.ErrorIs(t, sp.append(4, []byte("x")), errConnectionClosed)
 
 	require.NoError(t, sp.remove())
@@ -165,16 +171,78 @@ func TestOutboundLogReplaysAcknowledgedFromSpool(t *testing.T) {
 	assert.Equal(t, []uint64{2, 3, 4, 5}, seqs(entries))
 }
 
-func TestOutboundLogFailedSpoolFallsBackToMemory(t *testing.T) {
-	sp := newTestSpool(t, 30)
+func TestOutboundLogUnreadableSpoolFallsBackToMemory(t *testing.T) {
+	sp := newTestSpool(t, 0)
 	l := newOutboundLog(0)
 	l.reset(sp)
-	appendN(t, l, 5) // the spool fills up after a couple of entries
-	require.False(t, sp.healthy())
+	appendN(t, l, 5)
 	l.ack(2)
+	require.NoError(t, sp.close())
+	require.NoError(t, os.RemoveAll(sp.dir)) // the spool's files are gone
 
 	entries, _, _ := l.after(0)
 	assert.Equal(t, []uint64{3, 4, 5}, seqs(entries), "memory still serves what it holds")
+}
+
+// appendSized appends n envelopes of 10 bytes each.
+func appendSized(t *testing.T, l *outboundLog, n int) []error {
+	t.Helper()
+	var errs []error
+	for range n {
+		_, err := l.append(func(seq uint64) ([]byte, error) { return fmt.Appendf(nil, "env-%06d", seq), nil })
+		errs = append(errs, err)
+	}
+	return errs
+}
+
+// readAll follows the log from cursor like a writer does.
+func readAll(l *outboundLog, cursor uint64) []uint64 {
+	var got []uint64
+	for range 100 {
+		entries, _, _ := l.after(cursor)
+		if len(entries) == 0 {
+			return got
+		}
+		for _, e := range entries {
+			got = append(got, e.seq)
+			cursor = e.seq
+		}
+	}
+	return got
+}
+
+func TestOutboundLogKeepsSpooledPrefixWhenSpoolFills(t *testing.T) {
+	// Memory for two 10-byte envelopes; a spool for exactly four records.
+	sp := newTestSpool(t, 4*(spoolHeaderBytes+10))
+	l := newOutboundLog(20)
+	l.reset(sp)
+	for i, err := range appendSized(t, l, 4) {
+		require.NoError(t, err, "envelope %d", i+1)
+	}
+	require.Equal(t, uint64(2), l.evictedCount(), "1 and 2 live only in the spool")
+	assert.Equal(t, []uint64{1, 2, 3, 4}, readAll(l, 0))
+
+	// The fifth envelope fills the spool: it is refused, nothing else is lost.
+	errs := appendSized(t, l, 1)
+	require.ErrorIs(t, errs[0], errBufferFull)
+	require.False(t, sp.healthy())
+	assert.Equal(t, []uint64{1, 2, 3, 4}, readAll(l, 0), "accepted envelopes stay replayable")
+}
+
+func TestSpoolFillFlushesBufferedRecords(t *testing.T) {
+	sp := newTestSpool(t, 2*(spoolHeaderBytes+10))
+	require.NoError(t, sp.append(1, []byte("0123456789")))
+	require.NoError(t, sp.append(2, []byte("0123456789")))
+	require.ErrorIs(t, sp.append(3, []byte("0123456789")), errSpoolFull)
+	require.NoError(t, sp.close())
+
+	// What reached the spool before the limit is on disk for recovery.
+	var got []uint64
+	require.NoError(t, scanSpool([]string{sp.segments[0].path}, func(seq uint64, _ []byte) error {
+		got = append(got, seq)
+		return nil
+	}))
+	assert.Equal(t, []uint64{1, 2}, got)
 }
 
 // --- end to end with the resumable test server ---

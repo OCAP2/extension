@@ -18,14 +18,15 @@ import (
 
 const (
 	defaultRecoveryInterval = time.Minute
-	spoolClaimDir           = "claim"
 	spoolMaxAge             = 7 * 24 * time.Hour
 )
 
 var (
 	// spoolStaleAfter is how long a spool's live file may go untouched before
-	// its process is presumed dead; tests lower it.
-	spoolStaleAfter = 2 * time.Minute
+	// its process is presumed gone; tests lower it. Exclusion rests on the
+	// spool lock; the live file only covers the moment between a new spool
+	// directory appearing and its writer taking the lock.
+	spoolStaleAfter = 15 * time.Second
 	// recoveryUnsupportedPause is how long recovery waits after a server that
 	// does not answer resume; a resumable mission start ends it sooner.
 	recoveryUnsupportedPause = 30 * time.Minute
@@ -91,10 +92,16 @@ func (b *Backend) recoverSpools(done <-chan struct{}) {
 			continue // not a spool, or one still being created
 		}
 		dir := filepath.Join(b.cfg.SpoolDir, e.Name())
-		if !recoverable(dir) || !claimSpool(dir) {
+		if !recoverable(dir) {
 			continue
 		}
-		err := b.recoverMission(dir, done)
+		// Its writer, or another recovering process, holds the lock.
+		lock, err := tryLockSpool(dir)
+		if err != nil {
+			continue
+		}
+		err = b.recoverMission(dir, done)
+		lock.release() // before removal: Windows cannot delete an open file
 		switch {
 		case err == nil:
 			b.recovered.Add(1)
@@ -106,49 +113,26 @@ func (b *Backend) recoverSpools(done <-chan struct{}) {
 		case errors.Is(err, errSpoolDiscarded):
 			_ = os.RemoveAll(dir)
 		case errors.Is(err, errRecoveryUnsupported):
-			releaseSpool(dir)
 			// Asking an older server every minute only fills both logs.
 			b.recoveryPausedUntil.Store(time.Now().Add(recoveryUnsupportedPause).UnixNano())
 			b.logger().Warn("WebSocket server cannot recover missions; spools kept until it is upgraded",
 				"dir", dir, "retryIn", recoveryUnsupportedPause)
 			return // the same server cannot take the others either
 		default:
-			releaseSpool(dir)
 			b.logger().Warn("WebSocket mission recovery failed; will retry", "dir", dir, "error", err)
 		}
 	}
 }
 
-// recoverable reports whether no live process owns the spool.
+// recoverable reports whether the spool is not one just being opened: a
+// fresh live file means its writer may not hold the lock yet.
 func recoverable(dir string) bool {
 	info, err := os.Stat(filepath.Join(dir, spoolLiveFile))
 	if err == nil && time.Since(info.ModTime()) < spoolStaleAfter {
-		return false // its process is still writing it
+		return false
 	}
 	return err == nil || os.IsNotExist(err)
 }
-
-// claimSpool reserves a spool for this process. The claim is a directory,
-// created atomically; a claim left by a process that died is broken once
-// stale. A recovering process refreshes its claim while it works.
-func claimSpool(dir string) bool {
-	claim := filepath.Join(dir, spoolClaimDir)
-	if err := os.Mkdir(claim, 0o755); err == nil {
-		return true
-	} else if !os.IsExist(err) {
-		return false
-	}
-	info, err := os.Stat(claim)
-	if err != nil || time.Since(info.ModTime()) < spoolStaleAfter {
-		return false
-	}
-	if os.Remove(claim) != nil {
-		return false
-	}
-	return os.Mkdir(claim, 0o755) == nil
-}
-
-func releaseSpool(dir string) { _ = os.Remove(filepath.Join(dir, spoolClaimDir)) }
 
 // spoolSegments lists a spool's segment files in sequence order.
 func spoolSegments(dir string) ([]string, time.Time, error) {
@@ -250,17 +234,12 @@ func (b *Backend) recoverMission(dir string, done <-chan struct{}) error {
 	}
 	defer conn.Close()
 
-	// Keep the claim fresh while working, and give up when the backend closes.
+	// Give up when the backend closes.
 	stop := make(chan struct{})
 	defer close(stop)
-	refresh := spoolStaleAfter / 4
 	go func() {
-		ticker := time.NewTicker(refresh)
-		defer ticker.Stop()
 		for {
 			select {
-			case now := <-ticker.C:
-				_ = os.Chtimes(filepath.Join(dir, spoolClaimDir), now, now)
 			case <-done:
 				_ = conn.Close()
 				return
