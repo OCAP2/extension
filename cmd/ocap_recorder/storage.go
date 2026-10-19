@@ -67,13 +67,18 @@ func createStorageBackend(storageCfg config.StorageConfig) (storage.Backend, err
 			return nil, fmt.Errorf("websocket storage requires api.apiKey")
 		}
 		ws := storageCfg.Websocket
+		resendRate := ws.ResendMBps << 20
+		if ws.ResendMBps <= 0 {
+			resendRate = -1 // unlimited
+		}
 		return websocket.New(websocket.Config{
-			URL:           httpToWS(api.ServerURL) + "/api/v1/stream",
-			Secret:        api.APIKey,
-			SaveTimeout:   api.UploadTimeout,
-			BufferBytes:   ws.BufferMB << 20,
-			SpoolDir:      ws.SpoolDir,
-			SpoolMaxBytes: int64(ws.SpoolMaxMB) << 20,
+			URL:               httpToWS(api.ServerURL) + "/api/v1/stream",
+			Secret:            api.APIKey,
+			SaveTimeout:       api.UploadTimeout,
+			BufferBytes:       ws.BufferMB << 20,
+			SpoolDir:          ws.SpoolDir,
+			SpoolMaxBytes:     int64(ws.SpoolMaxMB) << 20,
+			ResendBytesPerSec: resendRate,
 		}), nil
 
 	default:

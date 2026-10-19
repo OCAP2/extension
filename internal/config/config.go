@@ -22,6 +22,11 @@ type WebsocketConfig struct {
 	SpoolDir string `json:"spoolDir" mapstructure:"spoolDir"`
 	// SpoolMaxMB limits the disk used per mission; 0 means unlimited.
 	SpoolMaxMB int `json:"spoolMaxMB" mapstructure:"spoolMaxMB"`
+	// ResendMBps paces catch-up traffic (backlogs after a reconnect, missions
+	// resent in full or recovered after a crash), so many game servers
+	// recovering at once do not flood the web server. Live traffic is never
+	// paced. 0 means unlimited.
+	ResendMBps int `json:"resendMBps" mapstructure:"resendMBps"`
 }
 
 // SQLiteConfig holds SQLite storage backend settings
@@ -67,6 +72,7 @@ func Load(configDir string) error {
 	viper.SetDefault("storage.websocket.bufferMB", 256)
 	viper.SetDefault("storage.websocket.spoolDir", "./ocapspool")
 	viper.SetDefault("storage.websocket.spoolMaxMB", 4096)
+	viper.SetDefault("storage.websocket.resendMBps", 8)
 	viper.SetDefault("storage.sqlite.dumpInterval", "3m")
 	viper.SetDefault("storage.postgres.host", "localhost")
 	viper.SetDefault("storage.postgres.port", "5432")
@@ -113,8 +119,8 @@ type StorageConfig struct {
 	Type      string          `json:"type" mapstructure:"type"`
 	Memory    MemoryConfig    `json:"memory" mapstructure:"memory"`
 	Websocket WebsocketConfig `json:"websocket" mapstructure:"websocket"`
-	SQLite   SQLiteConfig   `json:"sqlite" mapstructure:"sqlite"`
-	Postgres PostgresConfig `json:"postgres" mapstructure:"postgres"`
+	SQLite    SQLiteConfig    `json:"sqlite" mapstructure:"sqlite"`
+	Postgres  PostgresConfig  `json:"postgres" mapstructure:"postgres"`
 }
 
 // GetStorageConfig returns the storage backend configuration

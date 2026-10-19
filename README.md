@@ -138,9 +138,15 @@ not confirmed.
 ```json
 "storage": {
   "type": "websocket",
-  "websocket": { "bufferMB": 256, "spoolDir": "./ocapspool", "spoolMaxMB": 4096 }
+  "websocket": { "bufferMB": 256, "spoolDir": "./ocapspool", "spoolMaxMB": 4096, "resendMBps": 8 }
 }
 ```
+
+`resendMBps` paces catch-up traffic: the backlog resent after a reconnect, a
+mission resent in full from the spool, and missions recovered after a crash.
+Without it, several game servers recovering at once after a web restart would
+all resend at full speed and overload the web service. Live traffic is never
+paced. `0` disables pacing.
 
 `spoolDir` is relative to the Arma server's working directory, like
 `memory.outputDir`; empty disables spooling. `spoolMaxMB` limits the disk used

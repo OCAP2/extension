@@ -37,6 +37,11 @@ type Config struct {
 	// StatsInterval is how often the stream's state is logged while a
 	// mission records (1m).
 	StatsInterval time.Duration
+	// ResendBytesPerSec paces catch-up traffic: the backlog resent after a
+	// reconnect, a mission resent in full from the spool, and missions
+	// recovered after a crash. Live traffic is never paced. 0 selects the
+	// default (8 MiB/s); negative disables pacing.
+	ResendBytesPerSec int
 }
 
 func (cfg Config) connOptions() connOptions {
@@ -45,6 +50,7 @@ func (cfg Config) connOptions() connOptions {
 		ackStall:     cfg.AckStallTimeout,
 		reconnectMin: cfg.ReconnectMin,
 		reconnectMax: cfg.ReconnectMax,
+		resendRate:   cfg.ResendBytesPerSec,
 	}
 }
 

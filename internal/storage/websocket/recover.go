@@ -299,10 +299,14 @@ func (b *Backend) recoverMission(dir string, done <-chan struct{}) error {
 
 	var lastSeq uint64
 	var lastData []byte
+	pace := newPacer(b.cfg.connOptions().withDefaults().resendRate)
 	if err := scanSpool(paths, func(seq uint64, data []byte) error {
 		lastSeq, lastData = seq, data
 		if seq < from {
 			return nil
+		}
+		if !pace.wait(len(data), done, nil) {
+			return errConnectionClosed
 		}
 		return writeData(conn, data)
 	}); err != nil {

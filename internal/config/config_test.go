@@ -105,6 +105,7 @@ func TestGetStorageConfig_Defaults(t *testing.T) {
 	assert.Equal(t, 256, cfg.Websocket.BufferMB)
 	assert.Equal(t, "./ocapspool", cfg.Websocket.SpoolDir)
 	assert.Equal(t, 4096, cfg.Websocket.SpoolMaxMB)
+	assert.Equal(t, 8, cfg.Websocket.ResendMBps)
 }
 
 func TestGetStorageConfig_WebsocketOverride(t *testing.T) {

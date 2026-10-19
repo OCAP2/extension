@@ -40,11 +40,15 @@ type connOptions struct {
 	ackStall     time.Duration
 	reconnectMin time.Duration
 	reconnectMax time.Duration
+	resendRate   int // bytes per second for catch-up traffic; < 0 disables pacing
 }
 
 func (o connOptions) withDefaults() connOptions {
 	if o.bufferBytes <= 0 {
 		o.bufferBytes = defaultBufferBytes
+	}
+	if o.resendRate == 0 {
+		o.resendRate = defaultResendBytesPerSec
 	}
 	if o.ackStall <= 0 {
 		o.ackStall = defaultAckStall
@@ -176,8 +180,11 @@ func (c *connection) attach(conn *ws.Conn) error {
 
 	c.sent.Store(cursor)
 	c.pendingSince.Store(0)
+	// Everything recorded so far is a backlog this socket catches up on at
+	// the paced rate; what is recorded from now on goes out as it comes.
+	backlog := c.log.lastSeq()
 	go c.readLoop(s)
-	go c.writeLoop(s, cursor, epoch)
+	go c.writeLoop(s, cursor, epoch, backlog)
 	go c.watchdog(s)
 	return nil
 }
@@ -286,12 +293,17 @@ func readServerMessage(conn *ws.Conn, match func(streaming.AckMessage) bool) (st
 }
 
 // writeLoop sends the outbound log from cursor until the socket is lost.
-func (c *connection) writeLoop(s *socket, cursor, epoch uint64) {
+//
+// Envelopes up to backlog, recorded before the socket was attached, are
+// paced to opts.resendRate.
+func (c *connection) writeLoop(s *socket, cursor, epoch, backlog uint64) {
+	pace := newPacer(c.opts.resendRate)
 	for {
 		entries, current, changed := c.log.after(cursor)
 		if current != epoch {
-			// A new mission reset the log; its numbering starts again.
-			epoch, cursor = current, 0
+			// A new mission reset the log; its numbering starts again and
+			// none of it is a backlog.
+			epoch, cursor, backlog = current, 0, 0
 			continue
 		}
 		if len(entries) == 0 {
@@ -311,6 +323,9 @@ func (c *connection) writeLoop(s *socket, cursor, epoch uint64) {
 			case <-c.done:
 				return
 			default:
+			}
+			if e.seq <= backlog && !pace.wait(len(e.data), c.done, s.dead) {
+				return
 			}
 			if err := writeData(s.conn, e.data); err != nil {
 				c.logger.Warn("WebSocket write error", "error", err)
