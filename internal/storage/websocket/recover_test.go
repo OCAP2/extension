@@ -38,7 +38,7 @@ func crash(t *testing.T, b *Backend) {
 	sp.closed = true
 	sp.mu.Unlock()
 	b.closeOnce.Do(func() { close(b.done) })
-	b.recovering.Wait()
+	b.loops.Wait()
 	_ = b.conn.close()
 }
 
@@ -223,12 +223,18 @@ func TestRecoveryDiscardsUnusableSpools(t *testing.T) {
 	garbage := filepath.Join(spoolDir, "garbage")
 	require.NoError(t, os.MkdirAll(garbage, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(garbage, "00000000000000000001.seg"), []byte("not a record at all"), 0o644))
+	corrupt := filepath.Join(spoolDir, "corrupt") // a whole first record that is not JSON
+	sp, err := openSpool(corrupt, 0, slog.Default())
+	require.NoError(t, err)
+	require.NoError(t, sp.append(1, []byte("{not json")))
+	require.NoError(t, sp.close())
 
 	b := New(recoveryConfig(rs.url(), spoolDir))
 	b.recoverSpools(b.done)
 	assert.NoDirExists(t, empty)
 	assert.NoDirExists(t, old)
 	assert.NoDirExists(t, garbage)
+	assert.NoDirExists(t, corrupt, "a corrupt spool is not retried forever")
 	assert.Zero(t, rs.resumes.Load())
 }
 

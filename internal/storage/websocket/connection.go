@@ -97,6 +97,8 @@ type connection struct {
 	sent         atomic.Uint64 // highest seq written on the current socket
 	pendingSince atomic.Int64  // unix nanos since written envelopes await an ack; 0 if none
 	resumes      atomic.Uint64 // replacement connections that resumed the mission
+	reconnects   atomic.Uint64 // replacement connections attached
+	restarts     atomic.Uint64 // replacement connections that found the mission lost by the server
 
 	wsURL  string
 	secret string
@@ -237,6 +239,7 @@ func (c *connection) handshake(conn *ws.Conn) (uint64, uint64, error) {
 		// is resent and the server replaces the partial segments it saved;
 		// without one, only the envelopes it never acknowledged follow, and the
 		// numbering gap marks the new recording partial.
+		c.restarts.Add(1)
 		if sp := c.log.currentSpool(); sp != nil && sp.healthy() {
 			c.logger.Warn("WebSocket server lost the mission, resending it in full from the spool")
 		} else {
@@ -488,6 +491,7 @@ func (c *connection) reconnectOnce() {
 			continue
 		}
 		_, bytes, _ := c.log.stats()
+		c.reconnects.Add(1)
 		c.logger.Info("WebSocket reconnected", "attempt", attempt, "bufferedBytes", bytes)
 		return
 	}

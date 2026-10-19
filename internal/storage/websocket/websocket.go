@@ -34,6 +34,9 @@ type Config struct {
 	// RecoveryInterval is how often SpoolDir is checked for missions left
 	// behind by a crash or an unconfirmed save (1m).
 	RecoveryInterval time.Duration
+	// StatsInterval is how often the stream's state is logged while a
+	// mission records (1m).
+	StatsInterval time.Duration
 }
 
 func (cfg Config) connOptions() connOptions {
@@ -59,7 +62,11 @@ type Backend struct {
 	nextMarkerID atomic.Uint64
 	done         chan struct{} // closed by Close; stops spool recovery
 	closeOnce    sync.Once
-	recovering   sync.WaitGroup // the spool recovery loop
+	loops        sync.WaitGroup // recovery and stats loops
+
+	// Totals of connections replaced between missions; see Stats.
+	reconnects, resumes, restarts atomic.Uint64
+	recovered                     atomic.Uint64 // missions recovered from the spool
 }
 
 // New creates a new WebSocket storage backend.
@@ -91,19 +98,24 @@ func (b *Backend) Init() error {
 		return err
 	}
 	if b.cfg.SpoolDir != "" {
-		b.recovering.Add(1)
+		b.loops.Add(1)
 		go func() {
-			defer b.recovering.Done()
+			defer b.loops.Done()
 			b.recoveryLoop(b.done)
 		}()
 	}
+	b.loops.Add(1)
+	go func() {
+		defer b.loops.Done()
+		b.statsLoop(b.done)
+	}()
 	return nil
 }
 
 // Close disconnects from the WebSocket server.
 func (b *Backend) Close() error {
 	b.closeOnce.Do(func() { close(b.done) })
-	b.recovering.Wait()
+	b.loops.Wait()
 	b.mu.Lock()
 	conn := b.conn
 	b.mu.Unlock()
@@ -190,6 +202,9 @@ func (b *Backend) StartMission(mission *core.Mission, world *core.World) error {
 	// before accepting the next mission instead of racing the reconnect loop.
 	if b.restart {
 		b.conn.close()
+		b.reconnects.Add(b.conn.reconnects.Load())
+		b.resumes.Add(b.conn.resumes.Load())
+		b.restarts.Add(b.conn.restarts.Load())
 		b.conn = newConnection(slog.Default(), b.cfg.connOptions())
 		if err := b.conn.dial(b.cfg.URL, b.cfg.Secret); err != nil {
 			b.mu.Unlock()

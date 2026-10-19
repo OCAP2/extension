@@ -168,6 +168,13 @@ from the same directory:
 Spools older than seven days are discarded. A web service without resume
 support cannot take recovered missions: their spools stay on disk.
 
+While a mission records, the stream's state is logged every minute. The log
+line lists messages sent and acknowledged, the memory buffer, messages moved
+to the spool or refused, and the reconnects, resumes and restarts so far. A
+disconnected stream logs at warning level
+(`WebSocket stream disconnected, buffering`), so a struggling stream shows in
+the logs before the mission ends.
+
 With an older web service, a reconnect replays mission metadata and the web
 service saves the received segments as partial recordings, as before. A full
 buffer and a closed proxy are returned as recording errors.

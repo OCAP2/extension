@@ -28,6 +28,11 @@ var (
 	spoolStaleAfter = 2 * time.Minute
 	// errRecoveryUnsupported means the server does not answer resume.
 	errRecoveryUnsupported = errors.New("server does not support mission recovery")
+	// errSpoolDiscarded means the spool holds nothing recoverable and is deleted.
+	errSpoolDiscarded = errors.New("spool discarded")
+	// errAlreadySaved means the server saved the mission before; the spool
+	// is a leftover and is deleted.
+	errAlreadySaved = errors.New("mission already saved")
 )
 
 // recoveryLoop resends missions left in the spool directory: by a game
@@ -73,7 +78,13 @@ func (b *Backend) recoverSpools(done <-chan struct{}) {
 		err := b.recoverMission(dir, done)
 		switch {
 		case err == nil:
+			b.recovered.Add(1)
 			b.logger().Info("WebSocket recovered mission from spool", "dir", dir)
+			_ = os.RemoveAll(dir)
+		case errors.Is(err, errAlreadySaved):
+			b.logger().Info("WebSocket spooled mission was already saved by the server; spool removed", "dir", dir)
+			_ = os.RemoveAll(dir)
+		case errors.Is(err, errSpoolDiscarded):
 			_ = os.RemoveAll(dir)
 		case errors.Is(err, errRecoveryUnsupported):
 			releaseSpool(dir)
@@ -187,21 +198,18 @@ func (b *Backend) recoverMission(dir string, done <-chan struct{}) error {
 		return err
 	}
 	if len(paths) == 0 {
-		return nil // nothing was recorded; drop the directory
+		return errSpoolDiscarded // nothing was recorded
 	}
 	if time.Since(newest) > spoolMaxAge {
 		b.logger().Warn("WebSocket spool too old to recover; discarding", "dir", dir, "age", time.Since(newest).Round(time.Hour))
-		return nil
+		return errSpoolDiscarded
 	}
 
 	var start streaming.Envelope
 	var payload streaming.StartMissionPayload
 	if err := scanSegment(paths[0], func(seq uint64, data []byte) error {
-		if err := json.Unmarshal(data, &start); err != nil {
-			return err
-		}
-		if err := json.Unmarshal(start.Payload, &payload); err != nil {
-			return err
+		if json.Unmarshal(data, &start) != nil || json.Unmarshal(start.Payload, &payload) != nil {
+			start = streaming.Envelope{} // corrupt: not a mission we can resume
 		}
 		return io.EOF // only the first record is needed
 	}); err != nil && !errors.Is(err, io.EOF) {
@@ -209,7 +217,7 @@ func (b *Backend) recoverMission(dir string, done <-chan struct{}) error {
 	}
 	if start.Type != streaming.TypeStartMission || payload.MissionID == "" {
 		b.logger().Warn("WebSocket spool does not start with a resumable mission; discarding", "dir", dir)
-		return nil
+		return errSpoolDiscarded
 	}
 
 	c := newConnection(b.logger(), b.cfg.connOptions())
@@ -265,7 +273,7 @@ func (b *Backend) recoverMission(dir string, done <-chan struct{}) error {
 	from := uint64(1) // resume_unknown: the whole mission, start included
 	switch reply.Type {
 	case streaming.ServerResumeCompleted:
-		return nil
+		return errAlreadySaved
 	case streaming.ServerResumeOK:
 		from = reply.Seq + 1
 	}
