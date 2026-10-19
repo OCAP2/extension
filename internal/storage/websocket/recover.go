@@ -315,10 +315,14 @@ func (b *Backend) recoverMission(dir string, done <-chan struct{}) error {
 	}
 
 	// A mission cut short by a crash has no end_mission: end it, marked
-	// interrupted so the server saves it as partial.
+	// interrupted so the server saves it as partial. Number it after
+	// everything the server holds: a crash loses the records still buffered
+	// for the spool, so the server may be ahead of the disk, and a smaller
+	// number would be discarded as a duplicate.
 	var last streaming.Envelope
 	if json.Unmarshal(lastData, &last) != nil || last.Type != streaming.TypeEndMission {
-		end, err := marshalEnvelope(streaming.TypeEndMission, streaming.EndMissionPayload{Interrupted: true}, lastSeq+1)
+		endSeq := max(lastSeq, from-1) + 1
+		end, err := marshalEnvelope(streaming.TypeEndMission, streaming.EndMissionPayload{Interrupted: true}, endSeq)
 		if err != nil {
 			return err
 		}

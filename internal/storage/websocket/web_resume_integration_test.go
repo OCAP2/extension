@@ -225,6 +225,7 @@ func TestCrashingProducerHelper(t *testing.T) {
 	if os.Getenv("OCAP_TEST_CRASH_HELPER") == "" {
 		t.Skip("run by TestWebCrashRecoveryIntegration")
 	}
+	spoolFlushInterval = time.Hour // only the explicit flush below reaches the disk
 	cfg := fastConfig(os.Getenv("OCAP_TEST_CRASH_URL"))
 	cfg.Secret = os.Getenv("OCAP_TEST_WEB_SECRET")
 	cfg.AckStallTimeout = 5 * time.Second
@@ -233,11 +234,25 @@ func TestCrashingProducerHelper(t *testing.T) {
 	require.NoError(t, b.Init())
 	require.NoError(t, b.StartMission(&core.Mission{MissionName: os.Getenv("OCAP_TEST_CRASH_NAME"), CaptureDelay: 1, Tag: "crash-test"}, &core.World{WorldName: "altis"}))
 	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 1, JoinFrame: 1, UnitName: "Crash Player", IsPlayer: true, Side: "WEST"}))
-	for f := 1; f <= 450; f++ {
+	state := func(f int) {
 		require.NoError(t, b.RecordSoldierState(&core.SoldierState{SoldierID: 1, CaptureFrame: core.Frame(f), Lifestate: 1, IsPlayer: true, UnitName: "Crash Player", Side: "WEST", Position: core.Position3D{X: float64(f), Y: 200}}))
 	}
-	time.Sleep(2 * spoolFlushInterval) // let the spool reach the disk
-	os.Exit(3)                         // the game server crashes
+	for f := 1; f <= 200; f++ {
+		state(f)
+	}
+	// The last flush before the crash: the rest of the mission is still
+	// buffered when the process dies, so the server ends up ahead of the
+	// spool, as in the usual crash window.
+	sp := b.conn.log.currentSpool()
+	sp.mu.Lock()
+	sp.flushLocked()
+	sp.mu.Unlock()
+	for f := 201; f <= 450; f++ {
+		state(f)
+	}
+	require.Eventually(t, func() bool { return b.conn.acked.Load() == 452 }, 30*time.Second, 10*time.Millisecond,
+		"the server must hold the whole mission before the crash")
+	os.Exit(3) // the game server crashes
 }
 
 // TestWebCrashRecoveryIntegration kills a producer process mid-mission. A new

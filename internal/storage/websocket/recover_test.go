@@ -447,3 +447,57 @@ func TestRecoveryPauseExpires(t *testing.T) {
 	defer b.Close()
 	require.Eventually(t, func() bool { return rs.resumes.Load() >= 2 }, 3*time.Second, 10*time.Millisecond, "asked again once the pause is over")
 }
+
+// crashLosingBuffer stops a backend like crash, but the records still
+// buffered for the spool are lost, as in a real crash between flushes.
+func crashLosingBuffer(t *testing.T, b *Backend) {
+	t.Helper()
+	sp := b.conn.log.currentSpool()
+	require.NotNil(t, sp)
+	sp.mu.Lock()
+	require.NoError(t, sp.file.Close()) // no flush: the buffer dies with the process
+	close(sp.done)
+	sp.closed = true
+	sp.lock.release() // what the operating system does for a dead process
+	sp.mu.Unlock()
+	b.closeOnce.Do(func() { close(b.done) })
+	b.loops.Wait()
+	_ = b.conn.close()
+}
+
+func TestRecoveryWhenServerIsAheadOfSpool(t *testing.T) {
+	fastRecovery(t)
+	oldFlush := spoolFlushInterval
+	spoolFlushInterval = time.Hour // only the explicit flush below reaches the disk
+	t.Cleanup(func() { spoolFlushInterval = oldFlush })
+
+	rs := newResumeServer(t)
+	spoolDir := t.TempDir()
+	cfg := recoveryConfig(rs.url(), spoolDir)
+	cfg.RecoveryInterval = time.Hour // recovery is driven by hand below
+	a := New(cfg)
+	require.NoError(t, a.Init())
+	id := startResumable(t, a)
+	recordStates(t, a, 1, 2)
+	sp := a.conn.log.currentSpool()
+	sp.mu.Lock()
+	sp.flushLocked() // the last flush before the crash: start and two states
+	sp.mu.Unlock()
+	recordStates(t, a, 3, 5)
+	require.Eventually(t, func() bool { return rs.lastSeq(id) == 6 }, 2*time.Second, 5*time.Millisecond)
+	crashLosingBuffer(t, a) // disk holds envelopes 1-3, the server 1-6
+	stale := time.Now().Add(-2 * spoolStaleAfter)
+	require.NoError(t, os.Chtimes(filepath.Join(spoolDir, id, spoolLiveFile), stale, stale))
+
+	cfg.SaveTimeout = 2 * time.Second
+	b := New(cfg)
+	start := time.Now()
+	b.recoverSpools(b.done)
+	assert.Less(t, time.Since(start), cfg.SaveTimeout, "recovery waited for an end the server discarded")
+
+	m := rs.mission(id)
+	require.True(t, m.completed, "the server ended the mission")
+	requireContiguous(t, m, 7) // the six it had, then the interrupted end
+	assert.True(t, endPayload(t, m).Interrupted)
+	assert.NoDirExists(t, filepath.Join(spoolDir, id))
+}
