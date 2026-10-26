@@ -476,8 +476,10 @@ func TestPendingDiscardRefusedAfterServerDowngrade(t *testing.T) {
 	done := make(chan error, 1)
 	start := time.Now()
 	go func() { done <- b.DiscardMission() }()
-	require.Eventually(t, func() bool { return rs.lastSeq(id) == 4 }, time.Second, 5*time.Millisecond)
-	time.Sleep(50 * time.Millisecond) // the discard is logged and written into the dead link
+	b.mu.Lock()
+	conn := b.conn
+	b.mu.Unlock()
+	require.Eventually(t, func() bool { return conn.log.lastSeq() == 5 }, time.Second, time.Millisecond, "the discard is logged")
 	rs.noDrop.Store(true)
 	rs.discard.Store(false)
 	rs.kill()

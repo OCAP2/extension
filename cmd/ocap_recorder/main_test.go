@@ -60,8 +60,8 @@ func TestHandleNewMission_WaitsForSaveOrDiscard(t *testing.T) {
 	rec := isolateMissionStart(t, acceptingParser{})
 
 	// The previous mission's discard was dispatched just before this start.
-	saveState.inFlight.Store(true)
-	t.Cleanup(func() { saveState.inFlight.Store(false) })
+	saveState.backendBusy.Store(true)
+	t.Cleanup(func() { saveState.backendBusy.Store(false) })
 	done := make(chan error, 1)
 	go func() {
 		_, err := handleNewMission(dispatcher.Event{Args: []string{"{}", "{}", `"tok-3"`}})
@@ -72,7 +72,7 @@ func TestHandleNewMission_WaitsForSaveOrDiscard(t *testing.T) {
 		t.Fatal("the start ran before the discard finished")
 	case <-time.After(100 * time.Millisecond):
 	}
-	saveState.inFlight.Store(false)
+	saveState.backendBusy.Store(false)
 	require.NoError(t, <-done)
 	rec.wait(t, ":MISSION:OK:")
 }

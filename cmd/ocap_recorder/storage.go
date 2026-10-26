@@ -40,13 +40,13 @@ func initStorage() error {
 	// instead of staying open in a backend nothing uses any more.
 	if storageBackend != nil {
 		Logger.Info("Storage already initialized; reusing it", "type", storageCfg.Type)
-		// A new mission loaded: one still recording was abandoned.
+		// A new mission loaded: one still recording was abandoned. It ends
+		// before :STORAGE:OK:, so the new mission's start cannot come first
+		// and be taken for it. This runs on startStorage's goroutine.
 		if a, ok := storageBackend.(storage.Abandonable); ok {
-			go func() {
-				if err := a.AbandonMission(); err != nil {
-					Logger.Warn("Failed to end the abandoned mission", "error", err)
-				}
-			}()
+			if err := a.AbandonMission(); err != nil {
+				Logger.Warn("Failed to end the abandoned mission", "error", err)
+			}
 		}
 		if err := a3interface.WriteArmaCallback(ExtensionName, ":STORAGE:OK:", storageCfg.Type); err != nil {
 			Logger.Warn("Failed to send STORAGE:OK callback", "error", err)

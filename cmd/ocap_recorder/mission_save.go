@@ -17,16 +17,20 @@ import (
 // There is exactly one instance, owned by the package-level saveState variable.
 type missionSaveState struct {
 	inFlight atomic.Bool
+	// backendBusy is set while a dispatched save or discard has not yet
+	// ended the mission in the backend; an upload after it does not count.
+	backendBusy atomic.Bool
 }
 
 // saveState is the package-level state used by the :MISSION:SAVE: handler.
 var saveState = &missionSaveState{}
 
-// waitIdle waits until no save or discard is in flight. A mission start runs
-// on its own handler, so without it, a discard dispatched just before the
-// next start could reach the backend after it, and drop the new mission.
+// waitIdle waits until a dispatched save or discard has ended the mission in
+// the backend. A mission start runs on its own handler, so without it, a
+// discard dispatched just before the next start could reach the backend
+// after it, and drop the new mission.
 func (s *missionSaveState) waitIdle() {
-	for s.inFlight.Load() {
+	for s.backendBusy.Load() {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
@@ -51,6 +55,7 @@ func triggerMissionSave(state *missionSaveState, backend storage.Backend, client
 	if !state.inFlight.CompareAndSwap(false, true) {
 		return nil, fmt.Errorf("save already in progress")
 	}
+	state.backendBusy.Store(true)
 
 	go runMissionSaveWorker(state, backend, client, tag)
 	return "queued", nil
@@ -72,6 +77,7 @@ func triggerMissionDiscard(state *missionSaveState, backend storage.Backend) (an
 	if !state.inFlight.CompareAndSwap(false, true) {
 		return nil, fmt.Errorf("mission save or discard already in progress")
 	}
+	state.backendBusy.Store(true)
 
 	go runMissionDiscardWorker(state, backend)
 	return "queued", nil
@@ -91,9 +97,11 @@ func runMissionDiscardWorker(state *missionSaveState, backend storage.Backend) {
 					}
 				}
 			}()
+			defer state.backendBusy.Store(false)
 			return d.DiscardMission()
 		}()
 	}
+	state.backendBusy.Store(false) // a backend that keeps the mission did nothing
 
 	flushOTel()
 	// Cleared before the callback: the addon may start the next mission's
@@ -156,7 +164,12 @@ func runMissionSaveWorker(state *missionSaveState, backend storage.Backend, clie
 			}
 		}()
 
-		if err := backend.EndMission(tag); err != nil {
+		// The next mission may start once the backend ended this one; the
+		// upload below does not hold it up.
+		if err := func() error {
+			defer state.backendBusy.Store(false)
+			return backend.EndMission(tag)
+		}(); err != nil {
 			endErr = err
 			if Logger != nil {
 				Logger.Error("Failed to end mission in storage backend", "error", err)

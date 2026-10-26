@@ -72,8 +72,9 @@ type Discardable interface {
 // mission load ends a mission the game moved on from without saving or
 // discarding it.
 type Abandonable interface {
-	// AbandonMission ends the current mission, as interrupted. It is a no-op
-	// when no mission is being recorded.
+	// AbandonMission ends the current mission, as interrupted, or drops it
+	// when it recorded nothing. It is a no-op when no mission is being
+	// recorded.
 	AbandonMission() error
 }
 
