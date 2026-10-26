@@ -292,6 +292,19 @@ func readSegment(path string, from, to uint64, maxBytes int, out *[]logEntry, by
 
 // close flushes and closes the spool, keeping its files.
 func (s *spool) close() error {
+	return s.shut(false)
+}
+
+// remove closes the spool and deletes its files. The segments go before the
+// lock is released, so recovery never takes up a spool being removed: it
+// would resend a mission that was saved, discarded or never started.
+func (s *spool) remove() error {
+	_ = s.shut(true)
+	return os.RemoveAll(s.dir)
+}
+
+// shut closes the spool, deleting its segments first when drop is set.
+func (s *spool) shut(drop bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
@@ -301,11 +314,18 @@ func (s *spool) close() error {
 	close(s.done)
 	var err error
 	if s.file != nil {
-		if s.ioErr == nil {
+		if s.ioErr == nil && !drop {
 			err = s.w.Flush()
 		}
 		if cerr := s.file.Close(); err == nil {
 			err = cerr
+		}
+	}
+	if drop {
+		for _, seg := range s.segments {
+			if rerr := os.Remove(seg.path); err == nil && rerr != nil && !os.IsNotExist(rerr) {
+				err = rerr
+			}
 		}
 	}
 	// The mission is complete on disk; recovery may take it from here.
@@ -314,10 +334,4 @@ func (s *spool) close() error {
 	}
 	s.lock.release()
 	return err
-}
-
-// remove closes the spool and deletes its files.
-func (s *spool) remove() error {
-	_ = s.close()
-	return os.RemoveAll(s.dir)
 }

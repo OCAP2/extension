@@ -367,3 +367,81 @@ func TestFailedStartLeavesNoMission(t *testing.T) {
 	assert.True(t, rs.mission(id).completed)
 	assert.Equal(t, int32(2), rs.starts.Load(), "the next start does not end the failed one first")
 }
+
+func TestAbandonedEmptyMissionIsDiscarded(t *testing.T) {
+	rs := newResumeServer(t)
+	spoolDir := t.TempDir()
+	b := New(recoveryConfig(rs.url(), spoolDir))
+	require.NoError(t, b.Init())
+	defer b.Close()
+
+	// Registered, but the game moved on before anything was recorded.
+	first := startResumable(t, b)
+	second := startResumable(t, b)
+	m := rs.mission(first)
+	assert.True(t, m.discarded, "an empty recording is not kept")
+	assert.NoDirExists(t, filepath.Join(spoolDir, first))
+	require.NoError(t, b.EndMission(""))
+	assert.True(t, rs.mission(second).completed)
+}
+
+func TestAbandonedMissionUnconfirmedKeepsSpool(t *testing.T) {
+	oldAbandon := abandonTimeout
+	abandonTimeout = 200 * time.Millisecond // below the ack stall, so no reconnect resends it
+	t.Cleanup(func() { abandonTimeout = oldAbandon })
+	rs := newResumeServer(t)
+	spoolDir := t.TempDir()
+	cfg := recoveryConfig(rs.url(), spoolDir)
+	cfg.RecoveryInterval = time.Hour
+	b := New(cfg)
+	require.NoError(t, b.Init())
+	defer b.Close()
+
+	first := startResumable(t, b)
+	recordStates(t, b, 1, 3)
+	require.Eventually(t, func() bool { return rs.lastSeq(first) == 4 }, 2*time.Second, 5*time.Millisecond)
+	rs.loseEnd.Store(true) // the interrupted end never arrives
+	second := startResumable(t, b)
+	assert.NotEqual(t, first, second)
+	assert.False(t, rs.mission(first).completed)
+	assert.DirExists(t, filepath.Join(spoolDir, first), "kept for recovery")
+	rs.loseEnd.Store(false)
+	require.NoError(t, b.EndMission(""))
+	assert.True(t, rs.mission(second).completed)
+}
+
+func TestDiscardAfterServerDowngradeIsNotSent(t *testing.T) {
+	rs := newResumeServer(t)
+	b := New(fastConfig(rs.url()))
+	require.NoError(t, b.Init())
+	defer b.Close()
+
+	id := startResumable(t, b)
+	require.True(t, b.discardable())
+	recordStates(t, b, 1, 3)
+	require.Eventually(t, func() bool { return rs.lastSeq(id) == 4 }, 2*time.Second, 5*time.Millisecond)
+
+	// The web server is replaced by one without discard; the mission resumes.
+	rs.noDrop.Store(true)
+	resumes := rs.resumes.Load()
+	rs.kill()
+	require.Eventually(t, func() bool { return rs.resumes.Load() > resumes }, 5*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return !b.discardable() }, 5*time.Second, 10*time.Millisecond)
+
+	require.ErrorIs(t, b.DiscardMission(), storage.ErrMissionKept)
+	requireNoDiscard(t, rs.mission(id).received)
+}
+
+func TestRecoveryOfDiscardAfterServerDowngrade(t *testing.T) {
+	fastRecovery(t)
+	rs := newResumeServer(t)
+	spoolDir := t.TempDir()
+	b, id := discardUnconfirmed(t, rs, spoolDir)
+	rs.noDrop.Store(true) // the server holds the session but cannot discard
+
+	b.recoverSpools(b.done)
+
+	assert.False(t, rs.mission(id).discarded)
+	requireNoDiscard(t, rs.mission(id).received)
+	assert.NoDirExists(t, filepath.Join(spoolDir, id), "an older server cannot do more")
+}

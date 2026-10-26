@@ -39,6 +39,7 @@ type resumeServer struct {
 	legacy    atomic.Bool // behave like a web server without resume support
 	noDrop    atomic.Bool // support resume but predate discard_mission
 	muteStart atomic.Bool // never acknowledge start_mission
+	loseEnd   atomic.Bool // drop end_mission as if lost in transit
 	resumes   atomic.Int32
 	starts    atomic.Int32
 	conns2ndP atomic.Int32 // connections that began with resume
@@ -187,7 +188,10 @@ func (rs *resumeServer) serve(c *ws.Conn) {
 				_ = c.WriteJSON(streaming.AckMessage{Type: streaming.ServerAck, For: env.Type})
 				return
 			}
-			if m == nil {
+			if m == nil || (env.Type == streaming.TypeDiscardMission && rs.noDrop.Load()) {
+				continue // an older server ignores discard_mission
+			}
+			if env.Type == streaming.TypeEndMission && rs.loseEnd.Load() {
 				continue
 			}
 			rs.mu.Lock()

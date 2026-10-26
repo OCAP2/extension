@@ -384,6 +384,10 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 		go func() {
 			if err := initStorage(); err != nil {
 				Logger.Error("Storage initialization failed", "error", err)
+				// The addon stops waiting for storage to record.
+				if cbErr := a3interface.WriteArmaCallback(ExtensionName, ":STORAGE:ERROR:", err.Error()); cbErr != nil {
+					Logger.Warn("Failed to send STORAGE:ERROR callback", "error", cbErr)
+				}
 			}
 		}()
 		return nil, nil

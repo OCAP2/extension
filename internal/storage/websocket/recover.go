@@ -294,8 +294,10 @@ func (b *Backend) recoverMission(dir string, done <-chan struct{}) error {
 		switch {
 		case reply.Type == streaming.ServerResumeCompleted:
 			return errDiscardFinished // the server confirmed the discard before
-		case reply.Type == streaming.ServerResumeUnknown && reply.ProtocolVersion < streaming.ProtocolVersionDiscard:
-			return errDiscardFinished // nothing more an older server can do
+		case reply.ProtocolVersion < streaming.ProtocolVersionDiscard:
+			// The server was replaced by an older one: nothing more it can do,
+			// and it saves what it holds as partial.
+			return errDiscardFinished
 		}
 		// resume_ok: the server still holds the session. resume_unknown: it
 		// may still keep the mission, saved as partial after the producer

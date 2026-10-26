@@ -172,7 +172,8 @@ When the game moves on to the next mission without saving or discarding the
 current one, for example after an admin `#missions`, the proxy ends it as
 interrupted before the next one starts, and the web service saves it as
 `partial`. Only if that is not confirmed within 30 seconds does its spool stay
-behind for recovery.
+behind for recovery. One that recorded nothing after its start is discarded
+instead, when the web service supports it.
 
 When the addon ends a recording that does not meet its save limits (for
 example one shorter than `OCAP_settings_minMissionTime`), it sends
@@ -282,7 +283,7 @@ All commands follow a `:RESOURCE:ACTION:` naming convention. New commands must u
 | Command | Purpose |
 |---------|---------|
 | `:SYS:INIT:` | Initialize extension, send `:SYS:READY:` callback |
-| `:STORAGE:INIT:` | Initialize storage backend, ungate buffered handlers |
+| `:STORAGE:INIT:` | Initialize storage backend, ungate buffered handlers; answers with a `:STORAGE:OK:` callback, or `:STORAGE:ERROR:` with the error |
 | `:MISSION:START:` | Start recording mission; answers with a `:MISSION:OK:` callback, or `:MISSION:FAILED:` with the error |
 | `:MISSION:SAVE:` | End recording, flush data, upload if configured |
 | `:MISSION:DISCARD:` | End recording without saving it (`memory`, `websocket`); answers with a `:MISSION:DISCARDED:` callback |

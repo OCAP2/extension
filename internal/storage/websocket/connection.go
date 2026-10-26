@@ -100,6 +100,10 @@ type connection struct {
 	resumeData []byte // resume envelope for this mission
 	resumable  bool   // the server acknowledged start with resume support
 
+	// protocol is the version the server serving the mission last announced:
+	// on the start acknowledgement, a resume reply, or a restarted start.
+	protocol atomic.Uint32
+
 	acked      atomic.Uint64 // highest seq the server acknowledged
 	sent       atomic.Uint64 // highest seq written on the current socket
 	resumes    atomic.Uint64 // replacement connections that resumed the mission
@@ -238,6 +242,7 @@ func (c *connection) handshake(conn *ws.Conn) (uint64, uint64, error) {
 	case streaming.ServerResumeOK:
 		c.logger.Info("WebSocket mission resumed", "serverSeq", reply.Seq, "localSeq", c.log.lastSeq())
 		c.resumes.Add(1)
+		c.protocol.Store(uint32(reply.ProtocolVersion)) // the server may have changed meanwhile
 		c.ackUpTo(reply.Seq)
 		return reply.Seq, epoch, nil
 
@@ -266,11 +271,13 @@ func (c *connection) handshake(conn *ws.Conn) (uint64, uint64, error) {
 		if err := writeData(conn, start); err != nil {
 			return 0, 0, err
 		}
-		if _, err := readServerMessage(conn, func(m streaming.AckMessage) bool {
+		ack, err := readServerMessage(conn, func(m streaming.AckMessage) bool {
 			return m.Type == streaming.ServerAck && m.For == streaming.TypeStartMission
-		}); err != nil {
+		})
+		if err != nil {
 			return 0, 0, fmt.Errorf("restart mission: %w", err)
 		}
+		c.protocol.Store(uint32(ack.ProtocolVersion))
 		// Acknowledgements now count from the new session's start.
 		c.acked.Store(1)
 		return 1, epoch, nil
