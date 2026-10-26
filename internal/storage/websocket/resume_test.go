@@ -32,6 +32,7 @@ type resumeServer struct {
 	noAck     atomic.Bool // never send cumulative acks
 	dropEnd   atomic.Bool // save end_mission, then close without acknowledging it
 	legacy    atomic.Bool // behave like a web server without resume support
+	noDrop    atomic.Bool // support resume but predate discard_mission
 	resumes   atomic.Int32
 	starts    atomic.Int32
 	conns2ndP atomic.Int32 // connections that began with resume
@@ -44,6 +45,7 @@ type fakeMission struct {
 	dups      int
 	gaps      int
 	completed bool
+	discarded bool // finished by discard_mission instead of end_mission
 }
 
 func newResumeServer(t *testing.T) *resumeServer {
@@ -110,7 +112,10 @@ func (rs *resumeServer) serve(c *ws.Conn) {
 			m.received = append(m.received, env)
 			rs.conns[c] = p.MissionID
 			rs.mu.Unlock()
-			ack := streaming.AckMessage{Type: streaming.ServerAck, For: env.Type, Seq: env.Seq, ProtocolVersion: streaming.ProtocolVersionResume}
+			ack := streaming.AckMessage{Type: streaming.ServerAck, For: env.Type, Seq: env.Seq, ProtocolVersion: streaming.ProtocolVersionDiscard}
+			if rs.noDrop.Load() {
+				ack.ProtocolVersion = streaming.ProtocolVersionResume
+			}
 			if rs.legacy.Load() {
 				ack = streaming.AckMessage{Type: streaming.ServerAck, For: env.Type}
 			}
@@ -159,12 +164,14 @@ func (rs *resumeServer) serve(c *ws.Conn) {
 			m.lastSeq = env.Seq
 			m.received = append(m.received, env)
 			last := m.lastSeq
-			if env.Type == streaming.TypeEndMission {
+			finished := env.Type == streaming.TypeEndMission || env.Type == streaming.TypeDiscardMission
+			if finished {
 				m.completed = true
+				m.discarded = env.Type == streaming.TypeDiscardMission
 			}
 			rs.mu.Unlock()
 
-			if env.Type == streaming.TypeEndMission {
+			if finished {
 				if rs.dropEnd.Load() {
 					return // saved, but the acknowledgement never arrives
 				}

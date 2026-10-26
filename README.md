@@ -162,6 +162,14 @@ mission:
   saved as `partial`, with everything recorded up to the last flush (at most
   about a second is lost).
 - A mission whose save was not confirmed is saved as recorded.
+- A mission whose discard was not confirmed is not resent; the web service is
+  only told again to drop it.
+
+When the addon ends a recording that does not meet its save limits (for
+example one shorter than `OCAP_settings_minMissionTime`), it sends
+`:MISSION:DISCARD:`, and the proxy tells the web service to drop the recording
+(protocol version 3) and deletes its spool. A web service that predates
+discard keeps saving such recordings as `partial`.
 
 Game servers can share one `spoolDir`, for example several instances started
 from the same directory. Each spool has an operating system file lock
@@ -268,6 +276,7 @@ All commands follow a `:RESOURCE:ACTION:` naming convention. New commands must u
 | `:STORAGE:INIT:` | Initialize storage backend, ungate buffered handlers |
 | `:MISSION:START:` | Start recording mission |
 | `:MISSION:SAVE:` | End recording, flush data, upload if configured |
+| `:MISSION:DISCARD:` | End recording without saving it (`memory`, `websocket`); answers with a `:MISSION:DISCARDED:` callback |
 | `:MISSION:FOCUS_START:` | Set playback focus start frame |
 | `:MISSION:FOCUS_END:` | Set playback focus end frame |
 | `:SYS:VERSION:` | Get extension version |

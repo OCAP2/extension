@@ -53,6 +53,15 @@ type Backend interface {
 	SetFocusEnd(frame core.Frame) error
 }
 
+// Discardable is an optional interface for storage backends that can drop
+// the current mission instead of saving it (:MISSION:DISCARD:). Backends
+// without it keep what they recorded.
+type Discardable interface {
+	// DiscardMission ends the current mission without saving it. It is a
+	// no-op when no mission is being recorded.
+	DiscardMission() error
+}
+
 // Uploadable is an optional interface for storage backends that produce
 // files suitable for upload to the OCAP web frontend.
 type Uploadable interface {

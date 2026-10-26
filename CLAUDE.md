@@ -78,7 +78,7 @@ All commands follow a `:RESOURCE:ACTION:` naming convention. New commands must u
 | `:PLACED:CREATE:`, `:PLACED:EVENT:` | Placed object (mine/explosive) lifecycle |
 | `:ACE3:DEATH:`, `:ACE3:UNCONSCIOUS:` | ACE3 integration events |
 | `:SYS:INIT:`, `:STORAGE:INIT:` | Initialize extension and storage |
-| `:MISSION:START:`, `:MISSION:SAVE:` | Begin/end recording |
+| `:MISSION:START:`, `:MISSION:SAVE:`, `:MISSION:DISCARD:` | Begin/end recording, or end it unsaved |
 
 ### Data Flow
 

@@ -63,6 +63,19 @@ type Envelope struct {
 // envelopes, cumulative acknowledgements and mission resume.
 const ProtocolVersionResume = 2
 
+// ProtocolVersionDiscard is the first protocol version whose servers accept
+// discard_mission.
+const ProtocolVersionDiscard = 3
+
+// TypeDiscardMission ends a mission without saving it, in place of
+// end_mission: the addon decided the recording does not meet its save limits,
+// for example the minimum mission duration. The server drops the recording
+// and acknowledges it like end_mission. It is numbered like any mission
+// envelope, and is sent only to servers that acknowledged start_mission with
+// ProtocolVersionDiscard or later. Saved missions never carry it, so it is
+// not part of AllMessageTypes.
+const TypeDiscardMission = "discard_mission"
+
 // Connection control messages. They are not mission data, so they are not
 // part of AllMessageTypes.
 const (

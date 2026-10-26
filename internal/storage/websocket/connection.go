@@ -239,10 +239,13 @@ func (c *connection) handshake(conn *ws.Conn) (uint64, uint64, error) {
 		return reply.Seq, epoch, nil
 
 	case streaming.ServerResumeCompleted:
-		// The server saved the mission but its end_mission ack was lost.
-		c.logger.Info("WebSocket mission already saved by server")
+		// The server saved or discarded the mission but its end_mission or
+		// discard_mission ack was lost. It stands in for whichever one is
+		// awaited; waitAck skips the other.
+		c.logger.Info("WebSocket mission already finished by server")
 		c.ackUpTo(c.log.lastSeq())
 		c.deliverAck(streaming.AckMessage{Type: streaming.ServerAck, For: streaming.TypeEndMission})
+		c.deliverAck(streaming.AckMessage{Type: streaming.ServerAck, For: streaming.TypeDiscardMission})
 		return c.log.lastSeq(), epoch, nil
 
 	default: // resume_unknown

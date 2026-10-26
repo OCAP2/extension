@@ -416,4 +416,11 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 		Logger.Info("Received :MISSION:SAVE: command, queuing async save", "tag", tag)
 		return triggerMissionSave(saveState, storageBackend, apiClient, tag)
 	})
+
+	// The addon ended a recording without saving it, for example one shorter
+	// than its minimum mission time.
+	d.Register(":MISSION:DISCARD:", func(e dispatcher.Event) (any, error) {
+		Logger.Info("Received :MISSION:DISCARD: command, queuing async discard")
+		return triggerMissionDiscard(saveState, storageBackend)
+	})
 }

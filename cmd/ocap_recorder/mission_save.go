@@ -46,6 +46,65 @@ func triggerMissionSave(state *missionSaveState, backend storage.Backend, client
 	return "queued", nil
 }
 
+// triggerMissionDiscard is the logic behind the :MISSION:DISCARD: dispatcher
+// handler: the addon ended a recording that does not meet its save limits.
+// It shares the in-flight guard with saves, as both end the mission.
+//
+// Contract:
+//   - Returns "queued" + nil error when a goroutine was spawned; it reports
+//     completion via a ":MISSION:DISCARDED:" callback: ["ok"], ["kept"] for
+//     a backend that keeps what it recorded, or ["error", message].
+//   - Returns a non-nil error if a save or discard is already in progress.
+func triggerMissionDiscard(state *missionSaveState, backend storage.Backend) (any, error) {
+	if backend == nil {
+		return nil, fmt.Errorf("no storage backend configured")
+	}
+	if !state.inFlight.CompareAndSwap(false, true) {
+		return nil, fmt.Errorf("save already in progress")
+	}
+
+	go runMissionDiscardWorker(state, backend)
+	return "queued", nil
+}
+
+// runMissionDiscardWorker performs DiscardMission, recovers from panics and
+// dispatches the :MISSION:DISCARDED: callback.
+func runMissionDiscardWorker(state *missionSaveState, backend storage.Backend) {
+	defer state.inFlight.Store(false)
+
+	d, ok := backend.(storage.Discardable)
+	if !ok {
+		if Logger != nil {
+			Logger.Info("Storage backend keeps discarded missions")
+		}
+		_ = a3interface.WriteArmaCallback(ExtensionName, ":MISSION:DISCARDED:", "kept")
+		return
+	}
+
+	err := func() (err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("panic during mission discard: %v", r)
+				if Logger != nil {
+					Logger.Error("panic during mission discard", "panic", r, "stack", string(debug.Stack()))
+				}
+			}
+		}()
+		return d.DiscardMission()
+	}()
+	if err != nil {
+		if Logger != nil {
+			Logger.Error("Failed to discard mission in storage backend", "error", err)
+		}
+		_ = a3interface.WriteArmaCallback(ExtensionName, ":MISSION:DISCARDED:", "error", err.Error())
+		return
+	}
+	if Logger != nil {
+		Logger.Info("Mission recording discarded")
+	}
+	_ = a3interface.WriteArmaCallback(ExtensionName, ":MISSION:DISCARDED:", "ok")
+}
+
 // runMissionSaveWorker performs EndMission + optional upload, recovers from
 // panics, flushes OTel, and dispatches the :MISSION:SAVED: callback.
 func runMissionSaveWorker(state *missionSaveState, backend storage.Backend, client *api.Client, tag string) {

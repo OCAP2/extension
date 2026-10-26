@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -37,6 +38,9 @@ var (
 	// errAlreadySaved means the server saved the mission before; the spool
 	// is a leftover and is deleted.
 	errAlreadySaved = errors.New("mission already saved")
+	// errDiscardFinished means the spool held a mission the addon discarded
+	// and the server no longer keeps it; the spool is deleted.
+	errDiscardFinished = errors.New("mission discard finished")
 )
 
 // recoveryLoop resends missions left in the spool directory: by a game
@@ -109,6 +113,9 @@ func (b *Backend) recoverSpools(done <-chan struct{}) {
 			_ = os.RemoveAll(dir)
 		case errors.Is(err, errAlreadySaved):
 			b.logger().Info("WebSocket spooled mission was already saved by the server; spool removed", "dir", dir)
+			_ = os.RemoveAll(dir)
+		case errors.Is(err, errDiscardFinished):
+			b.logger().Info("WebSocket discarded mission finished from spool; spool removed", "dir", dir)
 			_ = os.RemoveAll(dir)
 		case errors.Is(err, errSpoolDiscarded):
 			_ = os.RemoveAll(dir)
@@ -225,6 +232,13 @@ func (b *Backend) recoverMission(dir string, done <-chan struct{}) error {
 		b.logger().Warn("WebSocket spool does not start with a resumable mission; discarding", "dir", dir)
 		return errSpoolDiscarded
 	}
+	// A mission the addon discarded is not resent: the server only needs to
+	// hear the discard it did not confirm.
+	discardSeq, err := spooledDiscard(paths)
+	if err != nil {
+		return fmt.Errorf("read end: %w", err)
+	}
+	discarding := discardSeq > 0
 
 	c := newConnection(b.logger(), b.cfg.connOptions())
 	c.wsURL, c.secret = b.cfg.URL, b.cfg.Secret
@@ -265,11 +279,20 @@ func (b *Backend) recoverMission(dir string, done <-chan struct{}) error {
 	if err != nil {
 		var netErr interface{ Timeout() bool }
 		if errors.As(err, &netErr) && netErr.Timeout() {
+			if discarding {
+				return errSpoolDiscarded // an older server cannot discard it either
+			}
 			return errRecoveryUnsupported // an older server ignores resume
 		}
 		return fmt.Errorf("resume: %w", err)
 	}
 	_ = conn.SetReadDeadline(time.Time{})
+
+	// resume_completed: the server confirmed the discard before;
+	// resume_unknown: it no longer holds the mission. Neither needs more.
+	if discarding && reply.Type != streaming.ServerResumeOK {
+		return errDiscardFinished
+	}
 
 	from := uint64(1) // resume_unknown: the whole mission, start included
 	switch reply.Type {
@@ -278,25 +301,46 @@ func (b *Backend) recoverMission(dir string, done <-chan struct{}) error {
 	case streaming.ServerResumeOK:
 		from = reply.Seq + 1
 	}
-	b.logger().Info("WebSocket recovering mission", "missionId", payload.MissionID, "resumeFrom", from, "serverHasIt", reply.Type == streaming.ServerResumeOK)
 
 	// Read acknowledgements concurrently: the server acknowledges as it goes,
 	// and closes the connection if it cannot save the mission.
+	ackFor := streaming.TypeEndMission
+	if discarding {
+		ackFor = streaming.TypeDiscardMission
+	}
 	ended := make(chan error, 1)
 	go func() {
 		for {
 			_, raw, err := conn.ReadMessage()
 			if err != nil {
-				ended <- fmt.Errorf("connection lost before the mission was saved: %w", err)
+				ended <- fmt.Errorf("connection lost before the mission was finished: %w", err)
 				return
 			}
 			var m streaming.AckMessage
-			if json.Unmarshal(raw, &m) == nil && m.Type == streaming.ServerAck && m.For == streaming.TypeEndMission {
+			if json.Unmarshal(raw, &m) == nil && m.Type == streaming.ServerAck && m.For == ackFor {
 				ended <- nil
 				return
 			}
 		}
 	}()
+
+	if discarding {
+		b.logger().Info("WebSocket finishing a discarded mission", "missionId", payload.MissionID)
+		// Numbered after everything the server holds, so it is not taken
+		// for a duplicate.
+		discard, err := marshalEnvelope(streaming.TypeDiscardMission, nil, max(discardSeq, reply.Seq+1))
+		if err != nil {
+			return err
+		}
+		if err := writeData(conn, discard); err != nil {
+			return err
+		}
+		if err := b.awaitRecovered(ended, done); err != nil {
+			return err
+		}
+		return errDiscardFinished
+	}
+	b.logger().Info("WebSocket recovering mission", "missionId", payload.MissionID, "resumeFrom", from, "serverHasIt", reply.Type == streaming.ServerResumeOK)
 
 	var lastSeq uint64
 	var lastData []byte
@@ -330,17 +374,43 @@ func (b *Backend) recoverMission(dir string, done <-chan struct{}) error {
 			return err
 		}
 	}
+	return b.awaitRecovered(ended, done)
+}
 
-	timeout := b.cfg.SaveTimeout
-	if timeout <= 0 {
-		timeout = 10 * time.Minute
-	}
+// awaitRecovered waits for the server to acknowledge the recovered mission's
+// end or discard.
+func (b *Backend) awaitRecovered(ended <-chan error, done <-chan struct{}) error {
 	select {
 	case err := <-ended:
 		return err
-	case <-time.After(timeout):
-		return fmt.Errorf("timeout waiting for the server to save the recovered mission")
+	case <-time.After(b.saveTimeout()):
+		return fmt.Errorf("timeout waiting for the server to finish the recovered mission")
 	case <-done:
 		return errConnectionClosed
 	}
+}
+
+// spooledDiscard returns the sequence number of the spool's discard_mission
+// record, or 0 when the spool does not end with one.
+func spooledDiscard(paths []string) (uint64, error) {
+	// Only the last record matters; a rotated segment may still be empty.
+	for _, path := range slices.Backward(paths) {
+		var lastSeq uint64
+		var lastData []byte
+		if err := scanSegment(path, func(seq uint64, data []byte) error {
+			lastSeq, lastData = seq, data
+			return nil
+		}); err != nil {
+			return 0, err
+		}
+		if lastData == nil {
+			continue
+		}
+		var last streaming.Envelope
+		if json.Unmarshal(lastData, &last) != nil || last.Type != streaming.TypeDiscardMission {
+			return 0, nil
+		}
+		return lastSeq, nil
+	}
+	return 0, nil
 }
