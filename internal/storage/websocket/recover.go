@@ -110,24 +110,23 @@ func (b *Backend) recoverSpools(done <-chan struct{}) {
 		err = b.recoverMission(dir, done)
 		finished := err == nil || errors.Is(err, errAlreadySaved) || errors.Is(err, errDiscardFinished) || errors.Is(err, errSpoolDiscarded)
 		if finished {
-			// Marked while locked: a process taking the spool before it is
-			// gone deletes it instead of resending it.
-			_ = markSpoolDropped(dir)
+			// Marked and emptied while locked: a process taking the spool
+			// before it is gone deletes it instead of resending it.
+			_ = dropSpoolSegments(dir)
 		}
 		lock.release() // before removal: Windows cannot delete an open file
+		if finished {
+			_ = removeSpoolDir(dir) // or the next pass does
+		}
 		switch {
 		case err == nil:
 			b.recovered.Add(1)
 			b.logger().Info("WebSocket recovered mission from spool", "dir", dir)
-			_ = os.RemoveAll(dir)
 		case errors.Is(err, errAlreadySaved):
 			b.logger().Info("WebSocket spooled mission was already saved by the server; spool removed", "dir", dir)
-			_ = os.RemoveAll(dir)
 		case errors.Is(err, errDiscardFinished):
 			b.logger().Info("WebSocket discarded mission finished from spool; spool removed", "dir", dir)
-			_ = os.RemoveAll(dir)
 		case errors.Is(err, errSpoolDiscarded):
-			_ = os.RemoveAll(dir)
 		case errors.Is(err, errRecoveryDeferred):
 			b.logger().Debug("WebSocket mission recovery waits until the current mission ends", "dir", dir)
 		case errors.Is(err, errRecoveryUnsupported):

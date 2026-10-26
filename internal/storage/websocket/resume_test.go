@@ -126,7 +126,9 @@ func (rs *resumeServer) serve(c *ws.Conn) {
 					break
 				}
 				if id != p.MissionID && other.producer == p.ProducerID && !other.completed && !(other.recovered && knowsRecovered) {
-					rs.partials[id] = other
+					if other.lastSeq > 1 || !knowsRecovered {
+						rs.partials[id] = other // a newer server drops one with nothing after its start
+					}
 					delete(rs.missions, id)
 				}
 			}

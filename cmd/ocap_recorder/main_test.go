@@ -1,8 +1,8 @@
 package main
 
 import (
-	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -13,15 +13,25 @@ import (
 	"github.com/OCAP2/extension/v5/pkg/core"
 )
 
-func TestHandleNewMission_FailureIsReported(t *testing.T) {
+// isolateMissionStart records callbacks and gives a test its own parser and
+// no storage. Logger is left alone: the package init still reads it.
+func isolateMissionStart(t *testing.T, p parser.Service) *callbackRecorder {
+	t.Helper()
 	rec := &callbackRecorder{}
 	a3interface.SetCallbackSinkForTest(rec.sink)
-	t.Cleanup(func() { a3interface.SetCallbackSinkForTest(nil) })
-	previousLogger, previousParser := Logger, parserService
-	t.Cleanup(func() { Logger, parserService = previousLogger, previousParser })
-	Logger = slog.Default()
+	previousParser, previousBackend := parserService, storageBackend
+	t.Cleanup(func() {
+		a3interface.SetCallbackSinkForTest(nil)
+		parserService, storageBackend = previousParser, previousBackend
+	})
+	parserService = p
+	storageBackend = nil
+	return rec
+}
 
-	parserService = nil
+func TestHandleNewMission_FailureIsReported(t *testing.T) {
+	rec := isolateMissionStart(t, nil)
+
 	_, err := handleNewMission(dispatcher.Event{Args: []string{"{}", "{}", `"tok-1"`}})
 	require.Error(t, err)
 	cb := rec.wait(t, ":MISSION:FAILED:")
@@ -46,15 +56,29 @@ func (acceptingParser) ParseMission([]string) (core.Mission, core.World, error) 
 	return core.Mission{MissionName: "M"}, core.World{WorldName: "W"}, nil
 }
 
+func TestHandleNewMission_WaitsForSaveOrDiscard(t *testing.T) {
+	rec := isolateMissionStart(t, acceptingParser{})
+
+	// The previous mission's discard was dispatched just before this start.
+	saveState.inFlight.Store(true)
+	t.Cleanup(func() { saveState.inFlight.Store(false) })
+	done := make(chan error, 1)
+	go func() {
+		_, err := handleNewMission(dispatcher.Event{Args: []string{"{}", "{}", `"tok-3"`}})
+		done <- err
+	}()
+	select {
+	case <-done:
+		t.Fatal("the start ran before the discard finished")
+	case <-time.After(100 * time.Millisecond):
+	}
+	saveState.inFlight.Store(false)
+	require.NoError(t, <-done)
+	rec.wait(t, ":MISSION:OK:")
+}
+
 func TestHandleNewMission_OKEchoesToken(t *testing.T) {
-	rec := &callbackRecorder{}
-	a3interface.SetCallbackSinkForTest(rec.sink)
-	t.Cleanup(func() { a3interface.SetCallbackSinkForTest(nil) })
-	previousLogger, previousParser, previousBackend := Logger, parserService, storageBackend
-	t.Cleanup(func() { Logger, parserService, storageBackend = previousLogger, previousParser, previousBackend })
-	Logger = slog.Default()
-	parserService = acceptingParser{}
-	storageBackend = nil
+	rec := isolateMissionStart(t, acceptingParser{})
 
 	_, err := handleNewMission(dispatcher.Event{Args: []string{"{}", "{}", `"tok-2"`}})
 	require.NoError(t, err)
@@ -70,13 +94,7 @@ func (panickingParser) ParseMission([]string) (core.Mission, core.World, error) 
 }
 
 func TestHandleNewMission_PanicIsReported(t *testing.T) {
-	rec := &callbackRecorder{}
-	a3interface.SetCallbackSinkForTest(rec.sink)
-	t.Cleanup(func() { a3interface.SetCallbackSinkForTest(nil) })
-	previousLogger, previousParser := Logger, parserService
-	t.Cleanup(func() { Logger, parserService = previousLogger, previousParser })
-	Logger = slog.Default()
-	parserService = panickingParser{}
+	rec := isolateMissionStart(t, panickingParser{})
 
 	assert.Panics(t, func() { _, _ = handleNewMission(dispatcher.Event{}) }, "the dispatcher still sees the panic")
 	cb := rec.wait(t, ":MISSION:FAILED:")

@@ -386,6 +386,64 @@ func TestAbandonedEmptyMissionIsDiscarded(t *testing.T) {
 	assert.True(t, rs.mission(second).completed)
 }
 
+func TestAbandonMissionWhenNextMissionLoads(t *testing.T) {
+	rs := newResumeServer(t)
+	spoolDir := t.TempDir()
+	b := New(recoveryConfig(rs.url(), spoolDir))
+	require.NoError(t, b.Init())
+	defer b.Close()
+
+	require.NoError(t, b.AbandonMission(), "no-op without a mission")
+	id := startResumable(t, b)
+	recordStates(t, b, 1, 3)
+	require.NoError(t, b.AbandonMission())
+	m := rs.mission(id)
+	require.True(t, m.completed)
+	assert.True(t, endPayload(t, m).Interrupted)
+	requireGone(t, filepath.Join(spoolDir, id))
+	assert.False(t, b.recording())
+
+	next := startResumable(t, b)
+	require.NoError(t, b.EndMission(""))
+	assert.True(t, rs.mission(next).completed)
+}
+
+func TestAbandonMissionOnLegacyServerDisconnects(t *testing.T) {
+	srv, ml := testServer(t)
+	defer srv.Close()
+	b := New(Config{URL: wsURL(srv), Secret: "s", SpoolDir: t.TempDir()})
+	require.NoError(t, b.Init())
+	defer b.Close()
+
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: "M"}, &core.World{WorldName: "W"}))
+	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 1}))
+	require.NoError(t, b.AbandonMission())
+	for _, env := range ml.all() {
+		require.NotEqual(t, streaming.TypeEndMission, env.Type, "a legacy server ignores interrupted and would save it whole")
+	}
+	assert.False(t, b.recording())
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: "N"}, &core.World{WorldName: "W"}), "the next mission dials anew")
+}
+
+func TestRecoveryDefersOwnMissionOnServerWithoutRecovered(t *testing.T) {
+	fastRecovery(t)
+	rs := newResumeServer(t)
+	rs.noDrop.Store(true) // predates recovered starts: it would supersede the live mission
+	spoolDir := t.TempDir()
+	b := New(recoveryConfig(rs.url(), spoolDir))
+	require.NoError(t, b.Init())
+	defer b.Close()
+
+	live := startResumable(t, b)
+	writeTestSpool(t, filepath.Join(spoolDir, "m-own"), "m-own", b.producerID, 3)
+	time.Sleep(spoolStaleAfter + 10*recoveryConfig("", "").RecoveryInterval) // several recovery passes
+	assert.Empty(t, rs.mission("m-own").received, "not resent while this process records")
+	assert.False(t, rs.partial(live))
+
+	require.NoError(t, b.EndMission(""))
+	require.Eventually(t, func() bool { return rs.mission("m-own").completed }, 5*time.Second, 10*time.Millisecond, "resent once it records none")
+}
+
 func TestAbandonedEmptyMissionOnServerWithoutDiscard(t *testing.T) {
 	rs := newResumeServer(t)
 	rs.noDrop.Store(true)

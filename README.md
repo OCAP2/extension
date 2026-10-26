@@ -172,10 +172,12 @@ while it records none:
 
 When the game moves on to the next mission without saving or discarding the
 current one, for example after an admin `#missions`, the proxy ends it as
-interrupted before the next one starts, and the web service saves it as
-`partial`. Only if that is not confirmed within 30 seconds does its spool stay
-behind for recovery. One that recorded nothing after its start is discarded
-instead, when the web service supports it.
+interrupted as soon as the next mission loads (`:STORAGE:INIT:`), and the web
+service saves it as `partial`. Only if that is not confirmed within 30 seconds
+does its spool stay behind for recovery. One that recorded nothing after its
+start is discarded instead, when the web service supports it. A web service
+without resume support is disconnected instead, which saves the mission as
+`partial` there.
 
 When the addon ends a recording that does not meet its save limits (for
 example one shorter than `OCAP_settings_minMissionTime`), it sends

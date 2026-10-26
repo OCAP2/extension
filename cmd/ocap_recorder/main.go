@@ -367,7 +367,10 @@ func startNewMission(e dispatcher.Event) (any, error) {
 	MarkerCache.Reset()
 	EntityCache.Reset()
 
-	// 3. Start backend (handles DB ops for GORM/SQLite backends, stores missionID internally)
+	// 3. Start backend (handles DB ops for GORM/SQLite backends, stores missionID internally),
+	// once the previous mission's save or discard, dispatched before this
+	// start, has run.
+	saveState.waitIdle()
 	if storageBackend != nil {
 		if err := storageBackend.StartMission(&coreMission, &coreWorld); err != nil {
 			Logger.Error("Failed to start mission in storage backend", "error", err)

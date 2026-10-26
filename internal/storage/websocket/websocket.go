@@ -213,23 +213,9 @@ func (b *Backend) StartMission(mission *core.Mission, world *core.World) error {
 	b.missionMu.Lock()
 	defer b.missionMu.Unlock()
 
-	// The game moved on without saving or discarding the previous mission.
-	// It ends as interrupted, so the server saves what it got as partial and
-	// nothing is left to recover, and this mission gets a fresh connection.
-	// One that recorded nothing after its start is dropped instead, when the
-	// server can.
-	if b.recording() {
-		b.mu.Lock()
-		old, oldID := b.conn, b.missionID
-		b.mu.Unlock()
-		if old.log.lastSeq() <= 1 && b.discardable() {
-			slog.Default().Warn("WebSocket mission abandoned before it recorded anything; discarding it", "missionId", oldID)
-			_ = b.discardMission(abandonTimeout)
-		} else {
-			slog.Default().Warn("WebSocket mission abandoned without save or discard; ending it as interrupted", "missionId", oldID)
-			_ = b.endMission(streaming.EndMissionPayload{Interrupted: true}, abandonTimeout)
-		}
-	}
+	// Normally done when the next mission loads (AbandonMission); this
+	// covers a start without one.
+	b.abandonMission()
 
 	b.mu.Lock()
 	// A completed mission's server closes its socket. Dial a fresh connection
@@ -307,6 +293,43 @@ func (b *Backend) StartMission(mission *core.Mission, world *core.World) error {
 	}
 	slog.Default().Info("WebSocket mission started", "missionId", missionID, "resumable", resumable, "discardable", b.discardable())
 	return nil
+}
+
+// AbandonMission ends a mission the game moved on from without saving or
+// discarding it, for example after an admin changed the mission. It ends as
+// interrupted, so the server saves what it got as partial and nothing is left
+// to recover. One that recorded nothing after its start is dropped instead,
+// when the server can. A server without resume support saves a mission as
+// partial when its producer disconnects, so the connection is closed instead.
+// It is a no-op when no mission is recording.
+func (b *Backend) AbandonMission() error {
+	b.missionMu.Lock()
+	defer b.missionMu.Unlock()
+	return b.abandonMission()
+}
+
+// abandonMission is AbandonMission with missionMu held.
+func (b *Backend) abandonMission() error {
+	if !b.recording() {
+		return nil
+	}
+	b.mu.Lock()
+	conn, missionID := b.conn, b.missionID
+	b.mu.Unlock()
+	switch {
+	case !conn.isResumable():
+		slog.Default().Warn("WebSocket mission abandoned without save or discard; disconnecting, the server saves it as partial", "missionId", missionID)
+		if sp := b.clearMission(); sp != nil {
+			removeSpool(sp)
+		}
+		return conn.close()
+	case conn.log.lastSeq() <= 1 && b.discardable():
+		slog.Default().Warn("WebSocket mission abandoned before it recorded anything; discarding it", "missionId", missionID)
+		return b.discardMission(abandonTimeout)
+	default:
+		slog.Default().Warn("WebSocket mission abandoned without save or discard; ending it as interrupted", "missionId", missionID)
+		return b.endMission(streaming.EndMissionPayload{Interrupted: true}, abandonTimeout)
+	}
 }
 
 // discardable reports whether the server serving the mission accepts
@@ -393,12 +416,14 @@ func (b *Backend) discardMission(timeout time.Duration) error {
 	// version, and refuses a discard already waiting for its ack.
 	discardable := b.discardable()
 	err := errDiscardUnsupported
+	logged := false // discard_mission is in the log, and so in a healthy spool
 	if discardable {
 		payload := streaming.DiscardMissionPayload{MissionID: missionID, ProducerID: b.producerID}
 		err = conn.send(func(seq uint64) ([]byte, error) {
 			return marshalEnvelope(streaming.TypeDiscardMission, payload, seq)
 		})
 		if err == nil {
+			logged = true
 			_, err = conn.waitAck(streaming.TypeDiscardMission, timeout)
 		}
 		if errors.Is(err, errDiscardUnsupported) {
@@ -409,7 +434,7 @@ func (b *Backend) discardMission(timeout time.Duration) error {
 	// A spool that holds discard_mission lets recovery finish the discard.
 	// Without it, recovery would resend the mission and the server save it.
 	sp := b.clearMission()
-	keep := err != nil && discardable && sp != nil && sp.healthy()
+	keep := err != nil && discardable && logged && sp != nil && sp.healthy()
 	if sp != nil {
 		if keep {
 			_ = sp.close()

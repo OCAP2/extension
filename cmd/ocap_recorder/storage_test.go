@@ -3,6 +3,7 @@ package main
 import (
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/OCAP2/extension/v5/internal/config"
 	"github.com/OCAP2/extension/v5/internal/dispatcher"
@@ -49,13 +50,13 @@ func isolateStorage(t *testing.T) *callbackRecorder {
 	t.Helper()
 	rec := &callbackRecorder{}
 	a3interface.SetCallbackSinkForTest(rec.sink)
-	previousLogger, previousBackend, previousDispatcher, previousWorkers := Logger, storageBackend, eventDispatcher, workerManager
+	// Logger is left alone: the package init still reads it.
+	previousBackend, previousDispatcher, previousWorkers := storageBackend, eventDispatcher, workerManager
 	t.Cleanup(func() {
 		a3interface.SetCallbackSinkForTest(nil)
-		Logger, storageBackend, eventDispatcher, workerManager = previousLogger, previousBackend, previousDispatcher, previousWorkers
+		storageBackend, eventDispatcher, workerManager = previousBackend, previousDispatcher, previousWorkers
 		viper.Reset()
 	})
-	Logger = slog.Default()
 	storageBackend = nil
 	d, err := dispatcher.New(logging.NewDispatcherLogger(Logger))
 	require.NoError(t, err)
@@ -84,6 +85,33 @@ func TestInitStorageReusesBackend(t *testing.T) {
 		}
 	}
 	require.Equal(t, 2, oks, "every :STORAGE:INIT: is answered")
+}
+
+// abandoningBackend is a fakeBackend that records AbandonMission calls.
+type abandoningBackend struct {
+	fakeBackend
+	abandoned chan struct{}
+}
+
+func (a *abandoningBackend) AbandonMission() error {
+	close(a.abandoned)
+	return nil
+}
+
+func TestInitStorageAbandonsOpenMission(t *testing.T) {
+	isolateStorage(t)
+	viper.Set("storage.type", "websocket")
+	backend := &abandoningBackend{abandoned: make(chan struct{})}
+	storageBackend = backend
+
+	// The next mission loads.
+	require.NoError(t, initStorage())
+	select {
+	case <-backend.abandoned:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the mission left open was not abandoned")
+	}
+	require.Same(t, storage.Backend(backend), storageBackend)
 }
 
 func TestStartStorageReportsFailure(t *testing.T) {

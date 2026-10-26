@@ -67,6 +67,16 @@ type Discardable interface {
 	DiscardMission() error
 }
 
+// Abandonable is an optional interface for storage backends that keep a
+// mission open outside the process, such as the websocket stream. The next
+// mission load ends a mission the game moved on from without saving or
+// discarding it.
+type Abandonable interface {
+	// AbandonMission ends the current mission, as interrupted. It is a no-op
+	// when no mission is being recorded.
+	AbandonMission() error
+}
+
 // ErrMissionKept means a discarded mission ended, but its storage keeps what
 // was recorded, as a backend without Discardable does.
 var ErrMissionKept = errors.New("storage keeps the discarded mission")

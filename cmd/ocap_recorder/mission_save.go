@@ -22,6 +22,15 @@ type missionSaveState struct {
 // saveState is the package-level state used by the :MISSION:SAVE: handler.
 var saveState = &missionSaveState{}
 
+// waitIdle waits until no save or discard is in flight. A mission start runs
+// on its own handler, so without it, a discard dispatched just before the
+// next start could reach the backend after it, and drop the new mission.
+func (s *missionSaveState) waitIdle() {
+	for s.inFlight.Load() {
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 // triggerMissionSave is the logic behind the :MISSION:SAVE: dispatcher handler,
 // extracted so it can be exercised in tests with a fake backend and a fake
 // api client.
