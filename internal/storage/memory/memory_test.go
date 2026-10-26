@@ -924,6 +924,17 @@ func TestDiscardMissionDropsDataWithoutExport(t *testing.T) {
 	require.NoError(t, b.DiscardMission(), "discarding again is a no-op")
 }
 
+func TestDiscardMissionAfterSaveKeepsExportPath(t *testing.T) {
+	b := New(config.MemoryConfig{OutputDir: t.TempDir()}, nil)
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Saved", CaptureDelay: 1}, &core.World{WorldName: "Altis"}))
+	require.NoError(t, b.EndMission(""))
+	path := b.GetExportedFilePath()
+	require.NotEmpty(t, path)
+
+	require.NoError(t, b.DiscardMission(), "nothing is recording")
+	assert.Equal(t, path, b.GetExportedFilePath())
+}
+
 func TestGetExportMetadataWithoutStartMission(t *testing.T) {
 	b := New(config.MemoryConfig{}, nil)
 

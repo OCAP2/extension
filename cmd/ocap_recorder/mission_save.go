@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime/debug"
 	"sync/atomic"
@@ -60,49 +61,64 @@ func triggerMissionDiscard(state *missionSaveState, backend storage.Backend) (an
 		return nil, fmt.Errorf("no storage backend configured")
 	}
 	if !state.inFlight.CompareAndSwap(false, true) {
-		return nil, fmt.Errorf("save already in progress")
+		return nil, fmt.Errorf("mission save or discard already in progress")
 	}
 
 	go runMissionDiscardWorker(state, backend)
 	return "queued", nil
 }
 
-// runMissionDiscardWorker performs DiscardMission, recovers from panics and
-// dispatches the :MISSION:DISCARDED: callback.
+// runMissionDiscardWorker performs DiscardMission, recovers from panics,
+// flushes OTel, and dispatches the :MISSION:DISCARDED: callback.
 func runMissionDiscardWorker(state *missionSaveState, backend storage.Backend) {
 	defer state.inFlight.Store(false)
 
-	d, ok := backend.(storage.Discardable)
-	if !ok {
-		if Logger != nil {
-			Logger.Info("Storage backend keeps discarded missions")
-		}
-		_ = a3interface.WriteArmaCallback(ExtensionName, ":MISSION:DISCARDED:", "kept")
-		return
+	err := storage.ErrMissionKept
+	if d, ok := backend.(storage.Discardable); ok {
+		err = func() (err error) {
+			defer func() {
+				if r := recover(); r != nil {
+					err = fmt.Errorf("panic during mission discard: %v", r)
+					if Logger != nil {
+						Logger.Error("panic during mission discard", "panic", r, "stack", string(debug.Stack()))
+					}
+				}
+			}()
+			return d.DiscardMission()
+		}()
 	}
 
-	err := func() (err error) {
-		defer func() {
-			if r := recover(); r != nil {
-				err = fmt.Errorf("panic during mission discard: %v", r)
-				if Logger != nil {
-					Logger.Error("panic during mission discard", "panic", r, "stack", string(debug.Stack()))
-				}
-			}
-		}()
-		return d.DiscardMission()
-	}()
-	if err != nil {
+	flushOTel()
+
+	switch {
+	case errors.Is(err, storage.ErrMissionKept):
+		if Logger != nil {
+			Logger.Info("Storage keeps the discarded mission", "reason", err)
+		}
+		_ = a3interface.WriteArmaCallback(ExtensionName, ":MISSION:DISCARDED:", "kept")
+	case err != nil:
 		if Logger != nil {
 			Logger.Error("Failed to discard mission in storage backend", "error", err)
 		}
 		_ = a3interface.WriteArmaCallback(ExtensionName, ":MISSION:DISCARDED:", "error", err.Error())
+	default:
+		if Logger != nil {
+			Logger.Info("Mission recording discarded")
+		}
+		_ = a3interface.WriteArmaCallback(ExtensionName, ":MISSION:DISCARDED:", "ok")
+	}
+}
+
+// flushOTel flushes OTel data at mission end if the provider is available.
+func flushOTel() {
+	if OTelProvider == nil {
 		return
 	}
-	if Logger != nil {
-		Logger.Info("Mission recording discarded")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := OTelProvider.Flush(ctx); err != nil && Logger != nil {
+		Logger.Warn("Failed to flush OTel data", "error", err)
 	}
-	_ = a3interface.WriteArmaCallback(ExtensionName, ":MISSION:DISCARDED:", "ok")
 }
 
 // runMissionSaveWorker performs EndMission + optional upload, recovers from
@@ -171,14 +187,7 @@ func runMissionSaveWorker(state *missionSaveState, backend storage.Backend, clie
 		}
 	}()
 
-	// Flush OTel data if provider is available.
-	if OTelProvider != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := OTelProvider.Flush(ctx); err != nil && Logger != nil {
-			Logger.Warn("Failed to flush OTel data", "error", err)
-		}
-	}
+	flushOTel()
 
 	// Build callback payload.
 	switch {

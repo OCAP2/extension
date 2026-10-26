@@ -3,7 +3,6 @@ package websocket
 import (
 	"crypto/rand"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -11,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/OCAP2/extension/v5/internal/storage"
 	"github.com/OCAP2/extension/v5/pkg/core"
 	"github.com/OCAP2/extension/v5/pkg/streaming"
 )
@@ -326,14 +326,16 @@ func (b *Backend) EndMission(tag string) error {
 	return err
 }
 
-// errDiscardUnsupported means the server predates discard_mission.
-var errDiscardUnsupported = errors.New("websocket server cannot discard missions")
+// errDiscardUnsupported means the server predates discard_mission, or never
+// acknowledged the mission start that would tell.
+var errDiscardUnsupported = fmt.Errorf("websocket server cannot discard missions: %w", storage.ErrMissionKept)
 
 // DiscardMission ends the mission without saving it: it sends
 // discard_mission, and the server drops the recording. A server older than
 // ProtocolVersionDiscard cannot drop it. The mission is then abandoned: the
 // connection is closed and nothing is kept for recovery, but that server
-// still saves what it received as partial, as it did before discard existed.
+// still saves what it received as partial, as it did before discard existed,
+// and DiscardMission returns storage.ErrMissionKept.
 func (b *Backend) DiscardMission() error {
 	b.missionMu.Lock()
 	defer b.missionMu.Unlock()
@@ -347,7 +349,8 @@ func (b *Backend) DiscardMission() error {
 
 	err := errDiscardUnsupported
 	if discardable {
-		err = b.sendEnvelopeAndWait(streaming.TypeDiscardMission, nil, b.saveTimeout())
+		payload := streaming.DiscardMissionPayload{MissionID: missionID, ProducerID: b.producerID}
+		err = b.sendEnvelopeAndWait(streaming.TypeDiscardMission, payload, b.saveTimeout())
 	}
 
 	// A spool that holds discard_mission lets recovery finish the discard.
@@ -394,6 +397,13 @@ func (b *Backend) clearMission() *spool {
 	conn.endMission()
 	b.nextMarkerID.Store(0)
 	return sp
+}
+
+// recording reports whether a mission has started and not ended.
+func (b *Backend) recording() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.active
 }
 
 func (b *Backend) saveTimeout() time.Duration {

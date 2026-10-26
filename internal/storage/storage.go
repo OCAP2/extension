@@ -1,7 +1,11 @@
 // internal/storage/storage.go
 package storage
 
-import "github.com/OCAP2/extension/v5/pkg/core"
+import (
+	"errors"
+
+	"github.com/OCAP2/extension/v5/pkg/core"
+)
 
 // Backend is the interface all storage implementations must satisfy
 type Backend interface {
@@ -58,9 +62,14 @@ type Backend interface {
 // without it keep what they recorded.
 type Discardable interface {
 	// DiscardMission ends the current mission without saving it. It is a
-	// no-op when no mission is being recorded.
+	// no-op when no mission is being recorded. It returns ErrMissionKept
+	// when the mission ended but its data could not be dropped.
 	DiscardMission() error
 }
+
+// ErrMissionKept means a discarded mission ended, but its storage keeps what
+// was recorded, as a backend without Discardable does.
+var ErrMissionKept = errors.New("storage keeps the discarded mission")
 
 // Uploadable is an optional interface for storage backends that produce
 // files suitable for upload to the OCAP web frontend.

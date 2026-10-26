@@ -27,6 +27,11 @@ type resumeServer struct {
 	mu       sync.Mutex
 	missions map[string]*fakeMission
 	conns    map[*ws.Conn]string // live connection → mission id ("" before start/resume)
+	// partials holds missions saved as partial once their session ended
+	// without end_mission: superseded by their producer's next mission, or
+	// expired. The server no longer resumes them.
+	partials map[string]*fakeMission
+	dropped  []string // missions whose partials a session-less discard_mission dropped
 
 	discard   atomic.Bool // drop envelopes as if lost in transit; the link stays dead
 	noAck     atomic.Bool // never send cumulative acks
@@ -50,7 +55,7 @@ type fakeMission struct {
 
 func newResumeServer(t *testing.T) *resumeServer {
 	t.Helper()
-	rs := &resumeServer{t: t, missions: map[string]*fakeMission{}, conns: map[*ws.Conn]string{}}
+	rs := &resumeServer{t: t, missions: map[string]*fakeMission{}, conns: map[*ws.Conn]string{}, partials: map[string]*fakeMission{}}
 	upgrader := ws.Upgrader{}
 	rs.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, err := upgrader.Upgrade(w, r, nil)
@@ -102,6 +107,14 @@ func (rs *resumeServer) serve(c *ws.Conn) {
 			require.NoError(rs.t, json.Unmarshal(env.Payload, &p))
 			rs.starts.Add(1)
 			rs.mu.Lock()
+			// A producer records one mission at a time: its other
+			// unfinished missions are saved as partial.
+			for id, other := range rs.missions {
+				if id != p.MissionID && other.producer == p.ProducerID && !other.completed {
+					rs.partials[id] = other
+					delete(rs.missions, id)
+				}
+			}
 			m = rs.missions[p.MissionID]
 			if m == nil {
 				m = &fakeMission{producer: p.ProducerID, lastSeq: env.Seq}
@@ -144,11 +157,25 @@ func (rs *resumeServer) serve(c *ws.Conn) {
 				m = nil
 			}
 			rs.mu.Unlock()
+			if !rs.noDrop.Load() {
+				reply.ProtocolVersion = streaming.ProtocolVersionDiscard
+			}
 			if c.WriteJSON(reply) != nil {
 				return
 			}
 
 		default:
+			if m == nil && env.Type == streaming.TypeDiscardMission && !rs.noDrop.Load() {
+				// No session: drop what the server kept of the mission.
+				var p streaming.DiscardMissionPayload
+				require.NoError(rs.t, json.Unmarshal(env.Payload, &p))
+				rs.mu.Lock()
+				delete(rs.partials, p.MissionID)
+				rs.dropped = append(rs.dropped, p.MissionID)
+				rs.mu.Unlock()
+				_ = c.WriteJSON(streaming.AckMessage{Type: streaming.ServerAck, For: env.Type})
+				return
+			}
 			if m == nil {
 				continue
 			}
@@ -212,6 +239,31 @@ func (rs *resumeServer) forget() {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
 	rs.missions = map[string]*fakeMission{}
+}
+
+// expire saves an unfinished mission as partial, as the web server does when
+// its producer stays away past the resume grace.
+func (rs *resumeServer) expire(id string) {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	if m := rs.missions[id]; m != nil {
+		rs.partials[id] = m
+		delete(rs.missions, id)
+	}
+}
+
+// partial reports whether the server keeps a partial recording of the mission.
+func (rs *resumeServer) partial(id string) bool {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	return rs.partials[id] != nil
+}
+
+// droppedMissions lists the missions session-less discards dropped.
+func (rs *resumeServer) droppedMissions() []string {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	return append([]string(nil), rs.dropped...)
 }
 
 func (rs *resumeServer) mission(id string) fakeMission {

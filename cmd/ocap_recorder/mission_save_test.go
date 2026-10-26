@@ -292,6 +292,22 @@ func TestRunMissionDiscard_BackendKeepsData(t *testing.T) {
 	assert.False(t, state.inFlight.Load())
 }
 
+func TestRunMissionDiscard_StorageKeepsMission(t *testing.T) {
+	rec := &callbackRecorder{}
+	a3interface.SetCallbackSinkForTest(rec.sink)
+	t.Cleanup(func() { a3interface.SetCallbackSinkForTest(nil) })
+
+	// For example a websocket server too old to drop it.
+	state := newTestSaveState()
+	backend := &discardingBackend{discardErr: fmt.Errorf("old server: %w", storage.ErrMissionKept)}
+	_, err := triggerMissionDiscard(state, backend)
+	require.NoError(t, err)
+
+	cb := rec.wait(t, ":MISSION:DISCARDED:")
+	assert.Equal(t, []string{`"kept"`}, cb.data)
+	assert.Equal(t, 1, backend.discards)
+}
+
 func TestRunMissionDiscard_Error(t *testing.T) {
 	rec := &callbackRecorder{}
 	a3interface.SetCallbackSinkForTest(rec.sink)
@@ -335,7 +351,7 @@ func TestRunMissionDiscard_RejectedWhileSaving(t *testing.T) {
 	require.NoError(t, err)
 	_, err = triggerMissionDiscard(state, backend)
 	require.Error(t, err, "a mission is either saved or discarded")
-	assert.Contains(t, err.Error(), "save already in progress")
+	assert.Contains(t, err.Error(), "already in progress")
 
 	rec.wait(t, ":MISSION:SAVED:")
 	assert.Zero(t, backend.discards)

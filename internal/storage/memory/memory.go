@@ -180,6 +180,9 @@ func (b *Backend) EndMission(tag string) (retErr error) {
 func (b *Backend) DiscardMission() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if b.mission == nil {
+		return nil // nothing recording; keep the previous export path
+	}
 
 	b.mission = nil
 	b.world = nil

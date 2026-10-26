@@ -153,17 +153,22 @@ paced. `0` disables pacing.
 per mission (0 = unlimited). Once the limit is reached, spooling stops for that
 mission, and a later full resend is partial.
 
-The spool also survives the game server. If it crashes mid-mission, or a save
-is not confirmed, the mission stays in `spoolDir`. The next extension process
-checks `spoolDir` at startup and then every minute, resends such missions to
-the web service, and deletes each spool once the web service has saved its
-mission:
+The spool also survives the game server. If it crashes mid-mission, or a
+mission ends without a confirmed save, the mission stays in `spoolDir`. The
+extension checks `spoolDir` at startup and then every minute, resends such
+missions to the web service, and deletes each spool once the web service has
+saved its mission. The running process recovers its own missions too, but
+resends one in full only while it is not recording another, since the web
+service would take that start for its next mission:
 - A mission cut short by a crash is ended on the crashed process' behalf and
   saved as `partial`, with everything recorded up to the last flush (at most
   about a second is lost).
+- A mission the game moved on from without saving or discarding it is ended
+  the same way, as `partial`.
 - A mission whose save was not confirmed is saved as recorded.
 - A mission whose discard was not confirmed is not resent; the web service is
-  only told again to drop it.
+  only told again to drop it, including any `partial` recording it saved of
+  the mission in the meantime.
 
 When the addon ends a recording that does not meet its save limits (for
 example one shorter than `OCAP_settings_minMissionTime`), it sends
@@ -274,7 +279,7 @@ All commands follow a `:RESOURCE:ACTION:` naming convention. New commands must u
 |---------|---------|
 | `:SYS:INIT:` | Initialize extension, send `:SYS:READY:` callback |
 | `:STORAGE:INIT:` | Initialize storage backend, ungate buffered handlers |
-| `:MISSION:START:` | Start recording mission |
+| `:MISSION:START:` | Start recording mission; answers with a `:MISSION:OK:` callback, or `:MISSION:FAILED:` with the error |
 | `:MISSION:SAVE:` | End recording, flush data, upload if configured |
 | `:MISSION:DISCARD:` | End recording without saving it (`memory`, `websocket`); answers with a `:MISSION:DISCARDED:` callback |
 | `:MISSION:FOCUS_START:` | Set playback focus start frame |

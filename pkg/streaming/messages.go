@@ -73,8 +73,16 @@ const ProtocolVersionDiscard = 3
 // and acknowledges it like end_mission. It is numbered like any mission
 // envelope, and is sent only to servers that acknowledged start_mission with
 // ProtocolVersionDiscard or later. Saved missions never carry it, so it is
-// not part of AllMessageTypes.
+// not part of AllMessageTypes. Its payload is DiscardMissionPayload.
 const TypeDiscardMission = "discard_mission"
+
+// DiscardMissionPayload names the discarded mission. A server that no longer
+// holds the mission's session, for example because it saved it as partial
+// after the producer went away, drops what it kept of the mission by id.
+type DiscardMissionPayload struct {
+	MissionID  string `json:"missionId"`
+	ProducerID string `json:"producerId"`
+}
 
 // Connection control messages. They are not mission data, so they are not
 // part of AllMessageTypes.
@@ -106,7 +114,8 @@ type AckMessage struct {
 	// Seq is the highest envelope the server has received (ack, resume_ok).
 	Seq uint64 `json:"seq,omitempty"`
 	// ProtocolVersion is set on the start_mission acknowledgement by servers
-	// that support resume. Older servers omit it.
+	// that support resume, and on resume replies by servers that support
+	// discard. Older servers omit it.
 	ProtocolVersion uint8 `json:"protocolVersion,omitempty"`
 }
 

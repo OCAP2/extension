@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"encoding/json"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -46,6 +47,9 @@ func TestDiscardMissionDropsRecording(t *testing.T) {
 	require.True(t, m.discarded)
 	requireContiguous(t, m, 7) // start, 5 states, discard
 	assert.Equal(t, streaming.TypeDiscardMission, m.received[6].Type)
+	var p streaming.DiscardMissionPayload
+	require.NoError(t, json.Unmarshal(m.received[6].Payload, &p))
+	assert.Equal(t, streaming.DiscardMissionPayload{MissionID: id, ProducerID: b.producerID}, p, "the discard names the mission")
 	assert.NoDirExists(t, filepath.Join(spoolDir, id), "a confirmed discard leaves nothing to recover")
 
 	// The next mission records as usual.
@@ -107,7 +111,7 @@ func TestDiscardMissionOnServerWithoutDiscard(t *testing.T) {
 	recordStates(t, b, 1, 3)
 	require.Eventually(t, func() bool { return rs.lastSeq(id) == 4 }, 2*time.Second, 5*time.Millisecond)
 
-	require.ErrorIs(t, b.DiscardMission(), errDiscardUnsupported)
+	require.ErrorIs(t, b.DiscardMission(), storage.ErrMissionKept)
 	m := rs.mission(id)
 	assert.False(t, m.completed, "the server keeps the mission until its grace expires")
 	requireNoDiscard(t, m.received)
@@ -173,18 +177,51 @@ func TestRecoveryFinishesUnconfirmedDiscard(t *testing.T) {
 	assert.NoDirExists(t, filepath.Join(spoolDir, id))
 }
 
+func TestRecoveryDropsPartialOfUnconfirmedDiscard(t *testing.T) {
+	fastRecovery(t)
+	rs := newResumeServer(t)
+	spoolDir := t.TempDir()
+	b, id := discardUnconfirmed(t, rs, spoolDir)
+	rs.expire(id) // the producer stayed away past the grace: saved as partial
+	require.True(t, rs.partial(id))
+
+	b.recoverSpools(b.done)
+
+	assert.False(t, rs.partial(id), "the partial recording is dropped")
+	assert.Equal(t, []string{id}, rs.droppedMissions())
+	assert.Empty(t, rs.mission(id).received, "the mission is not resent to be discarded")
+	assert.Equal(t, int32(1), rs.starts.Load())
+	assert.NoDirExists(t, filepath.Join(spoolDir, id))
+}
+
 func TestRecoveryOfDiscardTheServerLost(t *testing.T) {
 	fastRecovery(t)
 	rs := newResumeServer(t)
 	spoolDir := t.TempDir()
 	b, id := discardUnconfirmed(t, rs, spoolDir)
-	rs.forget() // the web server restarted and holds nothing to discard
+	rs.forget() // the web server restarted
 
 	b.recoverSpools(b.done)
 
-	assert.Empty(t, rs.mission(id).received, "the mission is not resent to be discarded")
-	assert.Equal(t, int32(1), rs.starts.Load())
+	assert.Equal(t, []string{id}, rs.droppedMissions(), "the discard names the mission")
+	assert.Equal(t, int32(1), rs.starts.Load(), "the mission is not resent to be discarded")
 	assert.NoDirExists(t, filepath.Join(spoolDir, id))
+}
+
+func TestRecoveryOfDiscardOnServerWithoutDiscard(t *testing.T) {
+	fastRecovery(t)
+	rs := newResumeServer(t)
+	rs.noDrop.Store(true) // the web server was downgraded since
+	spoolDir := t.TempDir()
+	writeDiscardedSpool(t, filepath.Join(spoolDir, "m-old"), "m-old", "p-old", 3)
+
+	b := New(recoveryConfig(rs.url(), spoolDir))
+	require.NoError(t, b.Init())
+	defer b.Close()
+
+	requireGone(t, filepath.Join(spoolDir, "m-old"))
+	assert.Empty(t, rs.droppedMissions(), "an older server is not sent what it cannot take")
+	assert.Zero(t, rs.starts.Load())
 }
 
 // writeDiscardedSpool writes a closed spool holding a start_mission, n
@@ -204,30 +241,30 @@ func writeDiscardedSpool(t *testing.T, dir, missionID, producerID string, n int)
 		require.NoError(t, err)
 		require.NoError(t, sp.append(uint64(i+1), data))
 	}
-	discard, err := marshalEnvelope(streaming.TypeDiscardMission, nil, uint64(n+2))
+	discard, err := marshalEnvelope(streaming.TypeDiscardMission, streaming.DiscardMissionPayload{MissionID: missionID, ProducerID: producerID}, uint64(n+2))
 	require.NoError(t, err)
 	require.NoError(t, sp.append(uint64(n+2), discard))
 	require.NoError(t, sp.close())
 }
 
-func TestRecoveryDropsDiscardForServerWithoutResume(t *testing.T) {
+func TestRecoveryKeepsDiscardWhenResumeTimesOut(t *testing.T) {
 	fastRecovery(t)
 	oldHandshake := handshakeTimeout
 	handshakeTimeout = 100 * time.Millisecond
 	t.Cleanup(func() { handshakeTimeout = oldHandshake })
 
 	rs := newResumeServer(t)
-	rs.legacy.Store(true)
+	rs.legacy.Store(true) // does not answer resume, like a slow server
 	spoolDir := t.TempDir()
-	writeDiscardedSpool(t, filepath.Join(spoolDir, "m-dropped"), "m-dropped", "p-old", 3)
+	writeDiscardedSpool(t, filepath.Join(spoolDir, "m-kept"), "m-kept", "p-old", 3)
 
 	b := New(recoveryConfig(rs.url(), spoolDir))
 	require.NoError(t, b.Init())
 	defer b.Close()
 
-	requireGone(t, filepath.Join(spoolDir, "m-dropped"))
-	assert.Empty(t, rs.mission("m-dropped").received)
-	assert.Zero(t, b.recoveryPausedUntil.Load(), "a discard does not pause recovery of other missions")
+	require.Eventually(t, func() bool { return b.recoveryPausedUntil.Load() != 0 }, 5*time.Second, 10*time.Millisecond)
+	assert.DirExists(t, filepath.Join(spoolDir, "m-kept"), "the discard is retried once the server answers")
+	assert.Empty(t, rs.mission("m-kept").received)
 }
 
 func TestSpooledDiscard(t *testing.T) {
@@ -266,11 +303,22 @@ func TestAbandonedMissionIsRecoveredWhileProcessRuns(t *testing.T) {
 	require.Eventually(t, func() bool { return rs.lastSeq(first) == 4 }, 2*time.Second, 5*time.Millisecond)
 
 	// The game moved on to the next mission without saving or discarding.
+	// The server saves the abandoned one as partial.
 	second := startResumable(t, b)
-	require.Eventually(t, func() bool { return rs.mission(first).completed }, 5*time.Second, 10*time.Millisecond,
-		"the abandoned spool is released for recovery")
+	require.True(t, rs.partial(first))
+
+	// Resending it in full would supersede the live mission: it waits.
+	time.Sleep(spoolStaleAfter + 10*recoveryConfig("", "").RecoveryInterval) // several recovery passes
+	assert.Equal(t, int32(2), rs.starts.Load(), "the abandoned mission is not resent while another records")
+	assert.False(t, rs.partial(second), "the live mission is left alone")
+	assert.DirExists(t, filepath.Join(spoolDir, first))
+
+	recordStates(t, b, 1, 2)
+	require.NoError(t, b.EndMission(""))
+	assert.True(t, rs.mission(second).completed)
+
+	// Between missions it is resent and ended as interrupted.
+	require.Eventually(t, func() bool { return rs.mission(first).completed }, 5*time.Second, 10*time.Millisecond)
 	assert.True(t, endPayload(t, rs.mission(first)).Interrupted)
 	requireGone(t, filepath.Join(spoolDir, first))
-	assert.DirExists(t, filepath.Join(spoolDir, second), "the live mission is left alone")
-	require.NoError(t, b.EndMission(""))
 }

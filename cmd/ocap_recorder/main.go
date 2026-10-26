@@ -312,9 +312,21 @@ func initAPIClient() {
 
 // handleNewMission handles the :MISSION:START: command: parses mission data,
 // delegates DB persistence to the storage backend, and sets runtime state.
+// It answers with a :MISSION:OK: callback, or :MISSION:FAILED: with the error,
+// so the addon never waits for a mission that did not start.
 func handleNewMission(e dispatcher.Event) (any, error) {
+	result, err := startNewMission(e)
+	if err != nil {
+		if cbErr := a3interface.WriteArmaCallback(ExtensionName, ":MISSION:FAILED:", err.Error()); cbErr != nil {
+			Logger.Warn("Failed to send MISSION:FAILED callback", "error", cbErr)
+		}
+	}
+	return result, err
+}
+
+func startNewMission(e dispatcher.Event) (any, error) {
 	if parserService == nil {
-		return nil, nil
+		return nil, fmt.Errorf("extension not initialized")
 	}
 
 	// 1. Parse (returns core types)
