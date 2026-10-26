@@ -50,7 +50,7 @@ func TestDiscardMissionDropsRecording(t *testing.T) {
 	var p streaming.DiscardMissionPayload
 	require.NoError(t, json.Unmarshal(m.received[6].Payload, &p))
 	assert.Equal(t, streaming.DiscardMissionPayload{MissionID: id, ProducerID: b.producerID}, p, "the discard names the mission")
-	assert.NoDirExists(t, filepath.Join(spoolDir, id), "a confirmed discard leaves nothing to recover")
+	requireGone(t, filepath.Join(spoolDir, id)) // a confirmed discard leaves nothing to recover
 
 	// The next mission records as usual.
 	next := startResumable(t, b)
@@ -115,7 +115,7 @@ func TestDiscardMissionOnServerWithoutDiscard(t *testing.T) {
 	m := rs.mission(id)
 	assert.False(t, m.completed, "the server keeps the mission until its grace expires")
 	requireNoDiscard(t, m.received)
-	assert.NoDirExists(t, filepath.Join(spoolDir, id), "recovery must not resend a discarded mission")
+	requireGone(t, filepath.Join(spoolDir, id)) // recovery must not resend a discarded mission
 	require.Eventually(t, func() bool {
 		rs.mu.Lock()
 		defer rs.mu.Unlock()
@@ -307,7 +307,7 @@ func TestAbandonedMissionEndsAsInterrupted(t *testing.T) {
 	assert.True(t, endPayload(t, m).Interrupted)
 	requireContiguous(t, m, 5) // start, 3 states, end
 	assert.False(t, rs.partial(first))
-	assert.NoDirExists(t, filepath.Join(spoolDir, first), "nothing is left to recover")
+	requireGone(t, filepath.Join(spoolDir, first)) // nothing is left to recover
 
 	recordStates(t, b, 1, 2)
 	require.NoError(t, b.EndMission(""))
@@ -357,9 +357,10 @@ func TestFailedStartLeavesNoMission(t *testing.T) {
 	rs.muteStart.Store(true)
 	require.Error(t, b.StartMission(&core.Mission{MissionName: "M"}, &core.World{WorldName: "W"}))
 	assert.False(t, b.recording(), "a mission that did not start is not abandoned later")
-	entries, err := os.ReadDir(spoolDir)
-	require.NoError(t, err)
-	assert.Empty(t, entries, "its spool is removed")
+	require.Eventually(t, func() bool {
+		entries, err := os.ReadDir(spoolDir)
+		return err == nil && len(entries) == 0
+	}, 5*time.Second, 10*time.Millisecond, "its spool is removed")
 
 	rs.muteStart.Store(false)
 	id := startResumable(t, b)
@@ -380,9 +381,74 @@ func TestAbandonedEmptyMissionIsDiscarded(t *testing.T) {
 	second := startResumable(t, b)
 	m := rs.mission(first)
 	assert.True(t, m.discarded, "an empty recording is not kept")
-	assert.NoDirExists(t, filepath.Join(spoolDir, first))
+	requireGone(t, filepath.Join(spoolDir, first))
 	require.NoError(t, b.EndMission(""))
 	assert.True(t, rs.mission(second).completed)
+}
+
+func TestAbandonedEmptyMissionOnServerWithoutDiscard(t *testing.T) {
+	rs := newResumeServer(t)
+	rs.noDrop.Store(true)
+	b := New(fastConfig(rs.url()))
+	require.NoError(t, b.Init())
+	defer b.Close()
+
+	first := startResumable(t, b)
+	startResumable(t, b)
+	m := rs.mission(first)
+	assert.True(t, m.completed, "ended, since this server cannot drop it")
+	assert.False(t, m.discarded)
+	requireNoDiscard(t, m.received)
+	assert.True(t, endPayload(t, m).Interrupted)
+}
+
+func TestPendingDiscardRefusedAfterServerDowngrade(t *testing.T) {
+	rs := newResumeServer(t)
+	b := New(fastConfig(rs.url())) // SaveTimeout 5 s
+	require.NoError(t, b.Init())
+	defer b.Close()
+
+	id := startResumable(t, b)
+	recordStates(t, b, 1, 3)
+	require.Eventually(t, func() bool { return rs.lastSeq(id) == 4 }, 2*time.Second, 5*time.Millisecond)
+
+	// The link dies with the discard in flight, and the web server comes back
+	// without discard support.
+	rs.discard.Store(true)
+	done := make(chan error, 1)
+	start := time.Now()
+	go func() { done <- b.DiscardMission() }()
+	require.Eventually(t, func() bool { return rs.lastSeq(id) == 4 }, time.Second, 5*time.Millisecond)
+	time.Sleep(50 * time.Millisecond) // the discard is logged and written into the dead link
+	rs.noDrop.Store(true)
+	rs.discard.Store(false)
+	rs.kill()
+
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, storage.ErrMissionKept, "the older server refuses the waiting discard")
+		assert.Less(t, time.Since(start), 4*time.Second, "without waiting for the save timeout")
+	case <-time.After(10 * time.Second):
+		t.Fatal("DiscardMission did not complete")
+	}
+	assert.False(t, rs.mission(id).discarded)
+}
+
+func TestRecoveryDeletesDroppedSpool(t *testing.T) {
+	fastRecovery(t)
+	rs := newResumeServer(t)
+	spoolDir := t.TempDir()
+	dir := filepath.Join(spoolDir, "m-dropped")
+	writeTestSpool(t, dir, "m-dropped", "p-old", 3)
+	// Its writer was removing it when recovery took it.
+	require.NoError(t, markSpoolDropped(dir))
+
+	b := New(recoveryConfig(rs.url(), spoolDir))
+	require.NoError(t, b.Init())
+	defer b.Close()
+
+	requireGone(t, dir)
+	assert.Zero(t, rs.starts.Load(), "a dropped spool is never resent")
 }
 
 func TestAbandonedMissionUnconfirmedKeepsSpool(t *testing.T) {

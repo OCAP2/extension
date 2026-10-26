@@ -3,6 +3,7 @@ package websocket
 import (
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -288,19 +289,22 @@ func (b *Backend) StartMission(mission *core.Mission, world *core.World) error {
 	ack, err := conn.waitAck(streaming.TypeStartMission, ackTimeout)
 	if err != nil {
 		// Nothing records a mission that did not start: forget it, so the
-		// next start does not take it for an abandoned one.
+		// next start does not take it for an abandoned one. A server that
+		// started it late loses its producer and drops the empty session.
 		if sp := b.clearMission(); sp != nil {
 			removeSpool(sp)
 		}
+		_ = conn.close()
 		return err
 	}
+	// Stored first: a reconnect from here on records what it finds.
+	conn.protocol.Store(uint32(ack.ProtocolVersion))
 	resumable := ack.ProtocolVersion >= streaming.ProtocolVersionResume
 	conn.setResumable(resumable)
 	if resumable {
 		conn.ackUpTo(max(ack.Seq, 1))
 		b.resumeRecovery()
 	}
-	conn.protocol.Store(uint32(ack.ProtocolVersion))
 	slog.Default().Info("WebSocket mission started", "missionId", missionID, "resumable", resumable, "discardable", b.discardable())
 	return nil
 }
@@ -381,11 +385,25 @@ func (b *Backend) discardMission(timeout time.Duration) error {
 		return nil
 	}
 
+	b.mu.Lock()
+	conn := b.conn
+	b.mu.Unlock()
+	conn.drainAcks()
+	// A reconnect that finds the server replaced by an older one lowers the
+	// version, and refuses a discard already waiting for its ack.
 	discardable := b.discardable()
 	err := errDiscardUnsupported
 	if discardable {
 		payload := streaming.DiscardMissionPayload{MissionID: missionID, ProducerID: b.producerID}
-		err = b.sendEnvelopeAndWait(streaming.TypeDiscardMission, payload, timeout)
+		err = conn.send(func(seq uint64) ([]byte, error) {
+			return marshalEnvelope(streaming.TypeDiscardMission, payload, seq)
+		})
+		if err == nil {
+			_, err = conn.waitAck(streaming.TypeDiscardMission, timeout)
+		}
+		if errors.Is(err, errDiscardUnsupported) {
+			discardable = false
+		}
 	}
 
 	// A spool that holds discard_mission lets recovery finish the discard.
@@ -404,9 +422,6 @@ func (b *Backend) discardMission(timeout time.Duration) error {
 	case err == nil:
 		slog.Default().Info("WebSocket mission discarded", "missionId", missionID)
 	case !discardable:
-		b.mu.Lock()
-		conn := b.conn
-		b.mu.Unlock()
 		_ = conn.close() // the server stops waiting for the mission; StartMission dials anew
 		slog.Default().Warn("WebSocket server cannot discard missions; it saves what it received as partial", "missionId", missionID)
 	case keep:

@@ -41,6 +41,9 @@ var (
 	// errDiscardFinished means the spool held a mission the addon discarded
 	// and the server no longer keeps it; the spool is deleted.
 	errDiscardFinished = errors.New("mission discard finished")
+	// errRecoveryDeferred means the spooled mission is this process' own and
+	// waits until it records no other one; the spool is kept.
+	errRecoveryDeferred = errors.New("mission recovery deferred")
 )
 
 // recoveryLoop resends missions left in the spool directory: by a game
@@ -105,6 +108,12 @@ func (b *Backend) recoverSpools(done <-chan struct{}) {
 			continue
 		}
 		err = b.recoverMission(dir, done)
+		finished := err == nil || errors.Is(err, errAlreadySaved) || errors.Is(err, errDiscardFinished) || errors.Is(err, errSpoolDiscarded)
+		if finished {
+			// Marked while locked: a process taking the spool before it is
+			// gone deletes it instead of resending it.
+			_ = markSpoolDropped(dir)
+		}
 		lock.release() // before removal: Windows cannot delete an open file
 		switch {
 		case err == nil:
@@ -119,6 +128,8 @@ func (b *Backend) recoverSpools(done <-chan struct{}) {
 			_ = os.RemoveAll(dir)
 		case errors.Is(err, errSpoolDiscarded):
 			_ = os.RemoveAll(dir)
+		case errors.Is(err, errRecoveryDeferred):
+			b.logger().Debug("WebSocket mission recovery waits until the current mission ends", "dir", dir)
 		case errors.Is(err, errRecoveryUnsupported):
 			// Asking an older server every minute only fills both logs.
 			b.recoveryPausedUntil.Store(time.Now().Add(recoveryUnsupportedPause).UnixNano())
@@ -206,6 +217,9 @@ func scanSegment(path string, fn func(seq uint64, data []byte) error) error {
 // continues a session that is still waiting, or takes the whole mission when
 // it no longer has one.
 func (b *Backend) recoverMission(dir string, done <-chan struct{}) error {
+	if spoolDropped(dir) {
+		return errSpoolDiscarded // its writer or a recovery was removing it
+	}
 	paths, newest, err := spoolSegments(dir)
 	if err != nil {
 		return err
@@ -310,6 +324,13 @@ func (b *Backend) recoverMission(dir string, done <-chan struct{}) error {
 		return errAlreadySaved
 	case streaming.ServerResumeOK:
 		from = reply.Seq + 1
+	case streaming.ServerResumeUnknown:
+		// A server older than ProtocolVersionDiscard takes any start as the
+		// producer's next mission and saves its live one as partial. This
+		// process' own mission waits until it records none.
+		if !discarding && payload.ProducerID == b.producerID && b.recording() && !b.discardable() {
+			return errRecoveryDeferred
+		}
 	}
 
 	// Read acknowledgements concurrently: the server acknowledges as it goes,

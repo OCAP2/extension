@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/OCAP2/extension/v5/internal/config"
 	"github.com/OCAP2/extension/v5/internal/storage"
@@ -12,21 +13,49 @@ import (
 	"github.com/OCAP2/extension/v5/pkg/a3interface"
 )
 
+// startStorage handles :STORAGE:INIT:. It answers with a :STORAGE:OK:
+// callback, or :STORAGE:ERROR: so the addon stops waiting for storage.
+func startStorage() {
+	if err := initStorage(); err != nil {
+		Logger.Error("Storage initialization failed", "error", err)
+		if cbErr := a3interface.WriteArmaCallback(ExtensionName, ":STORAGE:ERROR:", err.Error()); cbErr != nil {
+			Logger.Warn("Failed to send STORAGE:ERROR callback", "error", cbErr)
+		}
+	}
+}
+
+// storageInitMu serializes :STORAGE:INIT:, which the addon sends on every
+// mission load.
+var storageInitMu sync.Mutex
+
 func initStorage() error {
 	Logger.Debug("Received :STORAGE:INIT: call")
+	storageInitMu.Lock()
+	defer storageInitMu.Unlock()
 
 	storageCfg := config.GetStorageConfig()
+
+	// The backend lives as long as the process: the next mission reuses it,
+	// so a mission the game moved on from is ended by the next StartMission
+	// instead of staying open in a backend nothing uses any more.
+	if storageBackend != nil {
+		Logger.Info("Storage already initialized; reusing it", "type", storageCfg.Type)
+		if err := a3interface.WriteArmaCallback(ExtensionName, ":STORAGE:OK:", storageCfg.Type); err != nil {
+			Logger.Warn("Failed to send STORAGE:OK callback", "error", err)
+		}
+		return nil
+	}
 
 	backend, err := createStorageBackend(storageCfg)
 	if err != nil {
 		Logger.Error("Failed to create storage backend", "error", err)
 		return err
 	}
-	storageBackend = backend
-	if err := storageBackend.Init(); err != nil {
+	if err := backend.Init(); err != nil {
 		Logger.Error("Failed to initialize storage backend", "error", err)
 		return err
 	}
+	storageBackend = backend
 
 	// Initialize worker manager
 	workerManager = worker.NewManager(worker.Dependencies{

@@ -314,9 +314,17 @@ func initAPIClient() {
 // delegates DB persistence to the storage backend, and sets runtime state.
 // It answers with a :MISSION:OK: callback, or :MISSION:FAILED: with the error,
 // so the addon never waits for a mission that did not start.
+//
+// An optional third argument is the addon's registration token, echoed in
+// both callbacks, so a late answer to an earlier mission's start is not taken
+// for this one's.
 func handleNewMission(e dispatcher.Event) (result any, err error) {
+	token := ""
+	if len(e.Args) > 2 {
+		token = util.TrimQuotes(e.Args[2])
+	}
 	reportFailure := func(msg string) {
-		if cbErr := a3interface.WriteArmaCallback(ExtensionName, ":MISSION:FAILED:", msg); cbErr != nil {
+		if cbErr := a3interface.WriteArmaCallback(ExtensionName, ":MISSION:FAILED:", msg, token); cbErr != nil {
 			Logger.Warn("Failed to send MISSION:FAILED callback", "error", cbErr)
 		}
 	}
@@ -329,8 +337,12 @@ func handleNewMission(e dispatcher.Event) (result any, err error) {
 	result, err = startNewMission(e)
 	if err != nil {
 		reportFailure(err.Error())
+		return result, err
 	}
-	return result, err
+	if err := a3interface.WriteArmaCallback(ExtensionName, ":MISSION:OK:", "OK", token); err != nil {
+		Logger.Warn("Failed to send MISSION:OK callback", "error", err)
+	}
+	return result, nil
 }
 
 func startNewMission(e dispatcher.Event) (any, error) {
@@ -364,11 +376,6 @@ func startNewMission(e dispatcher.Event) (any, error) {
 	}
 
 	Logger.Info("New mission logged", "missionName", coreMission.MissionName)
-
-	// 4. ArmA callback
-	if err := a3interface.WriteArmaCallback(ExtensionName, ":MISSION:OK:", "OK"); err != nil {
-		Logger.Warn("Failed to send MISSION:OK callback", "error", err)
-	}
 	return nil, nil
 }
 
@@ -381,15 +388,7 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 	})
 
 	d.Register(":STORAGE:INIT:", func(e dispatcher.Event) (any, error) {
-		go func() {
-			if err := initStorage(); err != nil {
-				Logger.Error("Storage initialization failed", "error", err)
-				// The addon stops waiting for storage to record.
-				if cbErr := a3interface.WriteArmaCallback(ExtensionName, ":STORAGE:ERROR:", err.Error()); cbErr != nil {
-					Logger.Warn("Failed to send STORAGE:ERROR callback", "error", cbErr)
-				}
-			}
-		}()
+		go startStorage()
 		return nil, nil
 	})
 

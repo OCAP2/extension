@@ -295,12 +295,36 @@ func (s *spool) close() error {
 	return s.shut(false)
 }
 
-// remove closes the spool and deletes its files. The segments go before the
-// lock is released, so recovery never takes up a spool being removed: it
-// would resend a mission that was saved, discarded or never started.
+// remove closes the spool and deletes its files. It is marked dropped and its
+// segments go before the lock is released, so recovery never takes up a
+// spool being removed: it would resend a mission that was saved, discarded or
+// never started. Recovery deletes a dropped spool it finds, so a directory
+// another process holds open for a moment is not an error.
 func (s *spool) remove() error {
 	_ = s.shut(true)
-	return os.RemoveAll(s.dir)
+	if err := os.RemoveAll(s.dir); err != nil {
+		if spoolDropped(s.dir) {
+			s.logger.Debug("WebSocket spool left for recovery to delete", "dir", s.dir, "error", err)
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+// spoolDroppedFile marks a spool whose mission needs nothing more; recovery
+// deletes it.
+const spoolDroppedFile = "dropped"
+
+// markSpoolDropped marks the spool in dir dropped. Call it while holding the
+// spool's lock.
+func markSpoolDropped(dir string) error {
+	return os.WriteFile(filepath.Join(dir, spoolDroppedFile), nil, 0o644)
+}
+
+func spoolDropped(dir string) bool {
+	_, err := os.Stat(filepath.Join(dir, spoolDroppedFile))
+	return err == nil
 }
 
 // shut closes the spool, deleting its segments first when drop is set.
@@ -322,6 +346,9 @@ func (s *spool) shut(drop bool) error {
 		}
 	}
 	if drop {
+		if merr := markSpoolDropped(s.dir); err == nil && merr != nil {
+			err = merr
+		}
 		for _, seg := range s.segments {
 			if rerr := os.Remove(seg.path); err == nil && rerr != nil && !os.IsNotExist(rerr) {
 				err = rerr

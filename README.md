@@ -159,7 +159,9 @@ extension checks `spoolDir` at startup and then every minute, resends such
 missions to the web service, and deletes each spool once the web service has
 saved its mission. A mission resent in full is marked as recovered, so a web
 service at protocol version 3 does not take it for the producer's next
-mission and save the mission it records now as `partial`:
+mission and save the mission it records now as `partial`. An older web service
+does, so with one the running process resends its own missions in full only
+while it records none:
 - A mission cut short by a crash is ended on the crashed process' behalf and
   saved as `partial`, with everything recorded up to the last flush (at most
   about a second is lost).
@@ -283,8 +285,8 @@ All commands follow a `:RESOURCE:ACTION:` naming convention. New commands must u
 | Command | Purpose |
 |---------|---------|
 | `:SYS:INIT:` | Initialize extension, send `:SYS:READY:` callback |
-| `:STORAGE:INIT:` | Initialize storage backend, ungate buffered handlers; answers with a `:STORAGE:OK:` callback, or `:STORAGE:ERROR:` with the error |
-| `:MISSION:START:` | Start recording mission; answers with a `:MISSION:OK:` callback, or `:MISSION:FAILED:` with the error |
+| `:STORAGE:INIT:` | Initialize storage backend once per process (later calls reuse it), ungate buffered handlers; answers with a `:STORAGE:OK:` callback, or `:STORAGE:ERROR:` with the error |
+| `:MISSION:START:` | Start recording mission; answers with a `:MISSION:OK:` callback, or `:MISSION:FAILED:` with the error. An optional third argument, a registration token, is echoed as the callback's last value |
 | `:MISSION:SAVE:` | End recording, flush data, upload if configured |
 | `:MISSION:DISCARD:` | End recording without saving it (`memory`, `websocket`); answers with a `:MISSION:DISCARDED:` callback |
 | `:MISSION:FOCUS_START:` | Set playback focus start frame |

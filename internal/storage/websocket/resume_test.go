@@ -53,6 +53,7 @@ type fakeMission struct {
 	gaps      int
 	completed bool
 	discarded bool // finished by discard_mission instead of end_mission
+	recovered bool // started by a resend from the spool
 }
 
 func newResumeServer(t *testing.T) *resumeServer {
@@ -116,20 +117,22 @@ func (rs *resumeServer) serve(c *ws.Conn) {
 			}
 			rs.mu.Lock()
 			// A producer records one mission at a time: its other
-			// unfinished missions are saved as partial, unless the start
-			// resends a mission from the spool.
+			// unfinished missions are saved as partial. A server that
+			// knows recovered starts neither supersedes with one nor
+			// supersedes one.
+			knowsRecovered := !rs.noDrop.Load()
 			for id, other := range rs.missions {
-				if p.Recovered && !rs.noDrop.Load() {
+				if p.Recovered && knowsRecovered {
 					break
 				}
-				if id != p.MissionID && other.producer == p.ProducerID && !other.completed {
+				if id != p.MissionID && other.producer == p.ProducerID && !other.completed && !(other.recovered && knowsRecovered) {
 					rs.partials[id] = other
 					delete(rs.missions, id)
 				}
 			}
 			m = rs.missions[p.MissionID]
 			if m == nil {
-				m = &fakeMission{producer: p.ProducerID, lastSeq: env.Seq}
+				m = &fakeMission{producer: p.ProducerID, lastSeq: env.Seq, recovered: p.Recovered}
 				rs.missions[p.MissionID] = m
 			} else if env.Seq > m.lastSeq {
 				m.lastSeq = env.Seq
