@@ -314,12 +314,21 @@ func initAPIClient() {
 // delegates DB persistence to the storage backend, and sets runtime state.
 // It answers with a :MISSION:OK: callback, or :MISSION:FAILED: with the error,
 // so the addon never waits for a mission that did not start.
-func handleNewMission(e dispatcher.Event) (any, error) {
-	result, err := startNewMission(e)
-	if err != nil {
-		if cbErr := a3interface.WriteArmaCallback(ExtensionName, ":MISSION:FAILED:", err.Error()); cbErr != nil {
+func handleNewMission(e dispatcher.Event) (result any, err error) {
+	reportFailure := func(msg string) {
+		if cbErr := a3interface.WriteArmaCallback(ExtensionName, ":MISSION:FAILED:", msg); cbErr != nil {
 			Logger.Warn("Failed to send MISSION:FAILED callback", "error", cbErr)
 		}
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			reportFailure(fmt.Sprintf("panic during mission start: %v", r))
+			panic(r) // the dispatcher logs it
+		}
+	}()
+	result, err = startNewMission(e)
+	if err != nil {
+		reportFailure(err.Error())
 	}
 	return result, err
 }

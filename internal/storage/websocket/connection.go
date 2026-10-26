@@ -25,12 +25,15 @@ const (
 	defaultReconnectMax = 30 * time.Second
 	ackChSize           = 16
 	writeWait           = 10 * time.Second
-	ackTimeout          = 10 * time.Second
 )
 
 // handshakeTimeout bounds waiting for the server's answer to resume; tests
 // lower it.
 var handshakeTimeout = 10 * time.Second
+
+// ackTimeout bounds waiting for the start_mission acknowledgement; tests
+// lower it.
+var ackTimeout = 10 * time.Second
 
 var errConnectionClosed = errors.New("websocket connection closed")
 

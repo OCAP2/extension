@@ -71,8 +71,6 @@ func triggerMissionDiscard(state *missionSaveState, backend storage.Backend) (an
 // runMissionDiscardWorker performs DiscardMission, recovers from panics,
 // flushes OTel, and dispatches the :MISSION:DISCARDED: callback.
 func runMissionDiscardWorker(state *missionSaveState, backend storage.Backend) {
-	defer state.inFlight.Store(false)
-
 	err := storage.ErrMissionKept
 	if d, ok := backend.(storage.Discardable); ok {
 		err = func() (err error) {
@@ -89,6 +87,9 @@ func runMissionDiscardWorker(state *missionSaveState, backend storage.Backend) {
 	}
 
 	flushOTel()
+	// Cleared before the callback: the addon may start the next mission's
+	// save or discard as soon as it hears this one ended.
+	state.inFlight.Store(false)
 
 	switch {
 	case errors.Is(err, storage.ErrMissionKept):
@@ -124,9 +125,6 @@ func flushOTel() {
 // runMissionSaveWorker performs EndMission + optional upload, recovers from
 // panics, flushes OTel, and dispatches the :MISSION:SAVED: callback.
 func runMissionSaveWorker(state *missionSaveState, backend storage.Backend, client *api.Client, tag string) {
-	// Always clear the in-flight flag before returning.
-	defer state.inFlight.Store(false)
-
 	start := time.Now()
 
 	var (
@@ -188,6 +186,9 @@ func runMissionSaveWorker(state *missionSaveState, backend storage.Backend, clie
 	}()
 
 	flushOTel()
+	// Cleared before the callback: the addon may start the next mission's
+	// save or discard as soon as it hears this one ended.
+	state.inFlight.Store(false)
 
 	// Build callback payload.
 	switch {

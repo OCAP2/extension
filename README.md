@@ -157,18 +157,22 @@ The spool also survives the game server. If it crashes mid-mission, or a
 mission ends without a confirmed save, the mission stays in `spoolDir`. The
 extension checks `spoolDir` at startup and then every minute, resends such
 missions to the web service, and deletes each spool once the web service has
-saved its mission. The running process recovers its own missions too, but
-resends one in full only while it is not recording another, since the web
-service would take that start for its next mission:
+saved its mission. A mission resent in full is marked as recovered, so a web
+service at protocol version 3 does not take it for the producer's next
+mission and save the mission it records now as `partial`:
 - A mission cut short by a crash is ended on the crashed process' behalf and
   saved as `partial`, with everything recorded up to the last flush (at most
   about a second is lost).
-- A mission the game moved on from without saving or discarding it is ended
-  the same way, as `partial`.
 - A mission whose save was not confirmed is saved as recorded.
 - A mission whose discard was not confirmed is not resent; the web service is
   only told again to drop it, including any `partial` recording it saved of
   the mission in the meantime.
+
+When the game moves on to the next mission without saving or discarding the
+current one, for example after an admin `#missions`, the proxy ends it as
+interrupted before the next one starts, and the web service saves it as
+`partial`. Only if that is not confirmed within 30 seconds does its spool stay
+behind for recovery.
 
 When the addon ends a recording that does not meet its save limits (for
 example one shorter than `OCAP_settings_minMissionTime`), it sends

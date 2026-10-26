@@ -41,9 +41,6 @@ var (
 	// errDiscardFinished means the spool held a mission the addon discarded
 	// and the server no longer keeps it; the spool is deleted.
 	errDiscardFinished = errors.New("mission discard finished")
-	// errRecoveryDeferred means the spooled mission is this process' own and
-	// must wait until it records no other mission; the spool is kept.
-	errRecoveryDeferred = errors.New("mission recovery deferred")
 )
 
 // recoveryLoop resends missions left in the spool directory: by a game
@@ -122,8 +119,6 @@ func (b *Backend) recoverSpools(done <-chan struct{}) {
 			_ = os.RemoveAll(dir)
 		case errors.Is(err, errSpoolDiscarded):
 			_ = os.RemoveAll(dir)
-		case errors.Is(err, errRecoveryDeferred):
-			b.logger().Debug("WebSocket mission recovery waits until the current mission ends", "dir", dir)
 		case errors.Is(err, errRecoveryUnsupported):
 			// Asking an older server every minute only fills both logs.
 			b.recoveryPausedUntil.Store(time.Now().Add(recoveryUnsupportedPause).UnixNano())
@@ -313,13 +308,6 @@ func (b *Backend) recoverMission(dir string, done <-chan struct{}) error {
 		return errAlreadySaved
 	case streaming.ServerResumeOK:
 		from = reply.Seq + 1
-	case streaming.ServerResumeUnknown:
-		// The server takes a start as its producer's next mission and saves
-		// the producer's live one as partial. This process' own mission
-		// waits until it records none.
-		if !discarding && payload.ProducerID == b.producerID && b.recording() {
-			return errRecoveryDeferred
-		}
 	}
 
 	// Read acknowledgements concurrently: the server acknowledges as it goes,
@@ -369,11 +357,22 @@ func (b *Backend) recoverMission(dir string, done <-chan struct{}) error {
 
 	var lastSeq uint64
 	var lastData []byte
+	first := true
 	pace := newPacer(b.cfg.connOptions().withDefaults().resendRate)
 	if err := scanSpool(paths, func(seq uint64, data []byte) error {
 		lastSeq, lastData = seq, data
 		if seq < from {
+			first = false
 			return nil
+		}
+		if first {
+			// A resent start must not take the producer's live mission
+			// for one it left behind.
+			first = false
+			var err error
+			if data, err = markRecovered(data); err != nil {
+				return fmt.Errorf("mark start recovered: %w", err)
+			}
 		}
 		if !pace.wait(len(data), done, nil) {
 			return errConnectionClosed
@@ -413,6 +412,25 @@ func (b *Backend) awaitRecovered(ended <-chan error, done <-chan struct{}) error
 	case <-done:
 		return errConnectionClosed
 	}
+}
+
+// markRecovered sets Recovered on a spooled start_mission envelope, keeping
+// every other field as recorded.
+func markRecovered(data []byte) ([]byte, error) {
+	var env streaming.Envelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		return nil, err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(env.Payload, &fields); err != nil {
+		return nil, err
+	}
+	fields["recovered"] = json.RawMessage("true")
+	raw, err := json.Marshal(fields)
+	if err != nil {
+		return nil, err
+	}
+	return encodeEnvelope(env.Type, raw, env.Seq)
 }
 
 // spooledDiscard returns the sequence number of the spool's discard_mission

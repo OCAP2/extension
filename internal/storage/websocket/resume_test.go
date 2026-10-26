@@ -38,6 +38,7 @@ type resumeServer struct {
 	dropEnd   atomic.Bool // save end_mission, then close without acknowledging it
 	legacy    atomic.Bool // behave like a web server without resume support
 	noDrop    atomic.Bool // support resume but predate discard_mission
+	muteStart atomic.Bool // never acknowledge start_mission
 	resumes   atomic.Int32
 	starts    atomic.Int32
 	conns2ndP atomic.Int32 // connections that began with resume
@@ -106,10 +107,20 @@ func (rs *resumeServer) serve(c *ws.Conn) {
 			var p streaming.StartMissionPayload
 			require.NoError(rs.t, json.Unmarshal(env.Payload, &p))
 			rs.starts.Add(1)
+			if m != nil && !m.completed {
+				return // a connection feeds one mission: "mission already active"
+			}
+			if rs.muteStart.Load() {
+				continue
+			}
 			rs.mu.Lock()
 			// A producer records one mission at a time: its other
-			// unfinished missions are saved as partial.
+			// unfinished missions are saved as partial, unless the start
+			// resends a mission from the spool.
 			for id, other := range rs.missions {
+				if p.Recovered && !rs.noDrop.Load() {
+					break
+				}
 				if id != p.MissionID && other.producer == p.ProducerID && !other.completed {
 					rs.partials[id] = other
 					delete(rs.missions, id)

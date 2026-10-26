@@ -290,8 +290,7 @@ func TestSpooledDiscard(t *testing.T) {
 	assert.Equal(t, uint64(12), seq)
 }
 
-func TestAbandonedMissionIsRecoveredWhileProcessRuns(t *testing.T) {
-	fastRecovery(t)
+func TestAbandonedMissionEndsAsInterrupted(t *testing.T) {
 	rs := newResumeServer(t)
 	spoolDir := t.TempDir()
 	b := New(recoveryConfig(rs.url(), spoolDir))
@@ -300,25 +299,71 @@ func TestAbandonedMissionIsRecoveredWhileProcessRuns(t *testing.T) {
 
 	first := startResumable(t, b)
 	recordStates(t, b, 1, 3)
-	require.Eventually(t, func() bool { return rs.lastSeq(first) == 4 }, 2*time.Second, 5*time.Millisecond)
 
 	// The game moved on to the next mission without saving or discarding.
-	// The server saves the abandoned one as partial.
 	second := startResumable(t, b)
-	require.True(t, rs.partial(first))
-
-	// Resending it in full would supersede the live mission: it waits.
-	time.Sleep(spoolStaleAfter + 10*recoveryConfig("", "").RecoveryInterval) // several recovery passes
-	assert.Equal(t, int32(2), rs.starts.Load(), "the abandoned mission is not resent while another records")
-	assert.False(t, rs.partial(second), "the live mission is left alone")
-	assert.DirExists(t, filepath.Join(spoolDir, first))
+	m := rs.mission(first)
+	require.True(t, m.completed, "the abandoned mission is ended before the next one starts")
+	assert.True(t, endPayload(t, m).Interrupted)
+	requireContiguous(t, m, 5) // start, 3 states, end
+	assert.False(t, rs.partial(first))
+	assert.NoDirExists(t, filepath.Join(spoolDir, first), "nothing is left to recover")
 
 	recordStates(t, b, 1, 2)
 	require.NoError(t, b.EndMission(""))
 	assert.True(t, rs.mission(second).completed)
+	assert.False(t, rs.partial(second))
+	assert.Equal(t, int32(2), rs.starts.Load())
+}
 
-	// Between missions it is resent and ended as interrupted.
-	require.Eventually(t, func() bool { return rs.mission(first).completed }, 5*time.Second, 10*time.Millisecond)
-	assert.True(t, endPayload(t, rs.mission(first)).Interrupted)
-	requireGone(t, filepath.Join(spoolDir, first))
+func TestRecoveredMissionDoesNotSupersedeLiveOne(t *testing.T) {
+	fastRecovery(t)
+	rs := newResumeServer(t)
+	spoolDir := t.TempDir()
+	b := New(recoveryConfig(rs.url(), spoolDir))
+	require.NoError(t, b.Init())
+	defer b.Close()
+
+	live := startResumable(t, b)
+	recordStates(t, b, 1, 3)
+	// A spool of this producer the server no longer holds, such as a save it
+	// never confirmed before a web restart; another process sharing the
+	// spool directory may recover it the same way.
+	writeTestSpool(t, filepath.Join(spoolDir, "m-left"), "m-left", b.producerID, 4)
+
+	require.Eventually(t, func() bool { return rs.mission("m-left").completed }, 5*time.Second, 10*time.Millisecond)
+	start := rs.mission("m-left").received[0]
+	var p streaming.StartMissionPayload
+	require.NoError(t, json.Unmarshal(start.Payload, &p))
+	assert.True(t, p.Recovered, "the resent start is marked recovered")
+	assert.Equal(t, "m-left", p.MissionID)
+	assert.False(t, rs.partial(live), "the live mission is left alone")
+
+	recordStates(t, b, 4, 5)
+	require.NoError(t, b.EndMission(""))
+	requireContiguous(t, rs.mission(live), 7) // start, 5 states, end
+}
+
+func TestFailedStartLeavesNoMission(t *testing.T) {
+	rs := newResumeServer(t)
+	spoolDir := t.TempDir()
+	b := New(recoveryConfig(rs.url(), spoolDir))
+	require.NoError(t, b.Init())
+	defer b.Close()
+
+	oldAck := ackTimeout
+	ackTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { ackTimeout = oldAck })
+	rs.muteStart.Store(true)
+	require.Error(t, b.StartMission(&core.Mission{MissionName: "M"}, &core.World{WorldName: "W"}))
+	assert.False(t, b.recording(), "a mission that did not start is not abandoned later")
+	entries, err := os.ReadDir(spoolDir)
+	require.NoError(t, err)
+	assert.Empty(t, entries, "its spool is removed")
+
+	rs.muteStart.Store(false)
+	id := startResumable(t, b)
+	require.NoError(t, b.EndMission(""))
+	assert.True(t, rs.mission(id).completed)
+	assert.Equal(t, int32(2), rs.starts.Load(), "the next start does not end the failed one first")
 }

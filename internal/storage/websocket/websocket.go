@@ -212,6 +212,15 @@ func (b *Backend) sendEnvelopeAndWait(msgType string, payload any, timeout time.
 func (b *Backend) StartMission(mission *core.Mission, world *core.World) error {
 	b.missionMu.Lock()
 	defer b.missionMu.Unlock()
+
+	// The game moved on without saving or discarding the previous mission.
+	// It ends as interrupted, so the server saves what it got as partial and
+	// nothing is left to recover, and this mission gets a fresh connection.
+	if b.recording() {
+		slog.Default().Warn("WebSocket mission abandoned without save or discard; ending it as interrupted")
+		_ = b.endMission(streaming.EndMissionPayload{Interrupted: true}, abandonTimeout)
+	}
+
 	b.mu.Lock()
 	// A completed mission's server closes its socket. Dial a fresh connection
 	// before accepting the next mission instead of racing the reconnect loop.
@@ -228,21 +237,10 @@ func (b *Backend) StartMission(mission *core.Mission, world *core.World) error {
 		b.restart = false
 	}
 	conn := b.conn
-	abandoned := b.active // the previous mission was neither saved nor discarded
 	b.missionID = newID()
 	missionID := b.missionID
 	b.discardable = false
 	b.mu.Unlock()
-
-	// Its spool stays on disk, complete, for recovery to end as interrupted.
-	// Closing it releases the lock that would otherwise keep recovery away
-	// until the process exits.
-	if abandoned {
-		if old := conn.log.currentSpool(); old != nil {
-			_ = old.close()
-			slog.Default().Warn("WebSocket mission abandoned without save or discard; spool kept for recovery", "dir", old.dir)
-		}
-	}
 
 	base := uint8(1)
 	raw, err := marshalPayload(streaming.TypeStartMission, streaming.StartMissionPayload{
@@ -280,6 +278,11 @@ func (b *Backend) StartMission(mission *core.Mission, world *core.World) error {
 
 	ack, err := conn.waitAck(streaming.TypeStartMission, ackTimeout)
 	if err != nil {
+		// Nothing records a mission that did not start: forget it, so the
+		// next start does not take it for an abandoned one.
+		if sp := b.clearMission(); sp != nil {
+			removeSpool(sp)
+		}
 		return err
 	}
 	resumable := ack.ProtocolVersion >= streaming.ProtocolVersionResume
@@ -308,7 +311,17 @@ func (b *Backend) EndMission(tag string) error {
 	if tag != "" {
 		payload = streaming.EndMissionPayload{Tag: tag}
 	}
-	err := b.sendEnvelopeAndWait(streaming.TypeEndMission, payload, b.saveTimeout())
+	return b.endMission(payload, b.saveTimeout())
+}
+
+// abandonTimeout bounds the wait for the server to save an abandoned mission
+// before the next one starts; past it, the spool is kept for recovery.
+const abandonTimeout = 30 * time.Second
+
+// endMission sends end_mission, waits for its ack and forgets the mission.
+// Caller holds missionMu.
+func (b *Backend) endMission(payload any, timeout time.Duration) error {
+	err := b.sendEnvelopeAndWait(streaming.TypeEndMission, payload, timeout)
 
 	// Clear mission state regardless of error.
 	sp := b.clearMission()
