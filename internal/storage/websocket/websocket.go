@@ -3,6 +3,7 @@ package websocket
 import (
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/OCAP2/extension/v5/internal/storage"
 	"github.com/OCAP2/extension/v5/pkg/core"
 	"github.com/OCAP2/extension/v5/pkg/streaming"
 )
@@ -57,18 +59,21 @@ func (cfg Config) connOptions() connOptions {
 // Backend streams mission data over WebSocket to the OCAP2 web server.
 // It implements storage.Backend but not storage.Uploadable.
 type Backend struct {
-	missionMu    sync.Mutex
-	mu           sync.Mutex
-	restart      bool
-	active       bool // a mission has started and not ended
-	conn         *connection
-	cfg          Config
-	producerID   string // identifies this extension process to the server
-	missionID    string // identifies the current recording
-	nextMarkerID atomic.Uint64
-	done         chan struct{} // closed by Close; stops spool recovery
-	closeOnce    sync.Once
-	loops        sync.WaitGroup // recovery and stats loops
+	missionMu sync.Mutex
+	mu        sync.Mutex
+	restart   bool
+	active    bool // a mission has started and not ended
+	// discardAbandoned makes abandonMission drop the mission; see
+	// SetDiscardAbandoned.
+	discardAbandoned bool
+	conn             *connection
+	cfg              Config
+	producerID       string // identifies this extension process to the server
+	missionID        string // identifies the current recording
+	nextMarkerID     atomic.Uint64
+	done             chan struct{} // closed by Close; stops spool recovery
+	closeOnce        sync.Once
+	loops            sync.WaitGroup // recovery and stats loops
 
 	// Totals of connections replaced between missions; see Stats.
 	reconnects, resumes, restarts atomic.Uint64
@@ -210,6 +215,11 @@ func (b *Backend) sendEnvelopeAndWait(msgType string, payload any, timeout time.
 func (b *Backend) StartMission(mission *core.Mission, world *core.World) error {
 	b.missionMu.Lock()
 	defer b.missionMu.Unlock()
+
+	// Normally done when the next mission loads (AbandonMission); this
+	// covers a start without one.
+	b.abandonMission()
+
 	b.mu.Lock()
 	// A completed mission's server closes its socket. Dial a fresh connection
 	// before accepting the next mission instead of racing the reconnect loop.
@@ -227,13 +237,15 @@ func (b *Backend) StartMission(mission *core.Mission, world *core.World) error {
 	}
 	conn := b.conn
 	b.missionID = newID()
+	b.discardAbandoned = false
 	missionID := b.missionID
 	b.mu.Unlock()
+	conn.protocol.Store(0)
 
 	base := uint8(1)
 	raw, err := marshalPayload(streaming.TypeStartMission, streaming.StartMissionPayload{
 		Mission: mission, World: world, FrameBase: &base,
-		MissionID: missionID, ProducerID: b.producerID, ProtocolVersion: streaming.ProtocolVersionResume,
+		MissionID: missionID, ProducerID: b.producerID, ProtocolVersion: streaming.ProtocolVersionDiscard,
 	})
 	if err != nil {
 		return err
@@ -266,16 +278,87 @@ func (b *Backend) StartMission(mission *core.Mission, world *core.World) error {
 
 	ack, err := conn.waitAck(streaming.TypeStartMission, ackTimeout)
 	if err != nil {
+		// Nothing records a mission that did not start: forget it, so the
+		// next start does not take it for an abandoned one. A server that
+		// started it late loses its producer and drops the empty session.
+		if sp := b.clearMission(); sp != nil {
+			removeSpool(sp)
+		}
+		_ = conn.close()
 		return err
 	}
+	// Stored first: a reconnect from here on records what it finds.
+	conn.protocol.Store(uint32(ack.ProtocolVersion))
 	resumable := ack.ProtocolVersion >= streaming.ProtocolVersionResume
 	conn.setResumable(resumable)
 	if resumable {
 		conn.ackUpTo(max(ack.Seq, 1))
 		b.resumeRecovery()
 	}
-	slog.Default().Info("WebSocket mission started", "missionId", missionID, "resumable", resumable)
+	slog.Default().Info("WebSocket mission started", "missionId", missionID, "resumable", resumable, "discardable", b.discardable())
 	return nil
+}
+
+// AbandonMission ends a mission the game moved on from without saving or
+// discarding it, for example after an admin changed the mission. It ends as
+// interrupted, so the server saves what it got as partial and nothing is left
+// to recover. One that recorded nothing after its start, or one the addon
+// would not save yet (SetDiscardAbandoned), is dropped instead, when the
+// server can. A server without resume support saves a mission as partial
+// when its producer disconnects, so the connection is closed instead.
+// It is a no-op when no mission is recording.
+func (b *Backend) AbandonMission() error {
+	b.missionMu.Lock()
+	defer b.missionMu.Unlock()
+	return b.abandonMission()
+}
+
+// abandonMission is AbandonMission with missionMu held.
+func (b *Backend) abandonMission() error {
+	if !b.recording() {
+		return nil
+	}
+	b.mu.Lock()
+	conn, missionID, discard := b.conn, b.missionID, b.discardAbandoned
+	b.mu.Unlock()
+	switch {
+	case !conn.isResumable():
+		slog.Default().Warn("WebSocket mission abandoned without save or discard; disconnecting, the server saves it as partial", "missionId", missionID)
+		if sp := b.clearMission(); sp != nil {
+			removeSpool(sp)
+		}
+		return conn.close()
+	case conn.log.lastSeq() <= 1 && b.discardable():
+		slog.Default().Warn("WebSocket mission abandoned before it recorded anything; discarding it", "missionId", missionID)
+		return b.discardMission(abandonTimeout)
+	case discard && b.discardable():
+		slog.Default().Warn("WebSocket mission abandoned before it met the addon's save limits; discarding it", "missionId", missionID)
+		return b.discardMission(abandonTimeout)
+	default:
+		slog.Default().Warn("WebSocket mission abandoned without save or discard; ending it as interrupted", "missionId", missionID)
+		return b.endMission(streaming.EndMissionPayload{Interrupted: true}, abandonTimeout)
+	}
+}
+
+// SetDiscardAbandoned sets whether AbandonMission drops the current mission,
+// for a recording the addon would not save yet. Each mission starts without
+// it. It does not take missionMu, so a save holding it never blocks the
+// game's thread here.
+func (b *Backend) SetDiscardAbandoned(discard bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.active {
+		b.discardAbandoned = discard
+	}
+}
+
+// discardable reports whether the server serving the mission accepts
+// discard_mission, as it last announced.
+func (b *Backend) discardable() bool {
+	b.mu.Lock()
+	conn := b.conn
+	b.mu.Unlock()
+	return conn.protocol.Load() >= streaming.ProtocolVersionDiscard
 }
 
 // EndMission sends end_mission and waits for server ack.
@@ -290,29 +373,26 @@ func (b *Backend) EndMission(tag string) error {
 	if tag != "" {
 		payload = streaming.EndMissionPayload{Tag: tag}
 	}
-	timeout := b.cfg.SaveTimeout
-	if timeout <= 0 {
-		timeout = 10 * time.Minute
-	}
+	return b.endMission(payload, b.saveTimeout())
+}
+
+// abandonTimeout bounds the wait for the server to save an abandoned mission
+// before the next one starts; past it, the spool is kept for recovery. Tests
+// lower it.
+var abandonTimeout = 30 * time.Second
+
+// endMission sends end_mission, waits for its ack and forgets the mission.
+// Caller holds missionMu.
+func (b *Backend) endMission(payload any, timeout time.Duration) error {
 	err := b.sendEnvelopeAndWait(streaming.TypeEndMission, payload, timeout)
 
 	// Clear mission state regardless of error.
-	b.mu.Lock()
-	conn := b.conn
-	b.restart = true
-	b.active = false
-	b.missionID = ""
-	b.mu.Unlock()
-	sp := conn.log.currentSpool()
-	conn.endMission()
-	b.nextMarkerID.Store(0)
+	sp := b.clearMission()
 
 	// The spool is needed until the server has saved the mission.
 	if sp != nil {
 		if err == nil {
-			if rerr := sp.remove(); rerr != nil {
-				slog.Default().Warn("WebSocket spool not removed", "dir", sp.dir, "error", rerr)
-			}
+			removeSpool(sp)
 		} else {
 			_ = sp.close()
 			slog.Default().Warn("WebSocket mission not confirmed by the server; spool kept", "dir", sp.dir, "error", err)
@@ -320,6 +400,119 @@ func (b *Backend) EndMission(tag string) error {
 	}
 
 	return err
+}
+
+// errDiscardUnsupported means the server serving the mission predates
+// discard_mission.
+var errDiscardUnsupported = fmt.Errorf("websocket server cannot discard missions: %w", storage.ErrMissionKept)
+
+// DiscardMission ends the mission without saving it: it sends
+// discard_mission, and the server drops the recording. A server older than
+// ProtocolVersionDiscard cannot drop it. The mission is then abandoned: the
+// connection is closed and nothing is kept for recovery, but that server
+// still saves what it received as partial, as it did before discard existed,
+// and DiscardMission returns storage.ErrMissionKept.
+func (b *Backend) DiscardMission() error {
+	b.missionMu.Lock()
+	defer b.missionMu.Unlock()
+	return b.discardMission(b.saveTimeout())
+}
+
+// discardMission sends discard_mission, waits for its ack and forgets the
+// mission. Caller holds missionMu.
+func (b *Backend) discardMission(timeout time.Duration) error {
+	b.mu.Lock()
+	active, missionID := b.active, b.missionID
+	b.mu.Unlock()
+	if !active {
+		return nil
+	}
+
+	b.mu.Lock()
+	conn := b.conn
+	b.mu.Unlock()
+	conn.drainAcks()
+	// A reconnect that finds the server replaced by an older one lowers the
+	// version, and refuses a discard already waiting for its ack.
+	discardable := b.discardable()
+	err := errDiscardUnsupported
+	logged := false // discard_mission is in the log, and so in a healthy spool
+	if discardable {
+		payload := streaming.DiscardMissionPayload{MissionID: missionID, ProducerID: b.producerID}
+		err = conn.send(func(seq uint64) ([]byte, error) {
+			return marshalEnvelope(streaming.TypeDiscardMission, payload, seq)
+		})
+		if err == nil {
+			logged = true
+			_, err = conn.waitAck(streaming.TypeDiscardMission, timeout)
+		}
+		if errors.Is(err, errDiscardUnsupported) {
+			discardable = false
+		}
+	}
+
+	// A spool that holds discard_mission lets recovery finish the discard.
+	// Without it, recovery would resend the mission and the server save it,
+	// so one whose last records do not reach the disk is removed instead.
+	sp := b.clearMission()
+	keep := err != nil && discardable && logged && sp != nil && sp.healthy()
+	if sp != nil {
+		if keep {
+			keep = sp.keepIntact()
+		} else {
+			removeSpool(sp)
+		}
+	}
+
+	switch {
+	case err == nil:
+		slog.Default().Info("WebSocket mission discarded", "missionId", missionID)
+	case !discardable:
+		_ = conn.close() // the server stops waiting for the mission; StartMission dials anew
+		slog.Default().Warn("WebSocket server cannot discard missions; it saves what it received as partial", "missionId", missionID)
+	case keep:
+		slog.Default().Warn("WebSocket mission discard not confirmed by the server; spool kept to finish it", "missionId", missionID, "dir", sp.dir, "error", err)
+	default:
+		slog.Default().Warn("WebSocket mission discard not confirmed by the server", "missionId", missionID, "error", err)
+	}
+	return err
+}
+
+// clearMission forgets the current mission after end_mission or
+// discard_mission and returns its spool, if any, for the caller to keep or
+// remove.
+func (b *Backend) clearMission() *spool {
+	b.mu.Lock()
+	conn := b.conn
+	b.restart = true
+	b.active = false
+	b.discardAbandoned = false
+	b.missionID = ""
+	b.mu.Unlock()
+	sp := conn.log.currentSpool()
+	conn.endMission()
+	b.nextMarkerID.Store(0)
+	return sp
+}
+
+// recording reports whether a mission has started and not ended.
+func (b *Backend) recording() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.active
+}
+
+func (b *Backend) saveTimeout() time.Duration {
+	if b.cfg.SaveTimeout <= 0 {
+		return 10 * time.Minute
+	}
+	return b.cfg.SaveTimeout
+}
+
+func removeSpool(sp *spool) {
+	if err := sp.remove(); err != nil {
+		slog.Default().Warn("WebSocket spool not removed", "dir", sp.dir, "error", err)
+	}
 }
 
 func (b *Backend) AddSoldier(s *core.Soldier) error {

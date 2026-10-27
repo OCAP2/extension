@@ -89,3 +89,39 @@ func TestWebIngestionIntegration(t *testing.T) {
 	}
 	t.Fatal("web server did not publish the acknowledged mission")
 }
+
+// A discarded mission must leave no operation behind on the web server.
+func TestWebDiscardIntegration(t *testing.T) {
+	base := os.Getenv("OCAP_TEST_WEB_URL")
+	if base == "" {
+		t.Skip("set OCAP_TEST_WEB_URL to a disposable local web server")
+	}
+	secret := os.Getenv("OCAP_TEST_WEB_SECRET")
+	b := New(Config{URL: strings.Replace(base, "http", "ws", 1) + "/api/v1/stream", Secret: secret})
+	require.NoError(t, b.Init())
+	defer b.Close()
+	name := fmt.Sprintf("Proxy Discard %d", time.Now().UnixNano())
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: name, CaptureDelay: 1}, &core.World{WorldName: "altis"}))
+	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 1, JoinFrame: 1, UnitName: "Proxy Player", IsPlayer: true, Side: "WEST", ClassName: "B_Soldier_F"}))
+	require.NoError(t, b.RecordSoldierState(&core.SoldierState{SoldierID: 1, CaptureFrame: 1, Lifestate: 1, IsPlayer: true, UnitName: "Proxy Player", Side: "WEST"}))
+	require.NoError(t, b.DiscardMission())
+	// The next mission still records.
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: name + " kept", CaptureDelay: 1}, &core.World{WorldName: "altis"}))
+	require.NoError(t, b.RecordTelemetryEvent(&core.TelemetryEvent{CaptureFrame: 1, FpsAverage: 50}))
+	require.NoError(t, b.EndMission(""))
+
+	resp, err := http.Get(base + "/api/v1/operations")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var ops []struct {
+		Name string `json:"mission_name"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&ops))
+	kept := false
+	for _, op := range ops {
+		require.NotEqual(t, name, op.Name, "the discarded mission was published")
+		kept = kept || op.Name == name+" kept"
+	}
+	require.True(t, kept, "web server did not publish the mission after the discarded one")
+}

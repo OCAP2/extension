@@ -463,7 +463,7 @@ func TestStartMissionRegistersStart(t *testing.T) {
 	require.NoError(t, json.Unmarshal(msgs[0].Payload, &payload))
 	assert.NotEmpty(t, payload.MissionID)
 	assert.Equal(t, b.producerID, payload.ProducerID)
-	assert.Equal(t, uint8(streaming.ProtocolVersionResume), payload.ProtocolVersion)
+	assert.Equal(t, uint8(streaming.ProtocolVersionDiscard), payload.ProtocolVersion)
 
 	require.NoError(t, b.EndMission(""))
 

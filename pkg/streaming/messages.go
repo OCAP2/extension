@@ -63,6 +63,29 @@ type Envelope struct {
 // envelopes, cumulative acknowledgements and mission resume.
 const ProtocolVersionResume = 2
 
+// ProtocolVersionDiscard is the first protocol version whose servers accept
+// discard_mission.
+const ProtocolVersionDiscard = 3
+
+// TypeDiscardMission ends a mission without saving it, in place of
+// end_mission: the addon decided the recording does not meet its save limits,
+// for example the minimum mission duration. The server drops the recording
+// and acknowledges it like end_mission. On a session it is numbered like any
+// mission envelope; without one, it is not numbered and the payload alone
+// names the mission. It is sent only to servers that acknowledged
+// start_mission, or answered resume, with ProtocolVersionDiscard or later.
+// Saved missions never carry it, so it is not part of AllMessageTypes. Its
+// payload is DiscardMissionPayload.
+const TypeDiscardMission = "discard_mission"
+
+// DiscardMissionPayload names the discarded mission. A server that no longer
+// holds the mission's session, for example because it saved it as partial
+// after the producer went away, drops what it kept of the mission by id.
+type DiscardMissionPayload struct {
+	MissionID  string `json:"missionId"`
+	ProducerID string `json:"producerId"`
+}
+
 // Connection control messages. They are not mission data, so they are not
 // part of AllMessageTypes.
 const (
@@ -82,7 +105,8 @@ const (
 	// mission, for example after a web server restart.
 	ServerResumeUnknown = "resume_unknown"
 	// ServerResumeCompleted answers resume for a mission the server has
-	// already saved. It stands in for the end_mission acknowledgement.
+	// already saved, or discarded. It stands in for the end_mission or
+	// discard_mission acknowledgement.
 	ServerResumeCompleted = "resume_completed"
 )
 
@@ -93,7 +117,8 @@ type AckMessage struct {
 	// Seq is the highest envelope the server has received (ack, resume_ok).
 	Seq uint64 `json:"seq,omitempty"`
 	// ProtocolVersion is set on the start_mission acknowledgement by servers
-	// that support resume. Older servers omit it.
+	// that support resume, and on resume replies by servers that support
+	// discard. Older servers omit it.
 	ProtocolVersion uint8 `json:"protocolVersion,omitempty"`
 }
 
@@ -108,12 +133,23 @@ type StartMissionPayload struct {
 	MissionID       string `json:"missionId,omitempty"`  // unique per recording
 	ProducerID      string `json:"producerId,omitempty"` // unique per extension process
 	ProtocolVersion uint8  `json:"protocolVersion,omitempty"`
+	// Recovered marks a start resent from the spool, for a mission the
+	// producer no longer records. A server takes any other start as the
+	// producer's next mission and saves the producer's unfinished ones as
+	// partial; servers at ProtocolVersionDiscard or later leave them alone
+	// for a recovered start.
+	Recovered bool `json:"recovered,omitempty"`
 }
 
 // ResumePayload identifies the mission a replacement connection continues.
 type ResumePayload struct {
 	MissionID  string `json:"missionId"`
 	ProducerID string `json:"producerId"`
+	// Recovered marks a resume from the spool, for a mission the producer
+	// no longer records; like StartMissionPayload.Recovered, it keeps the
+	// session from being taken for one the producer's next start
+	// supersedes.
+	Recovered bool `json:"recovered,omitempty"`
 }
 
 // EndMissionPayload carries finalization hints for end_mission.

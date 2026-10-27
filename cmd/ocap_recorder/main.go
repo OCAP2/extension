@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/OCAP2/extension/v5/internal/api"
@@ -91,6 +92,10 @@ var (
 	// storageReady is closed when storage (DB or memory) is initialized and ready
 	storageReady     = make(chan struct{})
 	storageReadyOnce sync.Once
+	// missionLoadedAt is when the last :STORAGE:INIT:, sent on every
+	// mission load, was dispatched. Compared with Before, which uses the
+	// monotonic clock, so a wall clock stepping back does not matter.
+	missionLoadedAt atomic.Pointer[time.Time]
 
 	// Services
 	parserService   parser.Service
@@ -312,9 +317,43 @@ func initAPIClient() {
 
 // handleNewMission handles the :MISSION:START: command: parses mission data,
 // delegates DB persistence to the storage backend, and sets runtime state.
-func handleNewMission(e dispatcher.Event) (any, error) {
+// It answers with a :MISSION:OK: callback, or :MISSION:FAILED: with the error,
+// so the addon never waits for a mission that did not start.
+//
+// An optional third argument is the addon's registration token, echoed in
+// both callbacks, so a late answer to an earlier mission's start is not taken
+// for this one's. An optional fourth, "discard", drops the recording if the
+// game moves on from it before :MISSION:KEEP: (see storage.Abandonable).
+func handleNewMission(e dispatcher.Event) (result any, err error) {
+	token := ""
+	if len(e.Args) > 2 {
+		token = util.TrimQuotes(e.Args[2])
+	}
+	reportFailure := func(msg string) {
+		if cbErr := a3interface.WriteArmaCallback(ExtensionName, ":MISSION:FAILED:", msg, token); cbErr != nil {
+			Logger.Warn("Failed to send MISSION:FAILED callback", "error", cbErr)
+		}
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			reportFailure(fmt.Sprintf("panic during mission start: %v", r))
+			panic(r) // the dispatcher logs it
+		}
+	}()
+	result, err = startNewMission(e)
+	if err != nil {
+		reportFailure(err.Error())
+		return result, err
+	}
+	if err := a3interface.WriteArmaCallback(ExtensionName, ":MISSION:OK:", "OK", token); err != nil {
+		Logger.Warn("Failed to send MISSION:OK callback", "error", err)
+	}
+	return result, nil
+}
+
+func startNewMission(e dispatcher.Event) (any, error) {
 	if parserService == nil {
-		return nil, nil
+		return nil, fmt.Errorf("extension not initialized")
 	}
 
 	// 1. Parse (returns core types)
@@ -334,20 +373,27 @@ func handleNewMission(e dispatcher.Event) (any, error) {
 	MarkerCache.Reset()
 	EntityCache.Reset()
 
-	// 3. Start backend (handles DB ops for GORM/SQLite backends, stores missionID internally)
+	// 3. Start backend (handles DB ops for GORM/SQLite backends, stores missionID internally),
+	// once the previous mission's save or discard, dispatched before this
+	// start, has run.
+	saveState.waitIdle()
+	// A start that waited behind a save while the game loaded the next
+	// mission belongs to the mission that is gone: nothing would record it.
+	if loaded := missionLoadedAt.Load(); loaded != nil && !e.Timestamp.IsZero() && e.Timestamp.Before(*loaded) {
+		return nil, fmt.Errorf("the mission was unloaded before it started")
+	}
 	if storageBackend != nil {
 		if err := storageBackend.StartMission(&coreMission, &coreWorld); err != nil {
 			Logger.Error("Failed to start mission in storage backend", "error", err)
 			return nil, err
 		}
+		// Before :MISSION:OK:, so before the addon records anything.
+		if a, ok := storageBackend.(storage.Abandonable); ok && len(e.Args) > 3 && util.TrimQuotes(e.Args[3]) == "discard" {
+			a.SetDiscardAbandoned(true)
+		}
 	}
 
 	Logger.Info("New mission logged", "missionName", coreMission.MissionName)
-
-	// 4. ArmA callback
-	if err := a3interface.WriteArmaCallback(ExtensionName, ":MISSION:OK:", "OK"); err != nil {
-		Logger.Warn("Failed to send MISSION:OK callback", "error", err)
-	}
 	return nil, nil
 }
 
@@ -360,11 +406,11 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 	})
 
 	d.Register(":STORAGE:INIT:", func(e dispatcher.Event) (any, error) {
-		go func() {
-			if err := initStorage(); err != nil {
-				Logger.Error("Storage initialization failed", "error", err)
-			}
-		}()
+		// A mission loaded: a start dispatched before it belongs to the
+		// previous one (see startNewMission).
+		loaded := e.Timestamp
+		missionLoadedAt.Store(&loaded)
+		go startStorage()
 		return nil, nil
 	})
 
@@ -403,7 +449,10 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 		return nil, nil
 	})
 
-	d.Register(":MISSION:START:", handleNewMission, dispatcher.Buffered(1), dispatcher.Blocking(), dispatcher.Gated(storageReady))
+	// Not blocking: a start waits for a save or discard still ending the
+	// previous mission, and a queue it filled must not hold up the game's
+	// thread. A refused start is reported to the addon by callExtension.
+	d.Register(":MISSION:START:", handleNewMission, dispatcher.Buffered(1), dispatcher.Gated(storageReady))
 
 	d.Register(":MISSION:SAVE:", func(e dispatcher.Event) (any, error) {
 		// Optional save-time tag override (addon exportData _tag). Sent as a
@@ -415,5 +464,23 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 		}
 		Logger.Info("Received :MISSION:SAVE: command, queuing async save", "tag", tag)
 		return triggerMissionSave(saveState, storageBackend, apiClient, tag)
+	})
+
+	// The addon ended a recording without saving it, for example one shorter
+	// than its minimum mission time.
+	d.Register(":MISSION:DISCARD:", func(e dispatcher.Event) (any, error) {
+		Logger.Info("Received :MISSION:DISCARD: command, queuing async discard")
+		return triggerMissionDiscard(saveState, storageBackend)
+	})
+
+	// The recording met the addon's save limits: if the game moves on from
+	// it now, it is kept (as partial) instead of dropped. Synchronous, so it
+	// is in place before a mission load that follows it.
+	d.Register(":MISSION:KEEP:", func(e dispatcher.Event) (any, error) {
+		Logger.Info("Received :MISSION:KEEP: command; an abandoned recording is kept")
+		if a, ok := storageBackend.(storage.Abandonable); ok {
+			a.SetDiscardAbandoned(false)
+		}
+		return nil, nil
 	})
 }

@@ -5,9 +5,14 @@ import (
 	"testing"
 
 	"github.com/OCAP2/extension/v5/internal/config"
+	"github.com/OCAP2/extension/v5/internal/dispatcher"
+	"github.com/OCAP2/extension/v5/internal/logging"
 	"github.com/OCAP2/extension/v5/internal/storage"
 	"github.com/OCAP2/extension/v5/internal/storage/websocket"
+	"github.com/OCAP2/extension/v5/pkg/a3interface"
+	"github.com/OCAP2/extension/v5/pkg/core"
 	"github.com/spf13/viper"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -39,6 +44,113 @@ func TestWebSocketBackendRequiresSecret(t *testing.T) {
 	t.Cleanup(viper.Reset)
 	_, err := createStorageBackend(config.StorageConfig{Type: "websocket"})
 	require.Error(t, err)
+}
+
+// isolateStorage gives a test its own storage globals.
+func isolateStorage(t *testing.T) *callbackRecorder {
+	t.Helper()
+	rec := &callbackRecorder{}
+	a3interface.SetCallbackSinkForTest(rec.sink)
+	// Logger is left alone: the package init still reads it.
+	previousBackend, previousDispatcher, previousWorkers := storageBackend, eventDispatcher, workerManager
+	t.Cleanup(func() {
+		a3interface.SetCallbackSinkForTest(nil)
+		storageBackend, eventDispatcher, workerManager = previousBackend, previousDispatcher, previousWorkers
+		viper.Reset()
+	})
+	storageBackend = nil
+	d, err := dispatcher.New(logging.NewDispatcherLogger(Logger))
+	require.NoError(t, err)
+	eventDispatcher = d
+	return rec
+}
+
+func TestInitStorageReusesBackend(t *testing.T) {
+	rec := isolateStorage(t)
+	viper.Set("storage.type", "memory")
+	viper.Set("storage.memory.outputDir", t.TempDir())
+
+	require.NoError(t, initStorage())
+	first := storageBackend
+	require.NotNil(t, first)
+	// The addon initializes storage again on the next mission load.
+	require.NoError(t, initStorage())
+	require.Same(t, first, storageBackend, "the next mission reuses the backend that ends the one left open")
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	oks := 0
+	for _, c := range rec.calls {
+		if c.function == ":STORAGE:OK:" {
+			oks++
+		}
+	}
+	require.Equal(t, 2, oks, "every :STORAGE:INIT: is answered")
+}
+
+// abandoningBackend is a fakeBackend that records AbandonMission calls and
+// whether :STORAGE:OK: had gone out by then, and SetDiscardAbandoned calls.
+type abandoningBackend struct {
+	fakeBackend
+	rec       *callbackRecorder
+	abandoned int
+	okBefore  bool
+	discard   []bool
+}
+
+func (a *abandoningBackend) StartMission(*core.Mission, *core.World) error { return nil }
+
+func (a *abandoningBackend) SetDiscardAbandoned(discard bool) {
+	a.discard = append(a.discard, discard)
+}
+
+func (a *abandoningBackend) AbandonMission() error {
+	a.abandoned++
+	a.rec.mu.Lock()
+	defer a.rec.mu.Unlock()
+	for _, c := range a.rec.calls {
+		if c.function == ":STORAGE:OK:" {
+			a.okBefore = true
+		}
+	}
+	return nil
+}
+
+func TestInitStorageAbandonsOpenMission(t *testing.T) {
+	rec := isolateStorage(t)
+	viper.Set("storage.type", "websocket")
+	backend := &abandoningBackend{rec: rec}
+	storageBackend = backend
+
+	// The next mission loads.
+	require.NoError(t, initStorage())
+	assert.Equal(t, 1, backend.abandoned, "the mission left open is abandoned")
+	assert.False(t, backend.okBefore, "before :STORAGE:OK:, so the next start cannot come first")
+	rec.wait(t, ":STORAGE:OK:")
+	require.Same(t, storage.Backend(backend), storageBackend)
+}
+
+func TestInitStorageLeavesMissionToDispatchedSave(t *testing.T) {
+	rec := isolateStorage(t)
+	viper.Set("storage.type", "websocket")
+	backend := &abandoningBackend{rec: rec}
+	storageBackend = backend
+	saveState.backendBusy.Store(true) // a save dispatched before is ending it
+	t.Cleanup(func() { saveState.backendBusy.Store(false) })
+
+	require.NoError(t, initStorage())
+	assert.Zero(t, backend.abandoned, "the next mission is not held up waiting for that save")
+	rec.wait(t, ":STORAGE:OK:")
+}
+
+func TestStartStorageReportsFailure(t *testing.T) {
+	rec := isolateStorage(t)
+	viper.Set("storage.type", "not-real")
+
+	startStorage()
+	cb := rec.wait(t, ":STORAGE:ERROR:")
+	require.Len(t, cb.data, 1)
+	require.Nil(t, storageBackend)
 }
 
 func TestWebSocketURLPreservesPrefix(t *testing.T) {

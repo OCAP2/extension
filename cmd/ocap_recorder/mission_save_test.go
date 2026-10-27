@@ -240,3 +240,124 @@ type panickingBackend struct{ fakeBackend }
 func (p *panickingBackend) EndMission(tag string) error {
 	panic(fmt.Errorf("boom"))
 }
+
+// discardingBackend is a fakeBackend that also implements storage.Discardable.
+type discardingBackend struct {
+	fakeBackend
+	discardErr   error
+	discardPanic bool
+	discards     int
+}
+
+func (d *discardingBackend) DiscardMission() error {
+	d.discards++
+	if d.discardPanic {
+		panic("boom")
+	}
+	return d.discardErr
+}
+
+var _ storage.Discardable = (*discardingBackend)(nil)
+
+func TestRunMissionDiscard_Success(t *testing.T) {
+	rec := &callbackRecorder{}
+	a3interface.SetCallbackSinkForTest(rec.sink)
+	t.Cleanup(func() { a3interface.SetCallbackSinkForTest(nil) })
+
+	state := newTestSaveState()
+	backend := &discardingBackend{}
+
+	result, err := triggerMissionDiscard(state, backend)
+	require.NoError(t, err)
+	assert.Equal(t, "queued", result)
+
+	cb := rec.wait(t, ":MISSION:DISCARDED:")
+	assert.Equal(t, []string{`"ok"`}, cb.data)
+	assert.Equal(t, 1, backend.discards)
+	assert.Empty(t, backend.endTag, "a discarded mission is not saved")
+	assert.False(t, state.inFlight.Load())
+}
+
+func TestRunMissionDiscard_BackendKeepsData(t *testing.T) {
+	rec := &callbackRecorder{}
+	a3interface.SetCallbackSinkForTest(rec.sink)
+	t.Cleanup(func() { a3interface.SetCallbackSinkForTest(nil) })
+
+	state := newTestSaveState()
+	_, err := triggerMissionDiscard(state, &fakeBackend{})
+	require.NoError(t, err)
+
+	cb := rec.wait(t, ":MISSION:DISCARDED:")
+	assert.Equal(t, []string{`"kept"`}, cb.data)
+	assert.False(t, state.inFlight.Load())
+}
+
+func TestRunMissionDiscard_StorageKeepsMission(t *testing.T) {
+	rec := &callbackRecorder{}
+	a3interface.SetCallbackSinkForTest(rec.sink)
+	t.Cleanup(func() { a3interface.SetCallbackSinkForTest(nil) })
+
+	// For example a websocket server too old to drop it.
+	state := newTestSaveState()
+	backend := &discardingBackend{discardErr: fmt.Errorf("old server: %w", storage.ErrMissionKept)}
+	_, err := triggerMissionDiscard(state, backend)
+	require.NoError(t, err)
+
+	cb := rec.wait(t, ":MISSION:DISCARDED:")
+	assert.Equal(t, []string{`"kept"`}, cb.data)
+	assert.Equal(t, 1, backend.discards)
+}
+
+func TestRunMissionDiscard_Error(t *testing.T) {
+	rec := &callbackRecorder{}
+	a3interface.SetCallbackSinkForTest(rec.sink)
+	t.Cleanup(func() { a3interface.SetCallbackSinkForTest(nil) })
+
+	state := newTestSaveState()
+	_, err := triggerMissionDiscard(state, &discardingBackend{discardErr: errors.New("server gone")})
+	require.NoError(t, err)
+
+	cb := rec.wait(t, ":MISSION:DISCARDED:")
+	require.Len(t, cb.data, 2)
+	assert.Equal(t, `"error"`, cb.data[0])
+	assert.Contains(t, cb.data[1], "server gone")
+}
+
+func TestRunMissionDiscard_PanicIsRecovered(t *testing.T) {
+	rec := &callbackRecorder{}
+	a3interface.SetCallbackSinkForTest(rec.sink)
+	t.Cleanup(func() { a3interface.SetCallbackSinkForTest(nil) })
+
+	state := newTestSaveState()
+	_, err := triggerMissionDiscard(state, &discardingBackend{discardPanic: true})
+	require.NoError(t, err)
+
+	cb := rec.wait(t, ":MISSION:DISCARDED:")
+	require.Len(t, cb.data, 2)
+	assert.Equal(t, `"error"`, cb.data[0])
+	assert.Contains(t, cb.data[1], "panic")
+	assert.False(t, state.inFlight.Load(), "inFlight must be cleared even after panic")
+}
+
+func TestRunMissionDiscard_RejectedWhileSaving(t *testing.T) {
+	rec := &callbackRecorder{}
+	a3interface.SetCallbackSinkForTest(rec.sink)
+	t.Cleanup(func() { a3interface.SetCallbackSinkForTest(nil) })
+
+	state := newTestSaveState()
+	backend := &discardingBackend{fakeBackend: fakeBackend{endDuration: 200 * time.Millisecond, path: "r.json.gz"}}
+
+	_, err := triggerMissionSave(state, backend, nil, "")
+	require.NoError(t, err)
+	_, err = triggerMissionDiscard(state, backend)
+	require.Error(t, err, "a mission is either saved or discarded")
+	assert.Contains(t, err.Error(), "already in progress")
+
+	rec.wait(t, ":MISSION:SAVED:")
+	assert.Zero(t, backend.discards)
+}
+
+func TestTriggerMissionDiscard_NoBackend(t *testing.T) {
+	_, err := triggerMissionDiscard(newTestSaveState(), nil)
+	require.Error(t, err)
+}

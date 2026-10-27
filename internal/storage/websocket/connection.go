@@ -25,12 +25,15 @@ const (
 	defaultReconnectMax = 30 * time.Second
 	ackChSize           = 16
 	writeWait           = 10 * time.Second
-	ackTimeout          = 10 * time.Second
 )
 
 // handshakeTimeout bounds waiting for the server's answer to resume; tests
 // lower it.
 var handshakeTimeout = 10 * time.Second
+
+// ackTimeout bounds waiting for the start_mission acknowledgement; tests
+// lower it.
+var ackTimeout = 10 * time.Second
 
 var errConnectionClosed = errors.New("websocket connection closed")
 
@@ -96,6 +99,10 @@ type connection struct {
 	startData  []byte // start_mission envelope (seq 1)
 	resumeData []byte // resume envelope for this mission
 	resumable  bool   // the server acknowledged start with resume support
+
+	// protocol is the version the server serving the mission last announced:
+	// on the start acknowledgement, a resume reply, or a restarted start.
+	protocol atomic.Uint32
 
 	acked      atomic.Uint64 // highest seq the server acknowledged
 	sent       atomic.Uint64 // highest seq written on the current socket
@@ -235,14 +242,18 @@ func (c *connection) handshake(conn *ws.Conn) (uint64, uint64, error) {
 	case streaming.ServerResumeOK:
 		c.logger.Info("WebSocket mission resumed", "serverSeq", reply.Seq, "localSeq", c.log.lastSeq())
 		c.resumes.Add(1)
+		c.setProtocol(reply.ProtocolVersion) // the server may have changed meanwhile
 		c.ackUpTo(reply.Seq)
 		return reply.Seq, epoch, nil
 
 	case streaming.ServerResumeCompleted:
-		// The server saved the mission but its end_mission ack was lost.
-		c.logger.Info("WebSocket mission already saved by server")
+		// The server saved or discarded the mission but its end_mission or
+		// discard_mission ack was lost. It stands in for whichever one is
+		// awaited; waitAck skips the other.
+		c.logger.Info("WebSocket mission already finished by server")
 		c.ackUpTo(c.log.lastSeq())
 		c.deliverAck(streaming.AckMessage{Type: streaming.ServerAck, For: streaming.TypeEndMission})
+		c.deliverAck(streaming.AckMessage{Type: streaming.ServerAck, For: streaming.TypeDiscardMission})
 		return c.log.lastSeq(), epoch, nil
 
 	default: // resume_unknown
@@ -260,11 +271,13 @@ func (c *connection) handshake(conn *ws.Conn) (uint64, uint64, error) {
 		if err := writeData(conn, start); err != nil {
 			return 0, 0, err
 		}
-		if _, err := readServerMessage(conn, func(m streaming.AckMessage) bool {
+		ack, err := readServerMessage(conn, func(m streaming.AckMessage) bool {
 			return m.Type == streaming.ServerAck && m.For == streaming.TypeStartMission
-		}); err != nil {
+		})
+		if err != nil {
 			return 0, 0, fmt.Errorf("restart mission: %w", err)
 		}
+		c.setProtocol(ack.ProtocolVersion)
 		// Acknowledgements now count from the new session's start.
 		c.acked.Store(1)
 		return 1, epoch, nil
@@ -434,6 +447,20 @@ func (c *connection) ackUpTo(seq uint64) {
 	}
 	c.log.ack(seq)
 	c.progressAt.Store(time.Now().UnixNano()) // progress restarts the stall clock
+}
+
+// ackRefused stands in for the acknowledgement of a discard_mission that a
+// server too old to take it will never send. It never comes from a server.
+const ackRefused = "refused"
+
+// setProtocol records the version the server serving the mission announced
+// on a reconnect. A server replaced by one older than ProtocolVersionDiscard
+// refuses a discard_mission still waiting for its acknowledgement.
+func (c *connection) setProtocol(v uint8) {
+	old := c.protocol.Swap(uint32(v))
+	if old >= streaming.ProtocolVersionDiscard && v < streaming.ProtocolVersionDiscard {
+		c.deliverAck(streaming.AckMessage{Type: ackRefused, For: streaming.TypeDiscardMission})
+	}
 }
 
 func (c *connection) deliverAck(m streaming.AckMessage) {
@@ -613,9 +640,13 @@ func (c *connection) waitAck(ackFor string, timeout time.Duration) (streaming.Ac
 	for {
 		select {
 		case ack := <-c.ackCh:
-			if ack.For == ackFor {
-				return ack, nil
+			if ack.For != ackFor {
+				continue
 			}
+			if ack.Type == ackRefused {
+				return streaming.AckMessage{}, errDiscardUnsupported
+			}
+			return ack, nil
 		case <-timer.C:
 			return streaming.AckMessage{}, fmt.Errorf("timeout waiting for ack of %q", ackFor)
 		case <-c.done:

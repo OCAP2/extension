@@ -153,15 +153,43 @@ paced. `0` disables pacing.
 per mission (0 = unlimited). Once the limit is reached, spooling stops for that
 mission, and a later full resend is partial.
 
-The spool also survives the game server. If it crashes mid-mission, or a save
-is not confirmed, the mission stays in `spoolDir`. The next extension process
-checks `spoolDir` at startup and then every minute, resends such missions to
-the web service, and deletes each spool once the web service has saved its
-mission:
+The spool also survives the game server. If it crashes mid-mission, or a
+mission ends without a confirmed save, the mission stays in `spoolDir`. The
+extension checks `spoolDir` at startup and then every minute, resends such
+missions to the web service, and deletes each spool once the web service has
+saved its mission. A mission resent in full is marked as recovered, so a web
+service at protocol version 3 does not take it for the producer's next
+mission and save the mission it records now as `partial`. An older web service
+does, so with one the running process resends its own missions in full only
+while it records none:
 - A mission cut short by a crash is ended on the crashed process' behalf and
   saved as `partial`, with everything recorded up to the last flush (at most
   about a second is lost).
 - A mission whose save was not confirmed is saved as recorded.
+- A mission whose discard was not confirmed is not resent; the web service is
+  only told again to drop it, including any `partial` recording it saved of
+  the mission in the meantime. This needs the spool: without `spoolDir`, or
+  with a spool that hit its limit or failed, nothing is kept, and the web
+  service saves the mission as `partial` once its resume grace expires.
+
+When the game moves on to the next mission without saving or discarding the
+current one, for example after an admin `#missions`, the proxy ends it as
+interrupted as soon as the next mission loads (`:STORAGE:INIT:`), and the web
+service saves it as `partial`. Only if that is not confirmed within 30 seconds
+does its spool stay behind for recovery. One that recorded nothing after its
+start is discarded instead, when the web service supports it, and so is one
+the addon would not save yet: it starts such a recording with `"discard"` and
+sends `:MISSION:KEEP:` once it meets `OCAP_settings_minMissionTime`, so a
+mission an admin only loaded and left with `#missions` or `#restart` leaves
+no `partial` behind. A web service
+without resume support is disconnected instead, which saves the mission as
+`partial` there.
+
+When the addon ends a recording that does not meet its save limits (for
+example one shorter than `OCAP_settings_minMissionTime`), it sends
+`:MISSION:DISCARD:`, and the proxy tells the web service to drop the recording
+(protocol version 3) and deletes its spool. A web service that predates
+discard keeps saving such recordings as `partial`.
 
 Game servers can share one `spoolDir`, for example several instances started
 from the same directory. Each spool has an operating system file lock
@@ -265,9 +293,11 @@ All commands follow a `:RESOURCE:ACTION:` naming convention. New commands must u
 | Command | Purpose |
 |---------|---------|
 | `:SYS:INIT:` | Initialize extension, send `:SYS:READY:` callback |
-| `:STORAGE:INIT:` | Initialize storage backend, ungate buffered handlers |
-| `:MISSION:START:` | Start recording mission |
+| `:STORAGE:INIT:` | Initialize storage backend once per process (later calls reuse it), ungate buffered handlers; answers with a `:STORAGE:OK:` callback, or `:STORAGE:ERROR:` with the error |
+| `:MISSION:START:` | Start recording mission; answers with a `:MISSION:OK:` callback, or `:MISSION:FAILED:` with the error. An optional third argument, a registration token, is echoed as the callback's last value. An optional fourth, `discard`, drops the recording if the game moves on from it before `:MISSION:KEEP:` (`websocket`) |
+| `:MISSION:KEEP:` | The recording met the addon's save limits: if the game moves on from it now, it is kept as `partial` (`websocket`) |
 | `:MISSION:SAVE:` | End recording, flush data, upload if configured |
+| `:MISSION:DISCARD:` | End recording without saving it (`memory`, `websocket`); answers with a `:MISSION:DISCARDED:` callback |
 | `:MISSION:FOCUS_START:` | Set playback focus start frame |
 | `:MISSION:FOCUS_END:` | Set playback focus end frame |
 | `:SYS:VERSION:` | Get extension version |

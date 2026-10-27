@@ -175,6 +175,22 @@ func (b *Backend) EndMission(tag string) (retErr error) {
 	return nil
 }
 
+// DiscardMission drops the mission data without exporting it, for a
+// recording the addon decided not to save.
+func (b *Backend) DiscardMission() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.mission == nil {
+		return nil // nothing recording; keep the previous export path
+	}
+
+	b.mission = nil
+	b.world = nil
+	b.lastExportPath = ""
+	b.resetCollections()
+	return nil
+}
+
 // resetCollections clears all entity and event data.
 // Caller must hold b.mu.Lock.
 func (b *Backend) resetCollections() {

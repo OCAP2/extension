@@ -2,6 +2,7 @@
 package memory
 
 import (
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -19,6 +20,9 @@ var _ storage.Backend = (*Backend)(nil)
 
 // Verify Backend implements storage.Uploadable interface
 var _ storage.Uploadable = (*Backend)(nil)
+
+// Verify Backend implements storage.Discardable interface
+var _ storage.Discardable = (*Backend)(nil)
 
 func TestNew(t *testing.T) {
 	cfg := config.MemoryConfig{
@@ -894,6 +898,41 @@ func TestEndMissionWithoutStartMission(t *testing.T) {
 	err := b.EndMission("")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "no mission to end")
+}
+
+func TestDiscardMissionDropsDataWithoutExport(t *testing.T) {
+	tmpDir := t.TempDir()
+	b := New(config.MemoryConfig{OutputDir: tmpDir}, nil)
+
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Short", CaptureDelay: 1}, &core.World{WorldName: "Altis"}))
+	require.NoError(t, b.AddSoldier(&core.Soldier{ID: 1, UnitName: "Alpha 1-1"}))
+	require.NoError(t, b.RecordGeneralEvent(&core.GeneralEvent{Name: "test"}))
+
+	require.NoError(t, b.DiscardMission())
+
+	assert.Nil(t, b.mission)
+	assert.Empty(t, b.soldiers)
+	assert.Empty(t, b.generalEvents)
+	assert.Empty(t, b.GetExportedFilePath())
+	entries, err := os.ReadDir(tmpDir)
+	require.NoError(t, err)
+	assert.Empty(t, entries, "a discarded mission is not exported")
+	err = b.EndMission("")
+	require.Error(t, err, "nothing is left to save")
+	assert.Contains(t, err.Error(), "no mission to end")
+
+	require.NoError(t, b.DiscardMission(), "discarding again is a no-op")
+}
+
+func TestDiscardMissionAfterSaveKeepsExportPath(t *testing.T) {
+	b := New(config.MemoryConfig{OutputDir: t.TempDir()}, nil)
+	require.NoError(t, b.StartMission(&core.Mission{MissionName: "Saved", CaptureDelay: 1}, &core.World{WorldName: "Altis"}))
+	require.NoError(t, b.EndMission(""))
+	path := b.GetExportedFilePath()
+	require.NotEmpty(t, path)
+
+	require.NoError(t, b.DiscardMission(), "nothing is recording")
+	assert.Equal(t, path, b.GetExportedFilePath())
 }
 
 func TestGetExportMetadataWithoutStartMission(t *testing.T) {
