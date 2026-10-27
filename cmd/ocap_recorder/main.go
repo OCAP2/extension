@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/OCAP2/extension/v5/internal/api"
@@ -91,6 +92,9 @@ var (
 	// storageReady is closed when storage (DB or memory) is initialized and ready
 	storageReady     = make(chan struct{})
 	storageReadyOnce sync.Once
+	// missionLoadedAt (unix nanos) is when the last :STORAGE:INIT:, sent
+	// on every mission load, was dispatched.
+	missionLoadedAt atomic.Int64
 
 	// Services
 	parserService   parser.Service
@@ -371,6 +375,11 @@ func startNewMission(e dispatcher.Event) (any, error) {
 	// once the previous mission's save or discard, dispatched before this
 	// start, has run.
 	saveState.waitIdle()
+	// A start that waited behind a save while the game loaded the next
+	// mission belongs to the mission that is gone: nothing would record it.
+	if !e.Timestamp.IsZero() && e.Timestamp.UnixNano() < missionLoadedAt.Load() {
+		return nil, fmt.Errorf("the mission was unloaded before it started")
+	}
 	if storageBackend != nil {
 		if err := storageBackend.StartMission(&coreMission, &coreWorld); err != nil {
 			Logger.Error("Failed to start mission in storage backend", "error", err)
@@ -391,6 +400,9 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 	})
 
 	d.Register(":STORAGE:INIT:", func(e dispatcher.Event) (any, error) {
+		// A mission loaded: a start dispatched before it belongs to the
+		// previous one (see startNewMission).
+		missionLoadedAt.Store(e.Timestamp.UnixNano())
 		go startStorage()
 		return nil, nil
 	})

@@ -145,6 +145,11 @@ type StartMissionPayload struct {
 type ResumePayload struct {
 	MissionID  string `json:"missionId"`
 	ProducerID string `json:"producerId"`
+	// Recovered marks a resume from the spool, for a mission the producer
+	// no longer records; like StartMissionPayload.Recovered, it keeps the
+	// session from being taken for one the producer's next start
+	// supersedes.
+	Recovered bool `json:"recovered,omitempty"`
 }
 
 // EndMissionPayload carries finalization hints for end_mission.

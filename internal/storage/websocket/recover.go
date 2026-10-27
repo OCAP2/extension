@@ -278,7 +278,7 @@ func (b *Backend) recoverMission(dir string, done <-chan struct{}) error {
 		}
 	}()
 
-	resume, err := marshalEnvelope(streaming.TypeResume, streaming.ResumePayload{MissionID: payload.MissionID, ProducerID: payload.ProducerID}, 0)
+	resume, err := marshalEnvelope(streaming.TypeResume, streaming.ResumePayload{MissionID: payload.MissionID, ProducerID: payload.ProducerID, Recovered: true}, 0)
 	if err != nil {
 		return err
 	}
@@ -389,8 +389,13 @@ func (b *Backend) recoverMission(dir string, done <-chan struct{}) error {
 		}
 		if first {
 			// A resent start must not take the producer's live mission
-			// for one it left behind.
+			// for one it left behind. An older server ignores the mark:
+			// checked again right before the start, as a mission may have
+			// started during the handshake.
 			first = false
+			if payload.ProducerID == b.producerID && b.recording() && !b.discardable() {
+				return errRecoveryDeferred
+			}
 			var err error
 			if data, err = markRecovered(data); err != nil {
 				return fmt.Errorf("mark start recovered: %w", err)

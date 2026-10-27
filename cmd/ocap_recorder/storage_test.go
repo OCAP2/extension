@@ -74,7 +74,7 @@ func TestInitStorageReusesBackend(t *testing.T) {
 	require.NotNil(t, first)
 	// The addon initializes storage again on the next mission load.
 	require.NoError(t, initStorage())
-	require.Same(t, first, storageBackend, "a mission left open is ended by the next start, in the same backend")
+	require.Same(t, first, storageBackend, "the next mission reuses the backend that ends the one left open")
 
 	rec.mu.Lock()
 	defer rec.mu.Unlock()

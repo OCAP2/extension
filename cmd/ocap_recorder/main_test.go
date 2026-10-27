@@ -77,6 +77,25 @@ func TestHandleNewMission_WaitsForSaveOrDiscard(t *testing.T) {
 	rec.wait(t, ":MISSION:OK:")
 }
 
+func TestHandleNewMission_RejectsStartOfUnloadedMission(t *testing.T) {
+	rec := isolateMissionStart(t, acceptingParser{})
+	previous := missionLoadedAt.Load()
+	t.Cleanup(func() { missionLoadedAt.Store(previous) })
+
+	// The start was dispatched, then the next mission loaded while it waited.
+	dispatched := time.Now()
+	missionLoadedAt.Store(dispatched.Add(time.Second).UnixNano())
+	_, err := handleNewMission(dispatcher.Event{Args: []string{"{}", "{}", `"tok-4"`}, Timestamp: dispatched})
+	require.Error(t, err)
+	cb := rec.wait(t, ":MISSION:FAILED:")
+	assert.Equal(t, `"tok-4"`, cb.data[1])
+
+	// A start dispatched after the load goes through.
+	_, err = handleNewMission(dispatcher.Event{Args: []string{"{}", "{}", `"tok-5"`}, Timestamp: dispatched.Add(2 * time.Second)})
+	require.NoError(t, err)
+	rec.wait(t, ":MISSION:OK:")
+}
+
 func TestHandleNewMission_OKEchoesToken(t *testing.T) {
 	rec := isolateMissionStart(t, acceptingParser{})
 

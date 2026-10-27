@@ -11,6 +11,7 @@ import (
 	"github.com/OCAP2/extension/v5/internal/api"
 	"github.com/OCAP2/extension/v5/internal/storage"
 	"github.com/OCAP2/extension/v5/pkg/a3interface"
+	"github.com/OCAP2/extension/v5/pkg/core"
 )
 
 // missionSaveState holds the cross-call state for the async save worker.
@@ -165,10 +166,20 @@ func runMissionSaveWorker(state *missionSaveState, backend storage.Backend, clie
 		}()
 
 		// The next mission may start once the backend ended this one; the
-		// upload below does not hold it up.
+		// upload below does not hold it up. The export is read first: the
+		// next start resets it.
+		u, uploadable := backend.(storage.Uploadable)
+		var exportPath string
+		var exportMeta core.UploadMetadata
 		if err := func() error {
 			defer state.backendBusy.Store(false)
-			return backend.EndMission(tag)
+			if err := backend.EndMission(tag); err != nil {
+				return err
+			}
+			if uploadable {
+				exportPath, exportMeta = u.GetExportedFilePath(), u.GetExportMetadata()
+			}
+			return nil
 		}(); err != nil {
 			endErr = err
 			if Logger != nil {
@@ -182,11 +193,10 @@ func runMissionSaveWorker(state *missionSaveState, backend storage.Backend, clie
 			)
 		}
 
-		if u, ok := backend.(storage.Uploadable); ok && client != nil {
-			if path := u.GetExportedFilePath(); path != "" {
+		if uploadable && client != nil {
+			if path := exportPath; path != "" {
 				savedPath = path
-				meta := u.GetExportMetadata()
-				if err := client.Upload(path, meta); err != nil {
+				if err := client.Upload(path, exportMeta); err != nil {
 					uploadErr = err
 					if Logger != nil {
 						Logger.Error("Failed to upload to OCAP web",
@@ -201,9 +211,9 @@ func runMissionSaveWorker(state *missionSaveState, backend storage.Backend, clie
 					)
 				}
 			}
-		} else if u, ok := backend.(storage.Uploadable); ok {
+		} else if uploadable {
 			// Client not configured — still report the path so the addon can inform players.
-			savedPath = u.GetExportedFilePath()
+			savedPath = exportPath
 		}
 	}()
 

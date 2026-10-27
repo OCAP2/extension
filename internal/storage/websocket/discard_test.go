@@ -408,6 +408,27 @@ func TestAbandonMissionWhenNextMissionLoads(t *testing.T) {
 	assert.True(t, rs.mission(next).completed)
 }
 
+func TestAbandonMissionLeavesMissionBeingEnded(t *testing.T) {
+	oldAck := ackTimeout
+	ackTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { ackTimeout = oldAck })
+	rs := newResumeServer(t)
+	b := New(fastConfig(rs.url()))
+	require.NoError(t, b.Init())
+	defer b.Close()
+	id := startResumable(t, b)
+
+	// A save holds the mission while it waits for its server.
+	b.missionMu.Lock()
+	start := time.Now()
+	require.NoError(t, b.AbandonMission())
+	assert.Less(t, time.Since(start), 2*time.Second, "the next mission load is not held up")
+	b.missionMu.Unlock()
+	assert.True(t, b.recording(), "left to the save that ends it")
+	assert.False(t, rs.mission(id).completed)
+	require.NoError(t, b.EndMission(""))
+}
+
 func TestAbandonMissionOnLegacyServerDisconnects(t *testing.T) {
 	srv, ml := testServer(t)
 	defer srv.Close()

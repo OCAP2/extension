@@ -36,8 +36,8 @@ func initStorage() error {
 	storageCfg := config.GetStorageConfig()
 
 	// The backend lives as long as the process: the next mission reuses it,
-	// so a mission the game moved on from is ended by the next StartMission
-	// instead of staying open in a backend nothing uses any more.
+	// so a mission the game moved on from is ended here instead of staying
+	// open in a backend nothing uses any more.
 	if storageBackend != nil {
 		Logger.Info("Storage already initialized; reusing it", "type", storageCfg.Type)
 		// A new mission loaded: one still recording was abandoned. It ends

@@ -168,7 +168,9 @@ while it records none:
 - A mission whose save was not confirmed is saved as recorded.
 - A mission whose discard was not confirmed is not resent; the web service is
   only told again to drop it, including any `partial` recording it saved of
-  the mission in the meantime.
+  the mission in the meantime. This needs the spool: without `spoolDir`, or
+  with a spool that hit its limit or failed, nothing is kept, and the web
+  service saves the mission as `partial` once its resume grace expires.
 
 When the game moves on to the next mission without saving or discarding the
 current one, for example after an admin `#missions`, the proxy ends it as
