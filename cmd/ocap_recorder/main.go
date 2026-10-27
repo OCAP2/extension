@@ -92,9 +92,10 @@ var (
 	// storageReady is closed when storage (DB or memory) is initialized and ready
 	storageReady     = make(chan struct{})
 	storageReadyOnce sync.Once
-	// missionLoadedAt (unix nanos) is when the last :STORAGE:INIT:, sent
-	// on every mission load, was dispatched.
-	missionLoadedAt atomic.Int64
+	// missionLoadedAt is when the last :STORAGE:INIT:, sent on every
+	// mission load, was dispatched. Compared with Before, which uses the
+	// monotonic clock, so a wall clock stepping back does not matter.
+	missionLoadedAt atomic.Pointer[time.Time]
 
 	// Services
 	parserService   parser.Service
@@ -377,7 +378,7 @@ func startNewMission(e dispatcher.Event) (any, error) {
 	saveState.waitIdle()
 	// A start that waited behind a save while the game loaded the next
 	// mission belongs to the mission that is gone: nothing would record it.
-	if !e.Timestamp.IsZero() && e.Timestamp.UnixNano() < missionLoadedAt.Load() {
+	if loaded := missionLoadedAt.Load(); loaded != nil && !e.Timestamp.IsZero() && e.Timestamp.Before(*loaded) {
 		return nil, fmt.Errorf("the mission was unloaded before it started")
 	}
 	if storageBackend != nil {
@@ -402,7 +403,8 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 	d.Register(":STORAGE:INIT:", func(e dispatcher.Event) (any, error) {
 		// A mission loaded: a start dispatched before it belongs to the
 		// previous one (see startNewMission).
-		missionLoadedAt.Store(e.Timestamp.UnixNano())
+		loaded := e.Timestamp
+		missionLoadedAt.Store(&loaded)
 		go startStorage()
 		return nil, nil
 	})
@@ -442,7 +444,10 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 		return nil, nil
 	})
 
-	d.Register(":MISSION:START:", handleNewMission, dispatcher.Buffered(1), dispatcher.Blocking(), dispatcher.Gated(storageReady))
+	// Not blocking: a start waits for a save or discard still ending the
+	// previous mission, and a queue it filled must not hold up the game's
+	// thread. A refused start is reported to the addon by callExtension.
+	d.Register(":MISSION:START:", handleNewMission, dispatcher.Buffered(1), dispatcher.Gated(storageReady))
 
 	d.Register(":MISSION:SAVE:", func(e dispatcher.Event) (any, error) {
 		// Optional save-time tag override (addon exportData _tag). Sent as a

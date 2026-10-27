@@ -42,8 +42,10 @@ func initStorage() error {
 		Logger.Info("Storage already initialized; reusing it", "type", storageCfg.Type)
 		// A new mission loaded: one still recording was abandoned. It ends
 		// before :STORAGE:OK:, so the new mission's start cannot come first
-		// and be taken for it. This runs on startStorage's goroutine.
-		if a, ok := storageBackend.(storage.Abandonable); ok {
+		// and be taken for it. This runs on startStorage's goroutine. A save
+		// or discard dispatched before is ending it already; waiting for its
+		// server would only hold up the next mission.
+		if a, ok := storageBackend.(storage.Abandonable); ok && !saveState.backendBusy.Load() {
 			if err := a.AbandonMission(); err != nil {
 				Logger.Warn("Failed to end the abandoned mission", "error", err)
 			}

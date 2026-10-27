@@ -84,7 +84,8 @@ func TestHandleNewMission_RejectsStartOfUnloadedMission(t *testing.T) {
 
 	// The start was dispatched, then the next mission loaded while it waited.
 	dispatched := time.Now()
-	missionLoadedAt.Store(dispatched.Add(time.Second).UnixNano())
+	loaded := dispatched.Add(time.Second)
+	missionLoadedAt.Store(&loaded)
 	_, err := handleNewMission(dispatcher.Event{Args: []string{"{}", "{}", `"tok-4"`}, Timestamp: dispatched})
 	require.Error(t, err)
 	cb := rec.wait(t, ":MISSION:FAILED:")

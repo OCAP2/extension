@@ -3,7 +3,6 @@ package main
 import (
 	"log/slog"
 	"testing"
-	"time"
 
 	"github.com/OCAP2/extension/v5/internal/config"
 	"github.com/OCAP2/extension/v5/internal/dispatcher"
@@ -12,6 +11,7 @@ import (
 	"github.com/OCAP2/extension/v5/internal/storage/websocket"
 	"github.com/OCAP2/extension/v5/pkg/a3interface"
 	"github.com/spf13/viper"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -87,31 +87,52 @@ func TestInitStorageReusesBackend(t *testing.T) {
 	require.Equal(t, 2, oks, "every :STORAGE:INIT: is answered")
 }
 
-// abandoningBackend is a fakeBackend that records AbandonMission calls.
+// abandoningBackend is a fakeBackend that records AbandonMission calls and
+// whether :STORAGE:OK: had gone out by then.
 type abandoningBackend struct {
 	fakeBackend
-	abandoned chan struct{}
+	rec       *callbackRecorder
+	abandoned int
+	okBefore  bool
 }
 
 func (a *abandoningBackend) AbandonMission() error {
-	close(a.abandoned)
+	a.abandoned++
+	a.rec.mu.Lock()
+	defer a.rec.mu.Unlock()
+	for _, c := range a.rec.calls {
+		if c.function == ":STORAGE:OK:" {
+			a.okBefore = true
+		}
+	}
 	return nil
 }
 
 func TestInitStorageAbandonsOpenMission(t *testing.T) {
-	isolateStorage(t)
+	rec := isolateStorage(t)
 	viper.Set("storage.type", "websocket")
-	backend := &abandoningBackend{abandoned: make(chan struct{})}
+	backend := &abandoningBackend{rec: rec}
 	storageBackend = backend
 
 	// The next mission loads.
 	require.NoError(t, initStorage())
-	select {
-	case <-backend.abandoned:
-	case <-time.After(2 * time.Second):
-		t.Fatal("the mission left open was not abandoned")
-	}
+	assert.Equal(t, 1, backend.abandoned, "the mission left open is abandoned")
+	assert.False(t, backend.okBefore, "before :STORAGE:OK:, so the next start cannot come first")
+	rec.wait(t, ":STORAGE:OK:")
 	require.Same(t, storage.Backend(backend), storageBackend)
+}
+
+func TestInitStorageLeavesMissionToDispatchedSave(t *testing.T) {
+	rec := isolateStorage(t)
+	viper.Set("storage.type", "websocket")
+	backend := &abandoningBackend{rec: rec}
+	storageBackend = backend
+	saveState.backendBusy.Store(true) // a save dispatched before is ending it
+	t.Cleanup(func() { saveState.backendBusy.Store(false) })
+
+	require.NoError(t, initStorage())
+	assert.Zero(t, backend.abandoned, "the next mission is not held up waiting for that save")
+	rec.wait(t, ":STORAGE:OK:")
 }
 
 func TestStartStorageReportsFailure(t *testing.T) {

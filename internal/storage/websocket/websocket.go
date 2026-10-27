@@ -302,19 +302,8 @@ func (b *Backend) StartMission(mission *core.Mission, world *core.World) error {
 // when the server can. A server without resume support saves a mission as
 // partial when its producer disconnects, so the connection is closed instead.
 // It is a no-op when no mission is recording.
-//
-// A save or discard that holds the mission for longer than a start does is
-// ending it anyway, and the next mission load is not held up waiting for its
-// server: AbandonMission then leaves the mission to it.
 func (b *Backend) AbandonMission() error {
-	deadline := time.Now().Add(ackTimeout + time.Second)
-	for !b.missionMu.TryLock() {
-		if time.Now().After(deadline) {
-			slog.Default().Info("WebSocket mission is being ended; not abandoning it")
-			return nil
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	b.missionMu.Lock()
 	defer b.missionMu.Unlock()
 	return b.abandonMission()
 }

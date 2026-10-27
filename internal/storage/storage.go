@@ -78,8 +78,8 @@ type Abandonable interface {
 	AbandonMission() error
 }
 
-// ErrMissionKept means a discarded mission ended, but its storage keeps what
-// was recorded, as a backend without Discardable does.
+// ErrMissionKept means the storage keeps what was recorded of a discarded
+// mission, as a backend without Discardable does.
 var ErrMissionKept = errors.New("storage keeps the discarded mission")
 
 // Uploadable is an optional interface for storage backends that produce
