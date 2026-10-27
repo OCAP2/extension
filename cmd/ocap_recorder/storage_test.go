@@ -10,6 +10,7 @@ import (
 	"github.com/OCAP2/extension/v5/internal/storage"
 	"github.com/OCAP2/extension/v5/internal/storage/websocket"
 	"github.com/OCAP2/extension/v5/pkg/a3interface"
+	"github.com/OCAP2/extension/v5/pkg/core"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -88,12 +89,19 @@ func TestInitStorageReusesBackend(t *testing.T) {
 }
 
 // abandoningBackend is a fakeBackend that records AbandonMission calls and
-// whether :STORAGE:OK: had gone out by then.
+// whether :STORAGE:OK: had gone out by then, and SetDiscardAbandoned calls.
 type abandoningBackend struct {
 	fakeBackend
 	rec       *callbackRecorder
 	abandoned int
 	okBefore  bool
+	discard   []bool
+}
+
+func (a *abandoningBackend) StartMission(*core.Mission, *core.World) error { return nil }
+
+func (a *abandoningBackend) SetDiscardAbandoned(discard bool) {
+	a.discard = append(a.discard, discard)
 }
 
 func (a *abandoningBackend) AbandonMission() error {

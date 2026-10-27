@@ -59,18 +59,21 @@ func (cfg Config) connOptions() connOptions {
 // Backend streams mission data over WebSocket to the OCAP2 web server.
 // It implements storage.Backend but not storage.Uploadable.
 type Backend struct {
-	missionMu    sync.Mutex
-	mu           sync.Mutex
-	restart      bool
-	active       bool // a mission has started and not ended
-	conn         *connection
-	cfg          Config
-	producerID   string // identifies this extension process to the server
-	missionID    string // identifies the current recording
-	nextMarkerID atomic.Uint64
-	done         chan struct{} // closed by Close; stops spool recovery
-	closeOnce    sync.Once
-	loops        sync.WaitGroup // recovery and stats loops
+	missionMu sync.Mutex
+	mu        sync.Mutex
+	restart   bool
+	active    bool // a mission has started and not ended
+	// discardAbandoned makes abandonMission drop the mission; see
+	// SetDiscardAbandoned.
+	discardAbandoned bool
+	conn             *connection
+	cfg              Config
+	producerID       string // identifies this extension process to the server
+	missionID        string // identifies the current recording
+	nextMarkerID     atomic.Uint64
+	done             chan struct{} // closed by Close; stops spool recovery
+	closeOnce        sync.Once
+	loops            sync.WaitGroup // recovery and stats loops
 
 	// Totals of connections replaced between missions; see Stats.
 	reconnects, resumes, restarts atomic.Uint64
@@ -234,6 +237,7 @@ func (b *Backend) StartMission(mission *core.Mission, world *core.World) error {
 	}
 	conn := b.conn
 	b.missionID = newID()
+	b.discardAbandoned = false
 	missionID := b.missionID
 	b.mu.Unlock()
 	conn.protocol.Store(0)
@@ -298,9 +302,10 @@ func (b *Backend) StartMission(mission *core.Mission, world *core.World) error {
 // AbandonMission ends a mission the game moved on from without saving or
 // discarding it, for example after an admin changed the mission. It ends as
 // interrupted, so the server saves what it got as partial and nothing is left
-// to recover. One that recorded nothing after its start is dropped instead,
-// when the server can. A server without resume support saves a mission as
-// partial when its producer disconnects, so the connection is closed instead.
+// to recover. One that recorded nothing after its start, or one the addon
+// would not save yet (SetDiscardAbandoned), is dropped instead, when the
+// server can. A server without resume support saves a mission as partial
+// when its producer disconnects, so the connection is closed instead.
 // It is a no-op when no mission is recording.
 func (b *Backend) AbandonMission() error {
 	b.missionMu.Lock()
@@ -314,7 +319,7 @@ func (b *Backend) abandonMission() error {
 		return nil
 	}
 	b.mu.Lock()
-	conn, missionID := b.conn, b.missionID
+	conn, missionID, discard := b.conn, b.missionID, b.discardAbandoned
 	b.mu.Unlock()
 	switch {
 	case !conn.isResumable():
@@ -326,9 +331,24 @@ func (b *Backend) abandonMission() error {
 	case conn.log.lastSeq() <= 1 && b.discardable():
 		slog.Default().Warn("WebSocket mission abandoned before it recorded anything; discarding it", "missionId", missionID)
 		return b.discardMission(abandonTimeout)
+	case discard && b.discardable():
+		slog.Default().Warn("WebSocket mission abandoned before it met the addon's save limits; discarding it", "missionId", missionID)
+		return b.discardMission(abandonTimeout)
 	default:
 		slog.Default().Warn("WebSocket mission abandoned without save or discard; ending it as interrupted", "missionId", missionID)
 		return b.endMission(streaming.EndMissionPayload{Interrupted: true}, abandonTimeout)
+	}
+}
+
+// SetDiscardAbandoned sets whether AbandonMission drops the current mission,
+// for a recording the addon would not save yet. Each mission starts without
+// it. It does not take missionMu, so a save holding it never blocks the
+// game's thread here.
+func (b *Backend) SetDiscardAbandoned(discard bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.active {
+		b.discardAbandoned = discard
 	}
 }
 
@@ -432,12 +452,13 @@ func (b *Backend) discardMission(timeout time.Duration) error {
 	}
 
 	// A spool that holds discard_mission lets recovery finish the discard.
-	// Without it, recovery would resend the mission and the server save it.
+	// Without it, recovery would resend the mission and the server save it,
+	// so one whose last records do not reach the disk is removed instead.
 	sp := b.clearMission()
 	keep := err != nil && discardable && logged && sp != nil && sp.healthy()
 	if sp != nil {
 		if keep {
-			_ = sp.close()
+			keep = sp.keepIntact()
 		} else {
 			removeSpool(sp)
 		}
@@ -465,6 +486,7 @@ func (b *Backend) clearMission() *spool {
 	conn := b.conn
 	b.restart = true
 	b.active = false
+	b.discardAbandoned = false
 	b.missionID = ""
 	b.mu.Unlock()
 	sp := conn.log.currentSpool()

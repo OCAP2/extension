@@ -292,7 +292,28 @@ func readSegment(path string, from, to uint64, maxBytes int, out *[]logEntry, by
 
 // close flushes and closes the spool, keeping its files.
 func (s *spool) close() error {
-	return s.shut(false)
+	_, err := s.shut(false, false)
+	return err
+}
+
+// keepIntact closes a spool kept for recovery to finish the mission with the
+// record it ends with, such as discard_mission. If any record, the last one
+// included, did not reach the disk, the spool is removed instead, as remove
+// does: recovery would resend the mission without it, and the server save
+// it. It reports whether the spool was kept.
+func (s *spool) keepIntact() bool {
+	dropped, err := s.shut(false, true)
+	if !dropped {
+		if err != nil {
+			s.logger.Warn("WebSocket spool closed with an error", "dir", s.dir, "error", err)
+		}
+		return true
+	}
+	s.logger.Warn("WebSocket spool incomplete on disk; removing it so recovery does not resend the mission", "dir", s.dir, "error", err)
+	if rerr := removeSpoolDir(s.dir); rerr != nil && !spoolDropped(s.dir) {
+		s.logger.Warn("WebSocket spool not removed", "dir", s.dir, "error", rerr)
+	}
+	return false
 }
 
 // remove closes the spool and deletes its files. It is marked dropped and its
@@ -301,7 +322,7 @@ func (s *spool) close() error {
 // never started. Recovery deletes a dropped spool it finds, so a directory
 // another process holds open for a moment is not an error.
 func (s *spool) remove() error {
-	_ = s.shut(true)
+	_, _ = s.shut(true, false)
 	if err := removeSpoolDir(s.dir); err != nil {
 		if spoolDropped(s.dir) {
 			s.logger.Debug("WebSocket spool left for recovery to delete", "dir", s.dir, "error", err)
@@ -374,12 +395,15 @@ func spoolDropped(dir string) bool {
 	return err == nil
 }
 
-// shut closes the spool, deleting its segments first when drop is set.
-func (s *spool) shut(drop bool) error {
+// shut closes the spool, deleting its segments first when drop is set, or
+// when intact is set and a record did not reach the disk; all under the
+// spool's lock, so recovery never takes up an incomplete one. It reports
+// whether it deleted them.
+func (s *spool) shut(drop, intact bool) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
-		return nil
+		return false, nil
 	}
 	s.closed = true
 	close(s.done)
@@ -387,10 +411,19 @@ func (s *spool) shut(drop bool) error {
 	if s.file != nil {
 		if s.ioErr == nil && !drop {
 			err = s.w.Flush()
+			if intact && err == nil {
+				err = s.file.Sync()
+			}
 		}
 		if cerr := s.file.Close(); err == nil {
 			err = cerr
 		}
+	}
+	if intact && (err != nil || s.failed != nil) {
+		if err == nil {
+			err = s.failed
+		}
+		drop = true
 	}
 	if drop {
 		if merr := markSpoolDropped(s.dir); err == nil && merr != nil {
@@ -407,5 +440,5 @@ func (s *spool) shut(drop bool) error {
 		err = rerr
 	}
 	s.lock.release()
-	return err
+	return drop, err
 }

@@ -177,7 +177,11 @@ current one, for example after an admin `#missions`, the proxy ends it as
 interrupted as soon as the next mission loads (`:STORAGE:INIT:`), and the web
 service saves it as `partial`. Only if that is not confirmed within 30 seconds
 does its spool stay behind for recovery. One that recorded nothing after its
-start is discarded instead, when the web service supports it. A web service
+start is discarded instead, when the web service supports it, and so is one
+the addon would not save yet: it starts such a recording with `"discard"` and
+sends `:MISSION:KEEP:` once it meets `OCAP_settings_minMissionTime`, so a
+mission an admin only loaded and left with `#missions` or `#restart` leaves
+no `partial` behind. A web service
 without resume support is disconnected instead, which saves the mission as
 `partial` there.
 
@@ -290,7 +294,8 @@ All commands follow a `:RESOURCE:ACTION:` naming convention. New commands must u
 |---------|---------|
 | `:SYS:INIT:` | Initialize extension, send `:SYS:READY:` callback |
 | `:STORAGE:INIT:` | Initialize storage backend once per process (later calls reuse it), ungate buffered handlers; answers with a `:STORAGE:OK:` callback, or `:STORAGE:ERROR:` with the error |
-| `:MISSION:START:` | Start recording mission; answers with a `:MISSION:OK:` callback, or `:MISSION:FAILED:` with the error. An optional third argument, a registration token, is echoed as the callback's last value |
+| `:MISSION:START:` | Start recording mission; answers with a `:MISSION:OK:` callback, or `:MISSION:FAILED:` with the error. An optional third argument, a registration token, is echoed as the callback's last value. An optional fourth, `discard`, drops the recording if the game moves on from it before `:MISSION:KEEP:` (`websocket`) |
+| `:MISSION:KEEP:` | The recording met the addon's save limits: if the game moves on from it now, it is kept as `partial` (`websocket`) |
 | `:MISSION:SAVE:` | End recording, flush data, upload if configured |
 | `:MISSION:DISCARD:` | End recording without saving it (`memory`, `websocket`); answers with a `:MISSION:DISCARDED:` callback |
 | `:MISSION:FOCUS_START:` | Set playback focus start frame |

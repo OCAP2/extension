@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/OCAP2/extension/v5/internal/dispatcher"
+	"github.com/OCAP2/extension/v5/internal/logging"
 	"github.com/OCAP2/extension/v5/internal/parser"
 	"github.com/OCAP2/extension/v5/pkg/a3interface"
 	"github.com/OCAP2/extension/v5/pkg/core"
@@ -104,6 +105,28 @@ func TestHandleNewMission_OKEchoesToken(t *testing.T) {
 	require.NoError(t, err)
 	cb := rec.wait(t, ":MISSION:OK:")
 	assert.Equal(t, []string{`"OK"`, `"tok-2"`}, cb.data)
+}
+
+func TestHandleNewMission_DiscardAbandonedUntilKept(t *testing.T) {
+	rec := isolateMissionStart(t, acceptingParser{})
+	backend := &abandoningBackend{rec: rec}
+	storageBackend = backend
+
+	_, err := handleNewMission(dispatcher.Event{Args: []string{"{}", "{}", `"tok-6"`}})
+	require.NoError(t, err)
+	assert.Empty(t, backend.discard, "an addon that does not ask keeps an abandoned recording")
+
+	_, err = handleNewMission(dispatcher.Event{Args: []string{"{}", "{}", `"tok-7"`, `"discard"`}})
+	require.NoError(t, err)
+	assert.Equal(t, []bool{true}, backend.discard)
+
+	// The recording met the addon's save limits.
+	d, err := dispatcher.New(logging.NewDispatcherLogger(Logger))
+	require.NoError(t, err)
+	registerLifecycleHandlers(d)
+	_, err = d.Dispatch(dispatcher.Event{Command: ":MISSION:KEEP:"})
+	require.NoError(t, err)
+	assert.Equal(t, []bool{true, false}, backend.discard)
 }
 
 // panickingParser fails every mission start with a panic.

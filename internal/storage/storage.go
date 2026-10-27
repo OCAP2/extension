@@ -73,9 +73,15 @@ type Discardable interface {
 // discarding it.
 type Abandonable interface {
 	// AbandonMission ends the current mission, as interrupted, or drops it
-	// when it recorded nothing. It is a no-op when no mission is being
-	// recorded.
+	// when it recorded nothing or SetDiscardAbandoned asked for it. It is a
+	// no-op when no mission is being recorded.
 	AbandonMission() error
+	// SetDiscardAbandoned sets whether AbandonMission drops the current
+	// mission instead of ending it, for a recording the addon would not save
+	// yet (:MISSION:START: with "discard", until :MISSION:KEEP:). Each
+	// mission starts without it. It is a no-op when no mission is being
+	// recorded, and never waits for the backend.
+	SetDiscardAbandoned(discard bool)
 }
 
 // ErrMissionKept means the storage keeps what was recorded of a discarded

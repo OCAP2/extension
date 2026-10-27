@@ -79,6 +79,7 @@ All commands follow a `:RESOURCE:ACTION:` naming convention. New commands must u
 | `:ACE3:DEATH:`, `:ACE3:UNCONSCIOUS:` | ACE3 integration events |
 | `:SYS:INIT:`, `:STORAGE:INIT:` | Initialize extension and storage |
 | `:MISSION:START:`, `:MISSION:SAVE:`, `:MISSION:DISCARD:` | Begin/end recording, or end it unsaved |
+| `:MISSION:KEEP:` | Keep a recording the game moves on from (it met the addon's save limits) |
 
 ### Data Flow
 

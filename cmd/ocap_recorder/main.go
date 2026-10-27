@@ -322,7 +322,8 @@ func initAPIClient() {
 //
 // An optional third argument is the addon's registration token, echoed in
 // both callbacks, so a late answer to an earlier mission's start is not taken
-// for this one's.
+// for this one's. An optional fourth, "discard", drops the recording if the
+// game moves on from it before :MISSION:KEEP: (see storage.Abandonable).
 func handleNewMission(e dispatcher.Event) (result any, err error) {
 	token := ""
 	if len(e.Args) > 2 {
@@ -385,6 +386,10 @@ func startNewMission(e dispatcher.Event) (any, error) {
 		if err := storageBackend.StartMission(&coreMission, &coreWorld); err != nil {
 			Logger.Error("Failed to start mission in storage backend", "error", err)
 			return nil, err
+		}
+		// Before :MISSION:OK:, so before the addon records anything.
+		if a, ok := storageBackend.(storage.Abandonable); ok && len(e.Args) > 3 && util.TrimQuotes(e.Args[3]) == "discard" {
+			a.SetDiscardAbandoned(true)
 		}
 	}
 
@@ -466,5 +471,16 @@ func registerLifecycleHandlers(d *dispatcher.Dispatcher) {
 	d.Register(":MISSION:DISCARD:", func(e dispatcher.Event) (any, error) {
 		Logger.Info("Received :MISSION:DISCARD: command, queuing async discard")
 		return triggerMissionDiscard(saveState, storageBackend)
+	})
+
+	// The recording met the addon's save limits: if the game moves on from
+	// it now, it is kept (as partial) instead of dropped. Synchronous, so it
+	// is in place before a mission load that follows it.
+	d.Register(":MISSION:KEEP:", func(e dispatcher.Event) (any, error) {
+		Logger.Info("Received :MISSION:KEEP: command; an abandoned recording is kept")
+		if a, ok := storageBackend.(storage.Abandonable); ok {
+			a.SetDiscardAbandoned(false)
+		}
+		return nil, nil
 	})
 }

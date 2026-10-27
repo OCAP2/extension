@@ -1,7 +1,9 @@
 package websocket
 
 import (
+	"bufio"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -408,6 +410,60 @@ func TestAbandonMissionWhenNextMissionLoads(t *testing.T) {
 	assert.True(t, rs.mission(next).completed)
 }
 
+func TestAbandonedMissionBelowSaveLimitsIsDiscarded(t *testing.T) {
+	rs := newResumeServer(t)
+	spoolDir := t.TempDir()
+	b := New(recoveryConfig(rs.url(), spoolDir))
+	require.NoError(t, b.Init())
+	defer b.Close()
+
+	// An admin loads the mission, records a little and changes the mission.
+	short := startResumable(t, b)
+	b.SetDiscardAbandoned(true)
+	recordStates(t, b, 1, 3)
+	require.NoError(t, b.AbandonMission())
+	m := rs.mission(short)
+	assert.True(t, m.discarded, "a recording the addon would not save is dropped")
+	requireGone(t, filepath.Join(spoolDir, short))
+
+	// One that met the save limits is kept as partial.
+	kept := startResumable(t, b)
+	b.SetDiscardAbandoned(true)
+	recordStates(t, b, 1, 3)
+	b.SetDiscardAbandoned(false)
+	require.NoError(t, b.AbandonMission())
+	m = rs.mission(kept)
+	require.True(t, m.completed)
+	assert.True(t, endPayload(t, m).Interrupted)
+	requireNoDiscard(t, m.received)
+
+	// Each mission starts keeping what it records.
+	b.SetDiscardAbandoned(true) // no mission: no-op
+	next := startResumable(t, b)
+	recordStates(t, b, 1, 3)
+	require.NoError(t, b.AbandonMission())
+	m = rs.mission(next)
+	require.True(t, m.completed)
+	assert.True(t, endPayload(t, m).Interrupted)
+}
+
+func TestAbandonedMissionBelowSaveLimitsOnServerWithoutDiscard(t *testing.T) {
+	rs := newResumeServer(t)
+	rs.noDrop.Store(true)
+	b := New(fastConfig(rs.url()))
+	require.NoError(t, b.Init())
+	defer b.Close()
+
+	id := startResumable(t, b)
+	b.SetDiscardAbandoned(true)
+	recordStates(t, b, 1, 3)
+	require.NoError(t, b.AbandonMission())
+	m := rs.mission(id)
+	assert.True(t, m.completed, "ended, since this server cannot drop it")
+	requireNoDiscard(t, m.received)
+	assert.True(t, endPayload(t, m).Interrupted)
+}
+
 func TestAbandonMissionOnLegacyServerDisconnects(t *testing.T) {
 	srv, ml := testServer(t)
 	defer srv.Close()
@@ -534,6 +590,42 @@ func TestAbandonedMissionUnconfirmedKeepsSpool(t *testing.T) {
 	rs.loseEnd.Store(false)
 	require.NoError(t, b.EndMission(""))
 	assert.True(t, rs.mission(second).completed)
+}
+
+// failingWriter fails every write, as a full disk would.
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("no space left on device") }
+
+func TestUnconfirmedDiscardWithFailedFinalFlushRemovesSpool(t *testing.T) {
+	fastRecovery(t)
+	spoolFlushInterval = time.Hour // only the final flush writes the discard
+	rs := newResumeServer(t)
+	spoolDir := t.TempDir()
+	cfg := recoveryConfig(rs.url(), spoolDir)
+	cfg.SaveTimeout = 200 * time.Millisecond // below the ack stall, so no reconnect reads the spool
+	b := New(cfg)
+	require.NoError(t, b.Init())
+	defer b.Close()
+
+	id := startResumable(t, b)
+	recordStates(t, b, 1, 3)
+	require.Eventually(t, func() bool { return rs.lastSeq(id) == 4 }, 2*time.Second, 5*time.Millisecond)
+	b.mu.Lock()
+	sp := b.conn.log.currentSpool()
+	b.mu.Unlock()
+	sp.mu.Lock()
+	sp.flushLocked()
+	sp.w = bufio.NewWriter(failingWriter{}) // the next flush, the final one, fails
+	sp.mu.Unlock()
+
+	rs.loseEnd.Store(true) // the discard never arrives
+	require.Error(t, b.DiscardMission())
+	requireGone(t, filepath.Join(spoolDir, id))
+	rs.loseEnd.Store(false)
+	time.Sleep(spoolStaleAfter + 5*cfg.RecoveryInterval) // several recovery passes
+	assert.Equal(t, int32(1), rs.starts.Load(), "recovery never resends the mission without its discard")
+	assert.False(t, rs.mission(id).completed)
 }
 
 func TestDiscardAfterServerDowngradeIsNotSent(t *testing.T) {
