@@ -49,7 +49,7 @@ jobs:
 
       - name: Download artifact (main.breakdown)
         id: download-main-breakdown
-        uses: dawidd6/action-download-artifact@eab87c9830c39eff17e5a6eadb20bfb4bc880477 # v27
+        uses: dawidd6/action-download-artifact@a92c7ae74cf1df8810783758581e485ac3aaa309 # v28
         if: github.event_name == 'pull_request'
         with:
           branch: main
@@ -59,7 +59,7 @@ jobs:
 
       - name: Check test coverage
         id: coverage
-        uses: vladopajic/go-test-coverage/action/source@f484eec846448c97c777a26f8b58c5a69a327e12 # v2
+        uses: vladopajic/go-test-coverage/action/source@249eda999ac7e91238727277beec9b32b28a19b0 # v2
         env:
           GOTOOLCHAIN: auto # v2.18.4 requires Go 1.26; let it auto-download
         with:
