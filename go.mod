@@ -16,7 +16,7 @@ require (
 	go.opentelemetry.io/otel/sdk v1.47.0
 	go.opentelemetry.io/otel/sdk/log v1.47.0
 	go.uber.org/automaxprocs v1.6.0
-	golang.org/x/sys v0.49.0
+	golang.org/x/sys v0.50.0
 	gorm.io/datatypes v1.2.7
 	gorm.io/driver/postgres v1.6.3
 	gorm.io/gorm v1.31.2
